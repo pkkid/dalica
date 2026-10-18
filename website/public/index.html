@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://dalica.pkarma.com/">
 <meta property="og:title" content="Dalíca: a photo organizer for the folders you already have">
-<meta property="og:description" content="Star, tag, fix, save and export a lifetime of photos without importing a single one.">
+<meta property="og:description" content="Star, tag, fix, compare and export a lifetime of photos, right in the folders where they already are.">
 <meta property="og:image" content="https://dalica.pkarma.com/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -52,7 +52,7 @@
 </svg>
   <span class="label">Photo organizer · Preview<span data-v="short"></span></span>
   <h1>Every photo you own, on <em>one light table.</em></h1>
-  <p class="lede">Dalíca shows all the photos in the folders you already have, in one long scrolling view. Star, caption and tag them, crop and fix them, then save your edits or export a finished set, and never lose an original. Native on Linux, Windows and macOS.</p>
+  <p class="lede">Dalíca shows all the photos in the folders you already have, in one long scrolling view. Bring new ones in from a memory card, star, caption and tag them, compare and fix them, play them as a slideshow, then save your edits or export a finished set, and never lose an original. Native on Linux, Windows and macOS.</p>
   <div class="ctas">
     <a class="btn primary" href="#download" id="dl-main">Download for Linux<small id="dl-sub">AppImage · x86_64</small></a>
     <a class="btn" href="https://github.com/pkkid/dalica">View on GitHub<small>MIT or Apache-2.0</small></a>
@@ -70,21 +70,25 @@
   <div class="stats">
     <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="100000" data-sep="1">100,000</span></div><h3>photos scroll smoothly</h3><p>0.26 ms per frame (p95), budget 8 ms</p></div>
     <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="292">292</span><small>ms</small></div><h3>to save the edits of a 24 MP photo</h3><p>release build, budget 1,050 ms on two cores</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="2600" data-sep="1">2,600</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="142">142</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="3500" data-sep="1">3,500</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="259">259</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
   </div>
 </section>
 
 <section class="wrap" id="features">
   <div class="head" data-hex="right"><div><span class="label">What it does today</span><h2>Light organizing for heavy collections.</h2></div><span class="label">Preview<span data-v="short"></span></span></div>
-  <div class="grid five">
-    <div class="feat"><div class="frame"><img src="/img/feat-library.jpg" alt="The library: the folder tree on the left, and the Highlands and Old towns folders in one scrolling view, each with its date and description, starred photos marked" width="1500" height="1000" loading="lazy"></div><span class="stat">no import step</span><h3>Your folders are the library</h3><p>Point Dalíca at the folders you already have and every photo shows in one long scrolling view, folder by folder. Nothing is copied into a catalog, and a hundred thousand photos scroll without a stutter.</p></div>
+  <div class="grid nine">
+    <div class="feat"><div class="frame"><img src="/img/feat-import.jpg" alt="The Import room beside the Library tab: a memory card's photos in three groups by the time they were taken, one starred, one left out, a large preview on the right, and Import to Pictures in a new folder named Weekend in the hills" width="1500" height="1000" loading="lazy"></div><span class="stat">new in 0.6 · cards · drives</span><h3>Import from a card</h3><p>Pick a memory card, a drive or a folder, and its photos arrive grouped by when they were taken. Leave some out, star them first, then import. Every copy is checked byte for byte, nothing is ever replaced, and the card is emptied only if you ask.</p></div>
+    <div class="feat"><div class="frame"><img src="/img/feat-compare.jpg" alt="The edit view comparing one photo with itself, A│A: the original of a green mountain valley on the left and an Auto Fixed version on the right, marked Selected" width="1500" height="1000" loading="lazy"></div><span class="stat">new in 0.6 · A│B · A│A</span><h3>Compare side by side</h3><p>Put two photos next to each other, or try edits on a second version of one photo and keep the side you like. Hold the backslash key to see the original. Copy one photo's edits onto others, or Batch Edit a whole tray in one step.</p></div>
+    <div class="feat"><div class="frame"><img src="/img/feat-slideshow.jpg" alt="A full-screen slideshow of castle ruins on a sea cliff, the caption Castle ruins on the cliffs, and the control bar with Exit, zoom, rotate, previous, play, next, star, the Dissolve transition, captions and a display time of 3 seconds" width="1500" height="1000" loading="lazy"></div><span class="stat">new in 0.6 · seven transitions</span><h3>Slideshows</h3><p>Play a folder, an album or your search results full screen, with captions and seven transitions. Star and rotate as it plays. The next photo is always ready, so a change never waits for the disk.</p></div>
+    <div class="feat"><div class="frame"><img src="/img/feat-viewer.jpg" alt="The photo viewer over a dark backdrop: a stadium below a hill with a bay behind it, the file name and size, a filmstrip of the folder's other pictures, and controls for zoom, 1:1, Open in Dalica, play, rotate and star" width="1500" height="1000" loading="lazy"></div><span class="stat">new in 0.6 · dalica --view</span><h3>A photo viewer</h3><p>Open any picture on its own, full screen, with the rest of its folder in a filmstrip. Zoom, rotate, star or play a slideshow, and press E to bring it into your library. Hold Ctrl+Alt over a thumbnail for a quick full-screen look.</p></div>
+    <div class="feat"><div class="frame"><img src="/img/feat-library.jpg" alt="The library: the folder tree on the left, and the Highlands and Old towns folders in one scrolling view, each with its date and description, starred photos marked" width="1500" height="1000" loading="lazy"></div><span class="stat">no catalog</span><h3>Your folders are the library</h3><p>Point Dalíca at the folders you already have and every photo shows in one long scrolling view, folder by folder. Nothing is copied into a catalog, and a hundred thousand photos scroll without a stutter.</p></div>
     <div class="feat"><div class="frame"><img src="/img/feat-search.jpg" alt="Search: mountains typed in the search field with the starred filter on, a banner reading Showing 3 pictures in 1 folder with a Show All button, and the three starred mountain photos" width="1500" height="1000" loading="lazy"></div><span class="stat">as you type · filters</span><h3>Find any photo as you type</h3><p>Words match names, captions, tags, folders and albums. Narrow it to starred photos, photos with a place or a date, then keep the results as an album.</p></div>
     <div class="feat"><div class="frame"><img src="/img/feat-fix.jpg" alt="The edit view: Crop, Straighten, Retouch, Auto Fix, Auto Contrast, Auto Color and Fill Light on the left, an Undo Auto Fix button and the histogram with camera details below, and a stadium overlooking a bay" width="1500" height="1000" loading="lazy"></div><span class="stat">auto fix · crop · tune</span><h3>Fix a photo in a click</h3><p>Auto Fix, three suggested crops, a horizon you can level, a brush for dust, and Fill Light, Highlights, Shadows and Color Temperature. Save keeps the original beside it, so you can always go back.</p></div>
     <div class="feat"><div class="frame"><img src="/img/feat-albums.jpg" alt="An album named Best of the summer under Albums in the folder tree, its section with a date and the description The ones to print, holding photos from four folders" width="1500" height="1000" loading="lazy"></div><span class="stat">any folder · your order</span><h3>Albums across folders</h3><p>Gather photos from any folders into an album, in the order you choose, without moving a file. Starred Photos collects every starred photo by itself.</p></div>
     <div class="feat"><div class="frame"><img src="/img/feat-export.jpg" alt="The Export to Folder dialog: a location and folder name, numbered file names ticked, resized to 1600 pixels, Automatic quality, and the watermark © 2026 Hill Walkers ticked" width="1500" height="1000" loading="lazy"></div><span class="stat">size · quality · watermark</span><h3>Export a finished set</h3><p>Turn a selection, a folder or an album into a new folder of finished photos: resized, at the quality you pick, numbered in order and watermarked. It runs in the background.</p></div>
   </div>
-  <div class="next"><span class="label">Coming next</span><span class="chip">Albums and search</span><span class="chip">MCP for AI agents</span><span class="chip">Import and slideshow</span><span class="chip">Effects</span><span class="chip">People and places</span><span class="chip">Collage</span></div>
+  <div class="next"><span class="label">Coming next</span><span class="chip">Effects</span><span class="chip">People and places</span><span class="chip">Collage</span><span class="chip">Video and slideshow music</span><span class="chip">Signed packages</span></div>
 </section>
 
 <section class="wrap" id="files">
@@ -127,14 +131,14 @@
   <div class="story flip">
     <div class="rise">
       <h3>The window and the command line share one engine.</h3>
-      <p>Every action in Dalíca is a named command, 142 of them today. Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too, edits included.</p>
+      <p>Every action in Dalíca is a named command, 259 of them today. Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too, edits included.</p>
       <ul class="cli-list">
         <li><code>commands</code> lists every command and its parameters as JSON.</li>
         <li><code>run</code> executes one command, or a JSON-lines script from a file or stdin, and answers in JSON.</li>
         <li><code>inspect</code> prints the library: folders, photos, stars.</li>
         <li><code>snapshot</code> renders the real window to a PNG, with no display or GPU.</li>
         <li><code>dalica --control</code> lets a script drive the open window over a local, token-protected socket.</li>
-        <li>New in 0.5: an MCP server for AI agents (<code>dalica-cli mcp</code>).</li>
+        <li>An MCP server for AI agents (<code>dalica-cli mcp</code>). New in 0.6: imports through the <code>import.*</code> commands, and Batch Edit as one tool call and one undo step.</li>
       </ul>
       <p class="fine">Try it on the built-in demo library of generated photos; your own library is never touched. <a href="https://github.com/pkkid/dalica/blob/main/docs/control-protocol.md">The control protocol →</a></p>
     </div>
@@ -166,8 +170,8 @@ EOF
     <li class="done"><span class="ver">0.3</span><span class="state">Shipped</span><h4>Save and export</h4><p>Save, Undo Save, Revert, Save a Copy and Save As; export.</p></li>
     <li class="done"><span class="ver">0.4</span><span class="state">Shipped</span><h4>Albums, search and file operations</h4><p>Lasting albums, instant search and filters; move, copy, rename and delete.</p></li>
     <li class="done"><span class="ver">0.5</span><span class="state">Shipped</span><h4>Preferences, MCP and the core workflows</h4><p>Options and a shortcut editor, an MCP server for AI agents, every core workflow shipped.</p></li>
-    <li class="soon"><span class="ver">0.6</span><span class="state">Next</span><h4>Import, compare and viewing</h4><p>Import from cards and drives, compare and batch edit, slideshow, the viewer.</p></li>
-    <li><span class="ver">0.7</span><span class="state">Planned</span><h4>Effects</h4><p>Effect tiles, parameter panels and all 27 effects.</p></li>
+    <li class="done"><span class="ver">0.6</span><span class="state">Shipped</span><h4>Import, compare and viewing</h4><p>Import from cards and drives, compare and batch edit, slideshow, the viewer.</p></li>
+    <li class="soon"><span class="ver">0.7</span><span class="state">Next</span><h4>Effects</h4><p>Effect tiles, parameter panels and all 27 effects.</p></li>
     <li><span class="ver">0.8</span><span class="state">Planned</span><h4>People and places</h4><p>Faces found on your own machine, the People pane, the Places pane and geotagging.</p></li>
     <li><span class="ver">0.9</span><span class="state">Planned</span><h4>Collage and older data</h4><p>The collage room; reading the data an older organizer left in your folders.</p></li>
     <li class="final"><span class="ver">1.0</span><span class="state">Planned</span><h4>The honest 1.0</h4><p>Video, localisation, OS integration and signed packages.</p></li>
