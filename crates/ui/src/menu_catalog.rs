@@ -341,6 +341,36 @@ pub const PHOTO_IN_ALBUM: &[Entry] = &[
     item("Properties", "pane.properties").key("Alt+Enter").mac_key("Cmd+I").e(),
 ];
 
+/// The face menu's Move to Person ▸: one row per person by name, `faces.moveToPerson {person}`
+/// (`menuitem:faces.moveToPerson/<PersonId>`), added when the menu opens (M13.21).
+pub const MOVE_TO_PERSON: &[Entry] = &[];
+
+/// The face context menu (`menus-and-shortcuts.md` §4: a face in the Unnamed grid, a person
+/// section's Zoom to Faces cells, the People pane), in order. Its commands act on the faces
+/// selected (M13).
+pub const FACE: &[Entry] = &[
+    item("Move to New Person…", "faces.moveToNewPerson").e(),
+    Entry::Submenu("Move to Person", MOVE_TO_PERSON),
+    item("Remove from Person", "faces.removeFromPerson").e(),
+    item("Set as Person Thumbnail", "people.thumbnail").e(),
+    item("Ignore Face", "faces.ignoreSelected").e(),
+];
+
+/// The person menu's Merge Into ▸: one row per other person by name, `people.merge {person, into}`
+/// (`menuitem:people.merge/<PersonId>`), added when the menu opens (M13.25).
+pub const MERGE_INTO: &[Entry] = &[];
+
+/// The person context menu (`organizing.md` §6.3: a person's tree row and section header), in
+/// order (M13).
+pub const PERSON: &[Entry] =
+    &[item("Rename…", "people.rename").e(), Entry::Submenu("Merge Into", MERGE_INTO), item("Delete Person", "people.delete").e()];
+
+/// Submenus whose rows are all added when their menu opens (the people), empty in the catalog.
+pub const DYNAMIC: &[&[Entry]] = &[MOVE_TO_PERSON, MERGE_INTO];
+
+/// Commands whose only rows are those of a [`DYNAMIC`] submenu.
+pub const DYNAMIC_COMMANDS: &[&str] = &["faces.moveToPerson", "people.merge"];
+
 /// Picture ▸ Batch Edit (`editing.md` §9): applies to the selection or the tray.
 pub const BATCH_EDIT: &[Entry] = &[
     item("Rename…", "photo.rename").part("batch", "").key("F2").e(),
@@ -499,7 +529,12 @@ mod tests {
 
     #[test]
     fn menus_never_start_or_end_with_a_separator_or_repeat_one() {
-        fn check(name: &str, entries: &[Entry]) {
+        fn check(name: &str, entries: &'static [Entry]) {
+            // The people's submenus are filled when they open.
+            if DYNAMIC.iter().any(|d| std::ptr::eq(*d, entries)) {
+                assert!(entries.is_empty(), "{name}");
+                return;
+            }
             assert!(!matches!(entries.first(), Some(Entry::Separator) | None), "{name}");
             assert!(!matches!(entries.last(), Some(Entry::Separator)), "{name}");
             for w in entries.windows(2) {
@@ -517,6 +552,16 @@ mod tests {
         check("Album", ALBUM_SECTION);
         check("Photo", PHOTO);
         check("Photo in an album", PHOTO_IN_ALBUM);
+        check("Face", FACE);
+        check("Person", PERSON);
+    }
+
+    #[test]
+    fn the_face_and_person_menus_list_the_spec_rows_in_order() {
+        let labels = |e| items(e).iter().map(|i| i.label).collect::<Vec<_>>();
+        assert_eq!(labels(FACE), ["Move to New Person…", "Remove from Person", "Set as Person Thumbnail", "Ignore Face"]);
+        assert_eq!(labels(PERSON), ["Rename…", "Delete Person"]);
+        assert!(matches!(FACE[1], Entry::Submenu("Move to Person", _)) && matches!(PERSON[1], Entry::Submenu("Merge Into", _)));
     }
 
     #[test]

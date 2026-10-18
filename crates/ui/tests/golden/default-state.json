@@ -38,6 +38,7 @@
   },
   "export": null,
   "exportProgress": null,
+  "faceModel": null,
   "folder": null,
   "folderSort": "date",
   "folderSortReverse": false,
@@ -59,6 +60,28 @@
   "pane": null,
   "paneLarge": false,
   "peek": null,
+  "people": {
+    "onlySuggestions": [],
+    "sort": "name",
+    "zoomToFaces": []
+  },
+  "peoplePane": {
+    "hovered": null,
+    "manual": null,
+    "selected": []
+  },
+  "places": {
+    "bubble": null,
+    "centre": [
+      0.0,
+      0.0
+    ],
+    "drop": null,
+    "pin": null,
+    "results": [],
+    "search": "",
+    "zoom": 1.0
+  },
   "propertiesShowAll": false,
   "renameFiles": null,
   "revert": null,
@@ -103,6 +126,13 @@
   },
   "treeMode": "flat",
   "treeWidth": 240.0,
+  "unnamed": {
+    "expanded": false,
+    "names": {},
+    "open": false,
+    "selection": [],
+    "showIgnored": false
+  },
   "view": "library",
   "viewer": null
 }

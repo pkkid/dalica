@@ -25,6 +25,14 @@
 //! - **Inspection.** `ui.inspect` → `drag` reports the drag ([`inspect`]): where it started, the
 //!   photos, the target's widget id, the operation and the pill's text.
 //!
+//! - **Faces (M13).** A drag can carry faces instead of photos ([`start_faces`]: from the Unnamed
+//!   grid, a person section's Zoom to Faces cells, the People pane): a person's tree row offers to
+//!   name them ([`DropAt::Person`], `faces.moveToPerson`); photos dragged onto the Places pane's
+//!   map offer to geotag them there ([`DropAt::Map`], `places.drop`, which opens the drop bubble).
+//!   A drop of photos on a person, or of faces anywhere else, changes nothing. M13.4's stub: the
+//!   payload, the targets and the drops are final; the pill of a drag of faces is reported
+//!   ([`face_pill`]) but not painted yet.
+//!
 //! **Boundary.** [`start`] is called by the part a drag starts on; [`offer`] by the parts drawn
 //! under the pointer (the tree's rows, the light table's album cells), which paint their own
 //! highlight or marker; [`frame`] once a frame after the panels (it finds the tray, resolves the
@@ -42,7 +50,7 @@ use serde_json::{Value, json};
 use crate::app::App;
 use crate::panels::Panels;
 use crate::panels::thumbnails::{PhotoRef, fit_within};
-use crate::state::{AlbumKey, Drag, DragOp, DropAt, MAX_IDS, UiState, View};
+use crate::state::{AlbumKey, Drag, DragOp, DropAt, FaceRef, MAX_IDS, UiState, View};
 
 /// The drag pill's automation id (role `other`, painted, labelled with its text).
 pub const PILL_ID: &str = "drag:pill";
@@ -72,7 +80,15 @@ fn offer_id() -> Id {
 pub fn start(app: &mut App, from: String, mut ids: Vec<PhotoId>) {
     ids.truncate(MAX_IDS);
     let pill = pill(None, ids.len(), None);
-    app.state_mut().drag = Some(Drag { from, ids, target: None, op: None, pill, at: None });
+    app.state_mut().drag = Some(Drag { from, ids, faces: Vec::new(), target: None, op: None, pill, at: None });
+}
+
+/// Starts a drag of `faces` from the widget `from` (`face:12.0`). A drag already running is
+/// replaced.
+pub fn start_faces(app: &mut App, from: String, mut faces: Vec<FaceRef>) {
+    faces.truncate(MAX_IDS);
+    let pill = face_pill(None, faces.len(), None);
+    app.state_mut().drag = Some(Drag { from, ids: Vec::new(), faces, target: None, op: None, pill, at: None });
 }
 
 /// Ends the drag in progress, if any, without dropping anything.
@@ -125,6 +141,27 @@ pub fn op_at(session: &Session, state: &UiState, ids: &[PhotoId], at: &DropAt, c
             }
             Some(if ids.iter().all(|id| members.contains(id)) { DragOp::Reorder } else { DragOp::Add })
         }
+        // Photos hold no face to name; the map geotags them.
+        DropAt::Person(_) => None,
+        DropAt::Map { .. } => (!ids.is_empty()).then_some(DragOp::Geotag),
+    }
+}
+
+/// What dropping `faces` at `at` does: a person's row names them; nothing else takes faces.
+pub fn face_op_at(faces: &[FaceRef], at: &DropAt) -> Option<DragOp> {
+    match at {
+        DropAt::Person(_) if !faces.is_empty() => Some(DragOp::Name),
+        _ => None,
+    }
+}
+
+/// The drag pill's text for `n` faces: "2 faces", and over a person "Name 2 faces Ana".
+pub fn face_pill(op: Option<DragOp>, n: usize, target: Option<&str>) -> String {
+    let faces = if n == 1 { "1 face".to_string() } else { format!("{n} faces") };
+    match (op, target) {
+        (Some(DragOp::Name), Some(name)) => format!("Name {faces} {name}"),
+        (Some(DragOp::Name), None) => format!("Name {faces}"),
+        _ => faces,
     }
 }
 
@@ -150,6 +187,11 @@ fn known_id() -> Id {
 /// or the tray changed.
 pub fn offer(ctx: &Context, session: &Session, state: &UiState, at: DropAt, widget: &str) -> Option<DragOp> {
     let drag = state.drag.as_ref()?;
+    if !drag.faces.is_empty() {
+        let op = face_op_at(&drag.faces, &at)?;
+        ctx.data_mut(|d| d.insert_temp(offer_id(), Offer { at, widget: widget.to_string(), op }));
+        return Some(op);
+    }
     let (copy, revision, held) = (copying(ctx), session.library().revision(), state.tray.held.len());
     let known: Option<Known> = ctx.data(|d| d.get_temp(known_id()));
     let op = match known {
@@ -187,6 +229,8 @@ fn pill_op(op: Option<DragOp>) -> widgets::DragOp {
         Some(DragOp::Add) => widgets::DragOp::AddToAlbum,
         Some(DragOp::Reorder) => widgets::DragOp::Reorder,
         Some(DragOp::Hold) => widgets::DragOp::Hold,
+        // ui-kit's pill has no words for these yet: the count alone.
+        Some(DragOp::Name | DragOp::Geotag) => widgets::DragOp::None,
     }
 }
 
@@ -233,7 +277,12 @@ pub fn frame(p: &mut Panels, app: &mut App, ctx: &Context) {
         Some(Offer { at: DropAt::Tray, widget: TRAY_ID.into(), op })
     });
     let name = offered.as_ref().and_then(|o| target_name(session, &o.at, o.op));
-    let text = pill(offered.as_ref().map(|o| o.op), drag.ids.len(), name.as_deref());
+    let faces = drag.faces.len();
+    let text = if faces > 0 {
+        face_pill(offered.as_ref().map(|o| o.op), faces, name.as_deref())
+    } else {
+        pill(offered.as_ref().map(|o| o.op), drag.ids.len(), name.as_deref())
+    };
     let (count, first) = (drag.ids.len(), drag.ids.first().copied());
     if let Some(d) = app.state_mut().drag.as_mut() {
         d.target = offered.as_ref().map(|o| o.widget.clone());
@@ -247,8 +296,12 @@ pub fn frame(p: &mut Panels, app: &mut App, ctx: &Context) {
             && let (Some(at), Some(op)) = (d.at, d.op)
         {
             // A refusal's reason is on the status line.
-            let _ = drop_at(app, at, op, d.ids);
+            let _ = if d.faces.is_empty() { drop_at(app, at, op, d.ids) } else { drop_faces_at(app, at, d.faces) };
         }
+        return;
+    }
+    // A drag of faces: its pill is ui-kit's to paint once it has words for faces.
+    if faces > 0 {
         return;
     }
     let t = *app.tokens();
@@ -332,6 +385,19 @@ pub fn drop_at(app: &mut App, at: DropAt, op: DragOp, ids: Vec<PhotoId>) -> Resu
             let side = if after { "after" } else { "before" };
             app.run(command, &json!({ "album": album.to_string(), "ids": ids, side: anchor }))
         }
+        DropAt::Person(_) => Err(CmdError::Disabled("Photos hold no face to name; drag faces onto a person.".into())),
+        DropAt::Map { lat_e6, lon_e6 } => {
+            let at = [f64::from(lat_e6) / 1e6, f64::from(lon_e6) / 1e6];
+            app.run("places.drop", &json!({ "ids": ids, "at": at }))
+        }
+    }
+}
+
+/// Runs a drop of `faces` at `at`: on a person's row, `faces.moveToPerson` names them.
+pub fn drop_faces_at(app: &mut App, at: DropAt, faces: Vec<FaceRef>) -> Result<Value, CmdError> {
+    match at {
+        DropAt::Person(key) => app.run("faces.moveToPerson", &json!({ "person": key.to_string(), "faces": faces })),
+        _ => Err(CmdError::Disabled("Faces can be dropped on a person only.".into())),
     }
 }
 
@@ -368,5 +434,29 @@ mod tests {
         assert_eq!(pill(Some(DragOp::Hold), 3, None), "Hold 3 photos in the tray");
         assert_eq!(pill(Some(DragOp::Reorder), 3, None), "Reorder 3 photos");
         assert_eq!(pill(None, 1204, None), "1,204 photos");
+        assert_eq!(face_pill(None, 1, None), "1 face");
+        assert_eq!(face_pill(Some(DragOp::Name), 2, Some("Ana")), "Name 2 faces Ana");
+    }
+
+    #[test]
+    fn a_drag_of_faces_carries_faces_and_only_a_person_takes_them() {
+        let mut app = App::new(None);
+        let face = FaceRef { photo: PhotoId::new(3), index: 1 };
+        start_faces(&mut app, face.widget(), vec![face]);
+        assert_eq!(inspect(&app), json!({ "from": "face:3.1", "ids": [], "faces": ["3.1"], "target": null, "op": null, "pill": "1 face" }));
+        let ana = crate::state::PersonKey::of(&dalica_core::PersonId::parse("p00a1").unwrap());
+        let map = DropAt::Map { lat_e6: 38_711_600, lon_e6: -9_138_900 };
+        assert_eq!(face_op_at(&[face], &DropAt::Person(ana)), Some(DragOp::Name));
+        assert_eq!(face_op_at(&[face], &map), None);
+        assert_eq!(face_op_at(&[face], &DropAt::Tray), None);
+        assert_eq!(face_op_at(&[], &DropAt::Person(ana)), None);
+        // Stubs until their tasks: the drops say why they did nothing, and change nothing.
+        app.state_mut().drag = None;
+        assert!(drop_faces_at(&mut app, DropAt::Person(ana), vec![face]).is_err());
+        assert!(drop_faces_at(&mut app, map, vec![face]).is_err());
+        assert!(drop_at(&mut app, DropAt::Person(ana), DragOp::Name, vec![PhotoId::new(3)]).is_err());
+        let mut after = app.state().clone();
+        after.status.clear();
+        assert_eq!(after, App::new(None).state().clone());
     }
 }

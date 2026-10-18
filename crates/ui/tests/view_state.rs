@@ -19,6 +19,14 @@
 //! M12's view state (M12.2): `edit.effect`, the open effect's parameter panel, round-trips the
 //! same way with `edit.tool: "effect"`; `edit.tool.open {tool: "effect", name: "sharpen"}` opens
 //! the stub panel and Esc closes it; Ctrl+Shift+B (B&W) does nothing in the library.
+//!
+//! M13's view state (M13.4): the Unnamed view, the People group's and the person sections' modes,
+//! the People pane, the Places pane and the face model dialog round-trip the same way (bad values
+//! `bad_params`, missing photos `not_found`, nothing changed); `pane.people` and `pane.places`
+//! open the stub panes (`region:people`, `region:places`) and `unnamed.open` puts the Unnamed
+//! grid in the light table's place; the face and person menus and Tools ▸ Geotag are listed and
+//! greyed until their tasks; M13's stub dialogs and the Options tabs Network and People are drawn
+//! with their ids.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -574,7 +582,7 @@ fn bad_m10_values_are_refused_and_change_nothing() {
     let long = "x".repeat(4097);
     let many: serde_json::Map<String, Value> = (0..257).map(|i| (format!("k{i}"), json!(true))).collect();
     for bad in [
-        json!({ "options": { "tab": "people" } }),
+        json!({ "options": { "tab": "attic" } }),
         json!({ "options": { "tab": null } }),
         json!({ "options": { "colour": 1 } }),
         json!({ "options": 3 }),
@@ -1021,4 +1029,276 @@ fn ctrl_shift_b_does_nothing_in_the_library() {
     ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": p[0] } }));
     ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Shift+B" }));
     assert_eq!(edits(&mut t), json!(["bw()"]));
+}
+
+/// Each M13 field round-trips through `ui.set` and `ui.state`; `unnamed`, `people`, `peoplePane`
+/// and `places` merge field by field, `faceModel` is replaced whole.
+#[test]
+fn every_m13_field_round_trips_through_ui_set_and_ui_state() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let defaults = state(&mut t);
+    assert_eq!(defaults["unnamed"], json!({ "open": false, "expanded": false, "showIgnored": false, "selection": [], "names": {} }));
+    assert_eq!(defaults["people"], json!({ "sort": "name", "zoomToFaces": [], "onlySuggestions": [] }));
+    assert_eq!(defaults["peoplePane"], json!({ "selected": [], "hovered": null, "manual": null }));
+    assert_eq!(
+        defaults["places"],
+        json!({ "centre": [0.0, 0.0], "zoom": 1.0, "pin": null, "bubble": null, "search": "", "results": [], "drop": null })
+    );
+    assert_eq!(defaults["faceModel"], Value::Null);
+    let f0 = format!("{}.0", p[0]);
+    let f1 = format!("{}.3", p[1]);
+    for change in [
+        json!({ "unnamed": { "open": true, "expanded": true, "showIgnored": true } }),
+        json!({ "unnamed": { "selection": [f0, f1], "names": { "0": "Ana", "7": "Rui" } } }),
+        json!({ "people": { "sort": "count", "zoomToFaces": ["p00a1", "p00b2"] } }),
+        json!({ "people": { "sort": "top10", "onlySuggestions": ["p00a1"] } }),
+        json!({ "peoplePane": { "selected": ["p00a1", "p00b2"], "hovered": f1 } }),
+        json!({ "view": "edit", "edit": { "photo": p[0] }, "peoplePane": { "manual": { "rect": [0.125, 0.25, 0.5, 0.75], "name": "Ana" } } }),
+        json!({ "places": { "centre": [38.7116, -9.1389], "zoom": 14.5 } }),
+        json!({ "places": { "pin": { "at": [38.7116, -9.1389], "place": "Lisbon" }, "bubble": "pin" } }),
+        json!({ "places": { "bubble": { "marker": 3 }, "search": "Lisbon", "results": [{ "name": "Lisbon", "at": [38.7, -9.1] }] } }),
+        json!({ "places": { "drop": { "ids": [p[0], p[2]], "at": [51.5, -0.12] }, "bubble": "drop" } }),
+        json!({ "faceModel": { "entry": "sface", "file": null, "accepted": true, "progress": 0.25 } }),
+        json!({ "faceModel": { "entry": null, "file": "/models/face.onnx", "accepted": false, "progress": null } }),
+    ] {
+        let reply = ok(&mut t, "ui.set", change.clone());
+        let now = state(&mut t);
+        for (field, value) in change.as_object().unwrap() {
+            match value.as_object().filter(|_| ["unnamed", "people", "peoplePane", "places", "edit"].contains(&field.as_str())) {
+                Some(fields) => {
+                    for (k, v) in fields {
+                        assert_eq!(&now[field][k], v, "{field}.{k}");
+                        assert_eq!(&reply[field][k], v, "the reply is the new state: {field}.{k}");
+                    }
+                }
+                None => assert_eq!(&now[field], value, "{field}"),
+            }
+        }
+        let back: serde_json::Map<String, Value> = change.as_object().unwrap().keys().map(|k| (k.clone(), defaults[k].clone())).collect();
+        ok(&mut t, "ui.set", Value::Object(back));
+        assert_eq!(state(&mut t), defaults, "{change}");
+    }
+    // A partial face model draft takes the defaults; repeated faces and people are kept once.
+    ok(&mut t, "ui.set", json!({ "faceModel": { "accepted": true } }));
+    assert_eq!(state(&mut t)["faceModel"], json!({ "entry": null, "file": null, "accepted": true, "progress": null }));
+    ok(&mut t, "ui.set", json!({ "faceModel": null, "unnamed": { "selection": [f0, f0] }, "people": { "zoomToFaces": ["p00a1", "p00a1"] } }));
+    let s = state(&mut t);
+    assert_eq!((&s["unnamed"]["selection"], &s["people"]["zoomToFaces"]), (&json!([f0]), &json!(["p00a1"])));
+}
+
+/// Bad M13 values are `bad_params` (photos that do not exist `not_found`), and nothing changes.
+#[test]
+fn bad_m13_values_are_refused_and_change_nothing() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let before = state(&mut t);
+    let long = "x".repeat(4097);
+    let f0 = format!("{}.0", p[0]);
+    for bad in [
+        json!({ "unnamed": { "selection": [format!("{}.256", p[0])] } }),
+        json!({ "unnamed": { "selection": [p[0]] } }),
+        json!({ "unnamed": { "selection": ["face"] } }),
+        json!({ "unnamed": { "names": { "x": "Ana" } } }),
+        json!({ "unnamed": { "names": { "0": long } } }),
+        json!({ "unnamed": { "open": "yes" } }),
+        json!({ "unnamed": { "colour": 1 } }),
+        json!({ "people": { "sort": "age" } }),
+        json!({ "people": { "zoomToFaces": ["ana"] } }),
+        json!({ "people": { "onlySuggestions": ["a00a1"] } }),
+        json!({ "peoplePane": { "selected": [1] } }),
+        json!({ "peoplePane": { "hovered": "x" } }),
+        json!({ "peoplePane": { "manual": { "rect": [0.1, 0.2, 0.4, 0.6] } } }),
+        json!({ "view": "edit", "edit": { "photo": p[0] }, "peoplePane": { "manual": { "rect": [0.4, 0.2, 0.1, 0.6] } } }),
+        json!({ "view": "edit", "edit": { "photo": p[0] }, "peoplePane": { "manual": { "rect": [0.1, 0.2, 0.4, 1.5] } } }),
+        json!({ "view": "edit", "edit": { "photo": p[0] }, "peoplePane": { "manual": { "rect": [0.1, 0.2, 0.4, 0.6], "name": long } } }),
+        json!({ "places": { "centre": [86, 0] } }),
+        json!({ "places": { "centre": [0, 181] } }),
+        json!({ "places": { "centre": [0] } }),
+        json!({ "places": { "zoom": 20 } }),
+        json!({ "places": { "zoom": -1 } }),
+        json!({ "places": { "pin": { "at": [91, 0] } } }),
+        json!({ "places": { "bubble": "pin" } }),
+        json!({ "places": { "bubble": "drop" } }),
+        json!({ "places": { "bubble": { "marker": -1 } } }),
+        json!({ "places": { "bubble": "balloon" } }),
+        json!({ "places": { "search": long } }),
+        json!({ "places": { "results": [{ "name": "x", "at": [0, 200] }] } }),
+        json!({ "places": { "drop": { "ids": [], "at": [0, 0] } } }),
+        json!({ "places": { "drop": { "ids": [p[0]], "at": [0, 200] } } }),
+        json!({ "faceModel": { "entry": "a", "file": "/m.onnx" } }),
+        json!({ "faceModel": { "entry": "" } }),
+        json!({ "faceModel": { "progress": 2 } }),
+        json!({ "faceModel": { "licence": true } }),
+        // A good field next to a bad one: neither is applied.
+        json!({ "unnamed": { "open": true }, "places": { "zoom": 99 } }),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "bad_params", "{bad}");
+        assert_eq!(state(&mut t), before, "{bad}");
+    }
+    let no_photo = p.iter().max().unwrap() + 100;
+    for bad in [
+        json!({ "unnamed": { "selection": [f0, format!("{no_photo}.0")] } }),
+        json!({ "peoplePane": { "hovered": format!("{no_photo}.1") } }),
+        json!({ "places": { "drop": { "ids": [p[0], no_photo], "at": [0, 0] } } }),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "not_found", "{bad}");
+        assert_eq!(state(&mut t), before, "{bad}");
+    }
+}
+
+/// `pane.people` and `pane.places` open the stub panes; `unnamed.open` shows the Unnamed grid in the
+/// light table's place, and its header's toggles act.
+#[test]
+fn the_people_and_places_panes_and_the_unnamed_grid_open_as_stubs() {
+    let mut t = setup();
+    for (command, pane, region, stub) in [
+        ("pane.people", "pane:people", "people", dalica_ui::panels::people_pane::STUB),
+        ("pane.places", "pane:places", "places", dalica_ui::panels::places::STUB),
+    ] {
+        ok(&mut t, "engine.execute", json!({ "command": command }));
+        ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+        assert!(rect_of(&t, pane).is_some_and(|r| r[2] > 0.0 && r[3] > 0.0), "{pane}");
+        assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty(), "{pane}");
+        assert!(!stub.is_empty());
+        // The region's name is known; the pane registers it once it is drawn (M13.22, M13.24).
+        assert_eq!(ok(&mut t, "ui.widgets", json!({ "region": region })), json!([]), "{region}");
+        assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"][region], Value::Null, "{region}");
+    }
+    ok(&mut t, "engine.execute", json!({ "command": "pane.places" }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert_eq!(rect_of(&t, "pane:places"), None, "closed");
+    // The Unnamed grid replaces the light table.
+    let thumb = format!("thumb:{}", t.photos[0]);
+    assert!(rect_of(&t, &thumb).is_some());
+    ok(&mut t, "ui.set", json!({ "unnamed": { "open": true } }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert!(rect_of(&t, &thumb).is_none(), "no thumbnails under the grid");
+    assert!(rect_of(&t, "region:lightTable").is_some());
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:faces.showIgnored" }));
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:faces.expandGroups" }));
+    let s = state(&mut t);
+    assert_eq!((&s["unnamed"]["showIgnored"], &s["unnamed"]["expanded"]), (&json!(true), &json!(true)));
+    assert!(t.d.widgets().into_iter().any(|w| w.id == "button:faces.showIgnored" && w.active), "the toggle shows it is on");
+    assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty());
+    // Delete in the grid deletes no photo.
+    let first = t.photos[0];
+    ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [first] } }));
+    ok(&mut t, "ui.key", json!({ "combo": "Delete" }));
+    assert!(t.d.app().state().dialogs.is_empty(), "no delete question");
+}
+
+/// The item rows of a menu model as `ui.menu.tree` reports them, submenus walked.
+fn rows_of(nodes: &Value) -> Vec<Value> {
+    fn walk(nodes: &Value, out: &mut Vec<Value>) {
+        for n in nodes.as_array().unwrap() {
+            match n.get("children") {
+                Some(children) => walk(children, out),
+                None if n.get("id").is_some() => out.push(n.clone()),
+                None => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, &mut out);
+    out
+}
+
+/// The face and person menus and M13's Picture, Tools and View items are listed and greyed until
+/// their tasks make them act, with the reason; View ▸ People and Places are live.
+#[test]
+fn the_new_menu_items_are_listed_and_greyed() {
+    use dalica_ui::commands::{faces, people, places};
+    let mut t = setup();
+    let first = t.photos[0];
+    ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [first] } }));
+    let face = menus::nodes_json(&menus::face_menu(t.d.app(), Platform::Other));
+    let rows = rows_of(&face);
+    let ids: Vec<&str> = rows.iter().map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["faces.moveToNewPerson", "faces.removeFromPerson", "people.thumbnail", "faces.ignoreSelected"]);
+    assert!(face.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Face/Move to Person"), "{face}");
+    for r in &rows {
+        let why = if r["id"] == "people.thumbnail" { people::NOT_YET } else { faces::NOT_YET };
+        assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(why)), "{r}");
+    }
+    assert_eq!(rows[0]["dialog"], "newPerson");
+    let person = ok(&mut t, "ui.menu.tree", json!({ "context": "person" }));
+    assert_eq!(person, menus::nodes_json(&menus::person_menu(t.d.app(), Platform::current())));
+    let rows = rows_of(&person);
+    assert_eq!(rows.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), [json!("people.rename"), json!("people.delete")]);
+    for r in &rows {
+        assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(people::NOT_YET)), "{r}");
+    }
+    assert!(person.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Person/Merge Into"));
+    // The bar: Tools ▸ Geotag greyed (Clear Location… waits for its task, Copy and Paste for the
+    // engine's commands), the other M13 rows not live yet; View ▸ People and Places live.
+    for (id, live, reason) in [
+        ("geo.clear", true, places::NOT_YET),
+        ("geo.copy", false, "Not available yet."),
+        ("geo.paste", false, "Not available yet."),
+        ("faces.reset", false, "Not available yet."),
+        ("faces.writeXmp", false, "Not available yet."),
+        ("people.manager", false, "Not available yet."),
+    ] {
+        let r = row(&mut t, id, Value::Null);
+        assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(live), &json!(false), &json!(reason)), "{id}: {r}");
+    }
+    assert_eq!(row(&mut t, "geo.clear", Value::Null)["dialog"], "clearLocation");
+    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": "Tools/Geotag/Clear Location" })), "disabled");
+    for id in ["pane.people", "pane.places"] {
+        let r = row(&mut t, id, Value::Null);
+        assert_eq!((&r["live"], &r["enabled"]), (&json!(true), &json!(true)), "{id}");
+    }
+    // The people sorts' marks follow the sort chosen (their rows go live with M13.25).
+    ok(&mut t, "ui.set", json!({ "people": { "sort": "count" } }));
+    assert!(menus::checked(t.d.app(), people::SORT_ID, &json!({ "by": "count" })));
+    assert!(!menus::checked(t.d.app(), people::SORT_ID, &json!({ "by": "name" })));
+}
+
+/// M13's stub dialogs are drawn with their ids and buttons, their default buttons say what they
+/// wait for, and Options shows its Network and People tabs.
+#[test]
+fn m13s_stub_dialogs_and_options_tabs_are_drawn_with_their_ids() {
+    use dalica_ui::dialogs::{self, Dialog, DialogKind};
+    let mut t = setup();
+    for (kind, buttons) in [
+        (DialogKind::NewPerson, &["button:dialog.ok", "button:dialog.cancel"][..]),
+        (DialogKind::IgnoreFaces, &["button:dialog.ignore", "button:dialog.cancel"][..]),
+        (DialogKind::RenamePerson, &["button:dialog.ok", "button:dialog.cancel"][..]),
+        (DialogKind::MergePeople, &["button:dialog.merge", "button:dialog.cancel"][..]),
+        (DialogKind::DeletePerson, &["button:dialog.delete", "button:dialog.cancel"][..]),
+        (DialogKind::ChangeLocation, &["button:dialog.change", "button:dialog.cancel"][..]),
+        (DialogKind::ClearLocation, &["button:dialog.remove", "button:dialog.cancel"][..]),
+    ] {
+        dialogs::open(t.d.app_mut(), Dialog::new(kind)).unwrap();
+        ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+        let v = ok(&mut t, "ui.inspect", json!({}));
+        assert_eq!(v["dialog"]["widget"], format!("dialog:{}", kind.name()));
+        assert_eq!(v["dialog"]["buttons"], json!(buttons), "{kind:?}");
+        for id in buttons {
+            assert!(rect_of(&t, id).is_some(), "{kind:?}: {id} drawn");
+        }
+        assert!(matches!(dialogs::answer(t.d.app_mut(), None), Err(CmdError::Disabled(_))), "{kind:?}: the stub waits");
+        ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+        assert!(t.d.app().state().dialogs.is_empty(), "{kind:?}: Esc closes it");
+    }
+    // The face model dialog: Download waits for the licence box.
+    ok(&mut t, "engine.execute", json!({ "command": "faceModel.open", "params": { "entry": "sface" } }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    let download = t.d.widgets().into_iter().find(|w| w.id == "button:dialog.download").unwrap();
+    assert!(!download.enabled, "disabled until the box is ticked");
+    ok(&mut t, "ui.set", json!({ "faceModel": { "entry": "sface", "accepted": true } }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert!(t.d.widgets().into_iter().any(|w| w.id == "button:dialog.download" && w.enabled));
+    ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+    assert_eq!(state(&mut t)["faceModel"], Value::Null, "closing drops the draft");
+    // Options: the Network and People tabs between Slideshow and Photo Viewer.
+    ok(&mut t, "engine.execute", json!({ "command": "app.preferences", "params": { "tab": "network" } }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert_eq!(state(&mut t)["options"]["tab"], "network");
+    let x = |t: &T, id: &str| rect_of(t, id).unwrap()[0];
+    assert!(x(&t, "tab:options.slideshow") < x(&t, "tab:options.network") && x(&t, "tab:options.network") < x(&t, "tab:options.people"));
+    assert!(x(&t, "tab:options.people") < x(&t, "tab:options.viewer"));
+    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:options.people" }));
+    assert_eq!(state(&mut t)["options"]["tab"], "people");
 }

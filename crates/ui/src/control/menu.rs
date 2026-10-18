@@ -11,7 +11,7 @@ use super::{Call, Code, Error, Next, Outcome};
 use crate::menus::{self, Lookup, Platform};
 
 /// The context menus `ui.menu.tree {context}` names (§6.10).
-const CONTEXTS: &[&str] = &["photo", "section", "tray", "treeGroup", "tag", "face"];
+const CONTEXTS: &[&str] = &["photo", "section", "tray", "treeGroup", "tag", "face", "person"];
 
 /// How long `ui.menu.invoke` waits for a dialog it opened to show.
 const DIALOG_WAIT: Duration = Duration::from_secs(5);
@@ -35,6 +35,7 @@ pub(super) fn tree(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error
         Some("section") => menus::nodes_json(&menus::section_menu(app, platform)),
         Some("photo") => menus::nodes_json(&menus::photo_menu(app, platform)),
         Some("tray") => menus::nodes_json(&crate::panels::bottom::tray::context_nodes(app, &tray_targets(app))),
+        Some("person") => menus::nodes_json(&menus::person_menu(app, platform)),
         Some(c) if CONTEXTS.contains(&c) => {
             return Err(Error::new(Code::Unsupported, format!("the {c} context menu is not built yet; it comes with its region")));
         }

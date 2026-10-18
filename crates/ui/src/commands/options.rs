@@ -115,7 +115,7 @@ mod tests {
         crate::dialogs::cancel(&mut app).unwrap();
         app.run("app.shortcuts", &Value::Null).unwrap();
         assert_eq!(app.state().options.as_ref().map(|o| o.tab), Some(OptionsTab::Shortcuts));
-        for bad in [json!({ "tab": "people" }), json!({ "tab": 1 })] {
+        for bad in [json!({ "tab": "attic" }), json!({ "tab": 1 })] {
             assert!(matches!(app.run("app.preferences", &bad), Err(CmdError::BadParams(_))), "{bad}");
         }
     }

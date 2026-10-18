@@ -26,6 +26,7 @@ pub mod crop;
 pub mod crosshair;
 pub mod effect_panel;
 pub mod effects;
+pub mod faces;
 pub mod fill_light;
 pub mod filmstrip;
 pub mod histogram;

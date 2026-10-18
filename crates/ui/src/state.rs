@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
-use dalica_core::{AlbumId, FolderId, PhotoId};
+use dalica_core::{AlbumId, FolderId, PersonId, PhotoId};
 use dalica_edit::catalog::{Kind, OpInfo, Param};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -573,10 +573,31 @@ pub enum DialogKind {
     /// "Stop importing?" [Stop Import] [Keep Importing], closing the Import room while it copies
     /// (`room.close`, `ui-layout.md` §8; M11.13).
     StopImport,
+    /// New Person: Name (prefilled), Nickname, [OK] [Cancel], asked when a name typed for faces is
+    /// nobody's yet, and by the face menu's Move to New Person… (`organizing.md` §6.2; M13.21).
+    NewPerson,
+    /// "Ignore these faces?" [Ignore] [Cancel] with "Don't ask again" (`organizing.md` §6.2;
+    /// M13.21).
+    IgnoreFaces,
+    /// The person menu's Rename… (`organizing.md` §6.3; M13.25).
+    RenamePerson,
+    /// The person menu's Merge Into ▸ a person: "Merge … into …?" (M13.25).
+    MergePeople,
+    /// The person menu's Delete Person: its faces go back to Unnamed, after this question (M13.25).
+    DeletePerson,
+    /// The face model dialog: the licence, Download and Add a model file… (`faces.md` §3.1); its
+    /// draft is [`UiState::face_model`] (M13.27).
+    FaceModel,
+    /// "Change the location of %d photos?", moving more than 20 tagged photos (`organizing.md` §7;
+    /// M13.22).
+    ChangeLocation,
+    /// Tools ▸ Geotag ▸ Clear Location… and a marker's Remove Location: "Remove the location from %d
+    /// photos?" (`organizing.md` §7; M13.22).
+    ClearLocation,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 33] = [
+    pub const ALL: [DialogKind; 41] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -610,6 +631,14 @@ impl DialogKind {
         DialogKind::RemoveFromCard,
         DialogKind::ViewerSettings,
         DialogKind::StopImport,
+        DialogKind::NewPerson,
+        DialogKind::IgnoreFaces,
+        DialogKind::RenamePerson,
+        DialogKind::MergePeople,
+        DialogKind::DeletePerson,
+        DialogKind::FaceModel,
+        DialogKind::ChangeLocation,
+        DialogKind::ClearLocation,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -648,6 +677,14 @@ impl DialogKind {
             DialogKind::RemoveFromCard => "removeFromCard",
             DialogKind::ViewerSettings => "viewerSettings",
             DialogKind::StopImport => "stopImport",
+            DialogKind::NewPerson => "newPerson",
+            DialogKind::IgnoreFaces => "ignoreFaces",
+            DialogKind::RenamePerson => "renamePerson",
+            DialogKind::MergePeople => "mergePeople",
+            DialogKind::DeletePerson => "deletePerson",
+            DialogKind::FaceModel => "faceModel",
+            DialogKind::ChangeLocation => "changeLocation",
+            DialogKind::ClearLocation => "clearLocation",
         }
     }
 
@@ -1589,6 +1626,10 @@ pub enum DragOp {
     Add,
     Reorder,
     Hold,
+    /// Faces onto a person: they are named (M13).
+    Name,
+    /// Photos onto the Places pane's map: they are geotagged there (M13).
+    Geotag,
 }
 
 /// A drag of photos in progress (`ui.inspect` → `drag`, `control-protocol.md` §6.6): where it
@@ -1600,6 +1641,10 @@ pub enum DragOp {
 pub struct Drag {
     pub from: String,
     pub ids: Vec<PhotoId>,
+    /// A drag of faces (the Unnamed grid, a person section, the People pane) carries them here and
+    /// no photos (M13); left out of the report while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub faces: Vec<FaceRef>,
     pub target: Option<String>,
     pub op: Option<DragOp>,
     pub pill: String,
@@ -1616,7 +1661,19 @@ pub enum DropAt {
     Folder(FolderId),
     Album(AlbumKey),
     Tray,
-    Gap { album: AlbumKey, anchor: PhotoId, after: bool },
+    Gap {
+        album: AlbumKey,
+        anchor: PhotoId,
+        after: bool,
+    },
+    /// A person's tree row: faces dropped there are named (M13).
+    Person(PersonKey),
+    /// The Places pane's map at a point, in millionths of a degree (the geotag's precision): photos
+    /// dropped there wait for the drop bubble (M13).
+    Map {
+        lat_e6: i32,
+        lon_e6: i32,
+    },
 }
 
 /// The longest date text a dialog's date field keeps, in characters (`YYYY-MM-DD` as typed).
@@ -1805,6 +1862,10 @@ pub enum OptionsTab {
     FileTypes,
     /// Slideshow (`viewing.md` §1.5; M11).
     Slideshow,
+    /// Network: map tiles, the geocoding service, the proxy (`menus-and-shortcuts.md` §5; M13).
+    Network,
+    /// People: finding faces, suggestions, the face model (`organizing.md` §6.1; M13).
+    People,
     /// Photo Viewer (`viewing.md` §3.3; M11).
     Viewer,
     Export,
@@ -1813,8 +1874,16 @@ pub enum OptionsTab {
 }
 
 impl OptionsTab {
-    pub const ALL: [OptionsTab; 6] =
-        [OptionsTab::General, OptionsTab::FileTypes, OptionsTab::Slideshow, OptionsTab::Viewer, OptionsTab::Export, OptionsTab::Shortcuts];
+    pub const ALL: [OptionsTab; 8] = [
+        OptionsTab::General,
+        OptionsTab::FileTypes,
+        OptionsTab::Slideshow,
+        OptionsTab::Network,
+        OptionsTab::People,
+        OptionsTab::Viewer,
+        OptionsTab::Export,
+        OptionsTab::Shortcuts,
+    ];
 
     /// The tab as the protocol writes it (`fileTypes`), the `<tab>` of `tab:options.<tab>`.
     pub fn name(self) -> &'static str {
@@ -1822,6 +1891,8 @@ impl OptionsTab {
             OptionsTab::General => "general",
             OptionsTab::FileTypes => "fileTypes",
             OptionsTab::Slideshow => "slideshow",
+            OptionsTab::Network => "network",
+            OptionsTab::People => "people",
             OptionsTab::Viewer => "viewer",
             OptionsTab::Export => "export",
             OptionsTab::Shortcuts => "shortcuts",
@@ -2327,6 +2398,371 @@ impl ViewerState {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// M13: people and places (`organizing.md` §6–§7, `faces.md`)
+// ---------------------------------------------------------------------------------------------
+
+/// The most faces a photo holds (`data-model.md` §3): a face's place in its photo's list is below
+/// this.
+pub const MAX_FACES_PER_PHOTO: u16 = 256;
+/// The most people a list of the view state names (the people zoomed to faces, those showing only
+/// suggestions, those selected in the People pane).
+pub const MAX_PEOPLE: usize = 1024;
+/// The most groups whose "Add a name" field holds a typed name at once.
+pub const MAX_GROUP_NAMES: usize = 1024;
+/// The most place-search results the Places pane lists.
+pub const MAX_PLACE_RESULTS: usize = 50;
+/// The longest face model id (`faces.models.list`), in characters.
+pub const MAX_MODEL_ID: usize = 128;
+/// The map's zoom levels (Web Mercator, 256-point tiles) and the latitude it reaches.
+pub const MAP_ZOOM_MAX: f32 = 19.0;
+pub const MAP_LAT_MAX: f64 = 85.051_128_78;
+
+/// A face, by its photo and its place in the photo's faces list (0 … 255), as `face:<id>` names it:
+/// written `"<PhotoId>.<n>"` (`"12.0"`, the first face of photo 12) in the view state and the
+/// widget id (`control-protocol.md` §7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FaceRef {
+    pub photo: PhotoId,
+    pub index: u16,
+}
+
+impl FaceRef {
+    /// Its automation id, `face:<photo>.<n>`.
+    pub fn widget(self) -> String {
+        format!("face:{self}")
+    }
+}
+
+impl fmt::Display for FaceRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.photo, self.index)
+    }
+}
+
+impl FromStr for FaceRef {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<FaceRef, String> {
+        let bad = || {
+            format!(
+                "`{}` is not a face; a face is written `<PhotoId>.<n>`, its photo and its place among the photo's faces (0 … {})",
+                s.chars().take(40).collect::<String>(),
+                MAX_FACES_PER_PHOTO - 1
+            )
+        };
+        let (photo, index) = s.split_once('.').ok_or_else(bad)?;
+        let photo = photo.parse::<PhotoId>().map_err(|_| bad())?;
+        let index = index.parse::<u16>().ok().filter(|i| *i < MAX_FACES_PER_PHOTO).ok_or_else(bad)?;
+        // One spelling per face: no leading zeros or signs.
+        let face = FaceRef { photo, index };
+        if face.to_string() != s {
+            return Err(bad());
+        }
+        Ok(face)
+    }
+}
+
+impl Serialize for FaceRef {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for FaceRef {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<FaceRef, D::Error> {
+        let text = String::deserialize(d)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// A person's id ([`PersonId`]: `p` and 4 to 16 lowercase hex digits) in a form that is `Copy`, as
+/// [`AlbumKey`] is an album's: a drop target names it ([`DropAt::Person`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PersonKey {
+    value: u64,
+    digits: u8,
+}
+
+impl PersonKey {
+    /// The key of `id`.
+    pub fn of(id: &PersonId) -> PersonKey {
+        let hex = id.as_str().get(1..).unwrap_or("");
+        // `PersonId::parse` admits 4 to 16 lowercase hex digits only, so they fit a u64.
+        let value = u64::from_str_radix(hex, 16).unwrap_or(0);
+        PersonKey { value, digits: u8::try_from(hex.len()).unwrap_or(16) }
+    }
+
+    /// The person id it stands for. Every key is made from a valid id, so this is always `Some`.
+    pub fn id(self) -> Option<PersonId> {
+        PersonId::parse(&self.to_string()).ok()
+    }
+}
+
+impl fmt::Display for PersonKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "p{:0width$x}", self.value, width = usize::from(self.digits))
+    }
+}
+
+/// The Unnamed view (`organizing.md` §6.2): the face grid that replaces the light table while
+/// Unnamed is selected in the People group, its header's [Expand Groups] and [Show Ignored Faces],
+/// the faces selected (click, Ctrl / Shift-click, rubber band) and the name typed in each group's
+/// "Add a name" field, by the group's number (`group:<n>`, from 0, largest first).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct UnnamedView {
+    pub open: bool,
+    pub expanded: bool,
+    pub show_ignored: bool,
+    pub selection: Vec<FaceRef>,
+    pub names: BTreeMap<u32, String>,
+}
+
+/// How the People group orders the people (the view-options popup's Sort People by Name, by Count,
+/// by Top 10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PeopleSort {
+    #[default]
+    Name,
+    Count,
+    Top10,
+}
+
+/// The People group and the person sections (`organizing.md` §6.2–§6.3): the order of the people
+/// in the tree, the person sections showing their faces (the header's Zoom to Faces, against Show
+/// Whole Photos) and those showing only their suggestions ("Show only suggestions").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct PeopleView {
+    pub sort: PeopleSort,
+    pub zoom_to_faces: Vec<PersonId>,
+    pub only_suggestions: Vec<PersonId>,
+}
+
+/// Add a Person Manually's box (`organizing.md` §6.4; the edit view only): the rectangle being
+/// drawn, `[x0, y0, x1, y1]` normalised to the photo as shown (x0 < x1, y0 < y1, each 0 … 1), and
+/// the name typed for it. Nothing is stored before its name is given (`faces.add`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ManualFace {
+    pub rect: [f32; 4],
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Where Add a Person Manually's box starts: the middle of the photo.
+pub const MANUAL_FACE_START: [f32; 4] = [0.4, 0.3, 0.6, 0.6];
+
+/// Whether `r` is a rectangle `[x0, y0, x1, y1]` inside the unit square with x0 < x1 and y0 < y1.
+pub fn is_unit_rect(r: [f32; 4]) -> bool {
+    r.iter().all(|v| within(*v, 0.0, 1.0)) && r[0] < r[2] && r[1] < r[3]
+}
+
+/// The People pane (`organizing.md` §6.4): the people selected in it (Ctrl-click; several filter the
+/// light table to the photos holding all of them), the face hovered (its box is highlighted on the
+/// photo, and back) and Add a Person Manually's box while one is drawn.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct PeoplePane {
+    pub selected: Vec<PersonId>,
+    pub hovered: Option<FaceRef>,
+    pub manual: Option<ManualFace>,
+}
+
+/// A point on the globe, `[latitude, longitude]` in degrees.
+pub type LatLon = [f64; 2];
+
+/// Whether `p` is a point on the globe: finite, latitude −90 … 90, longitude −180 … 180.
+pub fn is_lat_lon(p: LatLon) -> bool {
+    p[0].is_finite() && p[1].is_finite() && (-90.0..=90.0).contains(&p[0]) && (-180.0..=180.0).contains(&p[1])
+}
+
+/// The pin of the Places pane's pin tool (`organizing.md` §7): where it is and the place found
+/// there by a search (`null` for a pin placed by hand or typed coordinates).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlacePin {
+    pub at: LatLon,
+    #[serde(default)]
+    pub place: Option<String>,
+}
+
+/// The bubble open on the map: the drop's ("Put %d photos here?"), the pin's (the selection put
+/// there), or a marker's ("%d photos here", by the marker's number, `marker:<n>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Bubble {
+    Drop,
+    Pin,
+    Marker(u32),
+}
+
+/// A result of "Search for a place:": its name and where it is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlaceResult {
+    pub name: String,
+    pub at: LatLon,
+}
+
+/// Photos dropped on the map and waiting for the drop bubble's OK: the photos and the point.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlacesDrop {
+    pub ids: Vec<PhotoId>,
+    pub at: LatLon,
+}
+
+/// The Places pane (`organizing.md` §7): the map's centre (latitude within ±85.05°, Web Mercator's
+/// reach) and zoom (0 … 19), the pin and its place, the bubble open, "Search for a place:"'s text
+/// and results, and a drop waiting for its bubble's answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct PlacesPane {
+    pub centre: LatLon,
+    pub zoom: f32,
+    pub pin: Option<PlacePin>,
+    pub bubble: Option<Bubble>,
+    pub search: String,
+    pub results: Vec<PlaceResult>,
+    pub drop: Option<PlacesDrop>,
+}
+
+impl Default for PlacesPane {
+    fn default() -> PlacesPane {
+        PlacesPane { centre: [0.0, 0.0], zoom: 1.0, pin: None, bubble: None, search: String::new(), results: Vec::new(), drop: None }
+    }
+}
+
+impl PlacesPane {
+    /// Why this pane cannot be shown, if it cannot.
+    pub fn check(&self) -> Result<(), String> {
+        let [lat, lon] = self.centre;
+        if !(is_lat_lon(self.centre) && lat.abs() <= MAP_LAT_MAX) {
+            return Err(format!("`places.centre` is [latitude −{MAP_LAT_MAX} … {MAP_LAT_MAX}, longitude −180 … 180], not [{lat}, {lon}]"));
+        }
+        if !within(self.zoom, 0.0, MAP_ZOOM_MAX) {
+            return Err(format!("`places.zoom` is 0 … {MAP_ZOOM_MAX}, not {}", self.zoom));
+        }
+        if let Some(pin) = &self.pin {
+            if !is_lat_lon(pin.at) {
+                return Err("`places.pin.at` is [latitude −90 … 90, longitude −180 … 180]".into());
+            }
+            if pin.place.as_ref().is_some_and(|p| p.chars().count() > MAX_DRAFT) {
+                return Err(format!("`places.pin.place` is at most {MAX_DRAFT} characters"));
+            }
+        }
+        if self.search.chars().count() > MAX_DRAFT {
+            return Err(format!("`places.search` is at most {MAX_DRAFT} characters"));
+        }
+        if self.results.len() > MAX_PLACE_RESULTS {
+            return Err(format!("`places.results` holds at most {MAX_PLACE_RESULTS} places"));
+        }
+        if let Some(r) = self.results.iter().find(|r| !is_lat_lon(r.at) || r.name.chars().count() > MAX_DRAFT) {
+            return Err(format!(
+                "`places.results` has a bad place `{}`: a name of at most {MAX_DRAFT} characters at [latitude, longitude]",
+                r.name.chars().take(40).collect::<String>()
+            ));
+        }
+        if let Some(d) = &self.drop {
+            if d.ids.is_empty() || d.ids.len() > MAX_IDS {
+                return Err(format!("`places.drop.ids` holds 1 … {MAX_IDS} photos"));
+            }
+            if !is_lat_lon(d.at) {
+                return Err("`places.drop.at` is [latitude −90 … 90, longitude −180 … 180]".into());
+            }
+        }
+        match self.bubble {
+            Some(Bubble::Drop) if self.drop.is_none() => Err("the drop bubble needs `places.drop`".into()),
+            Some(Bubble::Pin) if self.pin.is_none() => Err("the pin's bubble needs `places.pin`".into()),
+            _ => Ok(()),
+        }
+    }
+
+    /// This pane within its limits: numbers in range, texts and lists cut, a bubble with nothing
+    /// to show closed.
+    fn sanitize(&mut self) {
+        let [lat, lon] = self.centre;
+        self.centre = if lat.is_finite() && lon.is_finite() { [lat.clamp(-MAP_LAT_MAX, MAP_LAT_MAX), lon.clamp(-180.0, 180.0)] } else { [0.0, 0.0] };
+        self.zoom = clamp_or(self.zoom, 0.0, MAP_ZOOM_MAX, 1.0);
+        if self.pin.as_ref().is_some_and(|p| !is_lat_lon(p.at)) {
+            self.pin = None;
+        }
+        if let Some(place) = self.pin.as_mut().and_then(|p| p.place.as_mut()) {
+            cut(place);
+        }
+        cut(&mut self.search);
+        self.results.retain(|r| is_lat_lon(r.at));
+        self.results.truncate(MAX_PLACE_RESULTS);
+        for r in &mut self.results {
+            cut(&mut r.name);
+        }
+        if let Some(d) = &mut self.drop {
+            d.ids.truncate(MAX_IDS);
+            dedup(&mut d.ids);
+        }
+        if self.drop.as_ref().is_some_and(|d| d.ids.is_empty() || !is_lat_lon(d.at)) {
+            self.drop = None;
+        }
+        if matches!((self.bubble, &self.drop, &self.pin), (Some(Bubble::Drop), None, _) | (Some(Bubble::Pin), _, None)) {
+            self.bubble = None;
+        }
+    }
+}
+
+/// The face model dialog's draft (`faces.md` §3.1): the built-in or catalogue model offered (an
+/// id of `faces.models.list`) or the local file being added (Add a model file…, an `.onnx` dropped
+/// on the window), at most one of them; "I have read these terms and accept them for my own use";
+/// and the download's progress, 0 … 1, while one runs. Nothing is fetched before the box is ticked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct FaceModelDraft {
+    pub entry: Option<String>,
+    pub file: Option<std::path::PathBuf>,
+    pub accepted: bool,
+    pub progress: Option<f32>,
+}
+
+impl FaceModelDraft {
+    /// Why this draft cannot be shown, if it cannot.
+    pub fn check(&self) -> Result<(), String> {
+        if self.entry.is_some() && self.file.is_some() {
+            return Err("`faceModel` offers a model `entry` or a local `file`, not both".into());
+        }
+        if self.entry.as_ref().is_some_and(|e| e.is_empty() || e.chars().count() > MAX_MODEL_ID || e.chars().any(char::is_control)) {
+            return Err(format!("`faceModel.entry` is a model id of 1 … {MAX_MODEL_ID} characters"));
+        }
+        if self.file.as_ref().is_some_and(|f| f.as_os_str().is_empty() || f.as_os_str().len() > MAX_LOCATION) {
+            return Err(format!("`faceModel.file` is a path of 1 … {MAX_LOCATION} bytes"));
+        }
+        match self.progress {
+            Some(p) if !within(p, 0.0, 1.0) => Err(format!("`faceModel.progress` is 0 … 1, or null, not {p}")),
+            _ => Ok(()),
+        }
+    }
+
+    /// This draft within its limits.
+    fn sanitized(mut self) -> FaceModelDraft {
+        if self.entry.as_ref().is_some_and(|e| e.is_empty() || e.chars().count() > MAX_MODEL_ID || e.chars().any(char::is_control)) {
+            self.entry = None;
+        }
+        if self.entry.is_some() || self.file.as_ref().is_some_and(|f| f.as_os_str().is_empty() || f.as_os_str().len() > MAX_LOCATION) {
+            self.file = None;
+        }
+        self.progress = self.progress.filter(|p| within(*p, 0.0, 1.0));
+        self
+    }
+}
+
+/// Drops repeated people, keeping the first of each, and cuts the list to [`MAX_PEOPLE`].
+fn dedup_people(v: &mut Vec<PersonId>) {
+    v.truncate(MAX_PEOPLE);
+    let mut seen: HashSet<PersonId> = HashSet::with_capacity(v.len());
+    v.retain(|x| seen.insert(x.clone()));
+}
+
 /// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
 pub const MAX_DIALOGS: usize = 8;
 
@@ -2463,6 +2899,22 @@ pub struct UiState {
     /// it), `null` otherwise (M11).
     #[serde(default)]
     pub viewer: Option<ViewerState>,
+    /// The Unnamed view: the face grid shown in place of the light table, its header's toggles,
+    /// the faces selected and the names typed under its groups (M13).
+    #[serde(default)]
+    pub unnamed: UnnamedView,
+    /// The People group's order and the person sections' modes (M13).
+    #[serde(default)]
+    pub people: PeopleView,
+    /// The People pane: the people selected, the face hovered, Add a Person Manually's box (M13).
+    #[serde(default)]
+    pub people_pane: PeoplePane,
+    /// The Places pane: the map's centre and zoom, the pin, the bubble, the search, a drop (M13).
+    #[serde(default)]
+    pub places: PlacesPane,
+    /// The face model dialog's draft while it is open (M13).
+    #[serde(default)]
+    pub face_model: Option<FaceModelDraft>,
     /// A drag of photos in progress (`crate::drag`); `ui.inspect` reports it, `ui.state` does not.
     #[serde(skip)]
     pub drag: Option<Drag>,
@@ -2517,7 +2969,84 @@ impl UiState {
         if self.view == View::Edit && self.edit.photo.is_none() {
             self.view = View::Library;
         }
+        self.sanitize_m13();
         self
+    }
+
+    /// Every M13 field within its limits: lists cut to their lengths without repeats, texts cut,
+    /// numbers in their ranges, Add a Person Manually's box dropped outside the edit view or when
+    /// it is no rectangle of the photo, a bubble with nothing to show closed.
+    fn sanitize_m13(&mut self) {
+        let u = &mut self.unnamed;
+        u.selection.truncate(MAX_IDS);
+        dedup(&mut u.selection);
+        u.selection.retain(|f| f.index < MAX_FACES_PER_PHOTO);
+        while u.names.len() > MAX_GROUP_NAMES {
+            u.names.pop_last();
+        }
+        for name in u.names.values_mut() {
+            cut(name);
+        }
+        dedup_people(&mut self.people.zoom_to_faces);
+        dedup_people(&mut self.people.only_suggestions);
+        let pane = &mut self.people_pane;
+        dedup_people(&mut pane.selected);
+        if self.view != View::Edit || pane.manual.as_ref().is_some_and(|m| !is_unit_rect(m.rect)) {
+            pane.manual = None;
+        }
+        if let Some(m) = &mut pane.manual {
+            cut(&mut m.name);
+        }
+        self.places.sanitize();
+        self.face_model = self.face_model.take().map(FaceModelDraft::sanitized);
+    }
+
+    /// Why the M13 fields of this state cannot be used, if they cannot: a list over its length, a
+    /// face past a photo's 256, a text over its length, Add a Person Manually's box outside the edit
+    /// view or no rectangle of the photo, the Places pane's ([`PlacesPane::check`]) or the face
+    /// model dialog's ([`FaceModelDraft::check`]). What `ui.set` refuses (`bad_params`).
+    pub fn check_m13(&self) -> Result<(), String> {
+        let long = |name: &str, text: &str| {
+            if text.chars().count() > MAX_DRAFT { Err(format!("`{name}` is at most {MAX_DRAFT} characters")) } else { Ok(()) }
+        };
+        let u = &self.unnamed;
+        if u.selection.len() > MAX_IDS {
+            return Err(format!("`unnamed.selection` holds at most {MAX_IDS} faces"));
+        }
+        if u.names.len() > MAX_GROUP_NAMES {
+            return Err(format!("`unnamed.names` holds at most {MAX_GROUP_NAMES} groups' names"));
+        }
+        for name in u.names.values() {
+            long("unnamed.names", name)?;
+        }
+        for (name, list) in [
+            ("people.zoomToFaces", &self.people.zoom_to_faces),
+            ("people.onlySuggestions", &self.people.only_suggestions),
+            ("peoplePane.selected", &self.people_pane.selected),
+        ] {
+            if list.len() > MAX_PEOPLE {
+                return Err(format!("`{name}` names at most {MAX_PEOPLE} people"));
+            }
+        }
+        if let Some(m) = &self.people_pane.manual {
+            if self.view != View::Edit {
+                return Err("`peoplePane.manual` is drawn in the edit view only".into());
+            }
+            if !is_unit_rect(m.rect) {
+                return Err("`peoplePane.manual.rect` is [x0, y0, x1, y1] within the photo (0 … 1), x0 < x1 and y0 < y1".into());
+            }
+            long("peoplePane.manual.name", &m.name)?;
+        }
+        self.places.check()?;
+        self.face_model.as_ref().map_or(Ok(()), FaceModelDraft::check)
+    }
+
+    /// Every photo the M13 fields name (the faces' photos, a drop on the map), for `ui.set` to
+    /// check that they exist.
+    pub fn m13_photos(&self) -> impl Iterator<Item = PhotoId> + '_ {
+        let faces = self.unnamed.selection.iter().chain(&self.people_pane.hovered).map(|f| f.photo);
+        let dropped = self.places.drop.as_ref().map_or(&[][..], |d| d.ids.as_slice());
+        faces.chain(dropped.iter().copied())
     }
 
     /// Every M11 field within its limits: the Library tab first and open once, the active room one
@@ -2868,6 +3397,11 @@ impl Default for UiState {
             slideshow: None,
             peek: None,
             viewer: None,
+            unnamed: UnnamedView::default(),
+            people: PeopleView::default(),
+            people_pane: PeoplePane::default(),
+            places: PlacesPane::default(),
+            face_model: None,
             drag: None,
             focus_search: false,
             status_line: String::new(),
@@ -3322,6 +3856,83 @@ mod tests {
             merged.as_object_mut().unwrap().extend(bad.as_object().unwrap().clone());
             assert!(serde_json::from_value::<UiState>(merged).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_face_is_written_as_its_photo_and_place_and_a_person_key_as_its_id() {
+        let face = FaceRef { photo: PhotoId::new(12), index: 3 };
+        assert_eq!((face.to_string(), face.widget()), ("12.3".to_string(), "face:12.3".to_string()));
+        assert_eq!("12.3".parse::<FaceRef>(), Ok(face));
+        assert_eq!(serde_json::to_value(face).unwrap(), "12.3");
+        assert_eq!(serde_json::from_value::<FaceRef>("0.255".into()).unwrap(), FaceRef { photo: PhotoId::new(0), index: 255 });
+        for bad in ["12", "12.256", "12.03", "012.3", "12.-1", "a.1", ".1", "12.", "12.3.4", "", "12 .3"] {
+            assert!(bad.parse::<FaceRef>().is_err(), "{bad:?}");
+        }
+        assert!(serde_json::from_value::<FaceRef>(serde_json::json!(12)).is_err());
+        let ana = PersonId::parse("p00a1").unwrap();
+        let key = PersonKey::of(&ana);
+        assert_eq!((key.to_string(), key.id()), ("p00a1".to_string(), Some(ana)));
+        assert_ne!(PersonKey::of(&PersonId::parse("p0a1f").unwrap()), PersonKey::of(&PersonId::parse("p00a1f").unwrap()));
+    }
+
+    #[test]
+    fn the_m13_fields_are_checked_and_made_safe() {
+        let face = FaceRef { photo: PhotoId::new(1), index: 0 };
+        let ana = PersonId::parse("p00a1").unwrap();
+        let fine = UiState {
+            unnamed: UnnamedView { open: true, selection: vec![face], names: BTreeMap::from([(2, "Ana".into())]), ..UnnamedView::default() },
+            people: PeopleView { sort: PeopleSort::Top10, zoom_to_faces: vec![ana.clone()], only_suggestions: vec![ana.clone()] },
+            people_pane: PeoplePane { selected: vec![ana.clone()], hovered: Some(face), manual: None },
+            places: PlacesPane {
+                centre: [38.7, -9.1],
+                zoom: 12.5,
+                pin: Some(PlacePin { at: [38.7, -9.1], place: Some("Lisbon".into()) }),
+                bubble: Some(Bubble::Marker(4)),
+                search: "Lisbon".into(),
+                results: vec![PlaceResult { name: "Lisbon".into(), at: [38.7, -9.1] }],
+                drop: None,
+            },
+            face_model: Some(FaceModelDraft { entry: Some("sface".into()), file: None, accepted: true, progress: Some(0.5) }),
+            ..UiState::default()
+        };
+        assert_eq!(fine.check_m13(), Ok(()));
+        assert_eq!(fine.clone().sanitized(), fine, "a state in range is kept");
+        let v = serde_json::to_value(&fine).unwrap();
+        assert_eq!(v["unnamed"]["names"], serde_json::json!({ "2": "Ana" }));
+        assert_eq!((&v["places"]["bubble"], &v["people"]["sort"]), (&serde_json::json!({ "marker": 4 }), &serde_json::json!("top10")));
+        assert_eq!(serde_json::from_value::<UiState>(v).unwrap(), fine);
+        assert_eq!(fine.m13_photos().collect::<Vec<_>>(), [PhotoId::new(1), PhotoId::new(1)]);
+        let bad: Vec<UiState> = vec![
+            UiState {
+                people_pane: PeoplePane { manual: Some(ManualFace { rect: MANUAL_FACE_START, name: String::new() }), ..PeoplePane::default() },
+                ..UiState::default()
+            },
+            UiState { places: PlacesPane { centre: [86.0, 0.0], ..PlacesPane::default() }, ..UiState::default() },
+            UiState { places: PlacesPane { centre: [f64::NAN, 0.0], ..PlacesPane::default() }, ..UiState::default() },
+            UiState { places: PlacesPane { zoom: 19.5, ..PlacesPane::default() }, ..UiState::default() },
+            UiState { places: PlacesPane { bubble: Some(Bubble::Drop), ..PlacesPane::default() }, ..UiState::default() },
+            UiState { places: PlacesPane { bubble: Some(Bubble::Pin), ..PlacesPane::default() }, ..UiState::default() },
+            UiState { places: PlacesPane { drop: Some(PlacesDrop { ids: vec![], at: [0.0, 0.0] }), ..PlacesPane::default() }, ..UiState::default() },
+            UiState {
+                face_model: Some(FaceModelDraft { entry: Some("a".into()), file: Some("m.onnx".into()), ..FaceModelDraft::default() }),
+                ..UiState::default()
+            },
+            UiState { face_model: Some(FaceModelDraft { progress: Some(1.5), ..FaceModelDraft::default() }), ..UiState::default() },
+            UiState { people: PeopleView { zoom_to_faces: vec![ana.clone(); MAX_PEOPLE + 1], ..PeopleView::default() }, ..UiState::default() },
+        ];
+        for b in bad {
+            assert!(b.check_m13().is_err(), "{b:?}");
+            let safe = b.sanitized();
+            assert_eq!(safe.check_m13(), Ok(()), "sanitized is in range: {safe:?}");
+        }
+        // Sanitizing keeps people once, the manual box only in the edit view, the zoom in range.
+        let s = UiState { people: PeopleView { zoom_to_faces: vec![ana.clone(), ana.clone()], ..PeopleView::default() }, ..UiState::default() }
+            .sanitized();
+        assert_eq!(s.people.zoom_to_faces, vec![ana]);
+        let p = UiState { places: PlacesPane { zoom: f32::NAN, centre: [100.0, 200.0], ..PlacesPane::default() }, ..UiState::default() }
+            .sanitized()
+            .places;
+        assert_eq!((p.zoom, p.centre), (1.0, [MAP_LAT_MAX, 180.0]));
     }
 
     #[test]

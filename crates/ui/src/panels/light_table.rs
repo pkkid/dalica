@@ -52,6 +52,7 @@ pub mod header;
 pub mod input;
 pub mod layout;
 pub mod scrollbar;
+pub mod suggestions;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

@@ -2,7 +2,8 @@
 //! ([`UI_COMMANDS`], defined in [`crate::commands`]) and the running app, and the in-window menus
 //! drawn from it.
 //!
-//! - **The model** ([`bar`], [`section_menu`], [`photo_menu`]) is the catalog with the app's state applied: an
+//! - **The model** ([`bar`], [`section_menu`], [`photo_menu`], and M13's [`face_menu`] and
+//!   [`person_menu`]) is the catalog with the app's state applied: an
 //!   item is *live* when its command is registered (a UI command or an engine command; an item
 //!   that opens a dialog also needs that dialog; an opener's item, `crate::commands::OPENERS`,
 //!   is live with its dialog), *enabled* when live and its command's `enabled`
@@ -97,6 +98,11 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("app.shortcuts", "options"),
     ("edit.undoAll", "undoAllEdits"),
     ("viewer.settings", "viewerSettings"),
+    ("faces.moveToNewPerson", "newPerson"),
+    ("people.rename", "renamePerson"),
+    ("people.merge", "mergePeople"),
+    ("people.delete", "deletePerson"),
+    ("geo.clear", "clearLocation"),
 ];
 
 /// `…` items that open a room rather than a dialog (`ui-layout.md` §8): live without one.
@@ -260,6 +266,19 @@ pub fn photo_menu(app: &App, platform: Platform) -> Vec<Node> {
     rows
 }
 
+/// The face context menu (`menus-and-shortcuts.md` §4: a face in the Unnamed grid, a person
+/// section's Zoom to Faces cells, the People pane) for the faces selected; Move to Person ▸'s rows
+/// join when the people do (M13.21).
+pub fn face_menu(app: &App, platform: Platform) -> Vec<Node> {
+    nodes(&Facts::new(app, platform), menu_catalog::FACE, "Face")
+}
+
+/// The person context menu (a person's tree row and section header, `organizing.md` §6.3);
+/// Merge Into ▸'s rows join when the people do (M13.25).
+pub fn person_menu(app: &App, platform: Platform) -> Vec<Node> {
+    nodes(&Facts::new(app, platform), menu_catalog::PERSON, "Person")
+}
+
 fn menu_node(facts: &Facts<'_>, menu: &Menu) -> MenuNode {
     let entries = match (facts.kind, menu.album_entries) {
         (SectionKind::Album, Some(e)) => e,
@@ -345,6 +364,10 @@ pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
     // Set as Album Cover: the album shown and its focused photo.
     for (k, v) in crate::panels::light_table::context_menu::album_params(app, id) {
         obj.insert(k, v);
+    }
+    // Tools ▸ Geotag: Copy Location the focused photo, Paste and Clear Location… the selection.
+    if let Some(Value::Object(p)) = crate::commands::places::params_for(app, id) {
+        obj.extend(p);
     }
     if let Value::Object(f) = fixed {
         for (k, v) in f {
@@ -497,7 +520,10 @@ pub fn checked(app: &App, id: &str, params: &Value) -> bool {
     match id {
         "view.colorManagement" => app.session().is_none_or(dalica_engine::Session::color_management),
         "section.sort" => sort_checked(app, params),
-        _ => crate::commands::edit_view::checked(app, id).or_else(|| crate::commands::view::checked(app.state(), id, params)).unwrap_or(false),
+        _ => crate::commands::edit_view::checked(app, id)
+            .or_else(|| crate::commands::view::checked(app.state(), id, params))
+            .or_else(|| crate::commands::people::checked(app, id, params))
+            .unwrap_or(false),
     }
 }
 
