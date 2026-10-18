@@ -24,6 +24,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use crate::tasks;
@@ -32,12 +33,28 @@ use crate::tasks;
 /// proptest case counts, full-size scale tests). Unset, tests run quick.
 pub const FULL_TESTS: &str = "DALICA_FULL_TESTS";
 
-/// Test threads and build jobs: one per GiB of available memory, at most the CPUs or
-/// `CARGO_BUILD_JOBS`, at least one. Several agents share one machine (`task-board.md` §7).
-pub fn parallelism(available_gib: Option<u64>, cpus: usize, build_jobs: Option<usize>) -> usize {
-    let cap = build_jobs.unwrap_or(cpus).max(1);
+/// Cores the gates leave free for the rest of the desktop; `DALICA_RESERVE_CORES` overrides it.
+pub const RESERVE_CORES: usize = 4;
+
+/// Test threads and build jobs: one per GiB of available memory, at most the CPUs less the
+/// reserved cores, at most `CARGO_BUILD_JOBS`, at least one. Several agents share one machine
+/// (`task-board.md` §7).
+pub fn parallelism(available_gib: Option<u64>, cpus: usize, reserve: usize, build_jobs: Option<usize>) -> usize {
+    let free = cpus.saturating_sub(reserve).max(1);
+    let cap = build_jobs.map_or(free, |j| j.min(free)).max(1);
     let by_ram = available_gib.map_or(cap, |g| usize::try_from(g).unwrap_or(usize::MAX));
     cap.min(by_ram).max(1)
+}
+
+/// Lowers this process's scheduling priority (nice 10), so the gate and every cargo, rustc and test
+/// process it starts yield to the desktop. Best effort: where `renice` is missing (Windows) the gate
+/// runs at normal priority.
+fn lower_priority() {
+    if cfg!(unix) {
+        let pid = std::process::id().to_string();
+        let _ =
+            Command::new("renice").args(["-n", "10", "-p", &pid]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
 }
 
 /// `MemAvailable` from `/proc/meminfo`, in GiB (Linux; `None` elsewhere).
@@ -47,10 +64,23 @@ pub fn available_gib(meminfo: &str) -> Option<u64> {
     Some(kib / (1024 * 1024))
 }
 
+/// The gate's share of the CPUs, set once by [`run`].
+static RAYON_THREADS: OnceLock<String> = OnceLock::new();
+
+/// Holds the rayon pool of the code under test to the gate's share: rayon otherwise starts one
+/// thread per CPU in every test process, whatever `--test-threads` says. Benches are left alone;
+/// their numbers are measured on the whole machine.
+pub fn limit_threads(cmd: &mut Command) {
+    if let Some(n) = RAYON_THREADS.get() {
+        cmd.env("RAYON_NUM_THREADS", n);
+    }
+}
+
 fn cargo_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<(), String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut cmd = Command::new(cargo);
     cmd.current_dir(root).args(args);
+    limit_threads(&mut cmd);
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -226,8 +256,11 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
     let cpus = std::thread::available_parallelism().map(usize::from).unwrap_or(2);
     let build_jobs = std::env::var("CARGO_BUILD_JOBS").ok().and_then(|j| j.parse().ok());
-    let n = parallelism(available_gib(&meminfo), cpus, build_jobs).to_string();
+    let reserve = std::env::var("DALICA_RESERVE_CORES").ok().and_then(|r| r.parse().ok()).unwrap_or(RESERVE_CORES);
+    let n = parallelism(available_gib(&meminfo), cpus, reserve, build_jobs).to_string();
     let threads = format!("--test-threads={n}");
+    lower_priority();
+    let _ = RAYON_THREADS.set(n.clone());
 
     let roadmap = tasks::load_roadmap(root);
     let accepted = roadmap.as_ref().map(finished_milestones).unwrap_or_default();
@@ -446,11 +479,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parallelism_follows_ram_and_jobs() {
-        assert_eq!(parallelism(Some(19), 24, None), 19);
-        assert_eq!(parallelism(Some(19), 24, Some(3)), 3);
-        assert_eq!(parallelism(Some(0), 24, None), 1);
-        assert_eq!(parallelism(None, 8, None), 8);
+    fn parallelism_follows_ram_jobs_and_reserve() {
+        assert_eq!(parallelism(Some(19), 24, 4, None), 19);
+        assert_eq!(parallelism(Some(32), 24, 4, None), 20);
+        assert_eq!(parallelism(Some(19), 24, 4, Some(3)), 3);
+        assert_eq!(parallelism(Some(32), 24, 4, Some(24)), 20);
+        assert_eq!(parallelism(Some(0), 24, 4, None), 1);
+        assert_eq!(parallelism(None, 8, 4, None), 4);
+        assert_eq!(parallelism(None, 2, 4, None), 1);
+        assert_eq!(parallelism(None, 8, 0, None), 8);
         assert_eq!(available_gib("MemTotal: 32000000 kB\nMemAvailable:   20971520 kB\n"), Some(20));
         assert_eq!(available_gib("nothing"), None);
     }
