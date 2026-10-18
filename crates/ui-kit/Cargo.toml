@@ -12,6 +12,7 @@ publish = false
 autotests = false
 
 [dependencies]
+dalica-core.workspace = true
 egui.workspace = true
 serde.workspace = true
 thiserror.workspace = true

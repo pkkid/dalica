@@ -8,6 +8,7 @@
 pub mod app_id;
 pub mod build;
 pub mod clock;
+pub mod color;
 pub mod dates;
 pub mod error;
 pub mod geom;

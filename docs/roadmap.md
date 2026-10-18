@@ -6835,7 +6835,7 @@ a maintainer decision mid-run.
     circle mask is 1 at its centre and 0 past its feather on a turned and cropped photo; dabs cover
     a stroke without gaps; Fade 0 gives the effect and 100 the input; hostile sizes (zero, huge,
     `NaN`) answer without a panic.
-- ⬜ **M12.4 `ui-kit` + `core`: effect tiles, the effect slider, colour swatches and their picker, the crosshair, the icons**
+- ✅ **M12.4 `ui-kit` + `core`: effect tiles, the effect slider, colour swatches and their picker, the crosshair, the icons**
   - after: M11.3, M11.R
   - files: `crates/core/src/color.rs`, `crates/core/tests/color.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/effect_tile.rs`, `crates/ui-kit/src/widgets/slider.rs`, `crates/ui-kit/src/widgets/swatch.rs`, `crates/ui-kit/src/widgets/swatch/**`, `crates/ui-kit/src/widgets/crosshair.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/effects.rs`, `crates/ui-kit/tests/effect_widgets.rs`, `crates/ui-kit/tests/icons_effects.rs`, `crates/ui-kit/tests/fingerprints/effect-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-effects*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: `design-system.md` §4–§6 and `editing.md` §8.1: `core::color`, sRGB ↔ HSV and

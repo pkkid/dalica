@@ -5,6 +5,7 @@ mod common;
 
 mod app_id;
 mod build;
+mod color;
 mod poskey;
 mod props;
 mod sanitize;
