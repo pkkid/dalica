@@ -329,7 +329,7 @@ Grid: Boost, Soften, Vignette / Pixelate, Focal Zoom, Border / Drop Shadow, Muse
 | **Pixelate** | Pixel Size 2–150 (20), Blend mode (Normal, Multiply, Screen, Overlay, Soft Light; Normal), Fade (0) | mosaic |
 | **Focal Zoom** | crosshair (centre 0.5, 0.5), Zoom Amount 1–100 (50), Focal Size 0–1 (0.3), Edge Hardness 0–100 (50), Fade (0) | radial zoom blur outside a sharp circle |
 | **Border** | Outer color (black), Outer thickness 0–100 (20), Inner color (white), Inner thickness 0–100 (5), Corner radius 0–100 (0; 100 = oval), Caption height 0–200 (0) | two-band frame; enlarges canvas |
-| **Drop Shadow** | Shadow color (black), Distance 0–30 (4), Angle 0–360 (90), Blur 0–100 (10), Fade (30), Background (white) | photo floating over a background; enlarges canvas |
+| **Drop Shadow** | Shadow color (black), Distance 0–30 (15), Angle 0–360 (90), Blur 0–100 (25), Fade (30), Background (white) | photo floating over a background; enlarges canvas |
 | **Museum Matte** | Outer color (#1A0E03), Outer thickness 0–100 (25), Inner color (#F0EAE4), Inner thickness 0–100 (40) | double mat with inner shadow; enlarges canvas; repeatable |
 
 Algorithms are implemented from the effect descriptions above and our own design (no reference
@@ -388,7 +388,7 @@ one-click flag, crosshair and tooltip, and `dalica-edit`'s `ops` modules read an
 | 5 | Pixelate | `pixelate(20,normal,0)` (`size,mode,fade`) |
 | 5 | Focal Zoom | `focal_zoom(0.5,0.5,0.3,50,50,0)` (`x,y,size,amount,hardness,fade`) |
 | 5 | Border | `border(#000000,20,#ffffff,5,0,0)` (`outer_color,outer,inner_color,inner,radius,caption`) |
-| 5 | Drop Shadow | `drop_shadow(#000000,4,90,10,30,#ffffff)` (`color,distance,angle,blur,fade,background`) |
+| 5 | Drop Shadow | `drop_shadow(#000000,15,90,25,30,#ffffff)` (`color,distance,angle,blur,fade,background`) |
 | 5 | Museum Matte | `museum_matte(#1a0e03,25,#f0eae4,40)` (`outer_color,outer,inner_color,inner`) |
 
 An effect renders once its module does (M12.6–M12.14); until then its entry is kept, labelled and

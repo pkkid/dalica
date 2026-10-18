@@ -3,7 +3,7 @@
 //! `museum_matte(outer_color,outer,inner_color,inner)`.
 //!
 //! - **Parameters** (M12.1; read with [`super::Reader`], `editing.md` §8.5):
-//!   - Drop Shadow: the shadow colour (`#000000`); Distance 0–30 (4) and Blur 0–100 (10), in
+//!   - Drop Shadow: the shadow colour (`#000000`); Distance 0–30 (15) and Blur 0–100 (25), in
 //!     thousandths of the picture's shorter side; Angle 0–360 (90), the direction the shadow
 //!     falls in degrees clockwise from pointing up (90: to the right); Fade 0–100 (30); the background
 //!     colour (`#ffffff`). The canvas grows to hold the shadow.
@@ -74,7 +74,7 @@ pub struct DropShadow {
 
 impl Default for DropShadow {
     fn default() -> DropShadow {
-        DropShadow { color: [0, 0, 0], distance: 4.0, angle: 90.0, blur: 10.0, fade: 30.0, background: [0xff, 0xff, 0xff] }
+        DropShadow { color: [0, 0, 0], distance: 15.0, angle: 90.0, blur: 25.0, fade: 30.0, background: [0xff, 0xff, 0xff] }
     }
 }
 
