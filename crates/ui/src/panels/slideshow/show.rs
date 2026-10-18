@@ -13,6 +13,10 @@
 //! most the photo shown and the next one (or the two photos of a change) hold a texture. A
 //! preview's pixels are converted to the texture's format on a worker thread, so the frame that
 //! uploads it only hands them over (M12.24); until they are there the thumbnail stands in.
+//!
+//! Pan and Zoom moves each photo toward the focus the engine's [`Frame`] gives for it (its largest
+//! named face, else its largest face, else its centre: `Frame::focus`, `Frame::outgoing_focus`,
+//! M13.23); [`slides`] tells a test what the last frame drew.
 
 use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -72,6 +76,8 @@ thread_local! {
     /// Whether the frame being painted has uploaded a preview already.
     static UPLOADED: Cell<bool> = const { Cell::new(false) };
     static PREPARED: Cell<Prepared> = const { Cell::new(Prepared { on_worker: 0, on_ui_thread: 0 }) };
+    /// The photos the last frame placed, and their slides (at most two).
+    static SLIDES: RefCell<Vec<(PhotoId, Slide)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// An image to paint: photo `photo`'s preview (`preview`) or a stand-in thumbnail.
@@ -204,6 +210,7 @@ fn count(f: impl FnOnce(&mut Prepared)) {
 /// let go are dropped.
 fn begin_frame() {
     TEXTURES.with(|kept| kept.borrow_mut().iter_mut().for_each(|t| t.used = false));
+    SLIDES.with(|slides| slides.borrow_mut().clear());
     PENDING.with(|pending| pending.borrow_mut().retain(|p| p.source.strong_count() > 0));
     UPLOADED.with(|u| u.set(false));
 }
@@ -224,6 +231,12 @@ pub fn release() {
 /// photo shown and the next one, or a change's two photos.
 pub fn kept() -> Vec<(PhotoId, bool)> {
     TEXTURES.with(|kept| kept.borrow().iter().filter(|t| t.source.strong_count() > 0).map(|t| (t.photo, t.preview)).collect())
+}
+
+/// The photos the last frame on this UI thread placed and their slides: the photo shown first,
+/// then the outgoing one while a change is under way (M13.23).
+pub fn slides() -> Vec<(PhotoId, Slide)> {
+    SLIDES.with(|slides| slides.borrow().clone())
 }
 
 /// Where this UI thread's preview textures were prepared so far (M12.24).
@@ -282,7 +295,16 @@ struct Photo {
     slide: Slide,
 }
 
-fn photo(ui: &Ui, session: &mut Session, (id, pane): (PhotoId, usize), index: usize, motion: f32, need: u32) -> Option<Photo> {
+/// Photo `id` from `pane` (or its stand-in), placed as the `index`th photo of the show, `motion`
+/// through its display time, Pan and Zoom moving it toward `focus`.
+fn photo(
+    ui: &Ui,
+    session: &mut Session,
+    (id, pane): (PhotoId, usize),
+    index: usize,
+    (motion, focus): (f32, create::Point),
+    need: u32,
+) -> Option<Photo> {
     let preview = preview_of(session, id, pane).and_then(|(image, recipe)| texture(ui.ctx(), &image).map(|t| (image, recipe, t)));
     let (image, recipe, texture) = match preview {
         Some(p) => p,
@@ -293,7 +315,8 @@ fn photo(ui: &Ui, session: &mut Session, (id, pane): (PhotoId, usize), index: us
         }
     };
     let size = shown_size(session, id, &recipe, &image.pixels);
-    let slide = Slide { size, zoom: create::pan_zoom_amount(index), motion, ..Slide::new(size) };
+    let slide = Slide { size, focus, zoom: create::pan_zoom_amount(index), motion };
+    SLIDES.with(|slides| slides.borrow_mut().push((id, slide)));
     Some(Photo { texture, slide })
 }
 
@@ -308,9 +331,9 @@ pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool, 
     let v = frame.view;
     let session = app.session_mut()?;
     begin_frame();
-    let incoming = frame.photo.zip(v.index).and_then(|(p, i)| photo(ui, session, p, i, v.motion, need));
+    let incoming = frame.photo.zip(v.index).and_then(|(p, i)| photo(ui, session, p, i, (v.motion, frame.focus), need));
     let change = v.change.filter(|_| frame.outgoing.is_some());
-    let outgoing = frame.outgoing.zip(change).and_then(|(p, (i, _))| photo(ui, session, p, i, v.outgoing_motion, need));
+    let outgoing = frame.outgoing.zip(change).and_then(|(p, (i, _))| photo(ui, session, p, i, (v.outgoing_motion, frame.outgoing_focus), need));
     preload(ui.ctx(), session, frame);
     end_frame();
     let screen = Size::new(rect.width(), rect.height());
