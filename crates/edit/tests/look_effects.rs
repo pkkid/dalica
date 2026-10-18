@@ -96,6 +96,20 @@ fn two_sizes_agree_and_match_the_fingerprints() {
     }
 }
 
+/// At 1200 × 800 (large enough that every blur runs on its grid of cells and the fast paths are
+/// taken; the 240-pixel fingerprints above blur the pixels themselves) each look at its defaults
+/// matches its `looks-*-large` fingerprint. They were blessed from M12's renderer, so a faster
+/// one has to give the same picture.
+#[test]
+fn a_large_render_matches_the_large_fingerprints() {
+    let img = scene(12, 3000, 2000);
+    for (case, entry) in DEFAULTS {
+        let large = render(Source::upright(&img), &recipe(&[entry]), Target::Fit { width: 1200, height: 800 }).unwrap();
+        assert_eq!((large.width, large.height), (1200, 800));
+        check_fingerprint(&format!("{case}-large"), &large, 0.5);
+    }
+}
+
 #[test]
 fn fade_100_gives_the_input() {
     let img = detailed(90, 60);
