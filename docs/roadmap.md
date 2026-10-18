@@ -8258,7 +8258,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     the bench's `border`, `museum_matte`, `drop_shadow` and `widescreen` drafts within 16 ms at
     p95 on two cores (before and after in the PR; Widescreen Film's final is M13.42's);
     `cargo xtask ci`.
-- ⬜ **M13.36 `edit`: Glow, Sharpen and Film Grain within the slider's caps**
+- ✅ **M13.36 `edit`: Glow, Sharpen and Film Grain within the slider's caps**
   - after: M12.R, M13.34
   - files: `crates/edit/src/ops/detail.rs`, `crates/edit/tests/detail_effects.rs`, `crates/edit/tests/fingerprints/detail-*.json`
   - scope: effect speed. Draft / final p95 at M12.21: Glow 21.2 / 409 ms, Film Grain 11.7 /
