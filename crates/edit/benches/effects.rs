@@ -1,4 +1,4 @@
-//! The 27 effects' renders (`development.md` §8, `roadmap.md` M12.21). Run it with
+//! The 27 effects' renders (`development.md` §8, `roadmap.md` M12.21 and M13.43). Run it with
 //!
 //! ```sh
 //! cargo xtask bench effects                                        # release, a 24 MP photo
@@ -22,14 +22,15 @@
 //!   and the wait for a worker are not).
 //! - **Save**: `--saves` (3) renders of the whole photo at `Target::Full`, as Save renders it.
 //!
-//! Rows (p50/p95/max by nearest rank): `<effect> draft` and `<effect> final` (printed, not
-//! budgeted: the slider's 16 ms draft and 100 ms final at p95 are per-effect speed tasks of M13, so
-//! `cargo xtask bench` tracks them meanwhile), `<effect> save` (judged on the median, with
-//! `budget_ms`), and an empty recipe's `no effect final` (judged on p95) and `no effect save`
-//! (judged on the median). `cargo xtask budgets` judges the report; with `--check` the bench judges
-//! it itself and exits non-zero when a budget is missed (in release, at 24 MP and the 2560 × 1600
-//! screen, every effect measured); `--plant-ms N` adds `N` ms to every judged time. `--only a,b` measures only the effects named. Without `--bench` (under `cargo test
-//! --benches`) it runs a smoke pass: a 600 × 400 photo on a 256 × 160 screen, one sample each.
+//! Rows (p50/p95/max by nearest rank): `<effect> draft` and `<effect> final` (judged on p95, with
+//! `budget_p95_ms`: the slider's 16 ms draft and 100 ms final, each effect's own budget within
+//! them, M13.43), `<effect> save` (judged on the median, with `budget_ms`), and an empty recipe's
+//! `no effect final` (judged on p95) and `no effect save` (judged on the median). `cargo xtask
+//! budgets` judges the report; with `--check` the bench judges it itself and exits non-zero when a
+//! budget is missed (in release, at 24 MP and the 2560 × 1600 screen, every effect measured);
+//! `--plant-ms N` adds `N` ms to every judged time. `--only a,b` measures only the effects named.
+//! Without `--bench` (under `cargo test --benches`) it runs a smoke pass: a 600 × 400 photo on a
+//! 256 × 160 screen, one sample each.
 
 use std::time::Instant;
 
@@ -37,43 +38,48 @@ use dalica_edit::{Geometry, Recipe, Source, Target, catalog, render};
 use dalica_image::{Orientation, Rgba8};
 use dalica_scenes::Scene;
 
-/// The budgets (`development.md` §8): per effect, its 24 MP Save render's median, in ms, 1.5 × the
-/// first measurement (release on two cores, `taskset -c 0,1`, 2026-10-18, the median of three runs),
-/// rounded up to 5 ms. A draft's and a final's speed on the screen are printed, not budgeted (the
-/// maintainer at M12.R: they are per-effect speed tasks of M13).
-const BUDGETS: [(&str, f64); 27] = [
-    ("sharpen", 1225.0),
-    ("sepia", 485.0),
-    ("bw", 275.0),
-    ("warmify", 1485.0),
-    ("grain", 870.0),
-    ("tint", 460.0),
-    ("saturation", 2060.0),
-    ("soft_focus", 1280.0),
-    ("glow", 2565.0),
-    ("filtered_bw", 240.0),
-    ("focal_bw", 505.0),
-    ("graduated_tint", 370.0),
-    ("infrared", 245.0),
-    ("plastic_lens", 2295.0),
-    ("hdr", 3775.0),
-    ("widescreen", 765.0),
-    ("dream_glow", 2250.0),
-    ("invert", 240.0),
-    ("duotone", 500.0),
-    ("boost", 2460.0),
-    ("soften", 2700.0),
-    ("vignette", 780.0),
-    ("pixelate", 670.0),
-    ("focal_zoom", 22355.0),
-    ("border", 470.0),
-    ("drop_shadow", 340.0),
-    ("museum_matte", 390.0),
+/// The budgets (`development.md` §8), per effect, in ms: its slider draft's and final's p95 on the
+/// screen (M13.43: 1.5 × the measurement of 2026-10-18 after M13.34–M13.47, the median of three
+/// runs, release on two cores, `taskset -c 0,1`; drafts rounded up to 0.1 ms, finals to 1 ms; never
+/// above [`DRAFT_CAP_MS`] and [`FINAL_CAP_MS`]) and its 24 MP Save render's median (M12.21: 1.5 ×
+/// the first measurement, rounded up to 5 ms).
+const BUDGETS: [(&str, f64, f64, f64); 27] = [
+    ("sharpen", 3.5, 63.0, 1225.0),
+    ("sepia", 4.2, 65.0, 485.0),
+    ("bw", 5.1, 21.0, 275.0),
+    ("warmify", 4.1, 64.0, 1485.0),
+    ("grain", 16.0, 48.0, 870.0),
+    ("tint", 5.0, 78.0, 460.0),
+    ("saturation", 4.7, 74.0, 2060.0),
+    ("soft_focus", 13.7, 63.0, 1280.0),
+    ("glow", 5.0, 58.0, 2565.0),
+    ("filtered_bw", 5.1, 21.0, 240.0),
+    ("focal_bw", 5.5, 85.0, 505.0),
+    ("graduated_tint", 3.7, 56.0, 370.0),
+    ("infrared", 5.1, 21.0, 245.0),
+    ("plastic_lens", 9.9, 73.0, 2295.0),
+    ("hdr", 6.2, 94.0, 3775.0),
+    ("widescreen", 10.2, 37.0, 765.0),
+    ("dream_glow", 4.4, 60.0, 2250.0),
+    ("invert", 5.4, 22.0, 240.0),
+    ("duotone", 5.3, 82.0, 500.0),
+    ("boost", 4.8, 74.0, 2460.0),
+    ("soften", 6.2, 56.0, 2700.0),
+    ("vignette", 4.4, 69.0, 780.0),
+    ("pixelate", 10.1, 38.0, 670.0),
+    ("focal_zoom", 11.9, 100.0, 22355.0),
+    ("border", 4.2, 64.0, 470.0),
+    ("drop_shadow", 9.1, 36.0, 340.0),
+    ("museum_matte", 10.1, 38.0, 390.0),
 ];
 /// An empty recipe's final on the screen (p95) and its Save render (median), 1.5 × the first
 /// measurement, rounded up to 1 and 5 ms.
 const EMPTY_FINAL_BUDGET_MS: f64 = 12.0;
 const EMPTY_SAVE_BUDGET_MS: f64 = 55.0;
+/// The slider's caps (`development.md` §8, the edit view's): a draft's and a final's p95 on the
+/// screen. No effect's budget is above them.
+const DRAFT_CAP_MS: f64 = 16.0;
+const FINAL_CAP_MS: f64 = 100.0;
 /// The photo and the screen the budgets hold for.
 const FULL: (u32, u32) = (6000, 4000);
 const SCREEN: (u32, u32) = (2560, 1600);
@@ -359,7 +365,7 @@ fn main() {
                 eprintln!("effects: {} has no default entry", op.name);
                 std::process::exit(1);
             };
-            let Some(&(_, save_budget)) = BUDGETS.iter().find(|(n, ..)| *n == op.name) else {
+            let Some(&(_, draft_budget, final_budget, save_budget)) = BUDGETS.iter().find(|(n, ..)| *n == op.name) else {
                 eprintln!("effects: {} has no budget", op.name);
                 std::process::exit(1);
             };
@@ -367,11 +373,14 @@ fn main() {
             measured += 1;
             let (d, f, s) = (rank_of(&m.drafts, 95), rank_of(&m.finals, 95), rank_of(&m.saves, 50));
             eprintln!("  {:<16} draft p95 {d:7.2} ms (at {}), final p95 {f:7.2} ms, save p50 {s:8.1} ms", m.name, m.draft_scale);
-            if s + a.plant > save_budget {
-                missed.push(format!("{} save median: {:.2} ms over the {save_budget} ms budget", m.name, s + a.plant));
+            let (draft_budget, final_budget) = (draft_budget.min(DRAFT_CAP_MS), final_budget.min(FINAL_CAP_MS));
+            for (what, judged, budget) in [("draft p95", d, draft_budget), ("final p95", f, final_budget), ("save median", s, save_budget)] {
+                if judged + a.plant > budget {
+                    missed.push(format!("{} {what}: {:.2} ms over the {budget} ms budget", m.name, judged + a.plant));
+                }
             }
-            rows.push(row(&format!("{} draft", m.name), m.drafts, &format!(",\"draft_scale\":{}", m.draft_scale)));
-            rows.push(row(&format!("{} final", m.name), m.finals, ""));
+            rows.push(row(&format!("{} draft", m.name), m.drafts, &format!(",\"draft_scale\":{},\"budget_p95_ms\":{draft_budget:?}", m.draft_scale)));
+            rows.push(row(&format!("{} final", m.name), m.finals, &format!(",\"budget_p95_ms\":{final_budget:?}")));
             rows.push(row(&format!("{} save", m.name), m.saves, &format!(",\"budget_ms\":{save_budget:?}")));
         }
     }

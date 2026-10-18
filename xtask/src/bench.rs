@@ -494,42 +494,48 @@ pub fn judge_slideshow(stdout: &str, plant: f64) -> Result<String, String> {
 /// [`SLIDESHOW_FRAME_CAP_MS`].
 pub const SLIDESHOW_UPLOAD_P95_MS: f64 = 6.8;
 
-/// The effects' budgets (`effects` → `BUDGETS`): per effect, its 24 MP Save render's median, in ms.
-/// A draft's and a final's speed on the screen are printed, not budgeted: the slider's 16 ms draft
-/// and 100 ms final at p95 are per-effect speed tasks of M13 (the maintainer at M12.R).
-pub const EFFECT_BUDGETS: [(&str, f64); 27] = [
-    ("sharpen", 1225.0),
-    ("sepia", 485.0),
-    ("bw", 275.0),
-    ("warmify", 1485.0),
-    ("grain", 870.0),
-    ("tint", 460.0),
-    ("saturation", 2060.0),
-    ("soft_focus", 1280.0),
-    ("glow", 2565.0),
-    ("filtered_bw", 240.0),
-    ("focal_bw", 505.0),
-    ("graduated_tint", 370.0),
-    ("infrared", 245.0),
-    ("plastic_lens", 2295.0),
-    ("hdr", 3775.0),
-    ("widescreen", 765.0),
-    ("dream_glow", 2250.0),
-    ("invert", 240.0),
-    ("duotone", 500.0),
-    ("boost", 2460.0),
-    ("soften", 2700.0),
-    ("vignette", 780.0),
-    ("pixelate", 670.0),
-    ("focal_zoom", 22355.0),
-    ("border", 470.0),
-    ("drop_shadow", 340.0),
-    ("museum_matte", 390.0),
+/// The effects' budgets (`effects` → `BUDGETS`), per effect, in ms: its slider draft's and
+/// final's p95 on the 2560 × 1600 screen (M13.43: 1.5 × the measurement after M13.34–M13.47, drafts
+/// rounded up to 0.1 ms and finals to 1 ms, never above [`EFFECT_DRAFT_CAP_MS`] and
+/// [`EFFECT_FINAL_CAP_MS`]) and its 24 MP Save render's median (M12.21).
+pub const EFFECT_BUDGETS: [(&str, f64, f64, f64); 27] = [
+    ("sharpen", 3.5, 63.0, 1225.0),
+    ("sepia", 4.2, 65.0, 485.0),
+    ("bw", 5.1, 21.0, 275.0),
+    ("warmify", 4.1, 64.0, 1485.0),
+    ("grain", 16.0, 48.0, 870.0),
+    ("tint", 5.0, 78.0, 460.0),
+    ("saturation", 4.7, 74.0, 2060.0),
+    ("soft_focus", 13.7, 63.0, 1280.0),
+    ("glow", 5.0, 58.0, 2565.0),
+    ("filtered_bw", 5.1, 21.0, 240.0),
+    ("focal_bw", 5.5, 85.0, 505.0),
+    ("graduated_tint", 3.7, 56.0, 370.0),
+    ("infrared", 5.1, 21.0, 245.0),
+    ("plastic_lens", 9.9, 73.0, 2295.0),
+    ("hdr", 6.2, 94.0, 3775.0),
+    ("widescreen", 10.2, 37.0, 765.0),
+    ("dream_glow", 4.4, 60.0, 2250.0),
+    ("invert", 5.4, 22.0, 240.0),
+    ("duotone", 5.3, 82.0, 500.0),
+    ("boost", 4.8, 74.0, 2460.0),
+    ("soften", 6.2, 56.0, 2700.0),
+    ("vignette", 4.4, 69.0, 780.0),
+    ("pixelate", 10.1, 38.0, 670.0),
+    ("focal_zoom", 11.9, 100.0, 22355.0),
+    ("border", 4.2, 64.0, 470.0),
+    ("drop_shadow", 9.1, 36.0, 340.0),
+    ("museum_matte", 10.1, 38.0, 390.0),
 ];
 /// An empty recipe's final on the screen (p95) and its 24 MP Save render (median) (`effects` →
 /// `EMPTY_FINAL_BUDGET_MS`, `EMPTY_SAVE_BUDGET_MS`).
 pub const EFFECT_EMPTY_FINAL_MS: f64 = 12.0;
 pub const EFFECT_EMPTY_SAVE_MS: f64 = 55.0;
+/// The slider's caps (the edit view's budgets, `development.md` §8): a draft's and a final's p95
+/// on the screen, which no effect's budget is ever above (`effects` → `DRAFT_CAP_MS`,
+/// `FINAL_CAP_MS`).
+pub const EFFECT_DRAFT_CAP_MS: f64 = 16.0;
+pub const EFFECT_FINAL_CAP_MS: f64 = 100.0;
 /// The photo and the screen the effects' budgets hold for.
 pub const EFFECT_PHOTO: [u64; 2] = [6000, 4000];
 pub const EFFECT_SCREEN: [u64; 2] = [2560, 1600];
@@ -547,10 +553,10 @@ fn size_of(report: &Value, key: &str) -> [u64; 2] {
     }
 }
 
-/// `effects --json` in release over a 24 MP photo on the 2560 × 1600 screen: every effect's Save
-/// render's median and the empty recipe's final p95 and Save median within their budgets (a planted
-/// slowdown added once per render); the drafts and finals of the effects are printed by the bench,
-/// not judged. Every miss is listed.
+/// `effects --json` in release over a 24 MP photo on the 2560 × 1600 screen: every effect's draft
+/// and final p95 (within its budget and the slider's 16 and 100 ms), its Save render's median, and
+/// the empty recipe's final p95 and Save median within their budgets (a planted slowdown added once
+/// per render). Every miss is listed.
 pub fn judge_effects(stdout: &str, plant: f64) -> Result<String, String> {
     let report = release_report("effects", stdout)?;
     let (photo, fit) = (size_of(&report, "photo_px"), size_of(&report, "fit"));
@@ -562,23 +568,30 @@ pub fn judge_effects(stdout: &str, plant: f64) -> Result<String, String> {
     }
     let mut checks: Vec<(String, &str, f64, &str)> =
         vec![("no effect final".into(), "p95_ms", EFFECT_EMPTY_FINAL_MS, "p95"), ("no effect save".into(), "p50_ms", EFFECT_EMPTY_SAVE_MS, "median")];
-    checks.extend(EFFECT_BUDGETS.iter().map(|(name, save)| (format!("{name} save"), "p50_ms", *save, "median")));
-    let (mut missed, mut worst) = (Vec::new(), 0.0f64);
+    for (name, draft, final_, save) in EFFECT_BUDGETS {
+        checks.push((format!("{name} draft"), "p95_ms", draft.min(EFFECT_DRAFT_CAP_MS), "p95"));
+        checks.push((format!("{name} final"), "p95_ms", final_.min(EFFECT_FINAL_CAP_MS), "p95"));
+        checks.push((format!("{name} save"), "p50_ms", save, "median"));
+    }
+    let (mut missed, mut worst) = (Vec::new(), (0.0f64, String::new()));
     for (name, key, budget, stat) in &checks {
         let measured = row_number("effects", &report, name, key)?;
         let judged = measured + plant;
         if judged > *budget {
             missed.push(format!("{name}: {stat} {judged:.2} ms{}, over the {budget} ms budget", planted(measured, plant, "ms")));
         }
-        worst = worst.max(judged / budget);
+        if judged / budget > worst.0 {
+            worst = (judged / budget, name.clone());
+        }
     }
     if !missed.is_empty() {
         return Err(format!("{} of {} missed: {}", missed.len(), checks.len(), missed.join("; ")));
     }
     Ok(format!(
-        "{} effects' Saves and the empty recipe within their budgets, the closest at {:.0} % of its own (drafts and finals printed)",
+        "{} effects' drafts, finals and Saves and the empty recipe within their budgets, the closest at {:.0} % of its own ({})",
         EFFECT_BUDGETS.len(),
-        worst * 100.0
+        worst.0 * 100.0,
+        worst.1
     ))
 }
 
@@ -886,36 +899,36 @@ pub(crate) mod tests {
         format!("{r}\n")
     }
 
-    /// The effects' first measurement (M12.21): per effect, its draft's and final's p95 (printed,
-    /// not budgeted) and its Save's median, in ms.
+    /// The effects' measurements, in ms: per effect, its draft's and final's p95 (M13.43, the median
+    /// of three runs after M13.34–M13.47) and its Save's median (M12.21's first measurement).
     pub const EFFECTS_MEASURED: [(&str, f64, f64, f64); 27] = [
-        ("sharpen", 13.801, 223.673, 816.017),
-        ("sepia", 4.722, 73.609, 320.319),
-        ("bw", 3.098, 48.445, 180.871),
-        ("warmify", 21.431, 294.772, 987.811),
-        ("grain", 8.702, 139.321, 579.218),
-        ("tint", 4.602, 71.512, 303.866),
-        ("saturation", 29.037, 455.864, 1372.597),
-        ("soft_focus", 41.183, 267.192, 850.319),
-        ("glow", 29.391, 540.344, 1706.819),
-        ("filtered_bw", 2.222, 34.716, 158.344),
-        ("focal_bw", 5.048, 79.907, 333.724),
-        ("graduated_tint", 3.619, 56.707, 245.386),
-        ("infrared", 2.224, 34.895, 161.591),
-        ("plastic_lens", 55.204, 473.580, 1527.933),
-        ("hdr", 30.057, 750.487, 2515.803),
-        ("widescreen", 21.563, 114.749, 507.836),
-        ("dream_glow", 20.598, 355.676, 1498.082),
-        ("invert", 2.231, 35.086, 159.155),
-        ("duotone", 4.889, 77.492, 333.263),
-        ("boost", 35.962, 428.028, 1639.044),
-        ("soften", 23.120, 487.722, 1798.765),
-        ("vignette", 10.646, 150.981, 519.994),
-        ("pixelate", 7.209, 116.296, 446.290),
-        ("focal_zoom", 81.393, 2682.801, 14900.034),
-        ("border", 21.425, 68.319, 313.240),
-        ("drop_shadow", 19.753, 45.839, 223.459),
-        ("museum_matte", 20.237, 53.536, 259.663),
+        ("sharpen", 2.333, 41.934, 816.017),
+        ("sepia", 2.771, 42.881, 320.319),
+        ("bw", 3.380, 13.431, 180.871),
+        ("warmify", 2.690, 42.006, 987.811),
+        ("grain", 12.886, 31.381, 579.218),
+        ("tint", 3.293, 51.608, 303.866),
+        ("saturation", 3.103, 48.777, 1372.597),
+        ("soft_focus", 9.130, 41.567, 850.319),
+        ("glow", 3.295, 38.560, 1706.819),
+        ("filtered_bw", 3.376, 13.516, 158.344),
+        ("focal_bw", 3.649, 56.564, 333.724),
+        ("graduated_tint", 2.415, 37.157, 245.386),
+        ("infrared", 3.388, 13.658, 161.591),
+        ("plastic_lens", 6.559, 48.120, 1527.933),
+        ("hdr", 4.068, 62.247, 2515.803),
+        ("widescreen", 6.767, 24.171, 507.836),
+        ("dream_glow", 2.931, 39.579, 1498.082),
+        ("invert", 3.559, 14.052, 159.155),
+        ("duotone", 3.482, 54.376, 333.263),
+        ("boost", 3.193, 49.041, 1639.044),
+        ("soften", 4.100, 37.116, 1798.765),
+        ("vignette", 2.912, 45.742, 519.994),
+        ("pixelate", 6.669, 24.707, 446.290),
+        ("focal_zoom", 7.900, 66.222, 14900.034),
+        ("border", 2.739, 42.022, 313.240),
+        ("drop_shadow", 6.003, 23.453, 223.459),
+        ("museum_matte", 6.726, 25.297, 259.663),
     ];
     /// The empty recipe's first measurement: its final's p95 and its Save's median.
     pub const EMPTY_MEASURED: (f64, f64) = (7.500, 33.480);
@@ -1021,38 +1034,59 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_effects_budgets_judge_every_save_and_the_empty_recipe() {
+    fn the_effects_budgets_judge_every_draft_final_and_save_and_the_empty_recipe() {
         let (photo, screen) = (EFFECT_PHOTO, EFFECT_SCREEN);
-        let ok = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED), 0.0).unwrap();
-        assert!(ok.starts_with("27 effects' Saves and the empty recipe within their budgets"), "{ok}");
-        // Each budget is 1.5 × the first measurement rounded up (5 ms; the empty final 1 ms), in
-        // the grids' order.
-        for ((name, budget), (m, _, _, measured)) in EFFECT_BUDGETS.iter().zip(EFFECTS_MEASURED) {
+        let out = |times: &[(&str, f64, f64, f64)], plant: f64| judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, times), plant);
+        let ok = out(&EFFECTS_MEASURED, 0.0).unwrap();
+        assert!(ok.starts_with("27 effects' drafts, finals and Saves and the empty recipe within their budgets"), "{ok}");
+        // Each budget is 1.5 × its measurement rounded up (drafts to 0.1 ms, finals to 1 ms, Saves
+        // to 5 ms; the empty final to 1 ms), never above the slider's caps, in the grids' order.
+        for ((name, draft, final_, save), (m, d, f, s)) in EFFECT_BUDGETS.iter().zip(EFFECTS_MEASURED) {
             assert_eq!(*name, m);
-            assert!(*budget >= 1.5 * measured && *budget < 1.5 * measured + 5.0, "{name}: {budget} is not 1.5 × {measured} rounded up");
+            assert!(*draft <= EFFECT_DRAFT_CAP_MS && *final_ <= EFFECT_FINAL_CAP_MS, "{name}: a budget above its cap");
+            assert!(*draft == EFFECT_DRAFT_CAP_MS || one_and_a_half(*draft, d, 0.1), "{name}: draft {draft} is not 1.5 × {d}");
+            assert!(*final_ == EFFECT_FINAL_CAP_MS || one_and_a_half(*final_, f, 1.0), "{name}: final {final_} is not 1.5 × {f}");
+            assert!(*draft >= d && *final_ >= f, "{name}: the measurement within its budget");
+            assert!(one_and_a_half(*save, s, 5.0), "{name}: save {save} is not 1.5 × {s} rounded up");
         }
-        assert!(EFFECT_EMPTY_FINAL_MS >= 1.5 * EMPTY_MEASURED.0 && EFFECT_EMPTY_FINAL_MS < 1.5 * EMPTY_MEASURED.0 + 1.0);
-        assert!(EFFECT_EMPTY_SAVE_MS >= 1.5 * EMPTY_MEASURED.1 && EFFECT_EMPTY_SAVE_MS < 1.5 * EMPTY_MEASURED.1 + 5.0);
-        // Drafts and finals are not judged: a slow one passes (the caps are M13's speed tasks).
+        assert!(one_and_a_half(EFFECT_EMPTY_FINAL_MS, EMPTY_MEASURED.0, 1.0) && one_and_a_half(EFFECT_EMPTY_SAVE_MS, EMPTY_MEASURED.1, 5.0));
+        // A slow draft, final or Save misses alone, also one under its own budget but over the
+        // slider's cap; every miss is listed.
+        for (i, (name, draft, final_, save)) in EFFECT_BUDGETS.iter().enumerate() {
+            for (stage, field, over) in [("draft", 1, draft + 0.01), ("final", 2, final_ + 0.5), ("save", 3, save + 1.0)] {
+                let mut slow = EFFECTS_MEASURED;
+                match field {
+                    1 => slow[i].1 = over,
+                    2 => slow[i].2 = over,
+                    _ => slow[i].3 = over,
+                }
+                let e = out(&slow, 0.0).unwrap_err();
+                let stat = if stage == "save" { "median" } else { "p95" };
+                assert!(e.starts_with(&format!("1 of 83 missed: {name} {stage}: {stat}")), "{e}");
+            }
+        }
         let mut slow = EFFECTS_MEASURED;
-        slow[0].1 = 500.0;
-        slow[0].2 = 5000.0;
-        assert!(judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &slow), 0.0).is_ok());
-        // A slow Save, or a slow empty recipe, misses; every miss is listed.
-        let mut slow = EFFECTS_MEASURED;
-        slow[1].3 *= 2.0;
-        slow[26].3 *= 2.0;
-        let e = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &slow), 0.0).unwrap_err();
-        assert!(e.starts_with("2 of 29 missed: sepia save: median") && e.contains("museum_matte save: median"), "{e}");
+        slow[1].1 = 30.0;
+        slow[26].3 *= 4.0;
+        let e = out(&slow, 0.0).unwrap_err();
+        assert!(e.starts_with("2 of 83 missed: sepia draft: p95 30.00 ms") && e.contains("museum_matte save: median"), "{e}");
         let e = judge_effects(&effects_out("release", photo, screen, (EFFECT_EMPTY_FINAL_MS + 0.5, EMPTY_MEASURED.1), &EFFECTS_MEASURED), 0.0)
             .unwrap_err();
-        assert!(e.starts_with("1 of 29 missed: no effect final: p95"), "{e}");
-        // A planted slowdown of 8 ms per render misses the empty final (1.5 × a few ms).
-        let e = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED), 8.0).unwrap_err();
-        assert!(e.contains("no effect final: p95") && e.contains("measured + 8.00 ms planted"), "{e}");
+        assert!(e.starts_with("1 of 83 missed: no effect final: p95"), "{e}");
+        // A planted slowdown added to every render: 17 ms misses every draft (and the empty final),
+        // 101 ms every final too.
+        let e = out(&EFFECTS_MEASURED, 17.0).unwrap_err();
+        for (name, ..) in EFFECT_BUDGETS {
+            assert!(e.contains(&format!("{name} draft: p95")), "{name}'s draft misses with 17 ms planted: {e}");
+        }
+        assert!(e.contains("no effect final: p95") && e.contains("measured + 17.00 ms planted"), "{e}");
+        let e = out(&EFFECTS_MEASURED, 101.0).unwrap_err();
+        for (name, ..) in EFFECT_BUDGETS {
+            assert!(e.contains(&format!("{name} draft: p95")) && e.contains(&format!("{name} final: p95")), "{name} with 101 ms planted: {e}");
+        }
         // A missing effect, a debug build, a small photo or another screen judge nothing.
-        let e = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED[1..]), 0.0).unwrap_err();
-        assert!(e.contains("no row `sharpen save`"), "{e}");
+        let e = out(&EFFECTS_MEASURED[1..], 0.0).unwrap_err();
+        assert!(e.contains("no row `sharpen draft`"), "{e}");
         assert!(judge_effects(&effects_out("debug", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED), 0.0).unwrap_err().contains("debug build"));
         let e = judge_effects(&effects_out("release", [600, 400], [256, 160], EMPTY_MEASURED, &EFFECTS_MEASURED), 0.0).unwrap_err();
         assert!(e.contains("hold for 6000 × 4000"), "{e}");
@@ -1222,12 +1256,17 @@ pub(crate) mod tests {
         }
         // M12.21: the effects' table, row by row, and the tile grids'.
         let effects = std::fs::read_to_string(root.join("crates").join("edit").join("benches").join("effects.rs")).unwrap();
-        for (name, save) in EFFECT_BUDGETS {
-            assert!(effects.contains(&format!("(\"{name}\", {save:?}),")), "the effects bench's budget for {name} is ours");
+        for (name, draft, final_, save) in EFFECT_BUDGETS {
+            let row = format!("(\"{name}\", {draft:?}, {final_:?}, {save:?}),");
+            assert!(effects.contains(&row), "the effects bench's budgets for {name} are ours: {row}");
         }
+        assert!(effects.contains(&format!("const DRAFT_CAP_MS: f64 = {EFFECT_DRAFT_CAP_MS:?};")));
+        assert!(effects.contains(&format!("const FINAL_CAP_MS: f64 = {EFFECT_FINAL_CAP_MS:?};")));
         assert!(effects.contains(&format!("const EMPTY_FINAL_BUDGET_MS: f64 = {EFFECT_EMPTY_FINAL_MS:?};")));
         assert!(effects.contains(&format!("const EMPTY_SAVE_BUDGET_MS: f64 = {EFFECT_EMPTY_SAVE_MS:?};")));
-        assert!(effects.contains("format!(\"{} save\", m.name)") && effects.contains("row(\"no effect final\""));
+        for printed in ["format!(\"{} draft\", m.name)", "format!(\"{} final\", m.name)", "format!(\"{} save\", m.name)", "row(\"no effect final\""] {
+            assert!(effects.contains(printed), "effects prints {printed}");
+        }
         let tiles = read("engine", "effect_tiles");
         let table = TILE_BUDGETS.iter().map(|(t, b)| format!("({t}, {b:?})")).collect::<Vec<_>>().join(", ");
         assert!(tiles.contains(&format!("const TAB_BUDGETS_MS: [(u8, f64); 3] = [{table}];")), "the tile grids' budgets are ours: {table}");
