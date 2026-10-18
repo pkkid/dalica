@@ -453,8 +453,9 @@ mod tabs {
 
     /// `roadmap.md` M12.29: a size-changing effect's tile is its whole grown picture fitted in the
     /// box and centred on `gray 38`, its frame colour on all four sides; Widescreen Film's tile
-    /// shows its black bars at top and bottom; Sepia's (the shape kept) is still the covering
-    /// render cut around the centre.
+    /// shows its black bars at top and bottom. M13.44: on a photo without a frame, every tile of
+    /// an effect that keeps the shape (Sepia, …) is still the covering render cut around the
+    /// centre, byte for byte.
     #[test]
     fn a_size_changing_effects_tile_shows_its_whole_frame() {
         // Large enough that the default bands are a few pixels wide.
@@ -486,17 +487,79 @@ mod tabs {
             }
         }
 
-        // Sepia keeps the shape: the covering render, cut around the centre (a 480 × 320 photo at
-        // 390 / 480 is 390 × 260, of which rows 10..250).
+        // The effects that keep the shape: the covering render, cut around the centre (a 480 × 320
+        // photo at 390 / 480 is 390 × 260, of which rows 10..250).
         let three = tiles_of(&mut s, ids[0], 3, BIG);
-        let sepia = three.iter().find(|t| t.name == "sepia").unwrap();
         let options = dalica_image::DecodeOptions::default();
         let decoded = dalica_image::decode_thumbnail_with(&photos[0].1, 1170, &options, &dalica_image::Limits::default()).unwrap();
-        let recipe = dalica_edit::Recipe::parse(["sepia()"]).unwrap();
-        let whole = dalica_edit::render(dalica_edit::Source::upright(&decoded), &recipe, dalica_edit::Target::Scale(390.0 / 480.0)).unwrap();
-        assert_eq!((whole.width, whole.height), (390, 260));
-        let row = (whole.width * 4) as usize;
-        assert!(sepia.image.data == whole.data[10 * row..250 * row], "the Sepia tile is the covering render's centre");
+        let mut kept = 0;
+        for t in three.iter().chain(&four).chain(&five).filter(|t| !catalog::lookup(t.name).unwrap().changes_size) {
+            let entry = catalog::lookup(t.name).and_then(|op| op.default_entry()).unwrap();
+            let recipe = dalica_edit::Recipe::parse([entry.as_str()]).unwrap();
+            let target = dalica_edit::Target::Scale(390.0 / 480.0);
+            let whole = dalica_edit::render(dalica_edit::Source::upright(&decoded), &recipe, target).unwrap();
+            assert_eq!((whole.width, whole.height), (390, 260));
+            let row = (whole.width * 4) as usize;
+            assert!(t.image.data == whole.data[10 * row..250 * row], "the {} tile is the covering render's centre", t.name);
+            kept += 1;
+        }
+        assert_eq!(kept, 27 - 4, "every effect but the four frames");
+    }
+
+    /// The tab and its tiles of effect `name` of photo `id` at `size`.
+    fn tile_of(s: &mut Session, id: PhotoId, name: &str, size: (u32, u32)) -> EffectTile {
+        let tab = catalog::lookup(name).and_then(|op| op.effect).unwrap().tab;
+        tiles_of(s, id, tab, size).into_iter().find(|t| t.name == name).unwrap()
+    }
+
+    /// `roadmap.md` M13.44: once a photo's recipe holds a frame, the tiles of the effects that keep
+    /// the shape fit the whole framed picture too: Sepia's and Boost's show the Border's outer
+    /// colour at the middle of all four sides, on `gray 38`.
+    #[test]
+    fn the_tiles_of_a_framed_photo_show_its_whole_frame() {
+        const BIG: (u32, u32) = (390, 240);
+        let photos = scenes(1);
+        let (_dir, _folder, mut s, ids) = library(&owned(&photos));
+        let border = catalog::lookup("border").and_then(|op| op.default_entry()).unwrap();
+        s.execute("photo.history.apply", &json!({ "id": ids[0], "op": border })).unwrap();
+        for name in ["sepia", "boost"] {
+            let t = tile_of(&mut s, ids[0], name, BIG);
+            assert_eq!((t.image.width, t.image.height, t.recipe.clone()), (BIG.0, BIG.1, vec![border.clone()]));
+            let (x0, y0, x1, y1) = picture_box(&t);
+            assert!((x0 == 0 && x1 == BIG.0) || (y0 == 0 && y1 == BIG.1), "{name}: the picture fits the box: {:?}", (x0, y0, x1, y1));
+            assert!(x0 + y0 > 0, "{name}: grey bars beside the framed picture");
+            let (mx, my) = ((x0 + x1) / 2, (y0 + y1) / 2);
+            for (x, y) in [(x0, my), (x1 - 1, my), (mx, y0), (mx, y1 - 1)] {
+                assert!(near(pixel(&t, x, y), [0, 0, 0]), "{name}: the frame at {x}, {y}: {:?}", pixel(&t, x, y));
+            }
+        }
+    }
+
+    /// `roadmap.md` M13.44: a default Border's tile at the grid's size (78 × 48, where its defaults
+    /// come to about a pixel) draws its outer band at least 2 px wide on every side, and its inner
+    /// band too.
+    #[test]
+    fn a_default_borders_tile_draws_its_bands_at_least_two_pixels_wide() {
+        let photos = scenes(1);
+        let (_dir, _folder, mut s, ids) = library(&owned(&photos));
+        let t = tile_of(&mut s, ids[0], "border", TILE);
+        let (x0, y0, x1, y1) = picture_box(&t);
+        let (mx, my) = ((x0 + x1) / 2, (y0 + y1) / 2);
+        // From the middle of each side inward: (start, step).
+        let sides: [((i64, i64), (i64, i64)); 4] = [
+            ((i64::from(x0), i64::from(my)), (1, 0)),
+            ((i64::from(x1) - 1, i64::from(my)), (-1, 0)),
+            ((i64::from(mx), i64::from(y0)), (0, 1)),
+            ((i64::from(mx), i64::from(y1) - 1), (0, -1)),
+        ];
+        for ((x, y), (dx, dy)) in sides {
+            let at = |i: i64| pixel(&t, (x + dx * i) as u32, (y + dy * i) as u32);
+            let outer = (0..20).take_while(|&i| near(at(i), [0, 0, 0])).count() as i64;
+            // The line between the bands may share a pixel.
+            let from = if near(at(outer), [255, 255, 255]) { outer } else { outer + 1 };
+            let inner = (from..from + 20).take_while(|&i| near(at(i), [255, 255, 255])).count();
+            assert!(outer >= 2 && inner >= 2, "the bands from {x}, {y}: outer {outer}, inner {inner}");
+        }
     }
 
     /// `roadmap.md` M12.5: a tile request waits behind the edit view's preview; an edit remakes

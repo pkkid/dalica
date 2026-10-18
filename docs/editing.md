@@ -265,9 +265,13 @@ new tab session changes depends on what came after that Tuning:
   Tiles render asynchronously (placeholder `gray 38`). (In Dalica each tile is rendered in the
   background at the preview's size in device pixels from a small decode, never written to disk;
   after an edit a tile keeps its old preview until the remade one replaces it, so the grid does not
-  flash grey. A tile fills its box with the middle of the picture, except an effect that changes
-  the picture's size (Border, Drop Shadow, Museum Matte, Widescreen Film), whose whole picture is
-  fitted in the box on `gray 38` so every side of its frame shows. The grid is centred in the panel, ids `effect:<name>`; a one-click tile runs
+  flash grey. A tile fills its box with the middle of the picture, except when the picture includes
+  a frame, either the effect's own (Border, Drop Shadow, Museum Matte and Widescreen Film change
+  the picture's size) or one already in the photo's recipe: then the whole picture is fitted in the
+  box on `gray 38` so every side of the frame shows. A frame effect's own tile draws each of its
+  bands at least 2 px wide at tile size (Border's and Museum Matte's two bands, Drop Shadow's reach,
+  its distance and blur together and in proportion), wider than its defaults where those would be
+  thinner, so the frame reads at 78 × 48; applying the effect still uses its defaults. The grid is centred in the panel, ids `effect:<name>`; a one-click tile runs
   `edit.effect.apply {name}`, any other `edit.tool.open {tool: "effect", name}`; while a modal tool
   is open the grid is drawn disabled, and an effect's own panel takes its place.)
 - **One-click effects** (Sepia, B&W, Warmify, Invert Colors) apply immediately and show a small

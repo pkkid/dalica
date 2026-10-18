@@ -8370,7 +8370,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     `cargo xtask budgets` passes with them, and `--plant-ms 17` makes every draft miss and
     `--plant-ms 101` every final (the `xtask` tests: the judge with a recorded report and a
     planted slowdown); `cargo xtask ci`.
-- ⬜ **M13.44 `engine`: effect tiles of an already framed photo show the whole picture, and a frame reads at tile size**
+- ✅ **M13.44 `engine`: effect tiles of an already framed photo show the whole picture, and a frame reads at tile size**
   - after: M12.R
   - files: `crates/engine/src/effect_tiles.rs`, `crates/engine/tests/effects.rs`, `docs/editing.md`
   - scope: a fix task from the M12.R review screenshots (after M12.29 #794). M12.29 fits a

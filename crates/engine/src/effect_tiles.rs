@@ -11,12 +11,16 @@
 //!   new tab makes no new decode.
 //! - **A tile** renders the recipe so far with the effect's default entry appended
 //!   (`OpInfo::default_entry`) from the small decode, at the scale that covers the box, then cut to
-//!   the box's shape around the centre and brought to exactly the size asked for. An effect that
-//!   changes the picture's size (its catalogue row says `changes_size`: a frame, Widescreen Film)
-//!   renders instead the whole grown picture at the scale that fits it in the box, centred on
-//!   [`PLACEHOLDER`], so every side of its frame shows (M12.29). The whole
-//!   recipe renders in each tile so that every stored-frame point and angle of the effect lands
-//!   where the edit view puts it (a crop or a rotation before it included). An effect whose
+//!   the box's shape around the centre and brought to exactly the size asked for. A picture that
+//!   includes a frame (`Geometry::frames`: the effect itself changes the picture's size, as Border,
+//!   Drop Shadow, Museum Matte and Widescreen Film do, or the recipe so far holds one) renders
+//!   instead whole, at the scale that fits it in the box, centred on [`PLACEHOLDER`], so every
+//!   side of the frame shows (M12.29, M13.44). A frame effect's own tile draws its bands at least
+//!   [`MIN_BAND`] tile pixels each (Border's and Museum Matte's two bands, Drop Shadow's reach:
+//!   its distance and blur together), wider than its defaults where those would be thinner, so
+//!   the frame reads at tile size (`readable`); applying the effect still uses its defaults. The
+//!   whole recipe renders in each tile so that every stored-frame point and angle of the effect
+//!   lands where the edit view puts it (a crop or a rotation before it included). An effect whose
 //!   renderer is still a stub (`OpInfo::renders` false) shows the photo as it is.
 //! - **Priority.** Tile jobs run at [`Priority::EFFECT_TILES`] on their own worker and only while
 //!   the edit view's preview has nothing on its way (`Session::preview_busy` is 0): while it has,
@@ -35,7 +39,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use dalica_core::PhotoId;
-use dalica_edit::{Geometry, Recipe, Target, catalog};
+use dalica_edit::ops::Operation;
+use dalica_edit::ops::canvas::{self, Border};
+use dalica_edit::ops::mats::{self, DropShadow, MuseumMatte};
+use dalica_edit::{Geometry, Recipe, Target, Typed, catalog};
 use dalica_image::{DecodeOptions, Limits, Orientation, Rgba8};
 use dalica_thumbs::ladder::Source;
 use dalica_thumbs::{Pool, Priority};
@@ -59,6 +66,12 @@ pub const MAX_READY: usize = 64;
 pub const MAX_FILE: u64 = dalica_thumbs::MAX_FILE;
 /// Around a fitted tile: the effect tiles' placeholder grey (`gray 38`, `editing.md` §8.1).
 pub const PLACEHOLDER: [u8; 4] = [38, 38, 38, 255];
+/// The narrowest band of a frame effect's own tile, in tile pixels (`editing.md` §8.1): 2, and
+/// half a pixel to spare for the whole-pixel rounding of the bands and of the fitted scale.
+pub const MIN_BAND: f64 = 2.5;
+/// Rounds of `readable`'s fixed point (wider bands shrink the fitted photo, which asks for wider
+/// bands): each round's change is a small fraction of the last one's.
+const BAND_ROUNDS: usize = 6;
 
 /// One tile made: the photo with its recipe so far and the effect at its defaults.
 #[derive(Clone, Debug)]
@@ -116,8 +129,6 @@ struct Job {
     name: &'static str,
     /// The effect at its defaults, as the recipe writes it.
     entry: String,
-    /// Whether the effect changes the picture's size: its tile fits the whole picture in the box.
-    fit: bool,
 }
 
 /// What the last request asked for.
@@ -220,9 +231,7 @@ fn file_of(s: &Session, id: PhotoId) -> Option<Source> {
 
 /// The tiles of tab `tab`, in grid order.
 fn jobs_of(tab: u8) -> VecDeque<Job> {
-    catalog::effects(tab)
-        .filter_map(|(op, e)| op.default_entry().map(|entry| Job { place: e.place, name: op.name, entry, fit: op.changes_size }))
-        .collect()
+    catalog::effects(tab).filter_map(|(op, e)| op.default_entry().map(|entry| Job { place: e.place, name: op.name, entry })).collect()
 }
 
 /// The longer side a decode needs so that a `size` box is covered [`COVER`] times by a photo of
@@ -291,13 +300,79 @@ fn letterbox(image: &Rgba8, size: (u32, u32)) -> Result<Rgba8, String> {
     Ok(Rgba8 { width: bw, height: bh, data })
 }
 
+/// The geometry of `recipe` on `decode`.
+fn geometry_of(recipe: &Recipe, decode: &Rgba8) -> Geometry {
+    Geometry::new(recipe, Orientation::default(), decode.width, decode.height)
+}
+
+/// `texts` parsed as one recipe.
+fn parse<'a>(texts: impl IntoIterator<Item = &'a str>) -> Result<Recipe, String> {
+    Recipe::parse(texts).map_err(|e| e.to_string())
+}
+
+/// The frame effect `entry` (at its defaults) as its own tile draws it: each band at least
+/// [`MIN_BAND`] pixels once the picture of `recipe` (the recipe so far) with the frame is fitted
+/// in a `size` box. Border's and Museum Matte's bands are widened one by one (a band of 0 stays
+/// none); Drop Shadow's distance and blur together, in proportion, so the shadow keeps its
+/// direction and softness. Within each parameter's range; any other entry comes back as it is.
+fn readable(decode: &Rgba8, recipe: &[String], entry: &str, size: (u32, u32)) -> Result<String, String> {
+    let typed = parse([entry])?.pipeline().next().and_then(|op| op.typed()).and_then(Result::ok);
+    let (mut lengths, max) = match &typed {
+        Some(Typed::Border(b)) => (vec![b.outer, b.inner], canvas::THICKNESS.1),
+        Some(Typed::MuseumMatte(m)) => (vec![m.outer, m.inner], mats::THICKNESS.1),
+        Some(Typed::DropShadow(d)) => (vec![d.distance + d.blur], mats::DISTANCE.1 + mats::BLUR.1),
+        _ => return Ok(entry.to_string()),
+    };
+    let defaults = lengths.clone();
+    let write = |lengths: &[f64]| -> String {
+        let at = |i: usize| lengths.get(i).copied().unwrap_or(0.0);
+        match &typed {
+            Some(Typed::Border(b)) => format!("{}({})", Border::NAME, Border { outer: at(0), inner: at(1), ..*b }),
+            Some(Typed::MuseumMatte(m)) => format!("{}({})", MuseumMatte::NAME, MuseumMatte { outer: at(0), inner: at(1), ..*m }),
+            Some(Typed::DropShadow(d)) => {
+                let reach = d.distance + d.blur;
+                let k = if reach > 0.0 { at(0) / reach } else { 1.0 };
+                let d = DropShadow { distance: (d.distance * k).min(mats::DISTANCE.1), blur: (d.blur * k).min(mats::BLUR.1), ..*d };
+                format!("{}({})", DropShadow::NAME, d)
+            }
+            _ => entry.to_string(),
+        }
+    };
+    // The shorter side of the picture the frame wraps, in decode pixels.
+    let (iw, ih) = geometry_of(&parse(recipe.iter().map(String::as_str))?, decode).size();
+    let short = iw.min(ih);
+    let (bw, bh) = (f64::from(size.0), f64::from(size.1));
+    for _ in 0..BAND_ROUNDS {
+        let text = write(&lengths);
+        let framed = geometry_of(&parse(recipe.iter().map(String::as_str).chain(std::iter::once(text.as_str())))?, decode);
+        let (w, h) = framed.size();
+        let (dw, dh) = if framed.orientation().swaps() { (h, w) } else { (w, h) };
+        // The tile's scale, and the thousandths of the wrapped picture's shorter side that make
+        // `MIN_BAND` tile pixels.
+        let scale = (bw / dw).min(bh / dh);
+        let least = MIN_BAND * 1000.0 / (short * scale);
+        if !least.is_finite() {
+            break;
+        }
+        let wider: Vec<f64> = defaults.iter().map(|&v| if v > 0.0 { v.max(least).min(max) } else { v }).collect();
+        if wider == lengths {
+            break;
+        }
+        lengths = wider;
+    }
+    Ok(write(&lengths))
+}
+
 /// One tile: `recipe` with `entry` appended, rendered from `decode` to cover `size`, then cut to it;
-/// or, with `fit` (a size-changing effect), the whole picture fitted in `size` and centred on
-/// [`PLACEHOLDER`].
-fn render_tile(decode: &Rgba8, recipe: &[String], entry: &str, fit: bool, size: (u32, u32)) -> Result<Rgba8, String> {
+/// or, when the picture includes a frame (the effect's or the recipe's), the whole picture fitted
+/// in `size` and centred on [`PLACEHOLDER`], a frame effect's bands widened by [`readable`].
+fn render_tile(decode: &Rgba8, recipe: &[String], entry: &str, size: (u32, u32)) -> Result<Rgba8, String> {
     let texts = recipe.iter().map(String::as_str).chain(std::iter::once(entry));
-    let recipe = Recipe::parse(texts).map_err(|e| e.to_string())?;
-    if fit {
+    let whole = parse(texts)?;
+    let geometry = geometry_of(&whole, decode);
+    if geometry.frames() > 0 {
+        let entry = readable(decode, recipe, entry, size)?;
+        let recipe = parse(recipe.iter().map(String::as_str).chain(std::iter::once(entry.as_str())))?;
         // `Target::Fit` never enlarges and keeps a frame's whole-pixel bands inside the box; a
         // decode smaller than the box (a tiny photo) is brought up to fill it on one side.
         let image = dalica_edit::render(dalica_edit::Source::upright(decode), &recipe, Target::Fit { width: size.0, height: size.1 })
@@ -314,7 +389,7 @@ fn render_tile(decode: &Rgba8, recipe: &[String], entry: &str, fit: bool, size: 
         };
         return letterbox(&image, size);
     }
-    let geometry = Geometry::new(&recipe, Orientation::default(), decode.width, decode.height);
+    let recipe = whole;
     let (w, h) = geometry.size();
     let (dw, dh) = if geometry.orientation().swaps() { (h, w) } else { (w, h) };
     let scale = (f64::from(size.0) / dw).max(f64::from(size.1) / dh).min(dalica_edit::render::MAX_SCALE);
@@ -405,12 +480,12 @@ impl Session {
         let queue: Vec<Job> = tiles.want.as_mut().map(|w| w.queue.drain(..).collect()).unwrap_or_default();
         for job in queue {
             let (decode, recipe, entry) = (Arc::clone(&decode), recipe.clone(), job.entry.clone());
-            let (place, fit) = (job.place, job.fit);
+            let place = job.place;
             tiles.submit(generation, Work::Tile(place), Some(job), move |cancel| {
                 if cancel.load(Ordering::SeqCst) {
                     return Done::Tile(Err("cancelled".into()));
                 }
-                Done::Tile(render_tile(&decode, &recipe, &entry, fit, size))
+                Done::Tile(render_tile(&decode, &recipe, &entry, size))
             });
         }
     }
@@ -572,11 +647,47 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_effects_tile_draws_each_band_at_least_two_pixels() {
+        // A 3:2 decode as a 78 × 48 tile of a 480 × 320 photo asks for.
+        let decode = Rgba8 { width: 234, height: 156, data: [90, 140, 60, 255].repeat(234 * 156) };
+        let entry = |name: &str| catalog::lookup(name).and_then(|op| op.default_entry()).unwrap();
+        // Each band's tile pixels: its thousandths of the photo's shorter side at the fitted scale.
+        let bands = |text: &str, size: (u32, u32)| -> Vec<f64> {
+            let recipe = Recipe::parse([text]).unwrap();
+            let (w, h) = geometry_of(&recipe, &decode).size();
+            let px = 156.0 * (f64::from(size.0) / w).min(f64::from(size.1) / h) / 1000.0;
+            match recipe.pipeline().next().and_then(|op| op.typed()).and_then(Result::ok) {
+                Some(Typed::Border(b)) => vec![b.outer * px, b.inner * px],
+                Some(Typed::MuseumMatte(m)) => vec![m.outer * px, m.inner * px],
+                Some(Typed::DropShadow(d)) => vec![(d.distance + d.blur) * px, d.distance / d.blur],
+                other => panic!("{other:?}"),
+            }
+        };
+        for name in ["border", "museum_matte", "drop_shadow"] {
+            let default = bands(&entry(name), (78, 48));
+            let thinnest = if name == "drop_shadow" { default[0] } else { default[0].min(default[1]) };
+            assert!(thinnest < 2.0, "{name}: the defaults are thinner than 2 px at 78 × 48: {default:?}");
+            let text = readable(&decode, &[], &entry(name), (78, 48)).unwrap();
+            let wide = bands(&text, (78, 48));
+            if name == "drop_shadow" {
+                assert!(wide[0] >= 2.0, "{text}: the shadow reaches {wide:?}");
+                assert!((wide[1] - default[1]).abs() < 1e-9, "{text}: distance and blur keep their proportion");
+            } else {
+                assert!(wide.iter().all(|&b| b >= 2.0), "{text}: {wide:?}");
+            }
+            // A tile large enough for the defaults draws them.
+            assert_eq!(readable(&decode, &[], &entry(name), (1024, 1024)).unwrap(), entry(name), "{name}");
+        }
+        assert_eq!(readable(&decode, &[], "sepia()", (78, 48)).unwrap(), "sepia()", "not a frame: as it is");
+        assert_eq!(readable(&decode, &[], &entry("widescreen"), (78, 48)).unwrap(), entry("widescreen"), "its bars are wide");
+    }
+
+    #[test]
     fn a_fitted_tile_of_a_tiny_photo_still_reaches_the_box() {
         // A 12 × 8 decode, smaller than the box: `Target::Fit` does not enlarge, the tile does.
         let decode = Rgba8 { width: 12, height: 8, data: [200, 120, 40, 255].repeat(96) };
         let entry = catalog::lookup("museum_matte").and_then(|op| op.default_entry()).unwrap();
-        let tile = render_tile(&decode, &[], &entry, true, (78, 48)).unwrap();
+        let tile = render_tile(&decode, &[], &entry, (78, 48)).unwrap();
         assert_eq!((tile.width, tile.height), (78, 48));
         let grey = |x: u32, y: u32| tile.data.get(((y * 78 + x) * 4) as usize..((y * 78 + x) * 4 + 4) as usize) == Some(&PLACEHOLDER[..]);
         assert!(!grey(39, 0) && !grey(39, 47), "the picture reaches the top and bottom");
