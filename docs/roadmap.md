@@ -6897,7 +6897,7 @@ a maintainer decision mid-run.
     R − B and keeps luma within 3 %; Tint gives the tint's hue to every coloured pixel, and Fade 100
     gives the input; Saturation 0 is the identity and −1 gives R = G = B; each effect renders the
     same at two sizes after a downscale.
-- ⬜ **M12.7 `edit`: Sharpen, Film Grain and Glow**
+- ✅ **M12.7 `edit`: Sharpen, Film Grain and Glow**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/detail.rs`, `crates/edit/tests/detail_effects.rs`, `crates/edit/tests/fingerprints/detail-*.json`
   - scope: `editing.md` §8.2: Sharpen (an unsharp mask whose radius is relative to the picture,

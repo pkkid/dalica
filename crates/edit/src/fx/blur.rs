@@ -11,7 +11,11 @@
 //!   integers (fixed point, 2⁻²⁰), so they do not depend on where a row starts.
 //! - **Passes:** [`Blurred`] blurs a pass's `before` view once per render (by the first band to
 //!   run) for every band to read; the pass's [`crate::ops::Reach`] is
-//!   `Reach::Pixels(gaussian.reach())`.
+//!   `Reach::Pixels(gaussian.reach())`. The bands run in the renderer's `rayon` pool, so the blur
+//!   is made on a pool of its own ([`blur_pool`]) from a plain thread the band waits on: a band
+//!   thread that waited inside the pool could steal another band of the same pass and ask for the
+//!   blur it is making (a deadlock); the bands that ask meanwhile wait for it, and the blur itself
+//!   still runs in parallel.
 //!
 //! Ported from LightCraft `crates/raster/src/blur.rs` (`box_radii`, `radii_for`, `gaussian`, the
 //! running-sum box passes) at revision 0da998f2 (MIT OR Apache-2.0; `NOTICE`). Dalica's changes:
@@ -152,11 +156,27 @@ impl Blurred {
     pub fn get(&self, view: &View<'_>, f: impl Fn([f32; 3]) -> [f32; 3] + Sync) -> Option<&Plane> {
         self.done
             .get_or_init(|| {
-                let mut plane = Plane::from_view(view, f)?;
-                self.gaussian.apply(&mut plane).then_some(plane)
+                let make = || {
+                    let mut plane = Plane::from_view(view, &f)?;
+                    self.gaussian.apply(&mut plane).then_some(plane)
+                };
+                // Outside every pool: make it on the blur's pool from a thread that only waits
+                // (it never runs a band), so no band can re-enter this initialisation.
+                let pool = blur_pool()?;
+                std::thread::scope(|s| {
+                    let waiter = std::thread::Builder::new().name("dalica-blur-wait".into()).spawn_scoped(s, || pool.install(make)).ok()?;
+                    waiter.join().ok().flatten()
+                })
             })
             .as_ref()
     }
+}
+
+/// The pool [`Blurred`] makes its blurs on, apart from the renderer's (as many threads as the
+/// machine's cores); `None` when it cannot be started.
+pub fn blur_pool() -> Option<&'static rayon::ThreadPool> {
+    static POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
+    POOL.get_or_init(|| rayon::ThreadPoolBuilder::new().thread_name(|i| format!("dalica-blur-{i}")).build().ok()).as_ref()
 }
 
 /// Box radii approximating a Gaussian of `sigma` with three passes (Kovesi / Wells).

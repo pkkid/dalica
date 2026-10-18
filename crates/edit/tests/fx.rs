@@ -348,3 +348,33 @@ fn hostile_sizes_answer_without_a_panic() {
     let _ = fx::fade(odd, [0.5; 3], f64::NAN);
     assert_eq!((fx::to_linear(f32::NAN), fx::to_srgb(f32::NAN)), (0.0, 0.0));
 }
+
+/// A pass's shared blur ([`fx::Blurred`], here Glow's) is made once while bands run: a band
+/// thread making it never runs another band meanwhile (one waiting on this blur, or on another
+/// render's blur whose maker waits on this one). Before the blur had a pool of its own, two
+/// threads rendering into one small pool hung.
+#[test]
+fn blurs_shared_by_bands_never_wait_on_each_other() {
+    use dalica_edit::{Source, Target, render};
+    use std::sync::Arc;
+    let img = Arc::new(crate::common::scene(9, 900, 600));
+    let pool = Arc::new(rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap());
+    let (done, wait) = std::sync::mpsc::channel();
+    for ops in [["glow(1,30)", "glow(0.65,3)", "glow(1,0.3)"], ["glow(0.65,3)", "glow(1,0.3)", "glow(1,30)"]] {
+        let (img, pool, done) = (img.clone(), pool.clone(), done.clone());
+        std::thread::spawn(move || {
+            for _ in 0..4 {
+                for op in ops {
+                    let a = pool.install(|| render(Source::upright(&img), &recipe(&[op]), Target::Full).unwrap());
+                    let b = pool.install(|| render(Source::upright(&img), &recipe(&[op]), Target::Fit { width: 300, height: 300 }).unwrap());
+                    let _ = done.send((op, a, b));
+                }
+            }
+        });
+    }
+    let mut seen = std::collections::HashMap::new();
+    for _ in 0..24 {
+        let (op, a, b) = wait.recv_timeout(std::time::Duration::from_secs(30)).expect("the renders finish (no band waits on a blur it is making)");
+        assert_eq!(seen.entry(op).or_insert_with(|| (a.clone(), b.clone())), &(a, b), "{op} renders the same every time");
+    }
+}
