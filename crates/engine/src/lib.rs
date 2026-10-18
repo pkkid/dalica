@@ -12,6 +12,7 @@ pub mod automation;
 pub mod cmd;
 pub mod demo;
 pub mod duplicates;
+pub mod effect_tiles;
 pub mod error;
 pub mod filejobs;
 pub mod fileops;
@@ -40,6 +41,7 @@ pub mod variant;
 pub mod viewer;
 pub mod watching;
 
+pub use effect_tiles::{EffectTile, EffectTileStats};
 pub use error::{CmdError, OpenError};
 pub use filejobs::{Applied, Done, FileChange, FileItem, FileJob, FileJobEvent, ItemFailure, Notice, Tally};
 pub use fileops::{Direction, Driver, FileOp, FileOpEvent, FileOpKind, Ran};

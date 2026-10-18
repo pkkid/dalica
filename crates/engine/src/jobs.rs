@@ -13,9 +13,19 @@
 //! The control methods `jobs.list`, `jobs.wait` and `jobs.cancel` (M5.14) and the activity
 //! popover (M5.19) read it through [`Session::jobs`], [`Session::job`], [`Session::wait_job`] and
 //! [`Session::cancel_jobs`].
+//!
+//! - **Answered jobs** (M12.5): a job whose worker needs nothing more from the session than to end
+//!   it ([`Jobs::start_answered`]: `photo.effect.pick`) gets a channel instead of a module of its
+//!   own: the worker sends its [`Answer`] once, and the registry ends the job with it when it next
+//!   prunes (every [`Session::poll`]). A worker that stops without answering ends its job as
+//!   failed.
+//! - **The effect tiles' state** (M12.5, `effect_tiles.rs`) is kept here too
+//!   ([`Jobs::effect_tiles`]): the registry of the session's background work is the one field of
+//!   [`Session`] that module may reach without a field of its own.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
 use dalica_core::Timestamp;
@@ -111,10 +121,18 @@ pub enum Outcome {
     Failed(String),
 }
 
+/// What the worker of an answered job sends when it ends: how, and the job's final label.
+pub type Answer = (Outcome, String);
+
+/// The label of an answered job whose worker stopped without answering.
+pub const LOST: &str = "The work stopped without an answer";
+
 struct Entry {
     info: JobEntry,
     cancel: Arc<AtomicBool>,
     finished_at: Option<Timestamp>,
+    /// An answered job's channel, until it answers.
+    answer: Option<Receiver<Answer>>,
 }
 
 /// The session's jobs, oldest first.
@@ -123,12 +141,14 @@ pub struct Jobs {
     next: JobId,
     /// When the session opened: `startedMs` counts from here.
     epoch: Timestamp,
+    /// The effect tiles being made (`effect_tiles.rs`).
+    pub(crate) effect_tiles: crate::effect_tiles::EffectTiles,
 }
 
 impl Jobs {
     /// An empty registry whose times count from `epoch`.
     pub fn new(epoch: Timestamp) -> Jobs {
-        Jobs { entries: Vec::new(), next: 1, epoch }
+        Jobs { entries: Vec::new(), next: 1, epoch, effect_tiles: crate::effect_tiles::EffectTiles::default() }
     }
 
     /// Registers a running job and returns its id and the cancel flag to give its worker.
@@ -148,9 +168,58 @@ impl Jobs {
             result: None,
             error: None,
         };
-        self.entries.push(Entry { info, cancel: Arc::clone(&cancel), finished_at: None });
+        self.entries.push(Entry { info, cancel: Arc::clone(&cancel), finished_at: None, answer: None });
         self.prune(now);
         (job, cancel)
+    }
+
+    /// Registers a running job whose worker ends it: the worker gets the cancel flag and the
+    /// sender, and sends its [`Answer`] once; the registry ends the job with it at its next prune
+    /// (every [`Session::poll`]).
+    pub fn start_answered(
+        &mut self,
+        kind: JobKind,
+        label: impl Into<String>,
+        cancellable: bool,
+        now: Timestamp,
+    ) -> (JobId, Arc<AtomicBool>, Sender<Answer>) {
+        let (job, cancel) = self.start(kind, label, cancellable, now);
+        let (tx, rx) = mpsc::channel();
+        if let Some(e) = self.entry_mut(job) {
+            e.answer = Some(rx);
+        }
+        (job, cancel, tx)
+    }
+
+    /// Whether `job` is an answered job still waiting for its worker's answer.
+    pub fn awaits_answer(&self, job: JobId) -> bool {
+        self.entries.iter().any(|e| e.info.job == job && e.answer.is_some())
+    }
+
+    /// The running answered jobs of `kind` labelled `label` (a cap on how many run at once).
+    pub fn answered_running(&self, kind: JobKind, label: &str) -> usize {
+        self.entries.iter().filter(|e| e.answer.is_some() && e.info.kind == kind && e.info.label == label).count()
+    }
+
+    /// Ends the answered jobs whose workers answered (or stopped without answering); returns how
+    /// many. Never blocks.
+    pub fn collect(&mut self, now: Timestamp) -> usize {
+        let mut ended = Vec::new();
+        for e in &mut self.entries {
+            let Some(rx) = &e.answer else { continue };
+            let answer = match rx.try_recv() {
+                Ok(a) => a,
+                Err(TryRecvError::Empty) => continue,
+                Err(TryRecvError::Disconnected) => (Outcome::Failed(LOST.into()), LOST.to_string()),
+            };
+            e.answer = None;
+            ended.push((e.info.job, answer));
+        }
+        let n = ended.len();
+        for (job, (outcome, label)) in ended {
+            self.finish_one(job, outcome, label, now);
+        }
+        n
     }
 
     /// Updates a running job's progress and label. A finished or unknown job is left alone.
@@ -165,6 +234,11 @@ impl Jobs {
 
     /// Closes a job with its outcome and final label. A job already finished keeps its first end.
     pub fn finish(&mut self, job: JobId, outcome: Outcome, label: impl Into<String>, now: Timestamp) {
+        self.finish_one(job, outcome, label, now);
+        self.prune(now);
+    }
+
+    fn finish_one(&mut self, job: JobId, outcome: Outcome, label: impl Into<String>, now: Timestamp) {
         let ms = self.ms(now);
         if let Some(e) = self.entry_mut(job)
             && !e.info.state.is_finished()
@@ -180,8 +254,8 @@ impl Jobs {
             e.info.label = label.into();
             e.info.finished_ms = Some(ms);
             e.finished_at = Some(now);
+            e.answer = None;
         }
-        self.prune(now);
     }
 
     /// Sets the cancel flag of `job` (or, with `None`, of every running cancellable job) and returns
@@ -225,8 +299,10 @@ impl Jobs {
         self.entries.iter().any(|e| !e.info.state.is_finished())
     }
 
-    /// Drops the finished jobs older than [`KEEP`], then the oldest finished ones beyond [`CAP`].
+    /// Ends the answered jobs that answered ([`Jobs::collect`]), then drops the finished jobs older
+    /// than [`KEEP`], then the oldest finished ones beyond [`CAP`].
     pub fn prune(&mut self, now: Timestamp) {
+        self.collect(now);
         self.entries.retain(|e| !expired(e, now));
         let mut over = self.entries.len().saturating_sub(CAP);
         if over > 0 {
@@ -346,6 +422,23 @@ mod tests {
         jobs.prune(at(10 * keep));
         assert_eq!(jobs.list(at(10 * keep)).len(), 1);
         assert!(jobs.any_running());
+    }
+
+    #[test]
+    fn an_answered_job_ends_with_its_workers_answer_or_fails_without_one() {
+        let mut jobs = Jobs::new(at(0));
+        let (a, _, tx) = jobs.start_answered(JobKind::Analysis, "Picking", true, at(0));
+        let (b, _, lost) = jobs.start_answered(JobKind::Analysis, "Picking", true, at(0));
+        assert_eq!(jobs.answered_running(JobKind::Analysis, "Picking"), 2);
+        jobs.prune(at(1));
+        assert!(jobs.awaits_answer(a) && jobs.get(a, at(1)).unwrap().state == JobState::Running, "no answer yet");
+        tx.send((Outcome::Done(json!({"color": "#ff0000"})), "Picked".into())).unwrap();
+        drop(lost);
+        jobs.prune(at(2));
+        let (ea, eb) = (jobs.get(a, at(2)).unwrap(), jobs.get(b, at(2)).unwrap());
+        assert_eq!((ea.state, ea.label.as_str(), ea.result), (JobState::Done, "Picked", Some(json!({"color": "#ff0000"}))));
+        assert_eq!((eb.state, eb.error.as_deref()), (JobState::Failed, Some(LOST)));
+        assert!(!jobs.awaits_answer(a) && jobs.answered_running(JobKind::Analysis, "Picking") == 0);
     }
 
     #[test]

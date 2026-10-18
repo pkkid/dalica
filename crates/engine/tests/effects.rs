@@ -1,4 +1,6 @@
-//! Commands do what their specs declare (`roadmap.md` M10.35; `architecture.md` §3–§4): whatever
+//! Commands do what their specs declare, and the effect tabs' engine half.
+//!
+//! **Specs** (`roadmap.md` M10.35; `architecture.md` §3–§4): whatever
 //! parameters it gets, a command whose spec says `Effect::Query` changes neither the model nor the
 //! undo stack, and one whose spec says `History::None` adds no undo step. Each command's
 //! parameters are mostly its own keys (read from its spec's `params`) with plausible values, so a
@@ -9,6 +11,11 @@
 //! that left anything else (a `History::None` command may change the model: Rebuild, a setting) is
 //! followed by the library put back as it was made. A task's gate runs a few cases per command, the
 //! review gate (`DALICA_FULL_TESTS=1`) 64.
+//!
+//! **Effects** (`roadmap.md` M12.5; `editing.md` §8.1): `effect.list` is the catalogue in the
+//! grids' order; a tab's tiles arrive in grid order at the size asked for, wait behind the edit
+//! view's preview, are cancelled by another photo and remade after an edit, with no `fs` call on
+//! the owner thread; `photo.effect.pick` answers a planted patch's colour on a turned photo.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -284,4 +291,249 @@ fn queries_change_nothing_and_commands_without_history_add_no_step() {
         assert!(result.is_ok(), "{}: {result:?}", spec.id);
     }
     println!("effects: {} commands ({queries} queries, {} without history) x {cases} cases", specs.len(), specs.len() - queries);
+}
+
+// --- the effect tabs (M12.5) ---------------------------------------------------------------------
+
+mod tabs {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use dalica_core::{PhotoId, SystemClock};
+    use dalica_edit::catalog;
+    use dalica_engine::cmd::effects::effect_json;
+    use dalica_engine::watching::WatchMode;
+    use dalica_engine::{CacheDir, CmdError, EffectTile, JobState, Options, Session, ThumbOptions};
+    use dalica_fs::Expect;
+    use serde_json::{Value, json};
+
+    const WAIT: Duration = Duration::from_secs(60);
+    const TILE: (u32, u32) = (78, 48);
+
+    /// A library watching `Braga` with `photos` (name, bytes); ids in name order.
+    fn library(photos: &[(&str, Vec<u8>)]) -> (tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Braga");
+        dalica_fs::create_dir_all(&folder).unwrap();
+        for (name, bytes) in photos {
+            dalica_fs::replace(&folder.join(name), bytes, Expect::Absent).unwrap();
+        }
+        let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
+        let mut s = Session::open_with(&dir.path().join("library"), Arc::new(SystemClock), &options).unwrap();
+        // A file removed by a test stays in the library.
+        s.set_watching(WatchMode::Off);
+        s.execute("folders.add", &json!({ "path": folder })).unwrap();
+        s.wait_idle();
+        let mut ids: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
+        ids.sort();
+        (dir, folder, s, ids.into_iter().map(|(_, id)| id).collect())
+    }
+
+    fn scenes(n: u64) -> Vec<(String, Vec<u8>)> {
+        (0..n).map(|i| (format!("IMG_{i:04}.jpg"), dalica_scenes::jpeg(&dalica_scenes::Scene::new(i + 3, 480, 320), 85, None).unwrap())).collect()
+    }
+
+    fn owned(photos: &[(String, Vec<u8>)]) -> Vec<(&str, Vec<u8>)> {
+        photos.iter().map(|(n, b)| (n.as_str(), b.clone())).collect()
+    }
+
+    /// Takes tiles until `n` have come or the wait is over.
+    fn take(s: &mut Session, n: usize) -> Vec<EffectTile> {
+        let until = Instant::now() + WAIT;
+        let mut got = Vec::new();
+        while got.len() < n && Instant::now() < until {
+            assert!(s.wait_effect_tiles(WAIT));
+            got.extend(s.take_effect_tiles());
+        }
+        got
+    }
+
+    fn names(tab: u8) -> Vec<&'static str> {
+        catalog::effects(tab).map(|(op, _)| op.name).collect()
+    }
+
+    /// `roadmap.md` M12.5: `effect.list` gives the 27 effects in the three grids' order, equal to
+    /// the catalogue, and one tab's alone; a tab that is not an effect tab is refused.
+    #[test]
+    fn effect_list_is_the_catalogue_in_the_grids_order() {
+        let (_dir, _folder, mut s, _) = library(&[]);
+        let all = s.execute("effect.list", &json!({})).unwrap();
+        let expected: Vec<Value> = catalog::TABS.iter().flat_map(|t| catalog::effects(*t)).map(|(op, e)| effect_json(op, e)).collect();
+        assert_eq!(all["effects"].as_array().unwrap().len(), 27);
+        assert_eq!(all["effects"], json!(expected));
+        for tab in catalog::TABS {
+            let one = s.execute("effect.list", &json!({ "tab": tab })).unwrap();
+            let listed = one["effects"].as_array().unwrap();
+            assert!(listed.iter().all(|e| e["tab"] == json!(tab)) && listed.len() <= catalog::MAX_TILES);
+            let places: Vec<u64> = listed.iter().map(|e| e["place"].as_u64().unwrap()).collect();
+            assert_eq!(places, (0..listed.len() as u64).collect::<Vec<_>>(), "tab {tab} in grid order");
+        }
+        let sepia = &all["effects"][1];
+        assert_eq!(
+            (sepia["name"].clone(), sepia["oneClick"].clone(), sepia["defaultEntry"].clone()),
+            (json!("sepia"), json!(true), json!("sepia()"))
+        );
+        for bad in [json!({ "tab": 2 }), json!({ "tab": "3" }), json!({ "tabs": 3 }), json!([3])] {
+            assert!(matches!(s.execute("effect.list", &bad), Err(CmdError::BadParams(_))), "{bad}");
+        }
+    }
+
+    /// `roadmap.md` M12.5: tab 3's 12 tiles arrive in grid order at the size asked for, Sepia's
+    /// has R ≥ G ≥ B everywhere (once its renderer is in), the owner thread makes no `fs` call,
+    /// and another tab of the same photo needs no new decode.
+    #[test]
+    fn a_tabs_tiles_arrive_in_grid_order_at_the_size_asked_for() {
+        let photos = scenes(1);
+        let (_dir, _folder, mut s, ids) = library(&owned(&photos));
+        let before = dalica_fs::guard::refused();
+        let ui = dalica_fs::mark_ui_thread();
+        s.request_effect_tiles(ids[0], 3, TILE).unwrap();
+        let tiles = take(&mut s, 12);
+        s.request_effect_tiles(ids[0], 4, (40, 40)).unwrap();
+        let four = take(&mut s, 7);
+        drop(ui);
+        assert_eq!(dalica_fs::guard::refused(), before, "the owner thread made no fs call");
+
+        assert_eq!(tiles.iter().map(|t| t.name).collect::<Vec<_>>(), names(3));
+        assert_eq!(tiles.iter().map(|t| t.place).collect::<Vec<_>>(), (0..12).collect::<Vec<u8>>());
+        for t in &tiles {
+            assert_eq!((t.photo, t.tab, t.image.width, t.image.height), (ids[0], 3, TILE.0, TILE.1), "{}", t.name);
+            assert_eq!(t.image.data.len(), (TILE.0 * TILE.1 * 4) as usize);
+        }
+        let tile = |name: &str| tiles.iter().find(|t| t.name == name).unwrap();
+        if catalog::lookup("sepia").unwrap().renders() {
+            for px in tile("sepia").image.data.chunks(4) {
+                assert!(px[0] >= px[1] && px[1] >= px[2], "sepia gives R ≥ G ≥ B: {px:?}");
+            }
+        } else if !catalog::lookup("bw").unwrap().renders() {
+            // Stubs change nothing: both tiles are the photo as it is.
+            assert_eq!(tile("sepia").image.data, tile("bw").image.data);
+        }
+        assert_eq!(four.iter().map(|t| t.name).collect::<Vec<_>>(), names(4));
+        assert!(four.iter().all(|t| (t.image.width, t.image.height) == (40, 40)));
+        let stats = s.effect_tile_stats();
+        assert_eq!((stats.decodes, stats.renders, stats.failures), (1, 19, 0), "{stats:?}");
+        assert_eq!(s.effect_tiles_pending(), 0);
+    }
+
+    /// `roadmap.md` M12.5: a tile request waits behind the edit view's preview; an edit remakes
+    /// the tiles on the new recipe; opening another photo cancels them.
+    #[test]
+    fn tiles_wait_behind_the_preview_are_remade_after_an_edit_and_cancelled_by_another_photo() {
+        let photos = scenes(2);
+        let (_dir, _folder, mut s, ids) = library(&owned(&photos));
+        let (a, b) = (ids[0], ids[1]);
+        s.open_preview(a, (300, 300)).unwrap();
+        s.hold_preview(true);
+        assert!(s.preview_busy() > 0);
+        s.request_effect_tiles(a, 3, TILE).unwrap();
+        for _ in 0..20 {
+            s.poll();
+            assert!(s.take_effect_tiles().is_empty(), "no tile while the preview is on its way");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!((s.effect_tile_stats().decodes, s.effect_tile_stats().renders), (0, 0));
+        assert_eq!(s.effect_tiles_pending(), 12);
+        s.hold_preview(false);
+        let first = take(&mut s, 12);
+        assert_eq!(first.len(), 12);
+        assert!(s.preview().is_some(), "the preview came first");
+
+        s.execute("photo.history.apply", &json!({ "id": a, "op": "rotate(90)" })).unwrap();
+        let again = take(&mut s, 12);
+        assert_eq!(again.len(), 12);
+        assert!(again.iter().all(|t| t.recipe == ["rotate(90)"] && t.generation > first[0].generation));
+        assert_eq!(s.effect_tile_stats().decodes, 1, "the small decode is kept");
+
+        let cancelled = s.effect_tile_stats().cancelled;
+        s.request_effect_tiles(a, 4, TILE).unwrap();
+        assert!(s.effect_tiles_pending() > 0);
+        s.open_preview(b, (300, 300)).unwrap();
+        assert!(s.wait_effect_tiles(WAIT));
+        assert!(s.take_effect_tiles().is_empty(), "nothing of the photo left is handed over");
+        assert_eq!(s.effect_tile_stats().cancelled, cancelled + 7);
+        assert_eq!(s.effect_tiles_pending(), 0);
+    }
+
+    /// Graceful failures of the tile requests: a tab that is not one, sizes of nothing or too
+    /// large, an unknown photo; a photo whose file went missing makes no tile and waits for none.
+    #[test]
+    fn tile_requests_fail_gracefully() {
+        let photos = scenes(1);
+        let (_dir, folder, mut s, ids) = library(&owned(&photos));
+        for tab in [0, 2, 6, 255] {
+            assert!(matches!(s.request_effect_tiles(ids[0], tab, TILE), Err(CmdError::BadParams(_))), "{tab}");
+        }
+        for size in [(0, 48), (78, 0), (dalica_engine::effect_tiles::MAX_TILE + 1, 48)] {
+            assert!(matches!(s.request_effect_tiles(ids[0], 3, size), Err(CmdError::BadParams(_))), "{size:?}");
+        }
+        assert!(matches!(s.request_effect_tiles(PhotoId::new(999_999), 3, TILE), Err(CmdError::NotFound(_))));
+        std::fs::remove_file(folder.join(&photos[0].0)).unwrap();
+        s.request_effect_tiles(ids[0], 3, TILE).unwrap();
+        assert!(s.wait_effect_tiles(WAIT));
+        assert!(s.take_effect_tiles().is_empty());
+        assert_eq!(s.effect_tile_stats().failures, 1);
+        s.close_effect_tiles();
+        assert_eq!(s.effect_tiles_pending(), 0);
+    }
+
+    /// A 200 × 100 PNG: grey, with a patch of `PATCH` over x 0.1…0.3, y 0.2…0.6 (stored frame).
+    fn planted() -> Vec<u8> {
+        let (w, h) = (200u32, 100u32);
+        let mut rgba = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let inside = (20..60).contains(&x) && (20..60).contains(&y);
+                rgba.extend_from_slice(&if inside { [PATCH[0], PATCH[1], PATCH[2], 255] } else { [128, 128, 128, 255] });
+            }
+        }
+        dalica_scenes::fingerprint::png_rgba(w, h, &rgba)
+    }
+
+    const PATCH: [u8; 3] = [220, 40, 90];
+
+    fn pick(s: &mut Session, p: Value) -> Value {
+        let v = s.execute("photo.effect.pick", &p).unwrap();
+        assert_eq!(v["pending"], json!(true));
+        let entry = s.wait_job(v["job"].as_u64().unwrap(), WAIT).unwrap();
+        assert_eq!(entry.state, JobState::Done, "{entry:?}");
+        entry.result.unwrap()
+    }
+
+    /// `roadmap.md` M12.5: `photo.effect.pick` answers a planted patch's colour on a turned photo
+    /// (the point in the stored frame), with no `fs` call on the owner thread; its graceful
+    /// failures.
+    #[test]
+    fn photo_effect_pick_answers_a_planted_patch_on_a_turned_photo() {
+        let (_dir, _folder, mut s, ids) = library(&[("patch.png", planted())]);
+        let id = ids[0];
+        for op in ["rotate(90)", "flip_h()"] {
+            s.execute("photo.history.apply", &json!({ "id": id, "op": op })).unwrap();
+        }
+        let before = dalica_fs::guard::refused();
+        let ui = dalica_fs::mark_ui_thread();
+        let on = pick(&mut s, json!({ "id": id, "x": 0.2, "y": 0.4 }));
+        let off = pick(&mut s, json!({ "id": id, "x": 0.7, "y": 0.5 }));
+        drop(ui);
+        assert_eq!(dalica_fs::guard::refused(), before, "the owner thread made no fs call");
+        assert_eq!(on, json!({ "id": id, "x": 0.2, "y": 0.4, "color": dalica_core::color::hex_u8(PATCH) }));
+        assert_eq!(off["color"], json!("#808080"));
+        // A crop that leaves the point out answers no colour.
+        s.execute("photo.history.apply", &json!({ "id": id, "op": "crop(0.5,0,1,1)" })).unwrap();
+        assert_eq!(pick(&mut s, json!({ "id": id, "x": 0.2, "y": 0.4 }))["color"], Value::Null);
+
+        for bad in [
+            json!({ "id": id, "x": 1.5, "y": 0.5 }),
+            json!({ "id": id, "x": -0.1, "y": 0.5 }),
+            json!({ "id": id, "x": 0.5 }),
+            json!({ "id": id, "x": "a", "y": 0.5 }),
+        ] {
+            assert!(matches!(s.execute("photo.effect.pick", &bad), Err(CmdError::BadParams(_))), "{bad}");
+        }
+        assert!(matches!(s.execute("photo.effect.pick", &json!({ "id": 999_999, "x": 0.5, "y": 0.5 })), Err(CmdError::NotFound(_))));
+        let (stack, model) = (s.undo_stack().len(), s.library().model().clone());
+        pick(&mut s, json!({ "id": id, "x": 0.5, "y": 0.5 }));
+        assert_eq!((s.undo_stack().len(), s.library().model()), (stack, &model), "a pick changes nothing");
+    }
 }

@@ -11,6 +11,7 @@ pub mod dates;
 pub mod delete;
 pub mod duplicates;
 pub mod edit;
+pub mod effects;
 pub mod export;
 pub mod files;
 pub mod folder_data;
@@ -95,6 +96,8 @@ pub fn specs() -> Vec<CommandSpec> {
         compare::specs(),
         slideshow::specs(),
         viewer::specs(),
+        // M12: the effect list and the colour pick (M12.5).
+        effects::specs(),
     ]
     .concat();
     #[cfg(test)]
