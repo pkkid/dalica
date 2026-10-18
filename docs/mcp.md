@@ -263,7 +263,7 @@ with one addition: **client roots**.
   `export.defaults` of a person's section suggests its fallback name (`Export <date>`), not the
   person's, so the `export` tool's default folder names nobody. The commands themselves run as
   asked (naming a face works without the permission; its reply carries ids only), but for the
-  searches: `library.query` and `search.set` run with `"withholdNames": true`
+  searches: `library.query`, `search.set` and `slideshow.list` run with `"withholdNames": true`
   (`Policy::people_params`, `control-protocol.md` §6.4), so `query_photos {query: "person:Ana"}`
   and the plain word `Ana` find nothing by her name (`person` unavailable), while everything else
   matches as before and the filter by person id still holds: no reply tells a guessed name from

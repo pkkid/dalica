@@ -668,12 +668,8 @@ impl Session {
         Ok(Some(self.ask_search_with(query, who)?.photos().to_vec()))
     }
 
-    /// Runs `query` on the worker and waits for the answer (search mode is left as it is).
-    pub(crate) fn ask_search(&mut self, query: Query) -> Result<SearchResult, CmdError> {
-        self.ask_search_with(query, People::default())
-    }
-
-    /// [`Session::ask_search`] with what the search asks of people.
+    /// Runs `query`, with what it asks of people, on the worker and waits for the answer (search
+    /// mode is left as it is).
     pub(crate) fn ask_search_with(&mut self, query: Query, who: People) -> Result<SearchResult, CmdError> {
         let (roots, options) = (self.roots().to_vec(), self.search_tree_options());
         let (reply, answer) = mpsc::channel();

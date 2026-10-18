@@ -447,7 +447,8 @@ fn without_the_people_permission_automation_sees_no_names_or_rectangles() {
 /// Without `--automation-allow-people` a search over automation leaves people's names out of the
 /// match (`Policy::people_params`): `library.query` with `person:Ana` finds nothing and lists
 /// `person` unavailable, the plain word `Ana` finds no photo by her name, `people: [Ana]` (an id)
-/// still finds hers; with the permission all three find them. A `search.set` through the policy is
+/// still finds hers, and `slideshow.list {search: "person:Ana"}` plays nothing; with the permission
+/// all of them find her photos. A `search.set` through the policy is
 /// withheld too, while the window's own `search.set` after it matches names again: the switch is
 /// per call.
 #[test]
@@ -481,6 +482,10 @@ fn without_the_people_permission_searches_leave_names_out_of_the_match() {
         let r = run(&mut s, &policy, "library.query", json!({ "text": "ana", "withholdNames": false }));
         assert_eq!(found(&r), want, "{at}: withholdNames from the caller");
         assert_eq!(found(&run(&mut s, &policy, "library.query", json!({ "people": [ana] }))), hers, "{at}: by id");
+        let show = run(&mut s, &policy, "slideshow.list", json!({ "search": "person:Ana" }));
+        let mut played: Vec<u64> = show["photos"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap()).collect();
+        played.sort_unstable();
+        assert_eq!(played, want, "{at}: slideshow.list's search");
         run(&mut s, &policy, "search.set", json!({ "text": "person:Ana" }));
         s.wait_search();
         assert_eq!(s.search_inspect()["matches"], json!(want.len()), "{at}: search.set");

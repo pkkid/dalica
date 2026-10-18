@@ -6,7 +6,9 @@
 //!   order, `album:search` the search mode's matches), of a search (`search`: text in the search
 //!   box's grammar, its matches in light-table order) or as given (`ids`: the tray, its order kept,
 //!   duplicates dropped); hidden photos only while the view shows hidden pictures; videos left out
-//!   and counted (Dalica does not play them yet); and the place to start from: `start`'s place
+//!   and counted (Dalica does not play them yet). `withholdNames` leaves people's names and
+//!   nicknames out of a `search`'s match, as `library.query`'s (automation without the people
+//!   permission always sends it: `automation::NAME_SEARCHES`). And the place to start from: `start`'s place
 //!   when it is in the list, else the first. For each photo with a face that shows (after its crop)
 //!   it gives the face Pan and Zoom moves toward ([`focus_of`]): the largest named face, else the
 //!   largest unnamed one (ignored faces never), and its centre on the picture shown.
@@ -31,7 +33,7 @@ use dalica_create::slideshow::{self as create, FaceBox, Point, Show, View};
 use dalica_edit::{Geometry, Recipe};
 use dalica_image::Orientation;
 use dalica_library::FaceRef;
-use dalica_library::search::{Filters, Query as SearchQuery};
+use dalica_library::search::{Filters, People, Query as SearchQuery};
 use dalica_library::{AlbumRef, Section, section_photos};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -51,7 +53,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Slideshow Photos",
         menu: "",
         keys: &[],
-        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out, focus: {"<PhotoId>": {face:"<PhotoId>.<n>", point:[x, y]}} (for each photo with a face that shows: the face Pan and Zoom moves toward, the largest named one else the largest, and its centre normalised to the picture shown)}; hidden photos only while the view shows hidden pictures"#,
+        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from), "withholdNames"?:bool (default false: people's names and nicknames take no part in search's match; automation without --automation-allow-people always sends true)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out, focus: {"<PhotoId>": {face:"<PhotoId>.<n>", point:[x, y]}} (for each photo with a face that shows: the face Pan and Zoom moves toward, the largest named one else the largest, and its centre normalised to the picture shown)}; hidden photos only while the view shows hidden pictures"#,
         effect: Effect::Query,
         history: History::None,
         enabled: has_target,
@@ -66,12 +68,14 @@ const VIDEO_EXTENSIONS: [&str; 4] = ["mp4", "mov", "m4v", "mkv"];
 const NO_TARGET: &str = "Select a folder or a photo first.";
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct ListParams {
     section: Option<String>,
     ids: Option<Vec<PhotoId>>,
     search: Option<String>,
     start: Option<PhotoId>,
+    #[serde(default)]
+    withhold_names: bool,
 }
 
 fn has_target(_: &Session, p: &Value) -> Result<(), Disabled> {
@@ -109,8 +113,15 @@ fn section_list(s: &mut Session, text: &str) -> Result<Vec<PhotoId>, CmdError> {
     Ok(section_photos(s.library(), std::slice::from_ref(&section), &options).into_iter().flat_map(|(_, ids)| ids).collect())
 }
 
-/// What a slideshow of `section`, `ids` or `search` plays (exactly one of them).
-pub fn playlist(s: &mut Session, section: Option<&str>, ids: Option<&[PhotoId]>, search: Option<&str>) -> Result<Playlist, CmdError> {
+/// What a slideshow of `section`, `ids` or `search` plays (exactly one of them); with
+/// `withhold_names` people's names take no part in the search's match.
+pub fn playlist(
+    s: &mut Session,
+    section: Option<&str>,
+    ids: Option<&[PhotoId]>,
+    search: Option<&str>,
+    withhold_names: bool,
+) -> Result<Playlist, CmdError> {
     let given = usize::from(section.is_some()) + usize::from(ids.is_some()) + usize::from(search.is_some());
     if given != 1 {
         return Err(CmdError::BadParams("name the photos by exactly one of section, ids or search".into()));
@@ -121,7 +132,7 @@ pub fn playlist(s: &mut Session, section: Option<&str>, ids: Option<&[PhotoId]>,
     } else if let Some(text) = search {
         check_text(text)?;
         let query = SearchQuery { text: text.to_string(), filters: Filters::default(), age: None };
-        s.ask_search(query)?.photos().to_vec()
+        s.ask_search_with(query, People { people: Vec::new(), withhold_names })?.photos().to_vec()
     } else {
         let ids = ids.unwrap_or_default();
         if ids.len() > MAX_IDS {
@@ -153,8 +164,8 @@ pub fn playlist(s: &mut Session, section: Option<&str>, ids: Option<&[PhotoId]>,
 }
 
 fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let ListParams { section, ids, search, start } = params(p)?;
-    let list = playlist(s, section.as_deref(), ids.as_deref(), search.as_deref())?;
+    let ListParams { section, ids, search, start, withhold_names } = params(p)?;
+    let list = playlist(s, section.as_deref(), ids.as_deref(), search.as_deref(), withhold_names)?;
     let start = start.and_then(|id| list.photos.iter().position(|p| *p == id)).unwrap_or(0);
     let mut focus = serde_json::Map::new();
     for id in &list.photos {

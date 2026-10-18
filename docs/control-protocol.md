@@ -524,7 +524,8 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   answer through the policy the app's `--automation-allow-people` builds (M13.48).
 - **No guess-oracle in searches** (M13.48, `faces.md` §7; `automation::NAME_SEARCHES` and
   `Policy::people_params`): without `--automation-allow-people` the searches an automation
-  surface runs (`library.query`, `search.set`) go with `"withholdNames": true`, whatever the
+  surface runs (`library.query`, `search.set`, `slideshow.list`'s `search`) go with
+  `"withholdNames": true`, whatever the
   caller sent: people's names and nicknames take no part in the match, so `person:` matches
   nothing and is listed in `unavailable` (as in a library without people), plain words skip names
   and nicknames, and everything else matches as before. Nothing is refused, so no reply tells a
