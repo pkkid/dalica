@@ -8521,8 +8521,94 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     names through, the headless session has the default models folder; `crates/ui/tests/people_pane.rs`:
     with Ana and Anabel in the library, selecting Ana in the pane shows only Ana's photos, and
     the existing pane tests and fingerprints pass unchanged on the engine's mapping; `cargo xtask ci`.
+- ⬜ **M13.49 `ui` + `engine`: people names and face points withheld from automation without the people permission**
+  - after: M13.30, M13.48
+  - files: `crates/ui/src/control/people.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/menu.rs`, `crates/ui/src/control/tests.rs`, `crates/engine/src/automation.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/people.rs`, `crates/ui/src/selection.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/suggestions.rs`, `crates/ui/tests/suggestions_ui.rs`, `docs/control-protocol.md`, `docs/organizing.md`
+  - scope: fixes from the maintainer's answers at the M13.R review prep (2026-10-18). M13.48 closed
+    the engine's replies and searches; the window's own surfaces still give names away, and a
+    person's selection takes in photos that are only suggested. (1) **Names in the window's
+    replies:** without `--automation-allow-people` (`Config::allow_people`, M13.48) `ui.inspect`,
+    `ui.state`, `ui.widgets` and `ui.menu.tree` carry no person's name or nickname: a fixed
+    placeholder stands where the name was (the rest of a label, a count for one, kept) and every
+    widget id stays, so a client still finds, clicks and drags by id. That covers the People
+    group's rows (`tree:person:<id>`, "Ana (12)"), a person section's `/title`, face tiles and
+    their "Ana?" (`face:…`, `face:…/in/<id>`), the People pane's rows and Suggestions, the edit
+    view's face boxes (`facebox:…`), the Unnamed grid's name fields and the people they offer
+    (`field:faces.name/<n>/option/<k>`), the Add a Person Manually field, the menus that list
+    people (Move to Person ▸ `menuitem:faces.moveToPerson/<id>`, Merge Into ▸
+    `menuitem:people.merge/<id>`, in `ui.menu.tree` and in `ui.inspect`'s `popup`), and the texts
+    with no person id of their own: the search banner while the People pane's filter is on
+    ("Showing photos with Ana and Rui"), a face drag's pill, the people dialogs' title and fields
+    (`dialogs/people.rs`, `new_person.rs`, a confirm naming a person), the tooltip over a people
+    widget, and `ui.state`'s typed name drafts (`unnamed.names`, the manual box's name).
+    `ui.menu.invoke {path}` matches a person's row by the placeholder only, never by the name
+    (by `id` and `params` it works as before). One place in the control layer
+    (`control/people.rs`, as `automation::PEOPLE_REPLIES` is one list), keyed by widget id, role
+    and dialog kind, never by matching the reply's text against the library's names: a folder or
+    caption renamed to a guessed name would then come back changed, a guess-oracle (`faces.md`
+    §7). Screenshots still show what the window shows (§11). With the permission every reply is
+    unchanged. (2) **The slideshow's face points:** `slideshow.list`'s `focus` points at a face
+    (`face` its id, `point` its centre), which tells where a face is. Without the permission
+    automation gets each photo's focus as the photo's centre `[0.5, 0.5]` and no `face`: the
+    engine's `Policy` rule beside `PEOPLE_REPLIES` (one rule for the control channel, headless MCP
+    and connect mode); the window's own show still moves toward the face. No automation reply
+    carries a running show's `Frame::focus` or `outgoing_focus` today (`ui.state`'s
+    `slideshow.pan` is the viewer's own pan); one that comes to follows the same rule.
+    (3) **A person's selection is their own photos:** clicking a person's row (and
+    `select.section` on `person:<id>`) selects the section as a unit, and since M13.30 the section
+    starts with the photos only suggested for them, so the tray's token, Play and Export from that
+    selection took in photos not yet confirmed. The whole-section selection of a person's section
+    is now the photos holding a confirmed face of theirs (in the section's order); the suggested
+    cells stay in the section, unselected, and a click on one still selects it as any cell. With
+    Show only suggestions on, the row selects none (the section stays the selection's section).
+    The header's ▶ and Folder ▸ View Slideshow on a person's section play their confirmed photos
+    only, as `slideshow.list {section}` gives them. `organizing.md` §6.3 says so;
+    `control-protocol.md` §6.4's withheld lines, §6.6–§6.7 and §11's privacy line say what is
+    withheld from the window's replies and from `slideshow.list`.
+  - done when: `crates/ui/src/control/tests.rs`: with Ana named, her section shown, the People
+    pane open and the face menu's Move to Person ▸ listed, without `allow_people` no reply of
+    `ui.inspect`, `ui.state`, `ui.widgets` or `ui.menu.tree` contains "Ana" while the same widget
+    ids are listed, `ui.menu.invoke` by a path naming Ana is refused as an unknown item, and with
+    `allow_people` the labels read "Ana" (fails without the fix);
+    `crates/engine/tests/people.rs`: through a `Policy` without the permission `slideshow.list`'s
+    focus of a photo with a named face is `[0.5, 0.5]` with no `face`, and with it the face's id
+    and centre (fails without the fix); `crates/ui/tests/suggestions_ui.rs`: Ana with two
+    confirmed photos and one suggested: clicking her row selects the two, the suggested cell still
+    shows, the tray token counts 2, Play plays the two and Export offers two photos (fails without
+    the fix); the existing control, people and suggestion tests pass; `cargo xtask ci`.
+- ⬜ **M13.50 `xtask`: the task gate also tests the packages that depend directly on a changed package**
+  - after: M12.R, M13.17
+  - files: `xtask/src/ci.rs`, `docs/development.md`, `AGENTS.md`
+  - scope: the maintainer's answer at the M13.R review prep (2026-10-18). Twice in M13 a dependent's
+    test broke `main` because `cargo xtask ci` tests only the changed packages: M13.4 broke
+    `dalica-cli`'s `commands_list_the_openers_keys`, M13.14 broke `dalica-ui`'s
+    `view_state::the_new_menu_items_are_listed_and_greyed`. The task gate now also runs, at quick
+    strength, the tests of every workspace package that depends **directly** on a changed package
+    (a normal, dev or build dependency, target-specific ones included; transitive dependents are
+    not added), read from the members' manifests (or `cargo metadata --no-deps`; whichever is
+    simpler to test without the network). Decision (the lead's, reversible): `dalica-acceptance`
+    is never added as a dependent (it dev-depends on most crates, and its tests run at the review
+    and when its own files change), nor is `xtask`; a dependent added this way runs as a changed
+    package does (`stats --check` with `dalica-mcp`). The gate prints the changed packages and the
+    dependents it added on separate lines. The root `Cargo.toml`, lock file, toolchain and
+    outside-every-package rules (test everything) and the docs-only rule (test none) stay as they
+    are; `--merge` and `--full` are unchanged. `development.md` §3 (the gates table and *Which
+    packages a task's gate tests*: "Dependents of a changed package are not tested" goes) and §6
+    where it says which tests a task runs, `ci.rs`'s module doc, and `AGENTS.md` §5's sentence
+    "Dependents are not tested; a behaviour break there surfaces at the review" (the
+    maintainer's own decision, so this task edits `AGENTS.md`) say that direct dependents are
+    tested and transitive ones surface at the review. `docs/development.md` is also in M13.17's
+    files: the board runs the two one after the other.
+  - done when: `xtask/src/ci.rs`'s tests of the selection: a change in a library crate selects it
+    and its direct dependents and not their dependents (a synthetic member graph: `core` →
+    `library` → `engine` → `ui`; a change in `library` selects `library` and `engine`, not
+    `ui`), never `dalica-acceptance` or `xtask` as a dependent, a docs-only change still tests
+    none, the root `Cargo.toml` and lock-file rules still test every package, and the real
+    workspace's direct dependents of `dalica-engine` include `dalica-ui`, `dalica-mcp`, `dalica`
+    and `dalica-cli`; `cargo xtask ci` on a branch changing only `crates/engine` runs the tests of
+    `dalica-engine`, `dalica-ui`, `dalica-mcp`, `dalica` and `dalica-cli` (its output in the PR).
 - ⬜ **M13.32 `accept M13`**
-  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44, M13.46, M13.48
+  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44, M13.46, M13.48, M13.49, M13.50
   - files: `tests/acceptance/m13.rs`, `tests/acceptance/m13_*.rs`, `tests/acceptance/m13.md`, `tests/acceptance/fingerprints/m13-*.json`
   - scope: every *Done when* of M13's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a synthetic model installed from a local file after the
@@ -8603,6 +8689,8 @@ wave 4   M13.18 face scan  ‖  M13.19 names in files  ‖  M13.20 tiles + place
 wave 5   M13.25 People tree + person sections  ‖  M13.26 suggestions  ‖  M13.27 model dialog + Options ▸ People
          ‖  M13.28 Options ▸ Network + tiles  ‖  M13.29 W13, W14
 wave 6   M13.30 suggestions in the window  ‖  M13.31 M13 budgets  ‖  M13.48 people follow-ups
+         then M13.49 names withheld + a person's own selection (review fixes, after M13.48)
+         ‖  M13.50 the gate tests direct dependents (after M13.17: shared docs/development.md)
 wave 7   M13.32 accept M13 → M13.R          (M13.33 lead: M15 blocks, any time after M12.23)
 
 speed lane (effect speed, from M12.R; the board fits it between the feature waves, whose files
