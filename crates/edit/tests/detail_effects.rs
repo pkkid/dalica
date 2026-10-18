@@ -53,19 +53,40 @@ fn each_effect_at_its_defaults_matches_its_fingerprint_and_a_region_equals_the_w
 }
 
 /// A large render shrunk to a small one's size matches the small render: the sizes are relative to
-/// the picture (the grain fades where a pixel spans several of its cells, and Sharpen's least
-/// sigma keeps a small render's sharpening within the tolerance at its default amount).
+/// the picture (the grain fades where a pixel spans several of its cells, down to `MIN_FADING`, and
+/// Sharpen's least sigma keeps a small render's sharpening within the tolerance at its default
+/// amount).
 #[test]
 fn each_effect_renders_the_same_at_two_sizes() {
     let img = scene(12, 1600, 1067);
     for (_, op) in DEFAULTS {
         assert_two_sizes_agree(Source::upright(&img), &recipe(&[op]), 240, 960, 2.0);
     }
-    // Sharpen under 1:1 works at the render's pixel scale (`MIN_SIGMA_PX`), so only its default
-    // amount is held to the large render shrunk; Grain and Glow at their extremes too.
-    for op in ["grain(50,false)", "grain(50,true)", "glow(1,30)", "glow(1,0.3)"] {
+    // Sharpen under 1:1 works at the render's pixel scale (`MIN_SIGMA_PX`) and the grain keeps
+    // `MIN_FADING` of its variation, so only their default amounts are held to the large render
+    // shrunk (Lighten's too); Glow at its extremes as well.
+    for op in ["grain(10,true)", "glow(1,30)", "glow(1,0.3)"] {
         assert_two_sizes_agree(Source::upright(&img), &recipe(&[op]), 240, 960, 2.0);
     }
+}
+
+/// A tile-sized render (an effect tile's 78 × 48 preview of a large photo, its pixel some 40 grain
+/// cells wide) still shows the grain: it keeps `MIN_FADING` of its variation instead of averaging
+/// away, and its mean luma stays within a level.
+#[test]
+fn a_tile_sized_render_shows_the_grain() {
+    let img = large();
+    let small = |ops: &[&str]| render(Source::upright(&img), &recipe(ops), Target::Fit { width: 78, height: 78 }).unwrap();
+    let plain = small(&[]);
+    for op in ["grain(10,false)", "grain(10,true)"] {
+        let out = small(&[op]);
+        let most = pixels(&plain).zip(pixels(&out)).flat_map(|(a, b)| (0..3).map(move |c| a[c].abs_diff(b[c]))).max().unwrap();
+        let moved = pixels(&plain).zip(pixels(&out)).filter(|(a, b)| a != b).count();
+        assert!(most > 2, "{op}: the grain shows in a tile (largest difference {most})");
+        assert!(moved * 2 >= (out.width * out.height) as usize, "{op}: grain on {moved} pixels");
+    }
+    let out = small(&["grain(10,false)"]);
+    assert!((mean_luma(&out) - mean_luma(&plain)).abs() <= 1.0, "{} vs {}", mean_luma(&out), mean_luma(&plain));
 }
 
 #[test]
