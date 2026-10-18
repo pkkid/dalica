@@ -6911,7 +6911,7 @@ a maintainer decision mid-run.
     render; Grain keeps the mean luma within one level (without Lighten), is the same in a region
     as in the whole render and gives R − G = 0 noise; Glow never darkens a pixel and leaves a dark
     flat patch alone; each effect renders the same at two sizes after a downscale.
-- ⬜ **M12.8 `edit`: Soft Focus, Focal B&W and Graduated Tint**
+- ✅ **M12.8 `edit`: Soft Focus, Focal B&W and Graduated Tint**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/focal.rs`, `crates/edit/tests/focal_effects.rs`, `crates/edit/tests/fingerprints/focal-*.json`
   - scope: `editing.md` §8.2's crosshair effects on M12.3's masks and blur, their centres in the

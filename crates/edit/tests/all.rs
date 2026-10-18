@@ -9,6 +9,7 @@ mod canvas;
 mod catalog;
 mod colour_effects;
 mod crop;
+mod focal_effects;
 mod frame;
 mod fx;
 mod geometry;
