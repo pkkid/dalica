@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use dalica_engine::automation::Policy;
 use dalica_engine::{CommandSpec, Context, Effect, JobEntry, JobId, JobKind};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -239,7 +240,9 @@ fn newest_job(host: &dyn Host) -> JobId {
 fn run_command(host: &mut dyn Host, id: &str, params: &Value, wait: Wait) -> Outcome {
     let before = newest_job(host);
     let scan = SCANS.contains(&id);
-    let result = host.app_mut().run(id, params);
+    // People data is withheld from control clients (`control-protocol.md` §6.4): the app has no
+    // `--automation-allow-people` yet, so every client is one without the people permission.
+    let result = host.app_mut().run(id, params).map(|value| Policy::default().people_reply(id, value));
     Outcome::Play(
         Input::Frames(1),
         Box::new(move |host, _| match result {
@@ -460,5 +463,32 @@ mod tests {
             assert_eq!(shortcut("view.thumbsSmall"), json!(format!("{ctrl}+1")));
             assert_eq!(shortcut("window.fullscreen"), json!("F11"));
         }
+    }
+
+    /// A control client has no people permission (`control-protocol.md` §6.4): `faces.list` and
+    /// `people.list` over `engine.execute` answer with names `null` and no rectangles, ids and
+    /// counts kept, while the engine's own answer holds them.
+    #[test]
+    fn people_replies_reach_a_control_client_without_names_or_rectangles() {
+        let control = Control::new(Config::default());
+        let (_dir, mut session, ids) = crate::app::tests::session_with_photos(1);
+        session.execute("faces.add", &json!({ "id": ids[0], "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap();
+        session.execute("faces.name", &json!({ "faces": [format!("{}.0", ids[0])], "name": "Ana", "create": true, "nickname": "Ninha" })).unwrap();
+        let own = session.execute("faces.list", &json!({})).unwrap();
+        assert_eq!((own["faces"][0]["name"].clone(), own["faces"][0]["rect"].clone()), (json!("Ana"), json!([0.2, 0.2, 0.4, 0.5])));
+        let mut d = Driver::new(App::new(Some(session)), 320, 200, 1.0);
+        let mut conn = Connection::new();
+        let ask = |d: &mut Driver, conn: &mut Connection, command: &str| {
+            serve(&control, conn, d, &Request::new("engine.execute", json!({ "command": command, "params": {} }))).unwrap()
+        };
+        let faces = ask(&mut d, &mut conn, "faces.list");
+        let face = &faces["faces"][0];
+        assert_eq!((face["id"].clone(), face["name"].clone()), (json!(format!("{}.0", ids[0])), Value::Null));
+        assert!(face.get("rect").is_none() && face.get("displayed").is_none(), "{face}");
+        assert!(face["person"].is_string(), "the person's id stays");
+        let people = ask(&mut d, &mut conn, "people.list");
+        assert_eq!((people["people"][0]["name"].clone(), people["people"][0]["nickname"].clone()), (Value::Null, Value::Null));
+        assert_eq!(people["people"][0]["count"], json!(1), "counts stay");
+        assert!(!people.to_string().contains("Ana") && !faces.to_string().contains("Ana"));
     }
 }

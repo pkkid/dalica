@@ -519,7 +519,12 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   name). With the permission the replies are as the engine gives them. Whatever was granted,
   `embedding`, `embeddings` and `landmarks` never appear in a reply, and no error message holds
   a name or a rectangle (people are named by id). A command that comes to answer with people
-  data joins `PEOPLE_REPLIES`.
+  data joins `PEOPLE_REPLIES`. The desktop app has no `--automation-allow-people` flag yet, so
+  `engine.execute` over the control channel always answers as to a client without it.
+- A person's section is `person:<PersonId>` (§5.4): `library.inspect`'s `photos` and `section`,
+  `library.query`, `slideshow.list`, `export.*`, `places.list` and `section.refreshThumbs` take
+  it (the photos holding the person's faces, by date like a folder); a person section listed here
+  carries no `name` (names are `people.list`'s). `counts.people` counts the people.
 
 ### 6.5 `ui.state` and `ui.set`
 

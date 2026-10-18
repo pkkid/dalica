@@ -13,9 +13,10 @@
 //! order, paged. It walks the library a few times (a query an agent asks for, never per frame); a
 //! page renders at most [`MAX_LIMIT`] photos and `problems` holds at most [`MAX_PROBLEMS`] entries.
 //!
-//! People data is withheld: there is no people model yet (M13), so `counts.people` is 0, the
-//! People group has no rows and no photo carries a face or a name. When it comes, names appear
-//! only for an app started with `--automation-allow-people` (`control-protocol.md` §6.4).
+//! People data is withheld: `counts.people` counts the people (M13.15), a person section
+//! (`person:<id>`, listed with `photos` or `section`) carries no name here (`people.list` gives
+//! names, withheld from automation without `--automation-allow-people`, `control-protocol.md`
+//! §6.4), the People group has no rows yet and no photo carries a face or a name.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -39,7 +40,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Inspect Library",
         menu: "",
         keys: &[],
-        params: r#"{"photos"?:bool|"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search", "section"?:section id, "offset"?:int=0 (at most 1000000000), "limit"?:int=200 (at most 1000)}: the library as the user sees it: {revision, demo, watched, counts, tree, sections, search, view, undo, unsavedEdits, pendingWrites, problems, fileOpRepairs, scan}; with photos (true, or a section id, as section restricts) also photos [{id, section, path, name, star, caption, tags, hidden, rotate, edited, recipe, geo, place, date, width, height, displayed, bytes, video}] in light-table order (geo whether it is geotagged, place its [lat, lon] or null) (width × height the file's; displayed {width, height} the size it shows at, as photo.inspect's: grown by the recipe's frames and turned, a crop not counted) and page {offset, limit, total}; offset and limit only with photos"#,
+        params: r#"{"photos"?:bool|"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>", "section"?:section id, "offset"?:int=0 (at most 1000000000), "limit"?:int=200 (at most 1000)}: the library as the user sees it: {revision, demo, watched, counts, tree, sections, search, view, undo, unsavedEdits, pendingWrites, problems, fileOpRepairs, scan}; with photos (true, or a section id, as section restricts) also photos [{id, section, path, name, star, caption, tags, hidden, rotate, edited, recipe, geo, place, date, width, height, displayed, bytes, video}] in light-table order (geo whether it is geotagged, place its [lat, lon] or null) (width × height the file's; displayed {width, height} the size it shows at, as photo.inspect's: grown by the recipe's frames and turned, a crop not counted) and page {offset, limit, total}; offset and limit only with photos"#,
         effect: Effect::Query,
         history: History::None,
         enabled: always,
@@ -183,6 +184,7 @@ fn exists(s: &Session, section: &Section) -> Result<(), CmdError> {
         Section::Album(AlbumRef::User(a)) => lib.album(a).is_some(),
         Section::Album(AlbumRef::Search) => s.search_filter().is_some(),
         Section::Album(AlbumRef::Starred | AlbumRef::Recent) => true,
+        Section::Person(p) => lib.person(p).is_some(),
     };
     if known { Ok(()) } else { Err(CmdError::NotFound(format!("no section {section} in the library"))) }
 }
@@ -215,7 +217,7 @@ fn counts(lib: &Library) -> Value {
             hidden = hidden.saturating_add(1);
         }
     }
-    json!({ "photos": photos, "videos": videos, "folders": lib.folders().count(), "albums": lib.albums().count(), "people": 0, "hidden": hidden })
+    json!({ "photos": photos, "videos": videos, "folders": lib.folders().count(), "albums": lib.albums().count(), "people": lib.people().count(), "hidden": hidden })
 }
 
 fn sort_name(sort: FolderSort) -> &'static str {
@@ -323,6 +325,8 @@ fn sections(lib: &Library, folders: &Tree, albums: &AlbumTree, shown: &[(Section
                     };
                     (name, count, date, place, description)
                 }
+                // No name: names are people data (`people.list`).
+                Section::Person(p) => (String::new(), lib.person_count(p), None, String::new(), String::new()),
             };
             json!({
                 "section": section.to_string(), "name": name, "count": count, "shown": ids.len(), "date": date,

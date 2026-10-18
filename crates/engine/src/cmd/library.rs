@@ -27,7 +27,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Query Library",
             menu: "",
             keys: &[],
-            params: r#"{"folder"?:FolderId, "section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search", "text"?:string (the search box's grammar), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days (0: every age), "starred"?:bool, "offset"?:int=0, "limit"?:int=1000 (max 10000)}: photos in light-table order (a section's in its own order), every condition given applying, and the total; with text, filters or age also truncated and unavailable"#,
+            params: r#"{"folder"?:FolderId, "section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>", "text"?:string (the search box's grammar), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days (0: every age), "starred"?:bool, "offset"?:int=0, "limit"?:int=1000 (max 10000)}: photos in light-table order (a section's in its own order), every condition given applying, and the total; with text, filters or age also truncated and unavailable"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -74,6 +74,7 @@ fn section_ids(s: &mut Session, text: &str) -> Result<Vec<PhotoId>, CmdError> {
         }
         Section::Folder(f) if lib.folder(*f).is_none() => return Err(CmdError::NotFound(format!("no folder {f}"))),
         Section::Album(AlbumRef::User(a)) if lib.album(a).is_none() => return Err(CmdError::NotFound(format!("no album {a}"))),
+        Section::Person(p) if lib.person(p).is_none() => return Err(CmdError::NotFound(format!("no person {p}"))),
         _ => {}
     }
     let options = s.search_tree_options();

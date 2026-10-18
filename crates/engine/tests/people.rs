@@ -268,6 +268,53 @@ fn person_search_and_the_faces_filter_find_the_right_photos() {
     assert_eq!((found, unavailable), (want(&[0, 1, 2]), json!([])), "named and unnamed faces, not ignored ones");
 }
 
+/// A person is an album of the photos holding their faces (`person:<id>`): `library.query`,
+/// `library.inspect`, `slideshow.list`, Export, `places.list` and `section.refreshThumbs` take the
+/// section; `section.sort` keeps its order; `counts.people` counts the people; an unknown person
+/// is `not_found`.
+#[test]
+fn a_person_is_a_section_for_the_light_table_slideshows_and_export() {
+    let photos: Vec<Vec<u8>> = (0..4).map(photo_bytes).collect();
+    let (_lib, _disk, _dir, mut s, ids) = lisbon(&photos, None);
+    let mut faces = Vec::new();
+    for id in [ids[2], ids[0]] {
+        faces.push(s.execute("faces.add", &json!({ "id": id, "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap()["face"].clone());
+    }
+    let ana = s.execute("faces.name", &json!({ "faces": faces, "name": "Ana", "create": true })).unwrap()["person"].clone();
+    let section = format!("person:{}", ana.as_str().unwrap());
+    let mut want = vec![ids[0].get(), ids[2].get()];
+    want.sort_unstable();
+    let sorted = |v: &Value, key: &str| -> Vec<u64> {
+        let mut out: Vec<u64> = v.as_array().unwrap().iter().map(|p| p.get(key).unwrap_or(p).as_u64().unwrap()).collect();
+        out.sort_unstable();
+        out
+    };
+    let query = s.execute("library.query", &json!({ "section": section })).unwrap();
+    assert_eq!(sorted(&query["photos"], "id"), want);
+    let inspect = s.execute("library.inspect", &json!({ "photos": section })).unwrap();
+    assert_eq!(sorted(&inspect["photos"], "id"), want);
+    assert!(inspect["photos"].as_array().unwrap().iter().all(|p| p["section"] == json!(section)));
+    assert_eq!(inspect["counts"]["people"], json!(1));
+    let show = s.execute("slideshow.list", &json!({ "section": section })).unwrap();
+    assert_eq!(sorted(&show["photos"], ""), want);
+    let export = s.execute("export.defaults", &json!({ "section": section })).unwrap();
+    assert_eq!((export["count"].clone(), export["folderName"].clone()), (json!(2), json!("Ana")));
+    let places = s.execute("places.list", &json!({ "section": section })).unwrap();
+    assert_eq!(places["total"], json!(2));
+    s.execute("section.refreshThumbs", &json!({ "section": section })).unwrap();
+    assert_eq!(s.execute("section.sort", &json!({ "section": section, "by": "name" })).map_err(|e| e.code()).err(), Some("disabled"));
+    for (id, p) in [
+        ("library.query", json!({ "section": "person:p0000000dead" })),
+        ("library.inspect", json!({ "section": "person:p0000000dead" })),
+        ("slideshow.list", json!({ "section": "person:p0000000dead" })),
+        ("export.defaults", json!({ "section": "person:p0000000dead" })),
+        ("section.refreshThumbs", json!({ "section": "person:p0000000dead" })),
+    ] {
+        assert_eq!(s.execute(id, &p).map_err(|e| e.code()).err(), Some("not_found"), "{id}");
+    }
+    assert_eq!(s.execute("library.query", &json!({ "section": "person:ana" })).map_err(|e| e.code()).err(), Some("bad_params"));
+}
+
 /// A face tile is cut on a worker from the thumbnail ladder, `side × side`, with the colours of
 /// the face's square; the owner thread makes no `fs` call asking for it, waiting and taking it.
 #[test]

@@ -78,7 +78,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Export Defaults",
             menu: "",
             keys: &[],
-            params: r#"{"ids"?:[PhotoId], "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search", "album"?:AlbumId|"starred"|"recent"|"search" (at most one)}: what the Export dialog starts from: {location: path|null, folderName, fallbackName, resize:bool, size, quality:"automatic"|"normal"|"maximum"|"minimum"|"custom", customQuality, numbers, watermark:bool, watermarkText, removeLocation, count, videos:bool}"#,
+            params: r#"{"ids"?:[PhotoId], "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search"|"person:<id>", "album"?:AlbumId|"starred"|"recent"|"search" (at most one)}: what the Export dialog starts from: {location: path|null, folderName, fallbackName, resize:bool, size, quality:"automatic"|"normal"|"maximum"|"minimum"|"custom", customQuality, numbers, watermark:bool, watermarkText, removeLocation, count, videos:bool}"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -89,7 +89,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Export",
             menu: "",
             keys: &[],
-            params: r#"{"ids"?:[PhotoId] (in tray order) | "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search" (its photos in display order; the search's matches) | "album"?:AlbumId|"starred"|"recent"|"search" (exactly one of the three), "dir":string (absolute; the folder the export folder is made in, made when missing), "folderName":string (sanitized; a taken name becomes "<name>-001"), "numbers"?:bool, "size"?:100…4000|"original", "quality"?:"automatic"|"normal"|"maximum"|"minimum"|"custom"|1…100, "watermark"?:string (its text) | true (the stored text) | false | null, "removeLocation"?:bool}: renders the photos with their current edits into a new folder as an export job (no undo step); options left out come from the settings and the ones used are remembered. Replies {job, pending:true, total, videos}; the job's result is {total, done, written:[path], skipped:[{file, reason}], failed:[{file, reason}], cancelled, folder, name}"#,
+            params: r#"{"ids"?:[PhotoId] (in tray order) | "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order; the search's matches) | "album"?:AlbumId|"starred"|"recent"|"search" (exactly one of the three), "dir":string (absolute; the folder the export folder is made in, made when missing), "folderName":string (sanitized; a taken name becomes "<name>-001"), "numbers"?:bool, "size"?:100…4000|"original", "quality"?:"automatic"|"normal"|"maximum"|"minimum"|"custom"|1…100, "watermark"?:string (its text) | true (the stored text) | false | null, "removeLocation"?:bool}: renders the photos with their current edits into a new folder as an export job (no undo step); options left out come from the settings and the ones used are remembered. Replies {job, pending:true, total, videos}; the job's result is {total, done, written:[path], skipped:[{file, reason}], failed:[{file, reason}], cancelled, folder, name}"#,
             effect: Effect::Files,
             history: History::None,
             enabled: has_target,
@@ -121,18 +121,18 @@ const STARRED: &str = "Starred Photos";
 /// The name of the Recently Updated album.
 const RECENT: &str = "Recently Updated";
 
-/// `"folder:12"`, `"album:a91c0e"`, `"album:starred"`, `"album:recent"` or `"album:search"` → the
-/// section (the forms its widget id spells).
+/// `"folder:12"`, `"album:a91c0e"`, `"album:starred"`, `"album:recent"`, `"album:search"` or
+/// `"person:p7f3a2c"` → the section (the forms its widget id spells).
 fn parse_section(text: &str) -> Result<Section, CmdError> {
     let bad = || {
         let shown: String = text.chars().take(40).collect();
         CmdError::BadParams(format!(
-            "section must be \"folder:<id>\", \"album:<id>\", \"album:starred\", \"album:recent\" or \"album:search\", not {shown:?}"
+            "section must be \"folder:<id>\", \"album:<id>\", \"album:starred\", \"album:recent\", \"album:search\" or \"person:<id>\", not {shown:?}"
         ))
     };
     match text.strip_prefix("folder:") {
         Some(n) => n.parse::<u64>().ok().filter(|n| *n > 0).map(|n| Section::Folder(FolderId::new(n))).ok_or_else(bad),
-        None => Section::from_str(text).ok().filter(|s| matches!(s, Section::Album(_))).ok_or_else(bad),
+        None => Section::from_str(text).ok().filter(|s| matches!(s, Section::Album(_) | Section::Person(_))).ok_or_else(bad),
     }
 }
 
@@ -156,6 +156,8 @@ fn section_target(s: &mut Session, section: &Section) -> Result<Target, CmdError
         Section::Album(AlbumRef::User(a)) => lib.album(a).ok_or_else(|| CmdError::NotFound(format!("no album {a}")))?.name.clone(),
         Section::Album(AlbumRef::Starred) => STARRED.into(),
         Section::Album(AlbumRef::Recent) => RECENT.into(),
+        // A person album (M13.15): their photos by date, named after them.
+        Section::Person(p) => lib.person(p).ok_or_else(|| CmdError::NotFound(format!("no person {p}")))?.name.clone(),
     };
     let options = s.search_tree_options();
     let photos = dalica_library::section_photos(s.library(), std::slice::from_ref(section), &options).into_iter().flat_map(|(_, ids)| ids).collect();
