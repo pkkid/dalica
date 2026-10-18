@@ -835,8 +835,8 @@ they apply `shortcut` (the binding in effect, `Cmd` on macOS), `params` (the fix
 row that shares its command), `checked` (checkable rows; radio rows add `radio: true`), `dialog`
 (the dialog the item opens) and `reason` (why it is disabled). A submenu is `{label, widget,
 children}`. Context menus are modelled as their regions arrive: `section` (the fourth menu's rows),
-`tray`, `photo`, `person` (M13: Rename…, Merge Into ▸ a person, Delete Person, greyed until
-M13.25) and `face` (M13.21: Move to New Person… · Move to Person ▸ the people by name, or a greyed
+`tray`, `photo`, `person` (M13.25: Rename…, Merge Into ▸ the other people by name, Delete Person, for the person
+whose section is selected; greyed with none) and `face` (M13.21: Move to New Person… · Move to Person ▸ the people by name, or a greyed
 "No people yet" · Remove from Person · Set as Person Thumbnail · Ignore Face, for the faces
 selected) answer now, the others are `unsupported` until then.
 

@@ -6,7 +6,8 @@
 //!   Rui first by count; Unnamed shows the Unnamed grid, a folder puts the light table back;
 //! - dragging the two Unnamed faces onto Ana names them as one undo step;
 //! - Ana's row selects her section, which shows her photos; Zoom to Faces shows her faces, whose
-//!   menu removes one from her (back to Unnamed) and whose photo Set as Person Thumbnail takes;
+//!   menu removes one from her (back to Unnamed), as Delete does, and whose photo Set as Person
+//!   Thumbnail takes;
 //! - the person menu's Rename…, Merge Into ▸ and Delete Person each act through their dialog and
 //!   undo in one step; a name another person has asks to merge instead;
 //! - Play on Ana's section starts a slideshow of her photos;
@@ -207,6 +208,14 @@ fn anas_section_shows_her_photos_and_zoom_to_faces_her_faces() {
     assert_eq!(person_of(&t, face_of(&t, 0)), None);
     assert_eq!(section_photos(&t, &ana), Some(vec![t.photos[1]]));
     assert_eq!(widget(&t.d, "tree:person:unnamed").label, "Unnamed (3)");
+    run(&mut t, "edit.undo", json!({}));
+    assert_eq!(person_of(&t, face_of(&t, 0)), Some(ana.clone()));
+    // Delete in her section does the same for the photos selected, and deletes no file.
+    click(&mut t, &first);
+    t.d.key("Delete").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    assert!(t.d.state().dialogs.is_empty(), "no Delete from Disk question");
+    assert_eq!(person_of(&t, face_of(&t, 0)), None);
     run(&mut t, "edit.undo", json!({}));
     assert_eq!(person_of(&t, face_of(&t, 0)), Some(ana.clone()));
     // Show Whole Photos again.

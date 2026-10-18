@@ -11,6 +11,9 @@
 //! - **Set as Person Thumbnail** (`people.thumbnail {face?}`: the face named, else the first face
 //!   selected (the face menu's), else the person's face on the focused photo of their section
 //!   selected), through the engine's `people.setThumbnail`, one undo step;
+//! - **Delete** in a person's section (`people.removeFaces {ids?}`, `crate::keys::delete_route`):
+//!   Remove from Person on the person's faces on the photos named, else selected; back to Unnamed,
+//!   one undo step;
 //! - a person section header's **Zoom to Faces** / **Show Whole Photos** (`people.zoomToFaces`);
 //! - the view-options popup's **Sort People by Name / Count / Top 10** (`view.peopleSort`).
 
@@ -61,9 +64,41 @@ pub const COMMANDS: &[UiCommand] = &[
         run: zoom_to_faces,
     },
     UiCommand { id: SORT_ID, label: "Sort People", menu: "", keys: &[], params: SORT_PARAMS, run: sort },
+    UiCommand {
+        id: REMOVE_FACES,
+        label: "Remove from Person",
+        menu: "",
+        keys: &[],
+        params: "{ids?: [PhotoId]}: in a person's section, their faces on the photos (default: the selection) go back to Unnamed; one undo step (Delete there)",
+        run: remove_faces,
+    },
 ];
 
+/// What Delete runs in a person's section.
+pub const REMOVE_FACES: &str = "people.removeFaces";
+
 pub const CHECKS: &[(&str, Check)] = &[("people.thumbnail", has_face)];
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Ids {
+    #[serde(default)]
+    ids: Option<Vec<dalica_core::PhotoId>>,
+}
+
+/// `people.removeFaces {ids?}`: the faces of the person whose section is selected on `ids` (else
+/// the photos selected) go back to Unnamed.
+fn remove_faces(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    let p: Ids = parse_object(params)?;
+    let person = person_of(app, None)?;
+    let ids = p.ids.unwrap_or_else(|| app.state().selection.ids.clone());
+    let lib = app.session().map(dalica_engine::Session::library).ok_or_else(|| CmdError::Disabled(OPENING.into()))?;
+    let faces: Vec<FaceRef> = ids.iter().filter_map(|id| crate::panels::light_table::header::face_on(lib, *id, &person)).collect();
+    if faces.is_empty() {
+        return Err(CmdError::Disabled(NO_FACE.into()));
+    }
+    app.run("faces.remove", &json!({ "faces": faces }))
+}
 
 /// The person menu's Rename…: opens Rename Person for `{person?}`.
 pub const RENAME: Opener = Opener { id: "people.rename", dialog: "renamePerson", keys: &[], open: open_rename, check: has_person };
