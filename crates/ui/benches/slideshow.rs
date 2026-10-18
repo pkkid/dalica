@@ -45,12 +45,12 @@ use dalica_ui::commands::slideshow as cmd;
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
 
-/// The budgets (`development.md` §8): 1.5 × the first measurement, release on two cores
-/// (2026-10-17, the median of three runs: the advance's median 16.0 ms, a transition frame's p95
-/// 0.199 ms), rounded up; a
-/// transition frame within [`FRAME_CAP_MS`] at p95 whatever that measurement was.
+/// The budgets (`development.md` §8): the advance's, 1.5 × the first measurement, release on two
+/// cores (2026-10-17, the median of three runs: the advance's median 16.0 ms), rounded up; a
+/// transition frame's p95 an absolute 1 ms (the maintainer's decision at M11.R: 1.5 × its first
+/// measurement, 0.199 ms, left no headroom for load), and within [`FRAME_CAP_MS`] whatever it is.
 const ADVANCE_BUDGET_MS: f64 = 24.0;
-const TRANSITION_BUDGET_MS: f64 = 0.3;
+const TRANSITION_BUDGET_MS: f64 = 1.0;
 const FRAME_CAP_MS: f64 = 16.0;
 /// The photo size the budgets hold for: a 24 MP camera's.
 const FULL: (u32, u32) = (6000, 4000);

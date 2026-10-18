@@ -933,10 +933,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 /// Preview: a click toggles it; a press held [`HOLD`] seconds shows the crop until let go (and that
-/// release is no click).
+/// release is no click). A press that started on the button lasts while the primary button stays
+/// down: egui stops counting a press as on a click-only widget once it is held past its longest
+/// click (`max_click_duration`, 0.8 s), which would end a long look by itself.
 fn preview_press(r: &Response, now: f64, asked: &mut Option<Ask>) {
-    let down = r.is_pointer_button_down_on();
     let (press, holding) = with(|x| (x.press, x.holding));
+    let down = r.is_pointer_button_down_on() || (press.is_some() && r.ctx.input(|i| i.pointer.primary_down()));
     match (down, press) {
         (true, None) => {
             with(|x| x.press = Some(now));

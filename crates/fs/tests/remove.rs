@@ -10,19 +10,13 @@ use crate::common::{names, old_file};
 use dalica_fs::faults::{Fault, REMOVE_DELETE_POINTS, REMOVE_POINTS, arm, disarm_all, points};
 use dalica_fs::remove::{Removed, remove_copied};
 use dalica_fs::transfer::{Imported, Progress, import_copy};
-use dalica_fs::trash::{self, Trashed};
+use dalica_fs::trash::{self, Restore};
 use dalica_fs::{Error, Identity, guard, identity};
 
 const JPEG: &[u8] = b"\xff\xd8\xff\xe0 a photo straight from the camera \xff\xd9";
 
 fn id(path: &Path) -> Identity {
     identity(path).unwrap().unwrap()
-}
-
-/// Puts a trashed test item back (inside a temporary folder removed after the test), so the tests
-/// leave nothing in the trash where the platform can restore.
-fn untrash(t: &Trashed) {
-    let _ = trash::restore(std::slice::from_ref(t));
 }
 
 /// A card (`<tmp>/card/DCIM`, the root) with `100TEST/IMG_0001.JPG` imported into `<tmp>/Pictures`.
@@ -76,8 +70,16 @@ fn a_volume_with_a_trash_gets_the_file_there() {
     assert_eq!(t.original, fs::canonicalize(card.source.parent().unwrap()).unwrap().join("IMG_0001.JPG"));
     assert_eq!(t.identity, card.id);
     card.copy_verified("trashed");
-    untrash(&t);
-    assert_eq!(fs::read(&card.source).unwrap(), JPEG, "back from the trash");
+    // Back from the trash where the platform can list it; macOS cannot (`trash::restore` answers
+    // `Unsupported` there by design), so there the file stays in the trash and its old path empty.
+    let back = trash::restore(std::slice::from_ref(&t)).unwrap();
+    if cfg!(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android")))) {
+        assert_eq!(back, [Restore::Restored], "{t:?}");
+        assert_eq!(fs::read(&card.source).unwrap(), JPEG, "back from the trash");
+    } else {
+        assert_eq!(back, [Restore::Unsupported], "{t:?}");
+        assert!(!card.source.exists());
+    }
 }
 
 #[test]

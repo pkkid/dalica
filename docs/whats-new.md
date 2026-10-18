@@ -21,6 +21,82 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.6.0 — October 2026
+
+Dalica now imports photos from cards and drives, compares two photos or two versions side by side,
+plays slideshows, and opens any picture on its own as a photo viewer. Edits can be copied, pasted
+and applied to many photos at once.
+
+### Import
+
+- File ▸ Import From… (Ctrl+M), or the toolbar's Import, opens the Import room in its own tab
+  beside the Library. Pick a memory card or removable drive from the list, or a folder with
+  Folder…. Its photos arrive in groups by the time they were taken; click a group's clock to select
+  the group.
+- Press X (or the preview's exclude button) to leave a photo out. Photos already in your library
+  are left out for you while Exclude duplicates is on. Star and rotate a photo in the preview before
+  importing, and step through them with the arrow keys.
+- Choose where photos go (Import to), how the new folders are named (Date taken or Today's date),
+  then Import All or Import Selected. Every copy keeps its date and is checked byte for byte
+  against the original before it counts. An existing file is never replaced: a name that is
+  already taken gets `-001`.
+- After copying, Dalica can delete the copied files from a card, but only the files whose copies
+  were checked, and only after asking. Duplicates and photos you left out stay on the card.
+  Automation and AI agents can never delete from a card.
+- An import is one step: Edit ▸ Undo moves the copies to the trash (a copy you changed since is
+  kept). Once the card was emptied, the import can no longer be undone.
+- Options ▸ General: the folder imported photos go to by default ("Save imported pictures in") and
+  whether duplicates are detected.
+
+### Editing
+
+- Compare (the A│B / A│A toggle above the photo): A│B shows two photos side by side, and the
+  filmstrip changes the one with the "Selected" pill. A│A shows one photo twice, so you can try
+  edits on the right side, including Crop, Straighten, Retouch, Tuning and Fill Light. When you
+  leave it, "Keep which version?" keeps the left, the right, or asks again. Zoom and pan move both
+  sides together.
+- Hold `\` (or the panel's Original button) to see the photo without its edits.
+- Edit ▸ Copy All Edits and Paste All Edits copy one photo's edits onto others. A photo holding
+  edits from a newer Dalica is skipped and named, so nothing of it is lost.
+- Picture ▸ Batch Edit ▸ applies Auto Fix, Auto Contrast, Auto Color, rotations and more to every
+  photo in the Photo Tray as one step: one Ctrl+Z puts them all back. Picture ▸ Undo All Edits…
+  removes every edit from the selected photos, after asking, and can itself be undone.
+
+### Viewing
+
+- Slideshow (Ctrl+4, the toolbar's Slideshow, a section's ▶, or Play in the edit view) plays a
+  folder, an album or search results full screen from the selected photo, with seven transitions,
+  captions, Loop and a display time of 1 to 60 seconds. Move the mouse for the control bar: Previous,
+  Play/Pause, Next, the transition, captions, the display time and zoom. Space pauses, the arrow
+  keys and the wheel step, Ctrl+8 stars, Ctrl+R rotates and Esc goes back to where you were.
+  Options ▸ Slideshow keeps the defaults. The next photo is always ready, so a change never waits
+  for the disk.
+- Hold Ctrl+Alt over a thumbnail to see it full screen at once; turn the wheel to step through the
+  folder, let go to come back with that photo selected.
+- `dalica --view photo.jpg` opens any picture on its own, full screen over a dimmed backdrop, with
+  its folder's other pictures in a filmstrip. Zoom, 1:1, rotate, star (the folder then joins your
+  library as a Scan Once folder), delete, play a slideshow, or press E to open it in Dalica. Space
+  switches the backdrop; Esc closes. Tools ▸ Configure Photo Viewer… and Options ▸ Photo Viewer
+  set how the wheel and the controls behave.
+
+### Agents
+
+- MCP: Batch Edit is one tool call and one undo step, and imports run through the new `import.*`
+  commands. Deleting copied files from a card is refused over automation and MCP, and an import's
+  destination must be inside the allowed write roots.
+
+### Not in this release yet
+
+- Slideshow music, and videos in slideshows (they are skipped); both come with sound support.
+- Importing from cameras and phones connected by cable; use a card reader or the phone's storage
+  as a drive.
+- Batch Edit's Sepia, Black and White, Warmify, Film Grain and Sharpen are greyed until the effects
+  arrive.
+- `dalica --view` while Dalica is already open opens a read-only viewer; handing the picture to
+  the open Dalica, making Dalica your default viewer and Open With come later.
+- At 100 % in the viewer, a large picture outside your library is shown from a screen-sized copy,
+  and the Import room's preview is an enlarged thumbnail.
+
 ## 0.5.0 — October 2026
 
 Dalica now has its preferences and a keyboard shortcut editor, and AI agents can drive it through

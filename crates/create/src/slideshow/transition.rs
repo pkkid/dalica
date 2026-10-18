@@ -148,6 +148,18 @@ fn ease(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// The least share of the screen either photo keeps while a change is under way: smoothstep
+/// rounds to exactly 1 in `f32` within about 1e-4 of the end (and underflows to 0 just after the
+/// start), which would drop a photo early. One part in a million is far above an `f32` step, so a
+/// clip of that share of any screen side keeps a positive width, and far below a visible pixel.
+const MIN_SHARE: f32 = 1e-6;
+
+/// The eased progress of a change at `t` (0..=1): exactly 0 at 0 and 1 at 1, and strictly between
+/// [`MIN_SHARE`] and 1 − [`MIN_SHARE`] in between, so both photos show until the change ends.
+fn eased(t: f32) -> f32 {
+    if t <= 0.0 || t >= 1.0 { t.clamp(0.0, 1.0) } else { ease(t).clamp(MIN_SHARE, 1.0 - MIN_SHARE) }
+}
+
 /// Where a photo fitted at `fit` is drawn `motion` (0..1) through its display time under Pan and
 /// Zoom: grown by up to `zoom` (5–10 %) about its focus point, so the view closes in on that point,
 /// and clipped to its fitted rectangle so it never spills into the black around it. The rectangle
@@ -178,7 +190,7 @@ pub fn frame(transition: Transition, screen: Size, pixels_per_point: f32, outgoi
     let s = screen.sane();
     let full = Rect::screen(s);
     let t = unit(progress);
-    let e = ease(t);
+    let e = eased(t);
     let (w, h) = (side(s.width), side(s.height));
     let placed = |slide: &Slide| -> (Rect, Rect) {
         let fitted = fit(slide.size, s, pixels_per_point);

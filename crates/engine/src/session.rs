@@ -130,7 +130,10 @@ pub(crate) enum Msg {
 /// and while it fails or waits for its volume. Messages reach the worker in order, so each
 /// [`Msg::Dirty`] is known on both sides by its number (the session counts them as it sends them,
 /// the worker as it takes them in) and a write that took in an older change of a folder never
-/// clears a newer one still on its way.
+/// clears a newer one still on its way. A carry of sidecar entries ([`Msg::Carry`]) counts its
+/// two folders from the moment it is sent until the worker has carried the entries and written
+/// both folders from the model: a write pass over a folder that lands before the carry is taken
+/// in does not end it.
 #[derive(Debug, Default)]
 pub(crate) struct SidecarQueue {
     /// How many [`Msg::Dirty`] the session sent.
@@ -138,9 +141,36 @@ pub(crate) struct SidecarQueue {
     /// Each folder with a write to make: the number of the last [`Msg::Dirty`] naming it (0 for a
     /// write the worker queued on its own, after a carry).
     folders: BTreeMap<FolderId, u64>,
+    /// Each folder of a carry sent and not yet carried: how many such carries name it.
+    carrying: BTreeMap<FolderId, u64>,
 }
 
 impl SidecarQueue {
+    /// The session is sending a carry between `folders` (those the library has).
+    fn carry_sent(&mut self, folders: impl IntoIterator<Item = FolderId>) {
+        for f in folders.into_iter().collect::<BTreeSet<_>>() {
+            let n = self.carrying.entry(f).or_insert(0);
+            *n = n.saturating_add(1);
+        }
+    }
+
+    /// The worker is done with a carry between `folders` (carried, refused or failed).
+    fn carry_done(&mut self, folders: impl IntoIterator<Item = FolderId>) {
+        for f in folders.into_iter().collect::<BTreeSet<_>>() {
+            if let Some(n) = self.carrying.get_mut(&f) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    self.carrying.remove(&f);
+                }
+            }
+        }
+    }
+
+    /// The folders with a sidecar write not yet committed: a change sent or a carry under way.
+    fn pending(&self) -> BTreeSet<FolderId> {
+        self.folders.keys().chain(self.carrying.keys()).copied().collect()
+    }
+
     /// The session is sending `list`: its folders count until their writes are committed; a
     /// folder that left the library (no state) has nothing left to write.
     fn sending(&mut self, list: &[(FolderId, Option<FolderState>)]) {
@@ -671,8 +701,12 @@ impl Session {
             return;
         }
         // Counted before it is sent, so no `pendingWrites` read in between misses it.
-        if let Msg::Dirty(list) = &msg {
-            self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).sending(list);
+        match &msg {
+            Msg::Dirty(list) => self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).sending(list),
+            Msg::Carry { from, to, .. } => {
+                self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).carry_sent(from.iter().chain(to).copied())
+            }
+            _ => {}
         }
         if let Some(io) = &self.io
             && io.send(msg).is_err()
@@ -799,7 +833,7 @@ impl Session {
     /// The folders whose sidecar write the I/O worker has not committed yet ([`SidecarQueue`]):
     /// sent, debounced, being made, failed and retried, or waiting for their volume.
     pub(crate) fn queued_sidecars(&self) -> BTreeSet<FolderId> {
-        self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).folders.keys().copied().collect()
+        self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).pending()
     }
 
     /// Whether this session writes nothing (`--read-only`; see the module's notes).
@@ -1238,6 +1272,8 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, shared: &Sh
                     }
                     Err(e) => fail(format!("{what}: {e}")),
                 }
+                // Counted once the outcome is known, so no `pendingWrites` read sees it done early.
+                shared.queue.lock().unwrap_or_else(PoisonError::into_inner).carry_done(from.iter().chain(&to).copied());
             }
             Ok(Msg::Reset { folder, state, reply }) => {
                 use crate::cmd::folder_data::{Found, Reset, look};
@@ -1317,6 +1353,29 @@ mod tests {
         let sidecar = Sidecar::parse(&std::fs::read(folder.join(".dalica.json")).unwrap(), &Limits::default()).unwrap();
         let starred: Vec<&str> = sidecar.photo_names().filter(|n| sidecar.star(n) == Field::Value(true)).collect();
         assert_eq!(starred, ["IMG_0001.jpg", "IMG_0002.jpg"]);
+    }
+
+    /// A carry of sidecar entries counts in `pendingWrites` from the moment it is sent until the
+    /// worker has carried them, also while it waits behind other work on the worker (a folder's
+    /// own write may land and leave the queue meanwhile): none read sees the folders quiet while
+    /// the carried entries are still to be written over from the model.
+    #[test]
+    fn a_carry_counts_as_a_pending_write_until_it_is_carried() {
+        let (_dirs, mut s, _ids) = library(1);
+        s.flush().unwrap();
+        let (folder, path) = s.library().folders().next().map(|f| (f.id, f.path.clone())).unwrap();
+        assert!(s.queued_sidecars().is_empty(), "every write landed");
+        // The worker is held up, so the carry waits behind it.
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        s.send(Msg::Run(Box::new(move || {
+            let _ = held.recv();
+        })));
+        s.carry_entries(dalica_store::carry::Carry::one(dalica_store::carry::Mode::Move, &path, "IMG_0001.jpg", &path, "IMG_0001.jpg"), None);
+        assert_eq!(s.queued_sidecars(), BTreeSet::from([folder]), "the carry still to make counts");
+        release.send(()).unwrap();
+        // The flush is answered after the carry, which the worker takes first.
+        s.flush().unwrap();
+        assert!(s.queued_sidecars().is_empty(), "the carry made, nothing is pending: {:?}", s.pending_writes());
     }
 
     #[test]

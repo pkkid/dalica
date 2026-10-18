@@ -254,7 +254,7 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Batch Edit: undo Auto Fix on 1 000 photos (median) | ≤ 5 ms |
 | Slideshow of 24 MP photos: a change that waits for its preview | 0 |
 | Slideshow: an advance to the first frame of its transition, next photo prefetched (median) | ≤ 24 ms |
-| Slideshow: a transition frame (p95; never above 16 ms) | ≤ 0.3 ms |
+| Slideshow: a transition frame (p95; never above 16 ms) | ≤ 1 ms |
 
 **At the review, the save, export and search budgets are judged against a base on the same
 runner** (maintainer decision, 2026-10-15): the Budgets job runs each of these benches in the last
@@ -304,7 +304,10 @@ files and the index were just written; dropping the cache needs root).
 
 The import, Batch Edit and slideshow budgets (M11.23) are 1.5 × their first measurement (times
 rounded up, rates down), absolute; a transition frame is also never above 16 ms at p95, and no
-change of the slideshow may wait for its preview, whatever the first numbers. The first
+change of the slideshow may wait for its preview, whatever the first numbers. The one exception is
+a transition frame's p95: 1.5 × its first measurement made 0.3 ms, which left no headroom for load
+(it missed once at 0.32 ms on a busy machine, where 0.21 to 0.26 ms is typical), so the maintainer
+raised it to an absolute 1 ms at M11.R (2026-10-17). The first
 measurement is the median of three runs in one sitting: release on two cores (`taskset -c 0,1`),
 2026-10-17, the same 24-core workstation (load average 10 falling to 2.4 over the runs; its NVMe
 disk formatted btrfs). Single runs earlier that day under heavier load spread widely (Batch Edit

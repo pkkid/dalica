@@ -281,6 +281,10 @@ fn the_import_folder_chosen_with_browse_is_stored_and_import_to_starts_there() {
     std::fs::write(scans.join("a.jpg"), jpeg(3)).unwrap();
     let d = &mut fx.d;
     // Nothing chosen: the field is empty and shows the Pictures folder as its hint; Browse… works.
+    // The path first: its text sits lower in the row than Browse…'s top, so a row the dialog's
+    // body clips at its foot (as macOS, without Use system title bar, scrolls it) can show Browse…
+    // and not yet the path; once the path shows, Browse… (the whole row's height) does too.
+    reveal(d, IMPORT_FOLDER);
     reveal(d, IMPORT_BROWSE);
     assert_eq!(saved(d, "import.folder"), Value::Null);
     assert_eq!(widget(d, IMPORT_FOLDER).label, Path::new(PICTURES).display().to_string(), "the Pictures folder as the hint");

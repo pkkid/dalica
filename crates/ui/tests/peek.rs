@@ -14,6 +14,7 @@ use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_scenes::Scene;
 use dalica_ui::headless::{KeyState, PointerEvent, PointerKind};
+use dalica_ui::panels::light_table::cell::TOOLTIP_SECONDS;
 use dalica_ui::panels::peek::{self, PANE, Shown, WHEEL_STEP};
 use dalica_ui::panels::thumbnails::Drawn;
 use dalica_ui::state::{Compare, View};
@@ -96,6 +97,10 @@ fn a_hold_over_a_thumbnail_shows_it_at_once_the_wheel_steps_and_the_release_focu
     assert_eq!(peek::stats(d.ctx()).last, Some(Shown::Preview), "refined by the screen-size preview");
     assert_eq!(d.app().session().unwrap().preview_photo_in(PANE), Some(order[0]));
     assert_eq!(peek::stats(d.ctx()).grey_frames, 0);
+    // Held on past the cell's tooltip delay: the tooltip of the cell under the pointer is not
+    // drawn over the photo (and the fingerprint does not depend on how long the settle took).
+    d.wait((TOOLTIP_SECONDS * 1000.0) as u64 + 400).unwrap();
+    assert_eq!(d.app().tooltip(), None, "no tooltip over the preview");
     let s = d.screenshot().unwrap();
     check_pixels(&format!("peek-{}x{}", LARGE.0, LARGE.1), s.width, s.height, &s.rgba);
 
