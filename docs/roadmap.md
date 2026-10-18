@@ -6940,7 +6940,7 @@ a maintainer decision mid-run.
     first colour and white to the second at Brightness 0 and every pixel onto that segment; Boost
     0 is the identity and raises chroma and contrast; Fade 100 gives the input; each effect renders
     the same at two sizes after a downscale.
-- ⬜ **M12.10 `edit`: HDR Look, Dream Glow and Plastic Lens**
+- ✅ **M12.10 `edit`: HDR Look, Dream Glow and Plastic Lens**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/looks.rs`, `crates/edit/tests/look_effects.rs`, `crates/edit/tests/fingerprints/looks-*.json`
   - scope: `editing.md` §8.3's blur-based looks on M12.3's blur, noise and blends: HDR Look
