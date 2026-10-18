@@ -146,6 +146,21 @@ file and revision in its first lines:
                                              PhotoCraft crates/ui-egui/src/prefs_ui.rs @ 583425b4
   crates/scan/src/devices.rs                 LightCraft crates/engine/src/devices.rs @ 3b4279fc
   crates/scan/tests/devices.rs (tests)       LightCraft crates/engine/src/devices.rs @ 3b4279fc
+  crates/edit/src/fx/blur.rs                 LightCraft crates/raster/src/blur.rs @ 0da998f2
+  crates/edit/src/fx/noise.rs                PhotoCraft crates/algo/src/noise.rs @ e4b2868a,
+                                             LightCraft crates/pipeline/src/finish.rs @ 0da998f2
+  crates/edit/src/fx/brush.rs                LightCraft crates/pipeline/src/masks.rs @ 0da998f2
+  crates/core/src/color.rs                   PhotoCraft crates/ui-egui/src/color_picker_ui.rs @ e4b2868a
+  crates/ui-kit/src/widgets/swatch/picker.rs PhotoCraft crates/ui-egui/src/color_picker_ui.rs @ e4b2868a
+  crates/ui-kit/src/widgets/swatch.rs        PhotoCraft crates/ui-egui/src/widgets.rs @ e4b2868a
+  crates/edit/src/ops/colour.rs              PhotoCraft crates/compose/src/adjust.rs @ e4b2868a
+  crates/edit/src/ops/detail.rs              PhotoCraft crates/algo/src/sharpen.rs, crates/algo/src/noise.rs @ e4b2868a
+  crates/edit/src/ops/remap.rs               PhotoCraft crates/compose/src/effects.rs,
+                                             crates/compose/src/adjust.rs @ e4b2868a
+  crates/edit/src/ops/stylize.rs             LightCraft crates/pipeline/src/finish.rs @ 0da998f2,
+                                             PhotoCraft crates/algo/src/stylize.rs, crates/algo/src/blur.rs,
+                                             crates/algo/src/blur/radial.rs @ e4b2868a
+  crates/edit/src/ops/mats.rs                PhotoCraft crates/compose/src/effects.rs @ e4b2868a
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

@@ -73,8 +73,9 @@ pub fn label(op: &EditOp) -> &'static str {
         Some("filtered_bw") => "Filtered B&W",
         Some("focal_bw") => "Focal B&W",
         Some("graduated_tint") => "Graduated Tint",
-        // Legacy, unknown, and names a newer `edit` adds before this table does.
-        _ => "Edit",
+        // Every other operation takes `edit`'s own label (the effects of tabs 4-5, M12.1); legacy and
+        // unknown ones are "Edit".
+        _ => op.label().unwrap_or("Edit"),
     }
 }
 

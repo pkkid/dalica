@@ -6768,7 +6768,7 @@ at 1.5 × their first measurement, plus the edit view's (a panel's draft within 
 final within 100 ms at screen size, for every effect), and are never loosened. No step of M12 needs
 a maintainer decision mid-run.
 
-- ⬜ **M12.1 `edit`: the 27 effects' syntax, parameters and catalogue, with render stubs**
+- ✅ **M12.1 `edit`: the 27 effects' syntax, parameters and catalogue, with render stubs**
   - after: M10.9, M11.R
   - files: `crates/edit/src/syntax.rs`, `crates/edit/src/ops/mod.rs`, `crates/edit/src/ops/colour.rs`, `crates/edit/src/ops/detail.rs`, `crates/edit/src/ops/focal.rs`, `crates/edit/src/ops/remap.rs`, `crates/edit/src/ops/looks.rs`, `crates/edit/src/ops/soften.rs`, `crates/edit/src/ops/stylize.rs`, `crates/edit/src/ops/canvas.rs`, `crates/edit/src/ops/mats.rs`, `crates/edit/src/render.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/recipe.rs`, `crates/edit/tests/catalog.rs`, `crates/edit/README.md`, `docs/editing.md`, `docs/data-model.md`, `NOTICE`
   - scope: `editing.md` §8 and `data-model.md` §3.1: every effect of tabs 3–5 known to the
