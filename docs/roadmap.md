@@ -7686,7 +7686,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     `ui.set` (bad values are `bad_params`, nothing changes); `pane.people` and `pane.places` open
     the stub panes; the new menu items are listed and greyed; every command's graceful-failure
     test; `panic_hunt` and `widget_ids` stay green.
-- ⬜ **M13.5 `ui-kit`: face tiles, the face box, suggestion marks and the icons**
+- ✅ **M13.5 `ui-kit`: face tiles, the face box, suggestion marks and the icons**
   - after: M12.4, M12.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/face_tile.rs`, `crates/ui-kit/src/widgets/face_box.rs`, `crates/ui-kit/src/widgets/suggest_marks.rs`, `crates/ui-kit/src/widgets/badges.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/people.rs`, `crates/ui-kit/tests/face_widgets.rs`, `crates/ui-kit/tests/icons_people.rs`, `crates/ui-kit/tests/fingerprints/face-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-people*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: `design-system.md` §4–§6 and `organizing.md` §6: `face_tile` (a square face picture or

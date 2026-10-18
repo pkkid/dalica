@@ -1,8 +1,9 @@
 //! The marks a thumbnail carries (`design-system.md` §7, `ui-layout.md` §5.3): the photo's drop
 //! shadow, the badge row inside the image's bottom-right corner (edited ✎ · geotagged · held ·
 //! starred, the star always rightmost), a video's sprocket strip along the image's left edge and
-//! its duration pill at the bottom-left, the `caution` "!" of a photo that cannot be shown, and the
-//! `danger` ⊘ of a picture left out of an import (`organizing.md` §3).
+//! its duration pill at the bottom-left, the `caution` "!" of a photo that cannot be shown, the
+//! `danger` ⊘ of a picture left out of an import (`organizing.md` §3), and the `caution` "?" of a
+//! person with suggestions waiting (`organizing.md` §6.2).
 //!
 //! One painter, [`badges`], is fed what the model knows ([`Badges`]); it never decides what a
 //! photo is. Plates are 18 × 18 with a 12 pt glyph on `badge_plate`, 4 pt in from the image's
@@ -308,6 +309,25 @@ pub fn excluded_mark(painter: &Painter, t: &Tokens, cell: Rect, image: Rect) -> 
     let k = r * std::f32::consts::FRAC_1_SQRT_2;
     painter.line_segment([pos2(c.x - k, c.y + k), pos2(c.x + k, c.y - k)], stroke);
     Some(Rect::from_center_size(c, Vec2::splat(d)))
+}
+
+/// The side of the caution "?" badge beside a person with suggestions waiting (points).
+pub const SUGGESTION_BADGE: f32 = 14.0;
+
+/// The caution "?" badge of a person with suggestions waiting (`organizing.md` §6.2, the People
+/// group's rows): a `caution` disc filling the largest square of `rect` (the caller gives it
+/// [`SUGGESTION_BADGE`]) holding a SemiBold "?" in `canvas`, three quarters of its side high.
+/// Returns the disc's square, `None` for an empty or non-finite rect. Registers nothing (the row
+/// gives its parts their ids).
+pub fn suggestion_badge(painter: &Painter, t: &Tokens, rect: Rect) -> Option<Rect> {
+    let side = rect.width().min(rect.height());
+    if !(side.is_finite() && side > 0.0 && rect.center().is_finite()) {
+        return None;
+    }
+    let c = rect.center();
+    painter.circle_filled(c, side / 2.0, t.caution);
+    painter.text(c, Align2::CENTER_CENTER, "?", fonts::semibold(side * 0.75), t.canvas);
+    Some(Rect::from_center_size(c, Vec2::splat(side)))
 }
 
 /// The square `rect` is centred in and the map from the 20 × 20 grid to points.

@@ -13,9 +13,10 @@
 //! `icons/output.rs`), the automatic albums', [`AlbumIcon`] ([`paint_album`];
 //! `icons/albums.rs`), the shortcut editor's, [`OptionsIcon`] ([`paint_options`];
 //! `icons/options.rs`), and the rooms', slideshow's, viewer's, import tray's and compare's,
-//! [`ViewingIcon`] ([`paint_viewing`]; `icons/viewing.rs`), and the effect tabs', [`EffectIcon`]
-//! ([`paint_effect`]; `icons/effects.rs`). [`Glyph`] names a glyph of any set, for
-//! widgets that take glyphs from more than one ([`paint_glyph`]).
+//! [`ViewingIcon`] ([`paint_viewing`]; `icons/viewing.rs`), the effect tabs', [`EffectIcon`]
+//! ([`paint_effect`]; `icons/effects.rs`), and people's and places', [`PeopleIcon`]
+//! ([`paint_people`]; `icons/people.rs`). [`Glyph`] names a glyph of any set, for widgets that take
+//! glyphs from more than one ([`paint_glyph`]).
 
 mod albums;
 mod edit;
@@ -25,6 +26,7 @@ mod glyphs;
 mod options;
 mod output;
 mod pen;
+mod people;
 mod viewing;
 
 pub use albums::{AlbumIcon, paint_album};
@@ -33,6 +35,7 @@ pub use effects::{EffectIcon, paint_effect};
 pub use folder_modes::{FolderIcon, INHERITED_OPACITY, paint_folder, state_color};
 pub use options::{OptionsIcon, paint_options};
 pub use output::{OutputIcon, paint_output};
+pub use people::{PeopleIcon, paint_people};
 pub use viewing::{ViewingIcon, paint_viewing};
 
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};
@@ -223,6 +226,8 @@ pub enum Glyph {
     Viewing(ViewingIcon),
     /// An effect-tab glyph.
     Effect(EffectIcon),
+    /// A glyph of people or places.
+    People(PeopleIcon),
 }
 
 impl From<Icon> for Glyph {
@@ -249,6 +254,12 @@ impl From<EffectIcon> for Glyph {
     }
 }
 
+impl From<PeopleIcon> for Glyph {
+    fn from(icon: PeopleIcon) -> Glyph {
+        Glyph::People(icon)
+    }
+}
+
 /// Paints `glyph` in `color`, centred in the largest square that fits `rect`, with its set's
 /// painter. An empty or non-finite rect paints nothing.
 pub fn paint_glyph(painter: &Painter, rect: Rect, glyph: Glyph, color: Color32) {
@@ -257,6 +268,7 @@ pub fn paint_glyph(painter: &Painter, rect: Rect, glyph: Glyph, color: Color32) 
         Glyph::Edit(icon) => paint_edit(painter, rect, icon, color),
         Glyph::Viewing(icon) => paint_viewing(painter, rect, icon, color),
         Glyph::Effect(icon) => paint_effect(painter, rect, icon, color),
+        Glyph::People(icon) => paint_people(painter, rect, icon, color),
     }
 }
 
