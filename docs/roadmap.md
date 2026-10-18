@@ -7168,7 +7168,7 @@ a maintainer decision mid-run.
     colour picker and the eyedropper, the crosshair dragged with a mouse and a touchpad, Soften
     painted, a framed photo saved and opened in another application).
   - done when: `cargo xtask accept M12` passes everything in M12's *Done when*.
-- ⬜ **M12.23 Lead: task blocks for M14**
+- ✅ **M12.23 Lead: task blocks for M14**
   - after: M11.25
   - owner: lead
   - files: `docs/roadmap.md`
@@ -8031,12 +8031,651 @@ wave 6   M13.30 suggestions in the window  ‖  M13.31 M13 budgets
 wave 7   M13.32 accept M13 → M13.R          (M13.33 lead: M15 blocks, any time after M12.23)
 ```
 
-### M14: P1 parity (outline; the lead details it while M13 runs)
+### M14 — Collage and legacy sidecars
 
-| # | In | Done when (sketch) |
-|---|---|---|
-| M14 Collage | the collage room, styles, canvas, render + recipe, Edit Collage | deterministic layouts per seed; render size |
-| M14 Legacy sidecars | read-only reader with provenance header, first-run notice, conversion on first write, legacy originals for Revert | `data-model.md` §10.11 |
+One milestone in 2 feature areas (*The collage room*, *Legacy sidecars*); one `cargo xtask accept M14` covers every *Done when* below. It ends with a release gate the maintainer owns (Release 0.9).
+
+#### The collage room
+
+- **In:** the Collage room (`creating.md` §3, `ui-layout.md` §8): opened from the Photo Tray's
+  Collage button, a section header's Collage (folders, albums and, since M13, person sections) and
+  Create ▸ Picture Collage…; the six styles (Picture Pile, Mosaic, Frame Mosaic, Grid, Contact
+  Sheet, Multiple Exposure) with the options each offers (picture borders none / white / instant,
+  grid spacing, a solid background colour with its swatch and eyedropper or a picture as the
+  background, the page format from the crop ratios plus Current Display with its orientation and
+  deletable custom ratios, Draw shadows, Show captions); the Clips tab (+, −, Get More and the
+  tray's Back to Collage); the canvas (select, drag to move in a pile, the wheel handle that turns
+  and scales, Bring to Top / Send to Bottom, drag to swap in the mosaics and the grid, Delete back
+  to the clips, Set as Background, Set as Frame Center, Scramble Collage, Shuffle Pictures, View
+  and Edit); Create Collage (a JPEG of long side 3000 px, or the display's size, in
+  `Pictures/Dalica/Collages` with a `.dalica-collage` recipe beside it, opened in the edit view),
+  Reset, Close with [Save Draft] [Discard] [Cancel]; Edit Collage in the edit view's top bar; the
+  Collages folder in the Projects group; collages over MCP (W15).
+- **Out:** the room's Desktop Background button (setting the wallpaper is dropped with the other
+  OS-desktop features, `creating.md` intro); printing a contact sheet (`OUT-CONTACT`, dropped);
+  collages of videos (M15).
+- **Reuse** (`architecture.md` §9): LightCraft `crates/engine/src/print/layout.rs` (`Rect`,
+  `grid_rects_for`) and `crates/engine/src/print/compose.rs` (`place`, `px_rect`) at 20ccedf5
+  for the grid, the contact sheet and placing a picture in its cell (the mosaics are our own); in this repository
+  `create::output` (each picture rendered with its edits), `create::watermark` (text drawn with
+  Inter, for captions and names), M12's drop shadow (`edit`) for shadows, M12.4's colour swatch,
+  picker and eyedropper, M11.3's room tabs and M7's crop ratio list and custom ratios.
+- **Done when:** `cargo xtask accept M14`: every style lays the same pictures out the same way for
+  the same seed on every run and system, and Scramble and Shuffle change only what they say; the
+  canvas and the created JPEG agree (each picture where the canvas showed it); Create Collage
+  writes a JPEG of the page's ratio at long side 3000 px and its recipe, never replacing a file,
+  and the collage shows in the Projects group; Edit Collage reopens it with its clips and
+  settings; nothing in the room ever waits on the disk; W15 passes over MCP.
+
+#### Legacy sidecars
+
+- **In:** reading the previous organizer's per-folder sidecar and its hidden originals folder
+  (`data-model.md` §9): the read-only reader with its provenance header, limits and fuzz target;
+  stars, hidden, captions and tags, rotations and flips, crops, edits (mapped to Dalica operations
+  or kept as `legacy:` entries), faces and people, album memberships and definitions, geotags, and
+  the folder's description, date, place and hidden category, shown on the first scan with no
+  import step; which file is in effect per folder (Folder Properties, the control API); the first
+  change in a folder writing a full `.dalica.json`; the legacy originals offered for Undo Save and
+  Revert; the first-run notice; Options ▸ General ▸ "Read photo data left by the previous
+  organizer"; the edit panel's "1 edit from the previous program (not supported)"; a legacy
+  library over MCP (W16).
+- **Out:** the previous organizer's central database, its contacts and album files in its
+  application-data folder, and its thumbnail caches (only files inside watched folders are read;
+  `security.md` §5.5); ever writing, renaming or deleting a legacy file; the web-album, backup and
+  upload keys (no meaning in Dalica; the legacy file keeps them).
+- **Reuse:** the format as recorded in the private notes (`notes/`, the data-and-files study:
+  public descriptions and black-box observation; nothing copied); in this repository `dalica-fs`
+  reads, `scan`'s sidecar path, `store`'s writer, M8's Undo Save and Revert (`create::save`), M9's
+  albums, M13's faces, people and geotags.
+- **Done when:** `cargo xtask accept M14` (`data-model.md` §10.11): a folder with only a legacy
+  sidecar shows its stars, captions, edits, albums, people and places after the first scan; the
+  first change writes `.dalica.json` with all of it while the legacy file stays byte-identical; a
+  folder with both files reads only `.dalica.json`; a legacy-saved photo's original comes back with
+  Undo Save and Revert; hostile legacy files are refused or skipped without a panic; W16 passes
+  over MCP.
+
+#### M14 tasks
+
+M14 makes collages and reads the previous organizer's data: the collage document, its six
+layouts, its render and recipe, the collage session and its room; the legacy reader, its edit
+mapping, legacy folders on scan, the first write that converts them, legacy originals for Undo Save
+and Revert, and the notice and settings in the window. Its first wave lists the M13 work each task
+extends and starts once the maintainer has closed M13.R. Seven tasks lay the ground the others
+share, so later tasks never share a file: M14.1 gives `library` the Collages project, the legacy
+ids of albums and people and the per-folder legacy facts; M14.2 gives `sidecar` the bounded,
+read-only legacy reader; M14.3 gives `edit` the mapping of legacy edit operations; M14.4 gives
+`create` the collage document, its page formats, its recipe file and one stub module per layout;
+M14.5 registers one engine command module per area with stub state, M14's settings and the options
+row; M14.6 adds M14's view state, UI commands with stub handlers and the stub room; M14.7 gives
+`ui-kit` the collage widgets and icons. The layouts (M14.8, M14.9), the render (M14.10), legacy
+folders on scan (M14.11), the first write (M14.12) and legacy originals (M14.14) follow, each in its
+own module; then the engine's legacy session (M14.13) and collage session (M14.16) and output
+(M14.17), and the window's room, canvas, entry points and legacy surfaces on top. Each task updates
+its `parity.md` rows (`OUT-COLLAGE`, `DATA-LEGACY`, the Collage tab of `LIB-ROOMS`, the Collage
+buttons of `LIB-ACTIONS`, `LIB-LT-HEADER` and `PPL-UNNAMED`, the collages of `LIB-TREE-GROUPS`, the
+legacy notice of `ORG-FIRSTRUN`, the legacy row of `PREF-GENERAL`, §10.11 in `DATA-TESTS`,
+`SYS-MCP`, the Create menu row) and names its commands there; first fingerprints of the six styles'
+renders, the room, the canvas, the legacy notice and the new widgets and icons are approved in bulk
+on the M14.R review page.
+
+Whole-window baselines belong to no task, as in M5–M13: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m13-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+Fingerprints are made at 1400 × 900 only; at 900 × 600 a test asserts that the room, its tabs and
+its canvas fit (`architecture.md` §11).
+
+Decisions taken while planning (the check-in lists them for reversal). **The collage document**
+(`create::collage`) is pure data: the style, the settings, the page format and orientation, a
+`u64` seed, the clips (photo ids in order, which of them are on the page), the background picture
+and the frame centre, and per picture the user's own placement where the user moved it (a pile's
+centre, scale and angle; the mosaics' and the grid's slot swaps). Every layout is a pure function
+of the document to placements normalised to the page (centre, size, angle, stacking order, the
+part of the picture shown), seeded by a small generator of our own (no `rand` dependency, no
+floating point in the choices), so the canvas, the render, a thumbnail of the room and the MCP
+reply agree at any size and on every system. Scramble Collage draws a new seed and drops the
+user's placements; Shuffle Pictures keeps the slots and draws a new assignment of pictures to them.
+The pile shows whole pictures turned within ±15°; Grid, Mosaic and Frame Mosaic fill their cells
+(the picture cropped to the cell, centred); Contact Sheet shows whole pictures with their file names
+under them; Multiple Exposure covers the page with every picture and blends them with equal weight
+(it has no background). Grid spacing runs from none to 5 % of the page's short side. Borders are
+relative to the picture's short side (white 3 %, instant 5 % with a 20 % bottom). The default is
+Picture Pile on a black background at 16:9 (HD video), landscape, shadows on, captions off.
+**Clips:** opening the room puts every picture on the page and in the Clips; Remove and Delete
+take a picture off the page (it stays in the Clips), + puts it back, − takes it out of the Clips;
+Get More shows the Library tab and the tray's Back to Collage adds the selection (or the held
+tray) to the Clips. One Collage room at a time: opening it again brings it to the front and adds
+the new pictures to its Clips. At most 1 000 clips. **The room's history:** Ctrl+Z and Ctrl+Y
+undo and redo the room's changes while it is in front; they never reach the library's undo stack.
+**Page formats** are the crop ratios (`editing.md` §6.1) plus Current Display, sharing the Crop
+panel's custom ratios (deleting one in either place deletes it in both). **Output:** Create
+Collage renders on a worker (`JobKind::Collage`, progress and Cancel) through the one output
+pipeline: each picture with its edits at the size its place needs, one at a time so memory stays
+within the page and one picture; a JPEG at quality 92 (sRGB, the date of making as its date) named
+`Collage <yyyy-mm-dd>.jpg` through `core::names::sanitize` and `-001` collisions, never replacing a
+file, in the projects directory's `Collages` folder (marked `"project": "collages"`), with the
+recipe `<same stem>.dalica-collage` beside it; the new photo enters the library and opens in the
+edit view. Creating a collage is not an undo step (it is a new file, as an export is); deleting it
+is an ordinary delete. **Save Draft** writes the picture and its recipe as Create Collage does,
+with `"draft": true`, and does not open the edit view; Edit Collage shows for a photo with a
+readable recipe of the same stem beside it, and Create Collage from a reopened collage writes a new
+one beside it. The recipe holds each clip's id and its path; reopening matches a clip by id, then
+by path among the photos already indexed (a path from a recipe is never opened, `security.md`
+§5.5), and a clip not found leaves the Clips with a notice. A recipe is read under limits (1 MiB,
+depth 32, 1 000 clips, every number finite and in range) and a hostile one is refused without a
+panic. **Legacy files:** the legacy sidecar's two names and its originals folder's name are built
+from a byte constant in `sidecar::legacy` that does not spell the reference name (the names are in
+the notes), so `cargo xtask names` passes and every crate's tests use that constant. Only files
+inside watched folders are read: no central database, contacts file or album file from the old
+program's application data, so a face whose contact has no name in its folder's sidecar or an
+ancestor's becomes an Unnamed face, and an album defined in no folder's sidecar is not created. The
+ignore marker for a face reads as Ignored (the notes' live measurement; the conflicting reading is
+recorded there). Rectangles (crops and faces) are decoded over 65 535 and mapped from the stored
+pixels through the EXIF orientation into reserved decision 11's frame. Legacy edit operations whose
+parameters the notes record with confidence map to the M7 and M12 operations; the rest, the
+markers of baked-in fixes and the text overlay become `legacy:<name>(…)` entries in their place in
+the recipe; superseded crops are not carried (the old program ignored them too). A photo the old
+program saved takes its recipe from the main sidecar only (its baked edits are never applied
+twice). Album and contact ids are kept as `legacy` ids on Dalica's albums and people (in
+`albums.json` and `people.json`), so the same album or person seen in many folders is one; a
+contact whose name equals an existing person's, ignoring case, joins that person. Legacy data
+enters the model as a scan's imports do: no undo step, nothing written; the first change in a
+legacy-only folder writes a `.dalica.json` holding everything the model has for that folder,
+checked by parsing it back before the rename, through `fs`'s create that never replaces (a
+`.dalica.json` appearing meanwhile wins and the folder is read again). Keys with no meaning in
+Dalica (change stamps, web and backup ids) are not carried; the legacy file keeps them. Turning
+"Read photo data left by the previous organizer" off rescans the legacy-only folders: their photos
+keep only what Dalica's own files say, and albums and people that only legacy data named leave the
+model when nothing is left in them; turning it on brings everything back; nothing is written either
+way. **Legacy originals:** a photo with an original in the legacy originals folder and no Dalica
+record is offered Undo Save (the original copied back, the recipe from the originals folder's
+sidecar becomes its unsaved edits) and Revert (the original copied back, the edits dropped); in
+both the saved file goes to the OS trash rather than being replaced, because Dalica cannot always
+render it again (its edits may be `legacy:` entries); nothing in the legacy folder is written,
+moved or removed; Dalica's own record, once there, takes precedence; the legacy original is
+offered only while the photo's bytes differ from it. The first-run notice ("Found photo data from
+your previous photo program in %d folders. …" [OK], `organizing.md` §1) shows once (the setting
+`files.legacyNoticeShown`), when a scan first finds legacy data. Ports from the Craft apps get their
+`NOTICE` rows from M14.4. M14's budgets join `development.md` §8 at 1.5 × their first measurement,
+plus the canvas frame with 100 pictures within 16 ms at p95, and are never loosened. No step of
+M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at M14.R for M15.
+
+- ⬜ **M14.1 `library`: the Collages project, legacy ids and legacy facts in the model**
+  - after: M9.8, M13.1, M13.R
+  - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/albums.rs`, `crates/library/src/people.rs`, `crates/library/src/tree.rs`, `crates/library/tests/legacy.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
+  - scope: per the decisions above: `Project::Collages` beside `Exported` (the tree's Projects
+    group lists it with the collage icon's kind); an optional `legacy` id on albums and people with
+    lookups by it; per folder the sidecar in effect (`dalica | legacy | both | none`) and per photo
+    the legacy original (size, digest, recipe) as derived facts set by ops without an undo step or
+    a revision bump (as `SetSaved` is); queries: the folders whose data came from a legacy sidecar
+    (the notice's count), the albums and people only legacy data named (for the option turned
+    off), the photos offered a legacy Undo Save.
+  - done when: `crates/library/tests/legacy.rs`: an album and a person found by their legacy id;
+    the facts ops move no revision and leave the undo stack alone; the query of legacy folders
+    counts each once; `crates/library/tests/tree.rs`: a folder marked Collages is listed in
+    Projects; every existing `library` test passes unchanged.
+- ⬜ **M14.2 `sidecar`: the legacy sidecar reader**
+  - after: M13.2, M13.R
+  - files: `crates/sidecar/src/legacy.rs`, `crates/sidecar/src/legacy/**`, `crates/sidecar/tests/legacy.rs`, `crates/sidecar/fuzz/**`, `crates/sidecar/README.md`, `.github/workflows/fuzz.yml`, `xtask/src/ci.rs`, `docs/security.md`
+  - scope: `data-model.md` §9 and `security.md` §4.2, from the notes' description of the format,
+    with a provenance header naming them (public descriptions and black-box observation): the
+    names (the decisions above); a bounded reader (file ≤ 64 MiB, line ≤ 1 MiB, ≤ 1 000 000
+    sections, ≤ 1 000 keys per section) of sections and `key=value` lines split on the first `=`,
+    CRLF or LF, no comments, duplicate sections and keys merged (the later wins), garbage sections
+    skipped, UTF-8 when the file says so and Windows-1252 otherwise with invalid bytes decoded
+    lossily for display and never written; typed values: the folder section (description, date
+    from its day-count form, place, hidden category), per file (star, hidden, caption, keywords,
+    rotation in quarter turns, flip, the crop rectangle, the edit list and the redo list as raw
+    tokens, the text overlay kept whole by its length prefixes, faces as rectangle and contact id
+    with zero padding and the ignore marker, album tokens, geotag), album sections (token, name,
+    date in either form, description, place; tombstones without a name skipped), contacts (name
+    from the three-field form only); rectangles decoded over 65 535 as `[x0, y0, x1, y1]`; the same
+    reader for the originals folder's sidecar; a fuzz workspace `crates/sidecar/fuzz` with the
+    target `legacy` and its job in the Fuzz workflow (the workspace excluded in the root
+    `Cargo.toml`, listed where `xtask/src/ci.rs` lists fuzz workspaces); `security.md` §4.2's row
+    and §7.1's target marked built.
+  - done when: `crates/sidecar/tests/legacy.rs` (fixtures written in the test from the documented
+    format): every key above reads back from a sample folder; a file of the older encoding reads
+    its accented names; a value containing `;` and `=` survives; a short rectangle is padded and a
+    full one reads `[0, 0, 1, 1]`; duplicated, reversed and empty sections are skipped with the
+    rest kept; a file past each limit is refused by name; proptest: random bytes and random line
+    soups never panic; `cargo +nightly fuzz build` builds the target; `cargo xtask names` passes.
+- ⬜ **M14.3 `edit`: legacy edit operations mapped to Dalica's**
+  - after: M12.14, M13.R
+  - files: `crates/edit/src/legacy.rs`, `crates/edit/tests/legacy.rs`, `docs/editing.md`
+  - scope: `data-model.md` §9 and the decisions above: a legacy edit list (raw tokens from M14.2)
+    and the photo's rotation, flip and crop turned into Dalica operations: each operation in the
+    notes' catalogue whose parameters they record with confidence mapped to its M7 or M12
+    operation with its parameters converted into the Dalica operation's own ranges (the module's
+    constants), case-sensitive names, a wrong number of parameters or an unknown name kept as
+    `legacy:<name>(…)` with the text verbatim, the markers of baked-in fixes and the text overlay
+    kept the same way, the order kept, the last crop the only crop carried, rectangles mapped into
+    the stored frame through the given EXIF orientation; the redo list the same way; `editing.md`
+    §13 gains the mapping table in our own words and says which legacy entries stay unsupported.
+  - done when: `crates/edit/tests/legacy.rs`: each mapped operation parses back as a typed Dalica
+    operation and renders; parameters at their legacy ends land at the Dalica ends; an unknown
+    name, a wrong count and a marker keep their text exactly and the entries after them keep their
+    order; two crops give the last one; a crop on a photo with each of the eight orientations
+    covers the same pixels as the legacy rectangle on the stored pixels; proptest: no token list
+    panics.
+- ⬜ **M14.4 `create`: the collage document, page formats and the `.dalica-collage` recipe**
+  - after: M8.10, M11.4, M13.R
+  - files: `crates/create/src/collage.rs`, `crates/create/src/collage/doc.rs`, `crates/create/src/collage/page.rs`, `crates/create/src/collage/recipe.rs`, `crates/create/src/collage/seed.rs`, `crates/create/src/collage/layout.rs`, `crates/create/src/collage/layout/pile.rs`, `crates/create/src/collage/layout/grid.rs`, `crates/create/src/collage/layout/sheet.rs`, `crates/create/src/collage/layout/exposure.rs`, `crates/create/src/collage/layout/mosaic.rs`, `crates/create/src/collage/layout/frame.rs`, `crates/create/src/collage/render.rs`, `crates/create/tests/collage_doc.rs`, `crates/create/README.md`, `docs/creating.md`, `NOTICE`
+  - scope: `creating.md` §3 and the decisions above: the document (style, settings, page format
+    and orientation, seed, clips and which are on the page, background picture, frame centre, the
+    user's placements) with validation (every number finite and in range, at most 1 000 clips, a
+    frame centre or background among the clips); page formats (the crop ratios, Current Display
+    from a given size, custom ratios given by the caller, orientation) with the page's pixel size
+    at a long side; the seeded generator (`seed.rs`: splitmix-style, the same numbers on every
+    system); `Placement` (centre, size, angle, stacking order, the part of the picture shown, all
+    normalised) and `layout(doc, pictures' aspect ratios) → Vec<Placement>` dispatching to one
+    stub module per style (each returning a simple grid until M14.8 and M14.9) and applying the
+    user's placements; Scramble and Shuffle as document changes; the recipe file: version, every
+    field above, `draft`, each clip's id and path, the output's size, printed sorted and pretty,
+    parsed under the limits of the decisions with unknown keys kept; a `render.rs` stub with the
+    render's signature for M14.10; `creating.md` §3 records the decisions; the `NOTICE` rows of
+    every port named in M14's blocks.
+  - done when: `crates/create/tests/collage_doc.rs`: a document round-trips through its recipe
+    byte for byte; Scramble changes the seed and drops the user's placements, Shuffle keeps the
+    slots and changes the assignment; each page format gives its ratio in both orientations and
+    Current Display the given size; the generator gives fixed numbers for fixed seeds; hostile
+    recipes (`NaN`, a huge clip list, depth 100, a clip id twice, a frame centre not in the clips)
+    are refused without a panic (proptest).
+- ⬜ **M14.5 `engine`: M14's command modules, settings and options row**
+  - after: M13.3, M13.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/collage.rs`, `crates/engine/src/cmd/collage_output.rs`, `crates/engine/src/cmd/legacy.rs`, `crates/engine/src/collage.rs`, `crates/engine/src/collage_output.rs`, `crates/engine/src/legacy.rs`, `crates/engine/src/session.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - scope: the engine's ground for M14 so M14.13, M14.16 and M14.17 never share a file: empty
+    `cmd/collage.rs`, `collage_output.rs` and `legacy.rs` joined into the registry once; stubs
+    `collage.rs` (the open collage and the room's history), `collage_output.rs` and `legacy.rs`,
+    each a field of `Session` once; every M14 setting with its default behind a typed accessor:
+    collage (the last style and settings, page format and orientation, background colour; the
+    decisions' defaults), `files.readLegacyData` (on; now read) and `files.legacyNoticeShown`
+    (off); the options catalogue's "Read photo data left by the previous organizer" made
+    available; `menus-and-shortcuts.md` §1.9 lists the new commands (`create.collage`,
+    `collage.*`, `legacy.inspect`) and the Collage key context's keys (§2: Delete, Ctrl+A, Esc,
+    Ctrl+Z, Ctrl+Y); `data-model.md` §4 lists the new keys.
+  - done when: `crates/engine/tests/settings.rs` round-trips every new setting with unknown keys
+    kept and wrong types or out-of-range values falling back (reported);
+    `crates/engine/tests/options_catalogue.rs`: the legacy row is available with its default equal
+    to its accessor's; every existing engine test and `panic_hunt` pass unchanged.
+- ⬜ **M14.6 `ui`: M14's view state, UI commands and the stub room**
+  - after: M13.4, M13.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/commands/collage.rs`, `crates/ui/src/commands/collage_canvas.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/collage.rs`, `crates/ui/src/panels/collage/**`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/collage_close.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
+  - scope: every M14 field of `UiState` in one go: the Collage room (open, its tab Settings or
+    Clips, the selected pictures on the canvas, the clip selection, the drag or turn under way,
+    Get More's mode, the close question); UI commands with stub handlers, so M14.18–M14.20 never
+    share a file: `create.collage` (opens a stub room), the room's `collage.*` commands (style,
+    settings, clips, create, save draft, reset, close, get more, back to collage) in
+    `commands/collage.rs`, the canvas's (select, move, turn and scale, order, swap, remove, set as
+    background, set as frame centre, scramble, shuffle, view and edit) in
+    `commands/collage_canvas.rs`; `room.select` and `room.close` knowing `collage`; the Collage
+    key context made active by the room in `keys.rs`; stub panels `collage.rs` and its folder
+    (`settings.rs`, `clips.rs`, `canvas.rs`), the edit top bar's Edit Collage button (hidden until
+    live), the stub dialog `collageClose`; the Create menu's Picture Collage… wired (greyed until
+    live); control stubs for the new state; `control-protocol.md` §6.5 and §7 (the room's state
+    and ids following §7's patterns: `tab:room/collage`, `region:collage`, `canvas:collage`,
+    `item:<n>`, `clip:<id>`, `button:tray.backToCollage`, `dialog:collageClose`, …).
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); `create.collage` opens the Collage
+    tab and the strip shows it; a Collage-context key does nothing in the library; every command's
+    graceful-failure test; `panic_hunt` and `widget_ids` stay green.
+- ⬜ **M14.7 `ui-kit`: style rows, image toggles, the turn-and-scale handle and the collage icons**
+  - after: M12.4, M13.5, M13.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/dropdown.rs`, `crates/ui-kit/src/widgets/toggle_group.rs`, `crates/ui-kit/src/widgets/transform_handle.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/collage.rs`, `crates/ui-kit/tests/collage_widgets.rs`, `crates/ui-kit/tests/icons_collage.rs`, `crates/ui-kit/tests/fingerprints/collage-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-collage*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §4–§6 and `creating.md` §3: the dropdown's rich rows (an icon, a
+    bold name and a one-line description, closed and open); `toggle_group` (a row of image toggle
+    buttons, one chosen, each with a tooltip; the borders and the orientation); `transform_handle`
+    (the `accent` outline of a selected picture at any angle and the wheel handle on it: dragging
+    it turns and scales together around the picture's centre, reporting angle and scale; Shift
+    keeps the scale); the icons it lacks, our own drawings on the 20-unit grid: the six styles, no
+    border, white border, instant border, landscape, portrait, Scramble, Shuffle, Set as
+    Background, Frame Center, Bring to Top, Send to Bottom, Get More; the widget gallery gains
+    them; `design-system.md` §6's rows.
+  - done when: `crates/ui-kit/tests/collage_widgets.rs`: a rich row elides its description and
+    keeps its name; a toggle group keeps one chosen and moves by the arrows; dragging the handle a
+    quarter turn round reports 90° and dragging it out doubles the scale; the outline follows the
+    angle; `crates/ui-kit/tests/icons_collage.rs`: each new icon stays in its grid at 12, 16, 20 and
+    28 px in rest, hover and disabled colours; gallery and icon fingerprints; `widget_ids`,
+    contrast, `cargo xtask assets` and `cargo xtask names` pass.
+- ⬜ **M14.8 `create`: Picture Pile, Grid, Contact Sheet and Multiple Exposure**
+  - after: M14.4
+  - files: `crates/create/src/collage/layout/pile.rs`, `crates/create/src/collage/layout/grid.rs`, `crates/create/src/collage/layout/sheet.rs`, `crates/create/src/collage/layout/exposure.rs`, `crates/create/tests/collage_layouts.rs`
+  - scope: `creating.md` §3 and the decisions above: the pile (pictures scattered over the page,
+    each whole, turned within ±15°, sized so the pile covers the page for any count, kept on the
+    page, stacked in clip order, the user's moves applied over it); the grid (rows and columns
+    chosen for the count and the page's ratio, equal cells, the spacing, each picture filling its
+    cell); the contact sheet (a grid of whole pictures with a line under each for its file name);
+    multiple exposure (every picture covering the page, equal weights); `grid_rects_for` and
+    `place` ported from LightCraft `crates/engine/src/print/layout.rs` and
+    `crates/engine/src/print/compose.rs` at 20ccedf5 (with `Rect`), each with its header.
+  - done when: `crates/create/tests/collage_layouts.rs`: for 1, 2, 7 and 100 pictures each style
+    gives the same placements for the same seed and different ones for another (the pile); every
+    pile picture stays on the page and the pile leaves no more than a fifth of the page bare at 20
+    pictures; grid cells are equal, never overlap and keep the spacing; a contact sheet's names
+    never overlap the next row; proptest: any count from 0 to 1 000 and any page ratio give finite
+    placements without a panic.
+- ⬜ **M14.9 `create`: Mosaic and Frame Mosaic**
+  - after: M14.4
+  - files: `crates/create/src/collage/layout/mosaic.rs`, `crates/create/src/collage/layout/frame.rs`, `crates/create/tests/collage_mosaic.rs`
+  - scope: `creating.md` §3 and the decisions above: the mosaic, our own seeded guillotine
+    partition of the page into one block per picture, filling it without holes, each block's
+    ratio near its picture's (cuts weighted by the pictures' ratios, along the longer side), the
+    spacing as gaps; the frame mosaic: the frame centre (the first clip unless set) in a central
+    block of about half the page in each direction at its own ratio, the others in a mosaic of the
+    bands around it; swaps from the user's placements exchange two pictures' blocks.
+  - done when: `crates/create/tests/collage_mosaic.rs`: for 1, 2, 7 and 100 pictures the blocks
+    tile the page exactly (their areas sum to the page's minus the gaps, none overlap) and repeat
+    for the same seed; a block's ratio stays within 2× of its picture's for 2 to 30 pictures; the
+    frame centre is the largest block and Set as Frame Center moves it; a swap exchanges exactly
+    two blocks; proptest: no count or ratio panics.
+- ⬜ **M14.10 `create`: rendering a collage**
+  - after: M14.4, M12.14
+  - files: `crates/create/src/collage/render.rs`, `crates/create/src/collage/render/**`, `crates/create/tests/collage_render.rs`, `crates/create/tests/fingerprints/collage-*.json`
+  - scope: `creating.md` §3 and the decisions above: `render(doc, placements, pictures, size,
+    cancel, progress)` drawing the page at its pixel size: the background colour or the
+    background picture covering the page; each picture, rendered by the caller through the one
+    output pipeline with its edits at the size its placement needs (asked one at a time), cropped
+    to its cell or whole, turned with bilinear sampling, with its white or instant border, its
+    shadow (M12's drop shadow from `edit`), its caption (Show captions, the pile) or file name (the
+    contact sheet) drawn with `create::watermark`'s Inter text, stacked in order, pixel rectangles
+    by `px_rect` ported from LightCraft `crates/engine/src/print/compose.rs` at 20ccedf5; multiple exposure
+    blended with equal weights; encoding to JPEG at quality 92 with its date; memory within the page
+    and one picture; cancellation between pictures.
+  - done when: `crates/create/tests/collage_render.rs` (`scenes` pictures): each style's page at
+    long side 3000 px has the page's ratio and every picture's centre pixel where its placement
+    says; a render at 600 px and one at 3000 px downscaled agree within the fingerprint tolerance;
+    a white border is white and a shadow darkens only outside the picture; cancelling after the
+    first picture stops; peak memory stays within the page plus one picture; fingerprints of the
+    six styles at 1 200 px.
+- ⬜ **M14.11 `scan`: legacy folders read on scan**
+  - after: M14.1, M14.2, M14.3, M13.14, M13.19
+  - files: `crates/scan/src/legacy.rs`, `crates/scan/src/legacy/**`, `crates/scan/src/walk.rs`, `crates/scan/tests/legacy.rs`, `crates/scan/README.md`
+  - scope: `data-model.md` §9 and the decisions above: on the scan's worker, a folder without
+    `.dalica.json` and with a legacy sidecar (either name; through `dalica-fs`, never through a
+    link) has it read and converted (M14.2, M14.3) into what a `.dalica.json` gives the model:
+    each photo's star, hidden, caption and tags, recipe and redo list, faces with their contact ids
+    (the contacts of the folder's sidecar, then of its ancestors already read in the walk) and
+    geotag; the folder's description, date, place and hidden flag; album memberships and
+    definitions by token; the folder's fact `legacy`; with both files the legacy one is not read
+    (fact `both`); with `files.readLegacyData` off neither; sections matched to photos by exact name,
+    then ignoring case when only one matches; stale sections and paths in values never opened;
+    a damaged or oversized legacy file reported and skipped, never set aside or renamed (legacy
+    files are read-only). The scan crate gains its `dalica-edit` dependency (L3 → L1).
+  - done when: `crates/scan/tests/legacy.rs` (fixtures written by the test): a legacy-only folder's
+    photos carry every field above after a scan; a folder with both files reads only
+    `.dalica.json` and reports `both`; with the option off nothing is read; a name differing only
+    in case matches once and an ambiguous one not at all; a contact named only in the parent
+    folder names the face; a legacy file through a link is not read; every legacy file's bytes and
+    time are unchanged after the scan; a hostile file is skipped with a warning and no panic.
+- ⬜ **M14.12 `store` + `sidecar`: legacy ids on disk, the first write of a legacy folder and the rebuild**
+  - after: M14.1, M14.2, M13.9
+  - files: `crates/store/src/legacy.rs`, `crates/store/src/writer.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/mapping.rs`, `crates/store/src/albums.rs`, `crates/store/src/people.rs`, `crates/sidecar/src/albums.rs`, `crates/sidecar/src/fields.rs`, `crates/store/tests/legacy.rs`, `crates/store/README.md`, `docs/data-model.md`
+  - scope: `data-model.md` §3–§4 and §9 and the decisions above: albums' and people's `legacy`
+    ids in `albums.json` and `people.json` (unknown keys kept); the `"project": "collages"` mark;
+    the first write of a folder whose fact is `legacy`: a new `.dalica.json` holding everything
+    the model has for the folder (every photo, not only the changed one), parsed back and compared
+    before the rename, through `fs`'s create that never replaces (a `.dalica.json` appearing
+    meanwhile: nothing written, the folder read again), then the fact `both`; never a write,
+    rename or delete of a legacy file; a rebuild of a legacy-only folder gives the model the first
+    scan gave; the "nothing silently dropped" mapping test lists the new fields; `data-model.md`
+    §9 says what landed.
+  - done when: `crates/store/tests/legacy.rs` (`data-model.md` §10.11): starring one photo of a
+    legacy-only folder writes `.dalica.json` with every photo's converted data and the star, and
+    the legacy file stays byte-identical with its time; after it the folder reads only
+    `.dalica.json`; a `.dalica.json` created by another program between the read and the write is
+    never replaced; an album and a person with legacy ids survive a restart and a rebuild of
+    `albums.json` and `people.json`; a crash at one point before and one after the commit (`fs`
+    faults) leaves no `.dalica.json` or the whole one.
+- ⬜ **M14.13 `engine`: legacy data in the session**
+  - after: M14.5, M14.11, M14.12, M13.15
+  - files: `crates/engine/src/cmd/legacy.rs`, `crates/engine/src/legacy.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/tests/legacy.rs`, `docs/control-protocol.md`
+  - scope: `data-model.md` §9 and the decisions above: the scan's legacy results applied as a
+    scan's imports are (no undo step): albums found or created by legacy id, people by contact id,
+    then by name ignoring case, faces as M13's faces with their people or Ignored or Unnamed,
+    geotags as M13's; the folder facts; `files.readLegacyData` turned off or on rescanning the
+    legacy-only folders with what the decisions say; `legacy.inspect {folders?}` (each folder's
+    source and what it held) and the source in `folder.inspect` and `library.inspect`; `photo.inspect`
+    counting a recipe's `legacy:` entries; the notice: `Session::legacy_notice()` gives the count of
+    legacy folders the first time a scan finds any while `files.legacyNoticeShown` is off, and
+    `legacy.noticeShown` sets it; `control-protocol.md` says what landed.
+  - done when: `crates/engine/tests/legacy.rs`: a library of two legacy folders sharing an album
+    and a person shows one album with both folders' photos and one person with both faces; the
+    first change writes `.dalica.json` (the store's test proves the bytes) and the folder's source
+    turns `both`; turning the option off removes the legacy-only data and turning it on brings it
+    back with nothing written; the notice's count comes once; `legacy.inspect` reports each
+    source; each command's contract and graceful failures; the owner thread made no `fs` call;
+    `panic_hunt` green.
+- ⬜ **M14.14 `create` + `scan` + `engine`: legacy originals for Undo Save and Revert**
+  - after: M14.1, M14.2, M14.3
+  - files: `crates/create/src/save/legacy.rs`, `crates/create/tests/save_legacy.rs`, `crates/scan/src/originals.rs`, `crates/scan/tests/originals.rs`, `crates/engine/src/cmd/save.rs`, `crates/engine/tests/legacy_originals.rs`
+  - scope: `data-model.md` §6 and §9 and the decisions above: `scan::originals::read` also reads
+    the folder's legacy originals folder (its sidecar through M14.2 and M14.3, each kept original's
+    size and digest, never through a link, nothing written) and gives the photos' legacy-original
+    facts; `create::save::legacy`: Undo Save and Revert from a legacy original: the original
+    copied (never moved) over the photo through `fs`'s verified replace after the saved file went
+    to the OS trash, the identity checks of M8's restore, an error at any step leaving the photo
+    whole; `photo.undoSave` and `photo.revert` enabled for a photo with a legacy original and no
+    Dalica record, Undo Save giving the originals folder's recipe as unsaved edits (one undo step,
+    as M8's), Revert dropping the edits.
+  - done when: `crates/create/tests/save_legacy.rs`: Revert gives the original's exact bytes, the
+    saved file is in the test trash and the legacy originals folder is byte-identical with its
+    times; a fault before and one after the copy (`fs` faults) leaves the photo readable and the
+    saved bytes in the trash or in place; `crates/scan/tests/originals.rs`: a legacy original is
+    found with its recipe and one equal to the photo is not offered;
+    `crates/engine/tests/legacy_originals.rs`: Undo Save brings the recipe back as unsaved edits,
+    Revert drops it, a photo with a Dalica record uses Dalica's; the owner thread made no `fs`
+    call.
+- ⬜ **M14.15 `ui`: the previous organizer's data in the window**
+  - after: M14.6, M14.13, M14.14
+  - files: `crates/ui/src/notices.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/panels/edit/history.rs`, `crates/ui/tests/legacy_ui.rs`, `crates/ui/tests/fingerprints/legacy-*.json`, `docs/organizing.md`
+  - scope: `organizing.md` §1 item 4 and `data-model.md` §9: the notice "Found photo data from your
+    previous photo program in %d folders. Dalica shows it and saves any changes in its own files;
+    the old files are never changed." [OK], non-modal, once (OK runs `legacy.noticeShown`); Options
+    ▸ General's "Read photo data left by the previous organizer" live; Folder Properties' line
+    saying which file holds the folder's data (Dalica's, the previous organizer's, both with
+    Dalica's in use, none); the edit panel's line "1 edit from the previous program (not
+    supported)" (and "%d edits …") for a recipe's `legacy:` entries; File ▸ Revert and Undo Save
+    live for a legacy-saved photo with M8's dialogs; `organizing.md` records the decisions above.
+  - done when: `crates/ui/tests/legacy_ui.rs` (headless, a legacy fixture folder): the notice
+    shows once with the right count and not after a restart; the option off hides the folder's
+    legacy stars and on brings them back; Folder Properties names the source before and after the
+    first change; the edit panel counts two `legacy:` entries; Revert from the menu restores the
+    legacy original; at 900 × 600 the notice and the line fit; fingerprints of the notice and the
+    edit panel's line at 1400 × 900.
+- ⬜ **M14.16 `engine`: the collage session**
+  - after: M14.4, M14.5, M14.8, M14.9
+  - files: `crates/engine/src/cmd/collage.rs`, `crates/engine/src/collage.rs`, `crates/engine/tests/collage.rs`
+  - scope: `creating.md` §3 and the decisions above: `create.collage {ids | section}` (one open
+    collage; opening again adds the new pictures to its Clips), `collage.inspect` (the document,
+    the placements and the page size for the canvas, the clips with their thumbnail ids),
+    `collage.set {style?, settings…}`, `collage.clips.add`, `.clips.remove`, `collage.place`,
+    `.unplace`, `collage.move {item, centre?, scale?, angle?}` (the pile), `collage.swap {a, b}`,
+    `collage.order {item, top | bottom}`, `collage.background {id | null}`, `collage.frameCenter
+    {id}`, `collage.scramble`, `collage.shuffle`, `collage.reset`, `collage.undo`, `collage.redo`
+    (the room's own history, never the library's), `collage.close {discard?}` (`needs_confirm`
+    with unsaved changes); placements from `create`'s layouts with the pictures' ratios from the
+    model (no decode); the page formats with the Crop panel's custom ratios and their deletion;
+    the last style and settings kept in the settings.
+  - done when: `crates/engine/tests/collage.rs`: a collage of 12 photos lays out the same after
+    a restart of the session with the same seed; Scramble and Shuffle change what they say; a move,
+    a swap and an order change each undo in the room's history and leave the library's undo stack
+    alone; removing a picture keeps it in the Clips and + puts it back; deleting a custom ratio
+    here removes it from the Crop panel's list; closing with changes needs confirm; each command's
+    contract and graceful failures; the owner thread made no `fs` call; `panic_hunt` green.
+- ⬜ **M14.17 `engine`: Create Collage, Save Draft and Edit Collage**
+  - after: M14.10, M14.12, M14.16
+  - files: `crates/engine/src/cmd/collage_output.rs`, `crates/engine/src/collage_output.rs`, `crates/engine/tests/collage_output.rs`, `docs/security.md`
+  - scope: `creating.md` §1 and §3 and the decisions above: `collage.create {path?, display?}` and
+    `collage.saveDraft` as a `Collage` job on a worker (progress, Cancel): each picture rendered
+    through the one output pipeline at the size its place needs, M14.10's render, the JPEG and its
+    recipe written through `fs` into the projects directory's `Collages` folder (created and marked
+    Collages) under a sanitized, never-replacing name, the new photo added to the library and, for
+    Create, opened in the edit view; over automation the destination is checked against the write
+    roots (`control-protocol.md` §5.7); `collage.edit {id}` reopening the room from the photo's
+    recipe (clips matched by id, then by indexed path, missing ones reported) and
+    `collage.canEdit {id}` for the top bar; `security.md` §4.2 gains the recipe's limits and §5.4
+    the collage file names, both marked built.
+  - done when: `crates/engine/tests/collage_output.rs`: Create writes a JPEG of the page's ratio at
+    long side 3000 px and its recipe, twice gives `-001`, and the photo is in the Collages project;
+    a display-sized page has the display's size; Cancel leaves no file; Edit Collage reopens with
+    the same clips, settings and placements and a clip deleted meanwhile is reported; a recipe path
+    pointing outside the library is never opened; over automation a destination outside the write
+    roots is refused; the owner thread made no `fs` call; `panic_hunt` green.
+- ⬜ **M14.18 `ui`: the Collage room: settings, clips, Create and Close**
+  - after: M14.6, M14.7, M14.16
+  - files: `crates/ui/src/panels/collage.rs`, `crates/ui/src/panels/collage/settings.rs`, `crates/ui/src/panels/collage/clips.rs`, `crates/ui/src/commands/collage.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/dialogs/collage_close.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/collage_room.rs`, `crates/ui/tests/fingerprints/collage-room-*.json`
+  - scope: `creating.md` §3 and `ui-layout.md` §8: the room's layout (the Settings and Clips tabs
+    on the left, the canvas region on the right); Settings: the style dropdown with M14.7's rich
+    rows, Picture borders, Grid spacing, Background (Solid color with M12.4's swatch, picker and
+    eyedropper sampling the canvas, or Use picture), Page format with its delete button (custom
+    ratios only) and the orientation toggles, Draw shadows, Show captions, each greyed for the
+    styles that do not offer it; Create Collage (the job's progress and Cancel), Reset, Close;
+    Clips: "Clips (N)", the thumbnails, +, − and Get More, and the tray's Back to Collage; closing
+    the tab or the window with unsaved changes asks [Save Draft] [Discard] [Cancel].
+  - done when: `crates/ui/tests/collage_room.rs` (headless, by id): the tray's 6 photos open the
+    room with 6 clips on the page; each style greys the options it lacks; the eyedropper on the
+    canvas sets the background colour; portrait turns the page; Get More then Back to Collage adds
+    the selection; Create Collage opens the new photo in the edit view; Close with changes asks and
+    Save Draft writes a draft; at 900 × 600 the room fits; fingerprints of both tabs at
+    1400 × 900.
+- ⬜ **M14.19 `ui`: the collage canvas**
+  - after: M14.6, M14.7, M14.16
+  - files: `crates/ui/src/panels/collage/canvas.rs`, `crates/ui/src/panels/collage/canvas/**`, `crates/ui/src/commands/collage_canvas.rs`, `crates/ui/tests/collage_canvas.rs`, `crates/ui/tests/fingerprints/collage-canvas-*.json`
+  - scope: `creating.md` §3: the page at its ratio drawn from the thumbnail ladder with the
+    engine's placements (never a decode on the UI thread; a grey placeholder until a thumbnail
+    arrives), the background, borders and shadows as the render draws them; click selects (`accent`
+    outline), Ctrl and Shift add, Ctrl+A and Esc; in a pile a drag moves and M14.7's handle turns
+    and scales; in the mosaics and the grid a drag onto another picture swaps them; right-click
+    Bring to Top / Send to Bottom and View and Edit; Delete takes the selection back to the Clips;
+    the buttons above (Select All, Select None, Remove, Set as Background, or Set as Frame Center in
+    Frame Mosaic) and below (Scramble Collage, Shuffle Pictures, View and Edit); Ctrl+Z and Ctrl+Y
+    in the room's history.
+  - done when: `crates/ui/tests/collage_canvas.rs` (headless, by id): dragging a pile picture moves
+    it and the handle turns it 90° as one room step; dragging one grid picture onto another swaps
+    them; Bring to Top puts it last in the order; Delete sends two pictures to the Clips; Set as
+    Frame Center moves the centre; each picture's centre on the canvas matches its placement within
+    one pixel; Ctrl+Z undoes the last change; the canvas never waits on the disk; fingerprints of a
+    pile with a selection and of a frame mosaic at 1400 × 900.
+- ⬜ **M14.20 `ui`: Collage everywhere it starts, Edit Collage and the Collages project**
+  - after: M14.17, M14.18, M13.25
+  - files: `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/folders/model.rs`, `crates/ui/tests/collage_entry.rs`, `crates/ui/tests/fingerprints/collage-entry-*.json`, `docs/ui-layout.md`
+  - scope: `creating.md` §1 and `ui-layout.md` §5–§6: the bottom bar's Collage (the tray, and its
+    More… row), the section headers' Collage (folders, albums and person sections: the selection
+    inside the section, else the whole section; M13.25's "Arrives with Collage" removed), Create ▸
+    Picture Collage… live; the edit view's Edit Collage button for a photo `collage.canEdit` says
+    yes; the Projects group's Collages row with the collage project icon; `ui-layout.md` records
+    what landed.
+  - done when: `crates/ui/tests/collage_entry.rs` (headless, by id): the bottom bar's Collage with
+    3 held photos, a folder header's with nothing selected and a person section's each open the
+    room with the right clips; a created collage shows Edit Collage in the edit view and it reopens
+    the room; an ordinary photo shows no Edit Collage; the Collages folder sits in Projects with
+    its icon; a fingerprint of the top bar with Edit Collage at 1400 × 900.
+- ⬜ **M14.21 `mcp`: collages and a legacy library over MCP, and the workflows W15 and W16**
+  - after: M14.13, M14.17
+  - files: `crates/mcp/tests/workflows/w15_collage.rs`, `crates/mcp/tests/workflows/w16_legacy.rs`, `crates/mcp/tests/workflows/main.rs`, `crates/mcp/src/headless.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
+  - scope: `mcp.md` §9: W15 (**collage**: `cmd_create_collage` on 8 photos → `cmd_collage_set
+    {style: "grid"}` → `cmd_collage_create` with a path in the write root → a JPEG of the page's
+    ratio at long side 3000 px and its recipe → `photo_info` lists it in the Collages project →
+    `cmd_collage_edit` reopens it with the 8 clips) and W16 (**legacy library**: `scan_folder` on a
+    folder with only a legacy sidecar → `photo_info` shows its stars, captions, recipe with a
+    `legacy:` entry, album and person → `set_metadata` stars one → `.dalica.json` holds every photo
+    and the legacy file is byte-identical → `cmd_legacy_inspect` says `both`); headless mode
+    applying the legacy results as the app does; the floor in `xtask/src/stats.rs` raised to the
+    sixteen workflows now required; `mcp.md`'s table and status line; row `SYS-MCP`.
+  - done when: `cargo test -p dalica-mcp` runs W15 and W16 green; `cargo xtask stats` prints
+    16 / 16 passing and `stats --check` fails below that.
+- ⬜ **M14.22 `create` + `scan` + `ui` + `xtask`: M14's budgets: collage layouts and renders, the canvas and legacy scans**
+  - after: M14.10, M14.11, M14.17, M14.19
+  - files: `crates/create/benches/collage.rs`, `crates/scan/benches/legacy.rs`, `crates/ui/benches/collage.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`
+    and the release-budgets job, each documented in §8 and §13 with its machine: `collage` (each
+    style's layout of 200 pictures; a 3000 px render of 50 `scenes` photos, time and peak memory),
+    `legacy_scan` (a first scan of 10 000 photos in 100 legacy-only folders against the same
+    folders with `.dalica.json`; a 64 MiB legacy file read to its limit), `collage_canvas` (the
+    room's frame with 100 pictures on the page while one is dragged, headless); budgets at 1.5 ×
+    their first measurement, the canvas frame within 16 ms at p95 whatever the first numbers; a
+    missed budget is fixed in this task (the module asked of the lead; before and after numbers in
+    the PR) or blocks with its numbers, never loosened.
+  - done when: `cargo xtask bench collage`, `bench legacy_scan` and `bench collage_canvas` print
+    their numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each
+    fail.
+- ⬜ **M14.23 `accept M14`**
+  - after: M14.15, M14.20, M14.21, M14.22
+  - files: `tests/acceptance/m14.rs`, `tests/acceptance/m14_*.rs`, `tests/acceptance/m14.md`, `tests/acceptance/fingerprints/m14-*.json`
+  - scope: every *Done when* of M14's two areas in the real `dalica --headless` over the control
+    channel and through `dalica-cli mcp`: a collage opened from the tray, a folder header and a
+    person section; each style laid out the same for the same seed; a pile picture moved and
+    turned, a grid swap, Scramble and Shuffle; the canvas and the created JPEG agreeing; Create
+    Collage writing the JPEG and its recipe beside it, never replacing, in the Collages project, and
+    Edit Collage reopening it; Close asking and Save Draft; a library with legacy-only folders (a
+    fixture written by the test) showing its stars, captions, edits, albums, people and places with
+    the notice once; the first change writing `.dalica.json` with the legacy file byte-identical
+    (§10.11); a folder with both files reading only `.dalica.json`; the option turned off and on;
+    Undo Save and Revert from a legacy original; W15 and W16 over MCP; the M14 budgets (the release
+    budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci --full` a smaller debug run
+    checks the paths and prints its times); whole-window fingerprints of the room with a pile and
+    with a mosaic and of the legacy notice; the manual checks in `m14.md` (a collage of real photos
+    in each style, the handle and swaps with a mouse and a touchpad, the eyedropper, a collage
+    opened in another application; a real folder the previous organizer managed, its stars,
+    albums, people and edits, a change in it, then the old program's file compared byte for byte).
+  - done when: `cargo xtask accept M14` passes everything in M14's *Done when*.
+- ⬜ **M14.24 Lead: task blocks for M15**
+  - after: M13.33
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: M13.33 writes M15's blocks while M13 runs; this task brings them up to date with what
+    M13 and M14 built and left open (their reviews' fix tasks and notes, the collage and legacy
+    follow-ups, files that moved or were added since), rechecks every M15 block's `files` and
+    *done when* against the code, writes M15's waves again, and keeps the tasks that hinge on
+    reserved decision 2 (video) waiting for the maintainer's answer, asked at M14.R, never guessed;
+    a block that can port Craft-app code names the source files in its scope (`architecture.md`
+    §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the
+    M15 tasks as planned.
+- ⬜ **M14.R Release 0.9 gate**
+  - after: M14.23
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: a release gate (Release 0.9): the lead runs `/milestone-review M14.R` to prepare it, with
+    the version set to 0.9.0 and its `whats-new.md` section on the review branch, the release
+    checklist and the sign-off question, and after the merge cuts and publishes 0.9.0
+    (`releasing.md`); the check-in page (hold six photos and press Collage, try each style and
+    its options, move and turn pile pictures with the handle, swap grid pictures, Scramble and
+    Shuffle, set a background colour with the eyedropper and a background picture, change the page
+    format and orientation, Get More and Back to Collage, Create Collage and look at the JPEG,
+    reopen it with Edit Collage, Close with changes and Save Draft; open a copy of a real folder
+    the previous organizer managed, read the notice, check its stars, captions, edits, albums and
+    people, change something and check the old file is unchanged, Revert a photo it saved, turn
+    the option off and on; written as steps for the maintainer to try); the questions: the
+    planning decisions above that change behaviour (the room's own undo history; one Collage room
+    at a time; a draft is a collage picture with its recipe; Create from a reopened collage writes
+    a new file; Grid and the mosaics crop to their cells; the defaults of the room; only files in
+    watched folders are read, so names only in the old program's contacts file are lost; the
+    ignore marker read as Ignored; uncertain legacy operations kept as `legacy:` entries; a
+    legacy Revert sends the saved file to the trash; the option turned off removes legacy-only
+    data from view), reserved decision 2 (video) for M15, the look of the room, the six styles and
+    the legacy notice (approved with their fingerprints); *Where we stand* and the `status.md`
+    numbers (each style's layout and render times, the canvas frame, the legacy scan's overhead,
+    the workflow pass rate) on a `review/M14.R` branch, a pull request open. Only the maintainer
+    merges that pull request and closes this issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M14.1 model: collages + legacy  ‖  M14.2 legacy reader  ‖  M14.3 legacy edit mapping
+         ‖  M14.4 collage document + recipe  ‖  M14.5 engine modules + settings
+         ‖  M14.6 ui state + stub room  ‖  M14.7 ui-kit collage widgets + icons
+         (once M13.R is closed)
+wave 2   M14.8 pile, grid, sheet, exposure  ‖  M14.9 mosaics  ‖  M14.10 collage render
+         ‖  M14.11 legacy on scan  ‖  M14.12 legacy first write  ‖  M14.14 legacy originals
+wave 3   M14.13 legacy in the session  ‖  M14.16 collage session
+wave 4   M14.15 legacy in the window  ‖  M14.17 Create, Save Draft, Edit Collage
+         ‖  M14.18 Collage room  ‖  M14.19 collage canvas
+wave 5   M14.20 Collage entry points  ‖  M14.21 W15, W16  ‖  M14.22 M14 budgets
+wave 6   M14.23 accept M14 → M14.R          (M14.24 lead: M15 blocks brought up to date, any time after M13.33)
+```
 
 ### M15 — Video, localisation, OS integration and Release 1.0 (outline)
 
