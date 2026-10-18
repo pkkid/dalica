@@ -3,7 +3,7 @@
 Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mcp.md` (revision
 59684266); MIT OR Apache-2.0.
 
-> **Status: In progress (M11).** Built (M10.4): the server's core in `crates/mcp` (the framing,
+> **Status: In progress (M12).** Built (M10.4): the server's core in `crates/mcp` (the framing,
 > `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
 > `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7); one tool
@@ -14,8 +14,8 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > (M10.17; `dalica-cli mcp --connect` wired by M10.16); the workflow tests' harness with W02,
 > W03, W08 and W09 (M10.18); W01, the smoke run of W02 and W03 through the spawned binary
 > (M10.20); W04, W05, W06 and W12 (M10.19); `apply_edit` as Batch Edit, one undo step for all its
-> photos, with W07 and W10 and the workflow floor at the eleven workflows M11 requires (M11.22).
-> To come: W11 with the effects (M12).
+> photos, with W07 and W10 and the workflow floor at the eleven workflows M11 requires (M11.22);
+> W11, the effects stacked (Sepia, Vignette, Border), and the floor at all twelve workflows (M12.20).
 
 `dalica-cli mcp` exposes Dalica to AI agents through the
 [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0 over stdio
@@ -362,7 +362,7 @@ Initial workflows (each becomes required in the milestone shown):
 | W08 | **Foreign metadata survives**: photos carrying other applications' XMP fields → caption and tags → those fields byte-identical, pixels untouched, mtime unchanged by default (`data-model.md` §10.8) | M6 |
 | W09 | **Hidden photos**: hide 4 → they leave the light table and `query_photos` → `view.hiddenPictures` shows them → unhide | M6 |
 | W10 | **Import with duplicates**: import a card-like folder twice → second import skips duplicates and reports them; destination naming as configured | M11 |
-| W11 | **Effects stack**: `apply_edit` sepia then vignette then border → recipe order kept → `render_photo` size grows for Border → render fingerprint within tolerance (`architecture.md` §11) | M12 |
+| W11 | **Effects stack**: `apply_edit` sepia then vignette then border → recipe order kept → `render_photo` size grows for Border → render fingerprint within tolerance (`architecture.md` §11); `list_edit_ops` lists the 27 effects, each `available` when its module renders | M12 |
 | W12 | **Destructive commands ask**: `cmd_photo_delete` without `confirm` → `needs_confirm`, file still there → with `confirm` → file in the OS trash (a test trash directory), sidecar section kept in the undo record | M9 |
 
 New user-visible features add a workflow when they add a user task; a bug report that reproduces as

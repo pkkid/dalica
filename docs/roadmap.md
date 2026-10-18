@@ -7089,7 +7089,7 @@ a maintainer decision mid-run.
     `edit.undo` restores the 20 recipes; `crates/ui/tests/batch_ui.rs`: the five effects are live
     in Batch Edit ▸ and Black and White on 3 held photos gives each a `bw()` entry; `panic_hunt`
     green.
-- ⬜ **M12.20 `mcp`: the workflow W11, effects stacked**
+- ✅ **M12.20 `mcp`: the workflow W11, effects stacked**
   - after: M12.6, M12.12, M12.13
   - files: `crates/mcp/tests/workflows/w11_effects_stack.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
   - scope: `mcp.md` §9: W11 (`apply_edit` Sepia, then Vignette, then Border on one photo: the
