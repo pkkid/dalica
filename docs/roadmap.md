@@ -8277,7 +8277,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     `crates/edit/tests/detail_effects.rs`: the `detail-*-large` fingerprints blessed from the
     M12 code match, the existing fingerprints, two-sizes tests and the region test pass
     unchanged (Sharpen's output bit for bit as before); `cargo xtask ci`.
-- ⬜ **M13.37 `edit`: Soft Focus within the slider's caps**
+- ✅ **M13.37 `edit`: Soft Focus within the slider's caps**
   - after: M12.R, M13.34
   - files: `crates/edit/src/ops/focal.rs`, `crates/edit/tests/focal_effects.rs`, `crates/edit/tests/fingerprints/focal-*.json`
   - scope: effect speed. Draft / final p95 at M12.21: Soft Focus 45.9 / 274 ms; the caps 16 /
