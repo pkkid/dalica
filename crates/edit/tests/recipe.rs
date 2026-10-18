@@ -5,7 +5,7 @@
 //! whose parameters are refused is kept and skipped.
 
 use dalica_edit::catalog::{Kind, OpInfo, catalog};
-use dalica_edit::{Dihedral, Error, LISTED, MAX_OPERATIONS, Op, Recipe, Stage, Turn, Typed};
+use dalica_edit::{Dihedral, Error, LISTED, MAX_OPERATIONS, Op, Recipe, Stage, Turn, Typed, ops};
 use dalica_image::Orientation;
 use proptest::prelude::*;
 
@@ -267,9 +267,16 @@ fn every_effect_at_its_defaults_prints_and_parses_back_equal() {
         assert_eq!(recipe.print(), [entry.to_string()]);
         assert_eq!(Typed::parse(op.name, inner(&recipe.print()[0])), Some(Ok(defaults.clone())), "{}", op.name);
         assert_eq!(defaults.clone().clamped(), defaults, "{}: the defaults are in range", op.name);
-        // A stub module (`VERSION` 0) reads its parameters but is not typed for rendering yet.
-        assert_eq!(defaults.version(), 0, "{}", op.name);
-        assert_eq!(recipe.ops()[0].typed(), None, "{}", op.name);
+        // A stub module (`VERSION` 0) reads its parameters but is not typed for rendering yet; a
+        // module that renders (1 or more) is typed with these defaults.
+        assert_eq!(Some(defaults.version()), ops::version(op.name), "{}", op.name);
+        if defaults.version() == 0 {
+            assert_eq!(recipe.ops()[0].typed(), None, "{}", op.name);
+            assert!(!op.renders(), "{}", op.name);
+        } else {
+            assert_eq!(recipe.ops()[0].typed(), Some(Ok(defaults.clone())), "{}", op.name);
+            assert!(op.renders(), "{}", op.name);
+        }
         assert_eq!(recipe.ops()[0].label(), Some(op.label));
         assert_eq!(recipe.ops()[0].stage(), Stage::Adjust);
     }

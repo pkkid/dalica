@@ -311,7 +311,7 @@ fn an_unknown_operation_is_refused_by_name() {
     let tmp = folder();
     let dir = tmp.path();
     let original = photo(dir);
-    for op in ["frobnicate(3)", "legacy:redeye(1)", "sepia()", "tuning(nonsense)"] {
+    for op in ["frobnicate(3)", "legacy:redeye(1)", "trim(0,1)", "tuning(nonsense)"] {
         assert!(!save::renders(op), "{op}");
         let err = save::in_place(dir, NAME, &recipe(&["rotate(90)", op]), &Changes::default(), &options()).unwrap_err();
         assert!(matches!(&err, Error::Unrenderable(text) if text == op), "{err:?}");

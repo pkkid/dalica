@@ -45,7 +45,7 @@ fn operations_dalica_cannot_render_are_skipped_and_print_back_unchanged() {
         "legacy:redeye(0.1,0.2)", // kept from the legacy organizer
         "rotate(45)",             // a typed operation with a parameter it does not take
         "autofix(1)",             // a module refusing its parameters
-        "sepia()",                // known, no module yet (M12)
+        "trim(0,1)",              // known, no module yet (M15)
         "crop((",                 // damaged
     ] {
         let ops = ["rotate(90)", between, "flip_h()"];
