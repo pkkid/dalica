@@ -7726,7 +7726,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     two threads running one model agree; malformed, truncated, oversized and unsupported files fail
     to load with their reason and never panic; a weight or activation that overflows is an error;
     `cargo +nightly fuzz build` builds the target; `cargo xtask deps` passes.
-- ⬜ **M13.7 `faces`: grouping and suggestions**
+- ✅ **M13.7 `faces`: grouping and suggestions**
   - after: M12.R
   - files: `crates/faces/src/cluster.rs`, `crates/faces/src/matching.rs`, `crates/faces/src/calibration.rs`, `crates/faces/src/evaluate.rs`, `crates/faces/tests/grouping.rs`
   - scope: `faces.md` §5 as pure maths on unit embeddings, no model needed: the confidence →
