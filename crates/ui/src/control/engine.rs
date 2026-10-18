@@ -188,6 +188,11 @@ fn checked(
         return Err(Error::new(Code::UnknownCommand, format!("no command `{id}` (engine.commands lists them)")));
     };
     external_allowed(k.effect, config.allow_external, &id)?;
+    if !config.allow_external
+        && let Some(key) = dalica_engine::automation::external_option(&id, &cmd_params)
+    {
+        return Err(dalica_engine::automation::external_option_refused(key).into());
+    }
     if let (Some(spec), Some(session)) = (&k.spec, host.app().session()) {
         (spec.enabled)(session, &Value::Object(cmd_params.clone())).map_err(|d| Error::new(Code::Disabled, d.0))?;
     }

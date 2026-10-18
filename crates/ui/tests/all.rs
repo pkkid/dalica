@@ -49,6 +49,7 @@ mod jobs_control;
 mod layout;
 mod library_window;
 mod light_table;
+mod map_tiles_ui;
 mod menu_checks;
 mod menu_one_open;
 mod menus;

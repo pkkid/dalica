@@ -206,6 +206,8 @@ fn setup(root: &Path) -> Driver {
     }
     let mut s = Session::open(&root.join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
     s.set_pictures_dir(Some(root.join("Pictures")));
+    // Map tiles and place searches the monkey allows go to an in-memory server, never the network.
+    s.set_network_transport(Some(Arc::new(dalica_fetch::MemoryTransport::new())));
     for folder in &folders {
         s.execute("folders.add", &json!({ "path": folder })).unwrap();
     }

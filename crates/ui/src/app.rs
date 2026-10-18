@@ -487,6 +487,7 @@ impl App {
         }
         self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
+        crate::panels::places::tiles::end_frame(self, ui.ctx());
         // A drag of photos: its target, its pill, and its drop on release (`crate::drag`).
         crate::drag::frame(&mut p, self, ui.ctx());
         self.panels = Some(p);

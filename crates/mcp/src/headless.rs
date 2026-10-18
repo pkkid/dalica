@@ -295,7 +295,7 @@ impl Headless {
         let Some(spec) = self.session.spec(id).copied() else {
             return Err(ToolError::new("unknown_command", format!("no command `{id}` (command_list lists them)")));
         };
-        self.roots.policy().check_effect(spec.effect, id)?;
+        self.roots.policy().check_command(spec.effect, id, &cmd)?;
         self.roots.policy().people_params(id, &mut cmd);
         self.check_paths(id, &cmd)?;
         if let Some((_, question)) = CONFIRM.iter().find(|(c, _)| *c == id) {

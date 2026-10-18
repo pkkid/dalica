@@ -96,6 +96,14 @@ pub const FACE_POINTS: &[&str] = &["slideshow.list"];
 /// to search by text joins this list.
 pub const NAME_SEARCHES: &[&str] = &["library.query", "search.set", "slideshow.list"];
 
+/// The options whose change lets the app reach outside Dalica or decides where it connects
+/// (`menus-and-shortcuts.md` §5 Network, M13.28): turning Allow map tiles on, and the tile server,
+/// the geocoding service and the proxy. Without `--automation-allow-external`, `options.set`
+/// changing one of them is refused like `map.allow` ([`external_option`]); turning Allow map tiles
+/// off, the attribution and the log level are not.
+pub const EXTERNAL_OPTIONS: &[&str] =
+    &["network.allowMapTiles", "network.tileServer", "network.geocoder", "network.proxy", "network.proxyHost", "network.proxyPort"];
+
 /// The param of [`NAME_SEARCHES`] that leaves names out of the match.
 pub const WITHHOLD_NAMES: &str = "withholdNames";
 
@@ -301,6 +309,19 @@ impl Policy {
         Ok(())
     }
 
+    /// Command `id` with `params`: [`Policy::check_effect`], then, without
+    /// `--automation-allow-external`, an `options.set` changing an option of [`EXTERNAL_OPTIONS`]
+    /// is refused ([`external_option`]).
+    pub fn check_command(&self, effect: Effect, id: &str, params: &Map<String, Value>) -> Result<(), Refused> {
+        self.check_effect(effect, id)?;
+        if !self.allow_external
+            && let Some(key) = external_option(id, params)
+        {
+            return Err(external_option_refused(key));
+        }
+        Ok(())
+    }
+
     /// A folder or file automation reads (a folder to add; `param` names it in messages): inside a
     /// read root, a client root or a watched folder; with no read root at all, anywhere in the
     /// demo. Returns the resolved path.
@@ -402,6 +423,29 @@ pub fn never_automated(id: &str) -> Result<(), Refused> {
         ));
     }
     Ok(())
+}
+
+/// The option of [`EXTERNAL_OPTIONS`] that command `id` with `params` would change, if it is
+/// `options.set` and changes one (`network.allowMapTiles` only when turned on): an effect outside
+/// Dalica, which every automation surface refuses without `--automation-allow-external`.
+pub fn external_option(id: &str, params: &Map<String, Value>) -> Option<&'static str> {
+    if id != "options.set" {
+        return None;
+    }
+    let values = params.get("values")?.as_object()?;
+    EXTERNAL_OPTIONS.iter().copied().find(|key| match values.get(*key) {
+        None => false,
+        Some(v) if *key == "network.allowMapTiles" => *v != Value::Bool(false),
+        Some(_) => true,
+    })
+}
+
+/// The refusal of a change to option `key` of [`EXTERNAL_OPTIONS`].
+pub fn external_option_refused(key: &str) -> Refused {
+    Refused::new(
+        Refusal::ExternalDenied,
+        format!("changing `{key}` lets Dalica reach outside; automation changes it only when started with --automation-allow-external"),
+    )
 }
 
 /// `reply` without face descriptors and, when `names` is set, with every name and nickname `null`

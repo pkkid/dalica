@@ -165,13 +165,17 @@ fn map_part(app: &mut App, ui: &mut Ui, rect: Rect, places: &[markers::Place]) {
     };
     let armed = ctx.data(|d| d.get_temp::<bool>(pin_tool_id())).unwrap_or(false);
     let payload = app.state().drag.as_ref().is_some_and(|d| d.faces.is_empty() && !d.ids.is_empty());
+    let layer = tiles::layer(app, &ctx, view.zoom());
     let mut m = Map::new(MAP, view);
+    m.tiles = &layer.tiles;
+    m.attribution = layer.attribution.as_deref();
     m.markers = &marks;
     m.pin = pin;
     m.pin_tool = armed;
     m.payload = payload;
     m.bubble = shown.as_ref().map(|b| MapBubble { anchor: b.anchor, thumbs: &thumbs, text: &b.text, buttons: &b.buttons });
     let out = widgets::map(ui, &t, rect, &m);
+    tiles::after_map(app, ui, rect, &out, layer.attribution.as_deref());
 
     if out.changed {
         keep_view(app, &out.view);

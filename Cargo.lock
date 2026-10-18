@@ -1283,6 +1283,7 @@ dependencies = [
  "dalica-edit",
  "dalica-engine",
  "dalica-faces",
+ "dalica-fetch",
  "dalica-fs",
  "dalica-image",
  "dalica-library",

@@ -477,12 +477,11 @@ support") until it does.
 
 As [`organizing.md`](organizing.md) §7. Nothing on this tab connects by itself: tiles are fetched
 only once Allow map tiles is on and only while the Places pane is open (the pane asks the first
-time), a place is looked up only when the user presses Enter in "Search for a place:". The map
-tile provider, its attribution and terms, and the geocoding service wait on reserved decisions 4
-and 9 (`roadmap.md`): until they are recorded the Map rows are drawn disabled ("Arrives once a map
-tile provider is chosen") and so is the proxy ("Arrives with map tiles and model downloads"); the
-defaults below are the spec's. The network log has no writer yet, so its level is drawn disabled
-("Arrives with the network log").
+time), a place is looked up only when the user presses Enter in "Search for a place:". Reserved
+decisions 4 and 9 chose OpenStreetMap's tiles, Nominatim and the proxy (M13.20); the addresses stay
+editable for a self-hosted server, and one the map cannot use says why under its field (M13.28).
+The network log has no writer yet, so its level is drawn disabled ("Arrives with the network
+log").
 
 | Group | Option | Key | Default |
 |---|---|---|---|
