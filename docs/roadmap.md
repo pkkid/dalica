@@ -8179,7 +8179,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     Confirm All is one step; Show only suggestions hides her confirmed photos; the "?" badge goes
     when none are left; "Name?" in the pane confirms; fingerprints of the strip and of a face with
     its marks at 1400 × 900.
-- ⬜ **M13.31 `faces` + `engine` + `ui` + `xtask`: M13's budgets: the face scan, the people views and the Places pane**
+- ✅ **M13.31 `faces` + `engine` + `ui` + `xtask`: M13's budgets: the face scan, the people views and the Places pane**
   - after: M13.18, M13.21, M13.22, M13.26
   - files: `crates/faces/benches/inference.rs`, `crates/engine/benches/faces_scan.rs`, `crates/ui/benches/people_places.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`, `docs/faces.md`
   - scope: `development.md` §8 and `faces.md` §8: benches registered in `xtask/src/bench.rs`, joined

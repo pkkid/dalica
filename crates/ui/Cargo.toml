@@ -57,3 +57,7 @@ harness = false
 [[bench]]
 name = "slideshow"
 harness = false
+
+[[bench]]
+name = "people_places"
+harness = false

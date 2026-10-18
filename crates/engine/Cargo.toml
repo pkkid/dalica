@@ -102,3 +102,7 @@ harness = false
 [[bench]]
 name = "effect_tiles"
 harness = false
+
+[[bench]]
+name = "faces_scan"
+harness = false

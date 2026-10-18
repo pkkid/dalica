@@ -83,6 +83,21 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-engine",
         what: "an effect tab's tiles of a 24 MP JPEG, from opening the photo in the edit view to the tab's last tile, tabs 3, 4 and 5",
     },
+    Bench {
+        name: "inference",
+        package: "dalica-faces",
+        what: "face detection on a 640 px picture and one embedding per candidate recogniser, on seeded networks of the candidate models' shapes",
+    },
+    Bench {
+        name: "faces_scan",
+        package: "dalica-engine",
+        what: "the face scan over 1 000 photos of 2048 px: faces embedded per second, memory per worker, the owner's frame time while it runs (writes about 0.1 GB)",
+    },
+    Bench {
+        name: "people_places",
+        package: "dalica-ui",
+        what: "the Unnamed grid opening with 10 000 faces and the Places pane with 10 000 geotagged photos, its markers grouped, in the headless app",
+    },
 ];
 
 /// Time units a field may name, in milliseconds.
@@ -591,6 +606,123 @@ pub fn judge_effect_tiles(stdout: &str, plant: f64) -> Result<String, String> {
     Ok(format!("medians to the last tile: {}", parts.join("; ")))
 }
 
+// ---------------------------------------------------------------------------------------------
+// M13's budgets (M13.31, `docs/development.md` §8, `docs/faces.md` §8): face inference on seeded
+// networks of the candidate models' shapes, the background face scan, and the people and places
+// views at 10 000.
+// ---------------------------------------------------------------------------------------------
+
+/// The inference budgets (`inference` → `DETECT_BUDGET_MS`, `SFACE_BUDGET_MS`,
+/// `AURAFACE_BUDGET_MS`): per row, its median in ms, 1.5 × the first measurement.
+pub const INFERENCE_BUDGETS: [(&str, f64); 3] = [("detect 640", 62.5), ("embed sface", 68.0), ("embed auraface", 350.0)];
+/// The detector's input side the inference budgets hold for.
+pub const INFERENCE_SIDE: u64 = 640;
+
+/// The face scan's budgets (`faces_scan` → `FACES_PER_S_BUDGET`, `WORKER_MIB_BUDGET`,
+/// `FRAME_BUDGET_MS`, `FRAME_CAP_MS`): faces embedded per second at least the first measurement ÷
+/// 1.5, the memory per worker at most 1.5 × the first, a frame's p95 at most 1.5 × the first and
+/// never above [`SCAN_FRAME_CAP_MS`].
+pub const SCAN_FACES_PER_S: f64 = 7.3;
+pub const SCAN_WORKER_MIB: f64 = 105.0;
+pub const SCAN_FRAME_P95_MS: f64 = 0.5;
+pub const SCAN_FRAME_CAP_MS: f64 = 16.0;
+/// The scan the budgets hold for: 1 000 photos of 2048 px, the SFace-shaped recogniser.
+pub const SCAN_PHOTOS: u64 = 1_000;
+pub const SCAN_SIDE: u64 = 2048;
+
+/// The people and places views' budgets (`people_places` → `UNNAMED_OPEN_BUDGET_MS`,
+/// `UNNAMED_SCROLL_BUDGET_MS`, `PLACES_OPEN_BUDGET_MS`, `PLACES_PAN_BUDGET_MS`): per row, the
+/// statistic judged and its budget in ms, 1.5 × the first measurement.
+pub const PEOPLE_PLACES_BUDGETS: [(&str, &str, f64); 4] =
+    [("unnamed open", "p50_ms", 32.5), ("unnamed scroll", "p95_ms", 1.0), ("places open", "p50_ms", 2.0), ("places pan", "p95_ms", 2.0)];
+/// The library the people and places budgets hold for.
+pub const PEOPLE_PLACES_PHOTOS: u64 = 10_000;
+
+/// "median" or "p95" for a row's statistic.
+fn stat_name(key: &str) -> &'static str {
+    if key.starts_with("p95") { "p95" } else { "median" }
+}
+
+/// Judges each `(row, statistic, budget)` of `report` with `plant` ms added; every miss is listed.
+fn judge_rows(bench: &str, report: &Value, checks: &[(&str, &str, f64)], plant: f64) -> Result<Vec<String>, String> {
+    let (mut missed, mut parts) = (Vec::new(), Vec::new());
+    for (name, key, budget) in checks {
+        let measured = row_number(bench, report, name, key)?;
+        let judged = measured + plant;
+        let stat = stat_name(key);
+        if judged > *budget {
+            missed.push(format!("{name}: {stat} {judged:.2} ms{}, over the {budget} ms budget", planted(measured, plant, "ms")));
+        }
+        parts.push(format!("{name} {judged:.2} ms ≤ {budget} ms"));
+    }
+    if missed.is_empty() { Ok(parts) } else { Err(format!("{} of {} missed: {}", missed.len(), checks.len(), missed.join("; "))) }
+}
+
+/// `inference --json` in release at the detector's 640 px: detection's and each recogniser's
+/// median within its budget (a planted slowdown added once per run).
+pub fn judge_inference(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("inference", stdout)?;
+    let side = report.get("side").and_then(Value::as_u64).unwrap_or(0);
+    if side != INFERENCE_SIDE {
+        return Err(format!("inference ran at {side} px; the budgets hold for the detector's {INFERENCE_SIDE} px"));
+    }
+    let checks: Vec<(&str, &str, f64)> = INFERENCE_BUDGETS.iter().map(|(name, budget)| (*name, "p50_ms", *budget)).collect();
+    Ok(format!("medians: {}", judge_rows("inference", &report, &checks, plant)?.join("; ")))
+}
+
+/// `faces_scan --json` in release over 1 000 photos of 2048 px with the SFace-shaped recogniser:
+/// faces embedded per second at least its budget (a planted slowdown counted once per face), the
+/// memory per worker within its budget, and a frame's p95 while the scan runs within its budget
+/// and 16 ms (a planted slowdown added). Every miss is listed.
+pub fn judge_faces_scan(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("faces_scan", stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    let side = report.get("side_px").and_then(Value::as_u64).unwrap_or(0);
+    let recogniser = report.get("recogniser").and_then(Value::as_str).unwrap_or("?");
+    if photos < SCAN_PHOTOS || side < SCAN_SIDE || recogniser != "sface" {
+        return Err(format!(
+            "faces_scan ran over {photos} photos of {side} px with {recogniser}; the budgets hold for {SCAN_PHOTOS} of {SCAN_SIDE} px with sface"
+        ));
+    }
+    let name = format!("scan {photos}");
+    let faces = row_number("faces_scan", &report, &name, "faces")?;
+    let secs = row_number("faces_scan", &report, &name, "scan_s")? + plant * faces / 1000.0;
+    let per_s = faces / secs.max(f64::MIN_POSITIVE);
+    let workers = row_number("faces_scan", &report, &name, "workers")?;
+    let mib = row_number("faces_scan", &report, &name, "per_worker_mib")?;
+    let p95 = row_number("faces_scan", &report, "frame while scanning", "p95_ms")?;
+    let frame = p95 + plant;
+    let frame_budget = SCAN_FRAME_P95_MS.min(SCAN_FRAME_CAP_MS);
+    let mut missed = Vec::new();
+    if faces < 1.0 || per_s < SCAN_FACES_PER_S {
+        let note = if plant > 0.0 { format!(" ({plant:.2} ms planted per face)") } else { String::new() };
+        missed.push(format!("{faces} faces in {secs:.1} s{note}: {per_s:.1} faces/s, under the {SCAN_FACES_PER_S} faces/s budget"));
+    }
+    if workers < 1.0 || mib > SCAN_WORKER_MIB {
+        missed.push(format!("{mib:.1} MiB per worker over {workers} workers, over the {SCAN_WORKER_MIB} MiB budget"));
+    }
+    if frame > frame_budget {
+        missed.push(format!("a frame while scanning: p95 {frame:.2} ms{}, over the {frame_budget} ms budget", planted(p95, plant, "ms")));
+    }
+    if !missed.is_empty() {
+        return Err(format!("{} of 3 missed: {}", missed.len(), missed.join("; ")));
+    }
+    Ok(format!(
+        "{faces} faces in {secs:.1} s: {per_s:.1} faces/s ≥ {SCAN_FACES_PER_S}; {mib:.1} MiB per worker ≤ {SCAN_WORKER_MIB} MiB ({workers} workers); a frame while scanning p95 {frame:.2} ms ≤ {frame_budget} ms (cap {SCAN_FRAME_CAP_MS} ms)"
+    ))
+}
+
+/// `people_places --json` in release over 10 000 photos: the openings' medians and the frames'
+/// p95 within their budgets (a planted slowdown added to each).
+pub fn judge_people_places(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("people_places", stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    if photos < PEOPLE_PLACES_PHOTOS {
+        return Err(format!("people_places ran over {photos} photos; the budgets hold for {PEOPLE_PLACES_PHOTOS}"));
+    }
+    Ok(judge_rows("people_places", &report, &PEOPLE_PLACES_BUDGETS, plant)?.join("; "))
+}
+
 fn append(path: &Path, line: &str) -> Result<(), String> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
@@ -948,6 +1080,124 @@ pub(crate) mod tests {
         assert!(judge_effect_tiles(&tiles_out("release", EFFECT_PHOTO, &TILES_MEASURED[..2]), 0.0).unwrap_err().contains("no row `tab 5 tiles`"));
     }
 
+    /// The inference's first measurement (M13.31): per row, its median.
+    pub const INFERENCE_MEASURED: [(&str, f64); 3] = [("detect 640", 41.336), ("embed sface", 45.218), ("embed auraface", 230.284)];
+
+    /// What `inference --json` prints at `side`, with each row's median.
+    pub fn inference_out(mode: &str, side: u64, medians: &[(&str, f64)]) -> String {
+        let rows: Vec<Value> =
+            medians.iter().map(|(name, p50)| json!({ "name": name, "samples": 21, "p50_ms": p50, "p95_ms": p50 * 1.1, "weights": 1 })).collect();
+        let r = json!({ "bench": "inference", "mode": mode, "threads": 1, "side": side, "rows": rows });
+        format!("{r}\n")
+    }
+
+    /// The face scan's first measurement (M13.31): seconds for 2 000 faces, MiB per worker, workers,
+    /// and a frame's p95 while it ran.
+    pub const SCAN_MEASURED: (f64, f64, u64, f64) = (180.885, 67.090, 1, 0.201);
+
+    /// What `faces_scan --json` prints over `photos` of `side` px with `recogniser`.
+    pub fn faces_scan_out(mode: &str, photos: u64, side: u64, recogniser: &str, measured: (f64, f64, u64, f64)) -> String {
+        let (scan_s, mib, workers, p95) = measured;
+        let faces = photos * 2;
+        let r = json!({ "bench": "faces_scan", "mode": mode, "photos": photos, "side_px": side, "recogniser": recogniser, "rows": [
+            { "name": format!("scan {photos}"), "faces": faces, "scan_s": scan_s, "faces_per_s": faces as f64 / scan_s, "workers": workers,
+              "per_worker_mib": mib, "rss_base_mib": 100.0, "rss_peak_mib": 100.0 + mib * workers as f64 },
+            { "name": "frame while scanning", "samples": 6000, "p50_ms": p95 / 2.0, "p95_ms": p95, "max_ms": p95 * 3.0 },
+        ]});
+        format!("{r}\n")
+    }
+
+    /// The people and places views' first measurement (M13.31): per row, the statistic judged.
+    pub const PEOPLE_PLACES_MEASURED: [f64; 4] = [21.530, 0.481, 1.048, 1.124];
+
+    /// What `people_places --json` prints over `photos`, each row's judged statistic from `values`.
+    pub fn people_places_out(mode: &str, photos: u64, values: [f64; 4]) -> String {
+        let rows: Vec<Value> = PEOPLE_PLACES_BUDGETS
+            .iter()
+            .zip(values)
+            .map(|((name, key, _), v)| {
+                let (p50, p95) = if *key == "p50_ms" { (v, v * 1.2) } else { (v / 1.2, v) };
+                json!({ "name": name, "samples": 11, "p50_ms": p50, "p95_ms": p95, "max_ms": p95 })
+            })
+            .collect();
+        let r = json!({ "bench": "people_places", "mode": mode, "photos": photos, "window": [1400, 900], "rows": rows });
+        format!("{r}\n")
+    }
+
+    /// A budget is 1.5 × its measurement rounded up by less than `step` (a rate: ÷ 1.5 rounded down).
+    fn one_and_a_half(budget: f64, measured: f64, step: f64) -> bool {
+        budget >= 1.5 * measured && budget < 1.5 * measured + step
+    }
+
+    #[test]
+    fn the_inference_budgets_judge_each_median() {
+        let ok = judge_inference(&inference_out("release", 640, &INFERENCE_MEASURED), 0.0).unwrap();
+        assert!(ok.contains("detect 640") && ok.contains("embed sface") && ok.contains("embed auraface"), "{ok}");
+        for ((name, budget), (m, measured)) in INFERENCE_BUDGETS.iter().zip(INFERENCE_MEASURED) {
+            assert!(*name == m && one_and_a_half(*budget, measured, 5.0), "{name}: {budget} is not 1.5 × {measured}");
+            let slow: Vec<(&str, f64)> = INFERENCE_MEASURED.iter().map(|(n, v)| (*n, if *n == m { budget + 0.1 } else { *v })).collect();
+            let e = judge_inference(&inference_out("release", 640, &slow), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("1 of 3 missed: {name}: median")), "{e}");
+        }
+        // The largest planted slowdown misses all three; a debug build, another side or a missing
+        // row judge nothing.
+        let e = judge_inference(&inference_out("release", 640, &INFERENCE_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.starts_with("3 of 3 missed") && e.contains("ms planted)"), "{e}");
+        assert!(judge_inference(&inference_out("debug", 640, &INFERENCE_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_inference(&inference_out("release", 160, &INFERENCE_MEASURED), 0.0).unwrap_err().contains("640 px"));
+        assert!(judge_inference(&inference_out("release", 640, &INFERENCE_MEASURED[..2]), 0.0).unwrap_err().contains("no row `embed auraface`"));
+    }
+
+    #[test]
+    fn the_face_scan_budgets_judge_the_rate_the_memory_and_the_frames() {
+        let out = |m| faces_scan_out("release", 1000, 2048, "sface", m);
+        let ok = judge_faces_scan(&out(SCAN_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("2000 faces in") && ok.contains("faces/s ≥") && ok.contains("MiB per worker ≤"), "{ok}");
+        let (secs, mib, workers, p95) = SCAN_MEASURED;
+        assert!(SCAN_FACES_PER_S <= 2000.0 / secs / 1.5 && SCAN_FACES_PER_S > 2000.0 / secs / 1.5 - 1.0, "÷ 1.5, rounded down");
+        assert!(one_and_a_half(SCAN_WORKER_MIB, mib, 5.0) && one_and_a_half(SCAN_FRAME_P95_MS, p95, 0.5));
+        assert!(SCAN_FRAME_P95_MS.min(SCAN_FRAME_CAP_MS) <= 16.0, "a frame within 16 ms whatever the first measurement");
+        // Each budget missed alone: a slow scan, a heavy worker, a slow frame, no worker at all.
+        let e = judge_faces_scan(&out((secs * 1.6, mib, workers, p95)), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 3 missed: 2000 faces in"), "{e}");
+        let e = judge_faces_scan(&out((secs, SCAN_WORKER_MIB + 1.0, workers, p95)), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 3 missed") && e.contains("MiB per worker"), "{e}");
+        let e = judge_faces_scan(&out((secs, mib, workers, SCAN_FRAME_P95_MS + 0.01)), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 3 missed: a frame while scanning: p95"), "{e}");
+        assert!(judge_faces_scan(&out((secs, mib, 0, p95)), 0.0).unwrap_err().contains("over 0 workers"));
+        // 8 ms planted misses the frame (a fraction of a millisecond), not the rate (16 s more over
+        // 2 000 faces is inside its headroom); the largest planted slowdown misses both.
+        let e = judge_faces_scan(&out(SCAN_MEASURED), 8.0).unwrap_err();
+        assert!(e.starts_with("1 of 3 missed: a frame while scanning") && e.contains("+ 8.00 ms planted"), "{e}");
+        let e = judge_faces_scan(&out(SCAN_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.starts_with("2 of 3 missed") && e.contains("ms planted per face"), "{e}");
+        // Another scan judges nothing.
+        assert!(judge_faces_scan(&faces_scan_out("debug", 1000, 2048, "sface", SCAN_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        for bad in [faces_scan_out("release", 12, 2048, "sface", SCAN_MEASURED), faces_scan_out("release", 1000, 640, "sface", SCAN_MEASURED)] {
+            assert!(judge_faces_scan(&bad, 0.0).unwrap_err().contains("hold for 1000 of 2048 px with sface"));
+        }
+        assert!(judge_faces_scan(&faces_scan_out("release", 1000, 2048, "auraface", SCAN_MEASURED), 0.0).unwrap_err().contains("with sface"));
+    }
+
+    #[test]
+    fn the_people_and_places_budgets_judge_the_openings_and_the_frames() {
+        let ok = judge_people_places(&people_places_out("release", 10_000, PEOPLE_PLACES_MEASURED), 0.0).unwrap();
+        assert!(ok.contains("unnamed open") && ok.contains("places pan"), "{ok}");
+        for (i, ((name, key, budget), measured)) in PEOPLE_PLACES_BUDGETS.iter().zip(PEOPLE_PLACES_MEASURED).enumerate() {
+            assert!(one_and_a_half(*budget, measured, 0.5), "{name}: {budget} is not 1.5 × {measured}");
+            let mut slow = PEOPLE_PLACES_MEASURED;
+            slow[i] = budget + 0.01;
+            let e = judge_people_places(&people_places_out("release", 10_000, slow), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("1 of 4 missed: {name}: {}", stat_name(key))), "{e}");
+        }
+        let e = judge_people_places(&people_places_out("release", 10_000, PEOPLE_PLACES_MEASURED), 8.0).unwrap_err();
+        assert!(e.contains("places pan: p95") && e.contains("+ 8.00 ms planted"), "{e}");
+        let e = judge_people_places(&people_places_out("release", 10_000, PEOPLE_PLACES_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.starts_with("4 of 4 missed"), "{e}");
+        assert!(judge_people_places(&people_places_out("debug", 10_000, PEOPLE_PLACES_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_people_places(&people_places_out("release", 1_000, PEOPLE_PLACES_MEASURED), 0.0).unwrap_err().contains("hold for 10000"));
+    }
+
     /// The benches' own `--check` budgets are the ones judged here.
     #[test]
     fn the_benches_carry_the_budgets_judged_here() {
@@ -981,6 +1231,52 @@ pub(crate) mod tests {
         let tiles = read("engine", "effect_tiles");
         let table = TILE_BUDGETS.iter().map(|(t, b)| format!("({t}, {b:?})")).collect::<Vec<_>>().join(", ");
         assert!(tiles.contains(&format!("const TAB_BUDGETS_MS: [(u8, f64); 3] = [{table}];")), "the tile grids' budgets are ours: {table}");
+        // M13.31: inference, the face scan, the people and places views.
+        let inference = std::fs::read_to_string(root.join("crates").join("faces").join("benches").join("inference.rs")).unwrap();
+        let scan = read("engine", "faces_scan");
+        let views = read("ui", "people_places");
+        let [(_, detect), (_, sface), (_, aura)] = INFERENCE_BUDGETS;
+        let [(_, _, open), (_, _, scroll), (_, _, places), (_, _, pan)] = PEOPLE_PLACES_BUDGETS;
+        for (source, constant, ours) in [
+            (&inference, "DETECT_BUDGET_MS", detect),
+            (&inference, "SFACE_BUDGET_MS", sface),
+            (&inference, "AURAFACE_BUDGET_MS", aura),
+            (&scan, "FACES_PER_S_BUDGET", SCAN_FACES_PER_S),
+            (&scan, "WORKER_MIB_BUDGET", SCAN_WORKER_MIB),
+            (&scan, "FRAME_BUDGET_MS", SCAN_FRAME_P95_MS),
+            (&scan, "FRAME_CAP_MS", SCAN_FRAME_CAP_MS),
+            (&views, "UNNAMED_OPEN_BUDGET_MS", open),
+            (&views, "UNNAMED_SCROLL_BUDGET_MS", scroll),
+            (&views, "PLACES_OPEN_BUDGET_MS", places),
+            (&views, "PLACES_PAN_BUDGET_MS", pan),
+        ] {
+            assert!(source.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours: {ours}");
+        }
+        for printed in ["format!(\"detect {}\", a.side)", "format!(\"embed {name}\")", "\"sface\"", "\"auraface\"", "const SIDE: usize = 640;"] {
+            assert!(inference.contains(printed), "inference prints {printed}");
+        }
+        assert!(scan.contains("format!(\"scan {n}\")") && scan.contains("\"frame while scanning\"") && scan.contains("\"per_worker_mib\""));
+        assert!(
+            scan.contains(&format!("const PHOTOS: usize = {};", grouped_thousands(SCAN_PHOTOS)))
+                && scan.contains(&format!("const SIDE: u32 = {SCAN_SIDE};"))
+        );
+        for (name, _, _) in PEOPLE_PLACES_BUDGETS {
+            assert!(views.contains(&format!("row(\"{name}\"")), "people_places prints `{name}`");
+        }
+        assert!(views.contains(&format!("const PHOTOS: usize = {};", grouped_thousands(PEOPLE_PLACES_PHOTOS))));
+    }
+
+    /// `n` as Rust source writes it with `_` between thousands (`1_000`, `10_000`).
+    fn grouped_thousands(n: u64) -> String {
+        let digits = n.to_string();
+        let mut out = String::new();
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i).is_multiple_of(3) {
+                out.push('_');
+            }
+            out.push(c);
+        }
+        out
     }
 
     #[test]
