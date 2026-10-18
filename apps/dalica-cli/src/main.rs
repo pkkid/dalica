@@ -261,6 +261,9 @@ mod tests {
 
     /// The openers' keys are listed with their engine commands: Rename… on F2 in the Library and
     /// the edit view (`menus-and-shortcuts.md` §2.1, M10.41), and every opener's keys somewhere.
+    /// An opener may come before its engine command (the person menu's rows wait for
+    /// `people.rename`, Clear Location… for `geo.clear`): it is not a command yet, so it is not
+    /// listed, and it must have no keys, which would be bound in the app and listed nowhere.
     #[test]
     fn commands_list_the_openers_keys() {
         let list: Vec<serde_json::Value> = serde_json::from_str(&commands()).unwrap();
@@ -268,7 +271,13 @@ mod tests {
         assert_eq!(rename["shortcut"], "F2");
         assert_eq!(rename["keys"], serde_json::json!([{ "context": "library", "key": "F2" }, { "context": "editView", "key": "F2" }]));
         for o in dalica_ui::commands::OPENERS {
-            let c = list.iter().find(|c| c["id"] == o.id).unwrap_or_else(|| panic!("{} is listed", o.id));
+            let registered = dalica_engine::cmd::specs().iter().any(|s| s.id == o.id);
+            let listed = list.iter().find(|c| c["id"] == o.id);
+            assert_eq!(listed.is_some(), registered, "{} is listed exactly when its engine command is registered", o.id);
+            let Some(c) = listed else {
+                assert!(o.keys.is_empty(), "{} has keys but no engine command to list them with", o.id);
+                continue;
+            };
             for k in shown_keys(o.keys) {
                 assert!(c["keys"].as_array().unwrap().contains(&k), "{}: {k}", o.id);
             }
