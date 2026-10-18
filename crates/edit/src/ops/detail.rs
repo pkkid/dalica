@@ -20,7 +20,9 @@
 //!   noise of ±`Grain / 200`, as PhotoCraft's Add Noise). With Lighten only the light half of the
 //!   grain is added, `max(n, 0)`; where a small render's pixel spans several cells its varying part
 //!   fades as [`fx::Noise::attenuation`] says but its mean ([`LIGHT_MEAN`]) stays, so a thumbnail
-//!   is as much lighter as the full picture shrunk. Grain 0 changes nothing.
+//!   is as much lighter as the full picture shrunk. The fading stops at [`MIN_FADING`], so a render
+//!   well under 1:1 (an effect tile) still shows grain: an approximation, close to the large render
+//!   shrunk at the default grain. Grain 0 changes nothing.
 //! - **Glow** (M12.7): the highlights (each pixel weighted by a smoothstep of its luma from
 //!   [`GLOW_FROM`] to 1) blurred by a Gaussian whose sigma is Radius percent of the shorter side
 //!   ([`fx::Blurred`]), then screened onto the picture by Intensity: it never darkens a pixel, and a
@@ -60,6 +62,10 @@ pub const GRAIN_CELL: f64 = 0.0005;
 /// The mean of the light half of [`fx::Noise`]'s unit field, `E[max(n, 0)]` (measured over 16 M
 /// points): what Lighten's grain averages to where a pixel spans many cells.
 pub const LIGHT_MEAN: f32 = 0.418;
+/// The least share of Film Grain's variation a render keeps where its pixels span many grain cells
+/// (a render well under 1:1, a tile): the grain still shows, as a preview should, instead of
+/// averaging away; an approximation, close to the large render shrunk at the default grain.
+pub const MIN_FADING: f32 = 0.25;
 /// The luma from which a pixel starts to glow.
 pub const GLOW_FROM: f64 = 0.5;
 
@@ -273,7 +279,7 @@ impl Adjust for Grain {
         let seed = fx::noise::seed(&format!("{}({})", Self::NAME, self.clamped()));
         let spread = (grain / 100.0 * 0.5 / 3f64.sqrt()) as f32;
         let noise = Noise::new(seed, GRAIN_CELL);
-        let fading = noise.attenuation(&space);
+        let fading = noise.attenuation(&space).max(MIN_FADING);
         Some(Box::new(GrainPass { space, noise, spread, fading, lighten: self.lighten }))
     }
 }
