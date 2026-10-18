@@ -8354,8 +8354,25 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     `cargo xtask budgets` passes with them, and `--plant-ms 17` makes every draft miss and
     `--plant-ms 101` every final (the `xtask` tests: the judge with a recorded report and a
     planted slowdown); `cargo xtask ci`.
+- ⬜ **M13.44 `engine`: effect tiles of an already framed photo show the whole picture, and a frame reads at tile size**
+  - after: M12.R
+  - files: `crates/engine/src/effect_tiles.rs`, `crates/engine/tests/effects.rs`, `docs/editing.md`
+  - scope: a fix task from the M12.R review screenshots (after M12.29 #794). M12.29 fits a
+    size-changing effect's tile in its box, but every other tile still renders at the covering
+    scale and cuts around the centre, so once a photo's recipe already holds a frame (Border,
+    Drop Shadow, Museum Matte, Widescreen Film) the tiles of tabs 3–5 crop that frame away and
+    show it only at two sides. Fit every tile whose rendered picture includes a frame (the recipe
+    so far or the effect itself; `Geometry::frames()`), on the gray 38 placeholder. A default
+    Border is 20 + 5 thousandths of the shorter side, about one pixel at tile size, so its tile
+    looks like the plain photo: draw a frame effect's tile with its bands at least 2 px each at
+    tile size (the tile alone; the effect's own render is unchanged) and say so in `editing.md`
+    §8.1. Drop Shadow's tile follows the same rule for its shadow's reach.
+  - done when: `crates/engine/tests/effects.rs`: on a photo with a Border in its recipe, Sepia's
+    and Boost's tiles show the frame's colour at the middle of all four sides; a default
+    Border's tile shows its outer band at least 2 px wide on every side; tiles of photos without
+    a frame are byte for byte unchanged; `cargo xtask ci`.
 - ⬜ **M13.32 `accept M13`**
-  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43
+  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44
   - files: `tests/acceptance/m13.rs`, `tests/acceptance/m13_*.rs`, `tests/acceptance/m13.md`, `tests/acceptance/fingerprints/m13-*.json`
   - scope: every *Done when* of M13's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a synthetic model installed from a local file after the
