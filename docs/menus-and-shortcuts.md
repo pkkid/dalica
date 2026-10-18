@@ -225,6 +225,10 @@ commands change nothing and record no undo step.
 | `import.removeFromSource` | remove the last import's verified copies from the card (`{confirm}`; `needs_confirm` without); refused over the control channel and MCP (M11.8) |
 | `slideshow.list` | query: the photos a slideshow plays and where it starts (`{section?, ids?, search?, start?}`; videos left out and counted) (M11.11) |
 | `viewer.list` | query: the photos of the viewed file's folder in name order and the file's place among them (`{path}`) (M11.12) |
+| `effect.list` | query: the effects of tabs 3–5 in each tab's grid order, with their labels, tooltips, whether they apply with one click, and their parameters (kind, range, default; the controls a panel draws) (M12.5) |
+| `photo.effect.pick` | query: the colour of the photo as shown before the effect being set (its recipe so far) at a point normalised to the photo in the stored frame, the mean over a small disc; the eyedropper and Vignette's pick from the photo (M12.5) |
+| `edit.effect.apply` | UI: apply a one-click effect (Sepia, B&W, Warmify, Invert Colors) to the photo shown in the edit view as one step of its history (`{name}`); a one-click tile's click (M12.15). A parameter effect opens its panel instead: `edit.tool.open {tool: "effect", name}` |
+| `edit.bw` | UI: B&W on the photo shown in the edit view, as `edit.effect.apply {name: "bw"}`; its key is Ctrl+Shift+B in the Edit view context only (§2.3) (M12.15) |
 | `edit.recipe.set` | replace recipes, each one step of its photo's history (`{ids, recipe, label?, dropUnknown?}`; refuses to drop an operation it cannot read unless `dropUnknown`); used by Paste All Edits and agents |
 | `section.scrollTo` | scroll the light table to a section (tree click) |
 | `tray.hold` / `tray.clear` | tray buttons (Hold: Ctrl+H) |
@@ -331,7 +335,9 @@ does not know are kept verbatim and ignored. The editor goes through `app.setSho
 
 ### 2.3 Edit view
 
-See [`editing.md`](editing.md) §12.
+See [`editing.md`](editing.md) §12. Ctrl+Shift+B is B&W (`edit.bw`) in the Edit view context only:
+the library leaves it unbound, and Black and White there is Picture ▸ Batch Edit ▸ Black and
+White, which has no key. Effects have no Shift variants.
 
 ### 2.4 Slideshow, photo viewer, video, import
 

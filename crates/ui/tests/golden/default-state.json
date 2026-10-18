@@ -22,6 +22,7 @@
   "edit": {
     "compare": "one",
     "crop": null,
+    "effect": null,
     "focus": "left",
     "layout": "sideBySide",
     "panelVisible": true,

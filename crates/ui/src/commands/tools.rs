@@ -2,9 +2,10 @@
 //! `panels/edit/` implements (Crop, Straighten, Retouch, and the Tuning tab's session), and the
 //! commands that dispatch to it, so the tools never share a file:
 //!
-//! - `edit.tool.open {tool}`: opens a tool on the photo shown; its draft starts from
-//!   [`Tool::open`]. Another tool open first is refused (`disabled`): it is applied or cancelled
-//!   first, as the reference does.
+//! - `edit.tool.open {tool, name?}`: opens a tool on the photo shown; its draft starts from
+//!   [`Tool::open`] ([`Tool::open_named`] with `name`: the effect a parameter panel opens on,
+//!   `{tool: "effect", name: "sharpen"}`, M12). Another tool open first is refused (`disabled`):
+//!   it is applied or cancelled first, as the reference does.
 //! - `edit.tool.apply`, `edit.tool.cancel`, `edit.tool.reset`: the open tool's Apply (one history
 //!   step; the tool closes when it succeeds), Cancel (the draft is dropped, nothing is recorded)
 //!   and Reset (the draft back to where it started).
@@ -23,15 +24,15 @@
 //! Right makes the variant one step of the photo's history.
 //!
 //! Every tool is a stub until its task fills it (M7.19 Crop, M7.20 Straighten, M7.21 Tuning, M7.22
-//! Retouch): it opens, resets and cancels its draft, and its Apply refuses with "Not available
-//! yet.".
+//! Retouch, M12.16 the effect panels' session in [`super::effect_session`]): it opens, resets and
+//! cancels its draft, and its Apply refuses with "Not available yet.".
 
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Key};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{UiCommand, no_params, parse};
+use super::{UiCommand, effect_session, no_params, parse};
 use crate::app::App;
 use crate::panels::edit::{crop, retouch, straighten, tuning};
 use crate::state::{EditState, ToolKind, View};
@@ -52,6 +53,15 @@ pub trait Tool: Sync {
 
     /// Writes the draft the tool starts with into `edit` (the tool is not yet marked open).
     fn open(&self, app: &App, edit: &mut EditState) -> Result<(), CmdError>;
+
+    /// [`Tool::open`] with the `name` `edit.tool.open` was given: what the tool opens on (the
+    /// effect of a parameter panel). Only the effect tool takes one; the others refuse it.
+    fn open_named(&self, app: &App, edit: &mut EditState, name: Option<&str>) -> Result<(), CmdError> {
+        match name {
+            None => self.open(app, edit),
+            Some(_) => Err(CmdError::BadParams(format!("{} takes no `name`", self.label()))),
+        }
+    }
 
     /// Applies the draft as one step of the photo's history. The tool closes when it succeeds.
     fn apply(&self, app: &mut App) -> Result<Value, CmdError>;
@@ -80,6 +90,7 @@ pub fn tool(kind: ToolKind) -> &'static dyn Tool {
         ToolKind::Straighten => &straighten::STRAIGHTEN,
         ToolKind::Retouch => &retouch::RETOUCH,
         ToolKind::Tuning => &tuning::TUNING,
+        ToolKind::Effect => &effect_session::EFFECT,
     }
 }
 
@@ -124,7 +135,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Open Tool",
         menu: "",
         keys: &[],
-        params: r#"{"tool": "crop" | "straighten" | "retouch" | "tuning"}: open a tool on the photo shown in the edit view"#,
+        params: r#"{"tool": "crop" | "straighten" | "retouch" | "tuning" | "effect", "name"?: string}: open a tool on the photo shown in the edit view; "effect" opens the parameter panel of effect `name` ("sharpen")"#,
         run: open,
     },
     UiCommand {
@@ -177,23 +188,35 @@ fn the_open_tool(app: &App) -> Result<&'static dyn Tool, CmdError> {
 #[serde(deny_unknown_fields)]
 struct Open {
     tool: ToolKind,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// What `edit.tool.open` answers: the tool, and the effect for a parameter panel.
+fn opened(edit: &EditState) -> Value {
+    match (&edit.tool, &edit.effect) {
+        (Some(ToolKind::Effect), Some(e)) => json!({ "tool": ToolKind::Effect, "name": e.name }),
+        (tool, _) => json!({ "tool": tool }),
+    }
 }
 
 fn open(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let p: Open = parse(params)?;
     in_edit_view(app)?;
     if let Some(t) = open_tool(app) {
-        if t.kind() == p.tool {
-            return Ok(json!({ "tool": p.tool }));
+        let effect = app.state().edit.effect.as_ref().map(|e| e.name.as_str());
+        if t.kind() == p.tool && (p.tool != ToolKind::Effect || effect == p.name.as_deref()) {
+            return Ok(opened(&app.state().edit));
         }
         return Err(CmdError::Disabled(format!("Apply or cancel {} first.", t.label())));
     }
     let t = tool(p.tool);
     let mut edit = app.state().edit.clone();
-    t.open(app, &mut edit)?;
+    t.open_named(app, &mut edit, p.name.as_deref())?;
     edit.tool = Some(p.tool);
+    let reply = opened(&edit);
     app.state_mut().edit = edit;
-    Ok(json!({ "tool": p.tool }))
+    Ok(reply)
 }
 
 fn apply(app: &mut App, params: &Value) -> Result<Value, CmdError> {
