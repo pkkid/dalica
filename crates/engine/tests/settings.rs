@@ -1,21 +1,25 @@
-//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1;
+//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1, M13.3;
 //! `data-model.md` §4 and §6, `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1 and
-//! §4, `creating.md` §2, `organizing.md` §3, §4 and §9, `viewing.md` §1.5 and §3.3), each a row of [`rows`]: nothing stored means its default; every
+//! §4, `creating.md` §2, `organizing.md` §3, §4, §6.1, §7 and §9, `viewing.md` §1.5 and §3.3,
+//! `faces.md` §3–§5), each a row of [`rows`]: nothing stored means its default; every
 //! setting round-trips through its documented key with unknown keys kept at every level; a value of
 //! the wrong type is its default and is reported once by key (never by value) when the library
 //! opens, the file left as the user wrote it. Then what is particular to some of them: tags and
 //! crop ratios trimmed and capped, values out of range never stored, a section that is not an
-//! object, the photo sizes by region, the export location, and the recent imports and the
-//! slideshow's display time bounded.
+//! object, the photo sizes by region, the export location, the recent imports and the
+//! slideshow's display time bounded, and the confidences, model id, addresses and port of the
+//! People and Network tabs kept in their ranges.
 
 use std::path::{Path, PathBuf};
 
+use dalica_engine::map_tiles::{DEFAULT_ATTRIBUTION, DEFAULT_GEOCODER, DEFAULT_TILE_SERVER};
 use dalica_engine::settings::{
-    AfterImport, CUSTOM_QUALITY_DEFAULT, CompareSettings, CropRatio, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE, EXPORT_SIZE_DEFAULT,
-    EXPORT_SIZE_RANGE, EditSettings, ExportQuality, ExportSettings, FILE, FontSize, ImportSettings, InterfaceSettings, KeepVersion, MAX_CROP_RATIOS,
-    MAX_FOLDER_NAME_BYTES, MAX_PATH_BYTES, MAX_RATIO_NAME, MAX_RECENT_IMPORTS, MAX_RECENT_TAGS, MAX_TAG_BYTES, MAX_WATERMARK_BYTES, MetadataWrites,
-    OrganizeSettings, PhotoSizes, QuickTags, RECENT_DAYS_DEFAULT, RECENT_DAYS_RANGE, SMALL_PICTURE_DEFAULT, SaveFormat, SaveSettings, Settings,
-    SlideshowSettings, Transition, UiScaleSetting, ViewerSettings, WheelAction, default_export_location,
+    AfterImport, CONFIDENCE_DEFAULT, CUSTOM_QUALITY_DEFAULT, CompareSettings, CropRatio, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE,
+    EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, EditSettings, ExportQuality, ExportSettings, FILE, FontSize, ImportSettings, InterfaceSettings,
+    KeepVersion, MAX_CROP_RATIOS, MAX_FOLDER_NAME_BYTES, MAX_HOST_BYTES, MAX_MODEL_ID_BYTES, MAX_PATH_BYTES, MAX_RATIO_NAME, MAX_RECENT_IMPORTS,
+    MAX_RECENT_TAGS, MAX_TAG_BYTES, MAX_TEMPLATE_BYTES, MAX_WATERMARK_BYTES, MetadataWrites, NetworkLogLevel, NetworkSettings, OrganizeSettings,
+    PROXY_PORT_DEFAULT, PeopleSettings, PhotoSizes, ProxyMode, QuickTags, RECENT_DAYS_DEFAULT, RECENT_DAYS_RANGE, SMALL_PICTURE_DEFAULT, SaveFormat,
+    SaveSettings, Settings, SlideshowSettings, Transition, UiScaleSetting, ViewerSettings, WheelAction, default_export_location,
 };
 use dalica_fs::Expect;
 use serde_json::{Value, json};
@@ -103,12 +107,44 @@ fn rows(dir: &Path) -> Vec<Row> {
         }),
         row("compare.askBeforeApplying", json!(false), json!("no"), json!(true), |s| json!(s.compare().ask_before_applying)),
         row("compare.keep", json!("right"), json!("both"), json!("ask"), |s| json!(s.compare().keep.id())),
+        row("people.findFaces", json!(false), json!("yes"), json!(true), |s| json!(s.people().find_faces)),
+        row("people.suggestNames", json!(false), json!(0), json!(true), |s| json!(s.people().suggest_names)),
+        row("people.suggestionConfidence", json!(60), json!(87), json!(CONFIDENCE_DEFAULT), |s| json!(s.people().suggestion_confidence)),
+        row("people.groupingConfidence", json!(95), json!(100), json!(CONFIDENCE_DEFAULT), |s| json!(s.people().grouping_confidence)),
+        row("people.storeNamesInPhotos", json!(true), json!("on"), json!(false), |s| json!(s.people().store_names_in_photos)),
+        row("people.model", json!("sface-2021dec"), json!("../secret-model"), json!(null), |s| json!(s.people().model)),
+        row("network.allowMapTiles", json!(true), json!("yes"), json!(false), |s| json!(s.network().allow_map_tiles)),
+        row("network.tileServer", json!("https://tiles.example.org/{z}/{x}/{y}.png"), json!(["secret-server"]), json!(DEFAULT_TILE_SERVER), |s| {
+            json!(s.network().tile_server)
+        }),
+        row("network.tileAttribution", json!("© Example Maps"), json!(7), json!(DEFAULT_ATTRIBUTION), |s| json!(s.network().tile_attribution)),
+        row("network.geocoder", json!("https://geo.example.org/search?q={query}"), json!({ "url": "secret" }), json!(DEFAULT_GEOCODER), |s| {
+            json!(s.network().geocoder)
+        }),
+        row("network.proxy", json!("manual"), json!("auto"), json!("system"), |s| json!(s.network().proxy.id())),
+        row("network.proxyHost", json!("proxy.example.org"), json!("secret".repeat(50)), json!(""), |s| json!(s.network().proxy_host)),
+        row("network.proxyPort", json!(3128), json!(0), json!(PROXY_PORT_DEFAULT), |s| json!(s.network().proxy_port)),
+        row("network.logLevel", json!("details"), json!("verbose"), json!("errors"), |s| json!(s.network().log_level.id())),
     ]
 }
 
 /// The sections of the rows.
-const SECTIONS: [&str; 12] =
-    ["files", "tags", "edit", "save", "export", "organize", "interface", "fileTypes", "slideshow", "viewer", "import", "compare"];
+const SECTIONS: [&str; 14] = [
+    "files",
+    "tags",
+    "edit",
+    "save",
+    "export",
+    "organize",
+    "interface",
+    "fileTypes",
+    "slideshow",
+    "viewer",
+    "import",
+    "compare",
+    "people",
+    "network",
+];
 
 /// A `settings.json` holding `value(row)` for every row, an unknown key in every section and one at
 /// the top.
@@ -158,6 +194,7 @@ fn nothing_stored_means_the_defaults() {
         (s.settings().slideshow(), s.settings().viewer(), s.settings().import(), s.settings().compare()),
         (SlideshowSettings::default(), ViewerSettings::default(), ImportSettings::default(), CompareSettings::default())
     );
+    assert_eq!((s.settings().people(), s.settings().network()), (PeopleSettings::default(), NetworkSettings::default()));
     assert_eq!(s.settings().edit().photo_sizes(), PhotoSizes::system());
     assert!(s.notices().is_empty(), "{:?}", s.notices());
 }
@@ -189,6 +226,8 @@ fn every_setting_round_trips_with_unknown_keys_kept() {
         st.set_viewer(&wanted.viewer());
         st.set_import(&wanted.import());
         st.set_compare(&wanted.compare());
+        st.set_people(&wanted.people());
+        st.set_network(&wanted.network());
     });
     s.flush().unwrap();
     drop(ui);
@@ -248,6 +287,8 @@ fn a_section_that_is_not_an_object_is_reported_once_and_replaced_on_the_next_wri
         json!(false),
         json!(["/media/card"]),
         json!(null),
+        json!(85),
+        json!("offline"),
     ];
     for (section, bad) in SECTIONS.iter().zip(bad) {
         written[section] = bad;
@@ -628,4 +669,74 @@ fn imports_go_to_the_pictures_folder_unless_chosen() {
     assert_eq!(s.import_folder(), Some(chosen));
     s.change_settings(|st| st.set_import(&ImportSettings::default()));
     assert_eq!(s.import_folder(), None);
+}
+
+/// M13's settings: a confidence off the slider (out of 50–95 or off its step of 5), a model id that
+/// could be a path, an address or host past its length and a port of 0 are never stored and read
+/// as their defaults; every proxy mode and log level survives a write; unknown keys stay.
+#[test]
+fn the_people_and_network_values_stay_in_their_ranges() {
+    let mut st = Settings::parse(br#"{"people": {"futureKey": 1}, "network": {"futureKey": 2}}"#).unwrap();
+    for (confidence, model) in [(45, "Bad"), (100, ".hidden"), (87, "a/b"), (0, ""), (u32::MAX, "x".repeat(MAX_MODEL_ID_BYTES + 1).as_str())] {
+        st.set_people(&PeopleSettings {
+            suggestion_confidence: confidence,
+            grouping_confidence: confidence,
+            model: Some(model.into()),
+            ..Default::default()
+        });
+        let back = Settings::parse(&st.print()).unwrap();
+        assert_eq!(back.people(), PeopleSettings::default(), "{confidence} {model}");
+        assert_eq!(back.get("people").and_then(|p| p.get("model")), None, "{model}: never stored");
+        assert!(back.problems().is_empty(), "{:?}", back.problems());
+    }
+    for (confidence, model) in [(50, "0"), (95, &*"a".repeat(MAX_MODEL_ID_BYTES)), (55, "sface_2021-dec.v2")] {
+        let p =
+            PeopleSettings { suggestion_confidence: confidence, grouping_confidence: confidence, model: Some(model.into()), ..Default::default() };
+        st.set_people(&p);
+        assert_eq!(Settings::parse(&st.print()).unwrap().people(), p);
+    }
+    for (value, want) in
+        [(json!(50), 50), (json!(95), 95), (json!(49), 85), (json!(96), 85), (json!(52), 85), (json!(85.5), 85), (json!("90"), 85), (json!(-5), 85)]
+    {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "people": { "groupingConfidence": value } })).unwrap()).unwrap();
+        assert_eq!(st.people().grouping_confidence, want, "{value}");
+    }
+    assert_eq!(st.get("people").unwrap()["futureKey"], json!(1));
+
+    let long = |n: usize| "é".repeat(n / 2 + 1);
+    st.set_network(&NetworkSettings {
+        tile_server: long(MAX_TEMPLATE_BYTES),
+        geocoder: long(MAX_TEMPLATE_BYTES),
+        proxy_host: long(MAX_HOST_BYTES),
+        proxy_port: 0,
+        ..NetworkSettings::default()
+    });
+    let back = Settings::parse(&st.print()).unwrap();
+    assert_eq!(back.network(), NetworkSettings::default());
+    assert!(back.problems().is_empty(), "{:?}", back.problems());
+    let edge =
+        NetworkSettings { proxy_host: "h".repeat(MAX_HOST_BYTES), proxy_port: u16::MAX, proxy: ProxyMode::Manual, ..NetworkSettings::default() };
+    st.set_network(&edge);
+    assert_eq!(Settings::parse(&st.print()).unwrap().network(), edge);
+    for (port, want) in [
+        (json!(1), 1),
+        (json!(65_535), 65_535),
+        (json!(65_536), PROXY_PORT_DEFAULT),
+        (json!(-1), PROXY_PORT_DEFAULT),
+        (json!("80"), PROXY_PORT_DEFAULT),
+    ] {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "network": { "proxyPort": port } })).unwrap()).unwrap();
+        assert_eq!(st.network().proxy_port, want, "{port}");
+    }
+    for proxy in ProxyMode::ALL {
+        st.set_network(&NetworkSettings { proxy, ..NetworkSettings::default() });
+        assert_eq!(Settings::parse(&st.print()).unwrap().network().proxy, proxy);
+        assert_eq!(ProxyMode::from_id(proxy.id()), Some(proxy));
+    }
+    for log_level in NetworkLogLevel::ALL {
+        st.set_network(&NetworkSettings { log_level, ..NetworkSettings::default() });
+        assert_eq!(Settings::parse(&st.print()).unwrap().network().log_level, log_level);
+        assert_eq!(NetworkLogLevel::from_id(log_level.id()), Some(log_level));
+    }
+    assert_eq!(st.get("network").unwrap()["futureKey"], json!(2));
 }

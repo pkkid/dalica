@@ -13,6 +13,10 @@ pub mod duplicates;
 pub mod edit;
 pub mod effects;
 pub mod export;
+pub mod face_models;
+pub mod face_regions;
+pub mod face_scan;
+pub mod faces;
 pub mod files;
 pub mod folder_data;
 pub mod folder_info;
@@ -26,8 +30,11 @@ pub mod info;
 pub mod inspect;
 pub mod keymap;
 pub mod library;
+pub mod map;
 pub mod options;
+pub mod people;
 pub mod photo;
+pub mod places;
 pub mod recipe;
 pub mod rename;
 pub mod rotate;
@@ -36,6 +43,7 @@ pub mod save_copy;
 pub mod search;
 pub mod section;
 pub mod slideshow;
+pub mod suggest;
 pub mod tags;
 pub mod tuning;
 pub mod view;
@@ -98,6 +106,16 @@ pub fn specs() -> Vec<CommandSpec> {
         viewer::specs(),
         // M12: the effect list and the colour pick (M12.5).
         effects::specs(),
+        // M13: empty until M13.14 (places), M13.15 (people, faces), M13.16 (face_models), M13.18
+        // (face_scan), M13.19 (face_regions), M13.20 (map) and M13.26 (suggest).
+        people::specs(),
+        faces::specs(),
+        face_scan::specs(),
+        face_models::specs(),
+        face_regions::specs(),
+        suggest::specs(),
+        places::specs(),
+        map::specs(),
     ]
     .concat();
     #[cfg(test)]

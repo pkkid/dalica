@@ -1,6 +1,6 @@
-//! The options catalogue (`menus-and-shortcuts.md` §5, `roadmap.md` M10 and M11): one row per
-//! option the Options dialog shows on its General, File Types, Slideshow, Photo Viewer and Export
-//! tabs, read by the dialog,
+//! The options catalogue (`menus-and-shortcuts.md` §5, `roadmap.md` M10, M11 and M13): one row per
+//! option the Options dialog shows on its General, File Types, Slideshow, Network, People, Photo
+//! Viewer and Export tabs, read by the dialog,
 //! `options.list` / `options.set` (`cmd/options.rs`) and MCP alike, so the three never disagree.
 //!
 //! A row names its setting by `"<object>.<field>"` in `settings.json` (`interface.animations`
@@ -11,9 +11,15 @@
 //!
 //! An option whose feature does not exist yet (Language until localisation, reading the previous
 //! organizer's data until it can, the slideshow's music and video sound until Dalica plays sound,
-//! the photo viewer's file types until the OS integration) is listed with the reason the dialog
-//! shows ([`OptionSpec::unavailable`]); its setting is stored only once its feature reads it, so
-//! `options.set` refuses it until then and its value is its default.
+//! the photo viewer's file types until the OS integration, the network log until it exists) is
+//! listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
+//! once its feature reads it, so `options.set` refuses it until then and its value is its default.
+//! So are the options that wait on a reserved decision: the map rows and the proxy of the Network
+//! tab, until the map tile provider and the network stack are chosen (their reasons are
+//! [`crate::map_tiles::TILES_UNAVAILABLE`] and [`crate::map_tiles::PROXY_UNAVAILABLE`], which the
+//! task that builds map tiles clears). The People tab's face model (its status, Download…, Remove
+//! and Use) is the face model dialog's, through `faces.models.*`, not a row here; the model in use
+//! is `people.model` ([`crate::settings::PeopleSettings::model`]).
 //!
 //! [`OptionSpec::check`] is the one validation of a value, [`OptionSpec::store`] the one way a
 //! value is written (a merge into its object, unknown keys kept) and [`OptionSpec::to_json`] the
@@ -23,24 +29,28 @@ use dalica_scan::FileType;
 use serde_json::{Map, Value, json};
 
 use crate::keymap::Platform;
+use crate::map_tiles::{DEFAULT_ATTRIBUTION, DEFAULT_GEOCODER, DEFAULT_TILE_SERVER, PROXY_UNAVAILABLE, TILES_UNAVAILABLE};
 use crate::settings::{
-    CUSTOM_QUALITY_DEFAULT, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, MAX_WATERMARK_BYTES, QUALITY_RANGE,
-    SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
+    CONFIDENCE_DEFAULT, CONFIDENCE_RANGE, CONFIDENCE_STEP, CUSTOM_QUALITY_DEFAULT, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE, EXPORT_SIZE_DEFAULT,
+    EXPORT_SIZE_RANGE, MAX_ATTRIBUTION_BYTES, MAX_HOST_BYTES, MAX_TEMPLATE_BYTES, MAX_WATERMARK_BYTES, PROXY_PORT_DEFAULT, PROXY_PORT_RANGE,
+    QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
 };
 
 /// A tab of the Options dialog that has options in the catalogue, in the dialog's order (the
-/// Keyboard Shortcuts tab is the shortcut editor; Network and People join with their milestones).
+/// Keyboard Shortcuts tab is the shortcut editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Tab {
     General,
     FileTypes,
     Slideshow,
+    Network,
+    People,
     PhotoViewer,
     Export,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 5] = [Tab::General, Tab::FileTypes, Tab::Slideshow, Tab::PhotoViewer, Tab::Export];
+    pub const ALL: [Tab; 7] = [Tab::General, Tab::FileTypes, Tab::Slideshow, Tab::Network, Tab::People, Tab::PhotoViewer, Tab::Export];
 
     /// The id `options.list {tab}` takes.
     pub fn id(self) -> &'static str {
@@ -48,6 +58,8 @@ impl Tab {
             Tab::General => "general",
             Tab::FileTypes => "fileTypes",
             Tab::Slideshow => "slideshow",
+            Tab::Network => "network",
+            Tab::People => "people",
             Tab::PhotoViewer => "viewer",
             Tab::Export => "export",
         }
@@ -63,6 +75,8 @@ impl Tab {
             Tab::General => "General",
             Tab::FileTypes => "File Types",
             Tab::Slideshow => "Slideshow",
+            Tab::Network => "Network",
+            Tab::People => "People",
             Tab::PhotoViewer => "Photo Viewer",
             Tab::Export => "Export",
         }
@@ -340,6 +354,9 @@ const FONT_SIZES: &[(&str, &str)] = &[("small", "Small"), ("medium", "Medium"), 
 const LANGUAGES: &[(&str, &str)] = &[("system", "System")];
 const QUALITIES: &[(&str, &str)] =
     &[("automatic", "Automatic"), ("normal", "Normal"), ("maximum", "Maximum"), ("minimum", "Minimum"), ("custom", "Custom")];
+const PROXIES: &[(&str, &str)] = &[("system", "Use the system's proxy settings"), ("manual", "Manual")];
+const NETWORK_LOG: &[(&str, &str)] = &[("errors", "Errors only"), ("requests", "Requests"), ("details", "Details")];
+const CONFIDENCE: Kind = Kind::Int { min: *CONFIDENCE_RANGE.start(), max: *CONFIDENCE_RANGE.end(), step: CONFIDENCE_STEP, unit: "" };
 const HEIF: Option<&str> = if cfg!(feature = "heif") { None } else { Some("HEIC support isn't included in this build") };
 
 const fn file_type(key: &'static str, label: &'static str, read: fn(&Settings) -> Value) -> OptionSpec {
@@ -484,6 +501,82 @@ static CATALOGUE: &[OptionSpec] = &[
         json!(s.slideshow().video_sound)
     })
     .later(SOUND),
+    // Network → Map.
+    row("network.allowMapTiles", Tab::Network, "Map", "Allow map tiles", Kind::Bool, Initial::Bool(false), |s| json!(s.network().allow_map_tiles))
+        .hint("The Places pane fetches map pictures from the tile server while it is open.")
+        .unavailable_if(TILES_UNAVAILABLE),
+    row(
+        "network.tileServer",
+        Tab::Network,
+        "Map",
+        "Map tile server",
+        Kind::Text { max_bytes: MAX_TEMPLATE_BYTES },
+        Initial::Str(DEFAULT_TILE_SERVER),
+        |s| json!(s.network().tile_server),
+    )
+    .hint("A web address with {z}, {x} and {y} for the tile's zoom, column and row.")
+    .unavailable_if(TILES_UNAVAILABLE),
+    row(
+        "network.tileAttribution",
+        Tab::Network,
+        "Map",
+        "Map attribution",
+        Kind::Text { max_bytes: MAX_ATTRIBUTION_BYTES },
+        Initial::Str(DEFAULT_ATTRIBUTION),
+        |s| json!(s.network().tile_attribution),
+    )
+    .hint("Shown on the map under the tiles.")
+    .unavailable_if(TILES_UNAVAILABLE),
+    row(
+        "network.geocoder",
+        Tab::Network,
+        "Map",
+        "Geocoding service",
+        Kind::Text { max_bytes: MAX_TEMPLATE_BYTES },
+        Initial::Str(DEFAULT_GEOCODER),
+        |s| json!(s.network().geocoder),
+    )
+    .hint("A web address with {query} for the place typed in \"Search for a place\".")
+    .unavailable_if(TILES_UNAVAILABLE),
+    // Network → Proxy.
+    row("network.proxy", Tab::Network, "Proxy", "Proxy", Kind::Choice(PROXIES), Initial::Str("system"), |s| json!(s.network().proxy.id()))
+        .unavailable_if(PROXY_UNAVAILABLE),
+    row("network.proxyHost", Tab::Network, "Proxy", "Proxy host", Kind::Text { max_bytes: MAX_HOST_BYTES }, Initial::Str(""), |s| {
+        json!(s.network().proxy_host)
+    })
+    .unavailable_if(PROXY_UNAVAILABLE),
+    row(
+        "network.proxyPort",
+        Tab::Network,
+        "Proxy",
+        "Proxy port",
+        Kind::Int { min: *PROXY_PORT_RANGE.start() as u32, max: *PROXY_PORT_RANGE.end() as u32, step: 1, unit: "" },
+        Initial::Int(PROXY_PORT_DEFAULT as u32),
+        |s| json!(s.network().proxy_port),
+    )
+    .unavailable_if(PROXY_UNAVAILABLE),
+    // Network → Troubleshooting.
+    row("network.logLevel", Tab::Network, "Troubleshooting", "Network log level", Kind::Choice(NETWORK_LOG), Initial::Str("errors"), |s| {
+        json!(s.network().log_level.id())
+    })
+    .later("Arrives with the network log"),
+    // People → Faces.
+    row("people.findFaces", Tab::People, "Faces", "Find faces in my photos", Kind::Bool, Initial::Bool(true), |s| json!(s.people().find_faces))
+        .hint("Faces are found on this computer; nothing is sent anywhere."),
+    row("people.suggestNames", Tab::People, "Faces", "Suggest names", Kind::Bool, Initial::Bool(true), |s| json!(s.people().suggest_names)),
+    row("people.suggestionConfidence", Tab::People, "Faces", "Suggestion confidence", CONFIDENCE, Initial::Int(CONFIDENCE_DEFAULT), |s| {
+        json!(s.people().suggestion_confidence)
+    })
+    .hint("Higher values make fewer, more certain suggestions."),
+    row("people.groupingConfidence", Tab::People, "Faces", "Grouping confidence", CONFIDENCE, Initial::Int(CONFIDENCE_DEFAULT), |s| {
+        json!(s.people().grouping_confidence)
+    })
+    .hint("Higher values make smaller, more certain groups of unnamed faces."),
+    // People → Files.
+    row("people.storeNamesInPhotos", Tab::People, "Files", "Store people names in photos", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.people().store_names_in_photos)
+    })
+    .hint("Writes the names of the people in a photo into its file as face regions (XMP)."),
     // Photo Viewer.
     row(
         "viewer.defaultViewer",

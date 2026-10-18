@@ -198,7 +198,7 @@ commands change nothing and record no undo step.
 | `app.setShortcut` | bind or unbind a key (`{command, context, key, slot?, replace?}`; without `slot` the key replaces the command's keys in that context and `key: null` removes them; with `slot` (0 or 1, a command having up to two keys per context, §2.0) only that key is set or removed and the other kept; keys as written or as the screen shows them: `ctrl-8`, `⇧⌘S`). A key another command has where both can be active is refused with the editor's sentence ("Ctrl+1 is already Small Thumbnails in Library."), unless `replace`, which takes it from that command (`took` lists whom); keys set back to the defaults are no longer an override. The shortcut editor calls it |
 | `app.resetShortcuts` | drop user overrides (`{command?}`: one command, or all when omitted) |
 | `keymap.list` | query: one row per command and context with its keys in effect, its default keys, whether it differs from the default and whether it can be edited (`{context?, search?, withoutKeys?}`); the shortcut editor's list. A command without keys is listed once with no context (with `withoutKeys`, under every Context filter). The search matches labels, menu paths and keys ignoring case; a search that reads as a key matches that key (`ctrl 1`, `⌘1`: every Ctrl+1 binding), or with no modifier typed that key under any (`F4`, never F11 for `F1`) |
-| `options.list` | query: the options catalogue's rows (§5) with their values in effect and whether they can be changed yet (`{tab?}`: `general`, `fileTypes`, `slideshow`, `viewer` or `export`) |
+| `options.list` | query: the options catalogue's rows (§5) with their values in effect and whether they can be changed yet (`{tab?}`: `general`, `fileTypes`, `slideshow`, `network`, `people`, `viewer` or `export`) |
 | `options.set` | change options (`{values}`: `{key: value}`, every key and value checked against the catalogue before anything changes, an unknown key, an option still to come or a bad value being `bad_params` naming it; one atomic write of `settings.json`, the session taking the values only once it is on disk, so a failed write (a read-only file too) is `disabled` with its reason and changes nothing; no undo step; answers `{changed, restart, rescan, job}`: the keys changed, those applying at the next launch, and the scan a File Types or threshold change started); the Options dialog's Apply and OK |
 | `photo.star.set` | set or clear stars explicitly (`{ids, on}`) |
 | `photo.tags.add` / `photo.tags.remove` | add or remove tags (`{ids, tags}`: text with commas separating tags, or a list of whole tags); the Tags pane. Tags added here are the recently used ones |
@@ -207,7 +207,25 @@ commands change nothing and record no undo step.
 | `tags.rename` | rename a tag on every photo, merging onto an existing tag (`{from, to, confirm}`; asks first) |
 | `tags.quick.get` / `tags.quick.set` | the quick tags (`{slots, useRecent}`; `get` also gives what each button applies) |
 | `tags.quick.apply` / `tags.quick.1` … `tags.quick.10` | toggle quick tag n on photos (`{n, ids}`; the numbered ones carry Ctrl+Alt+1 … Ctrl+Alt+0) |
-| `photo.geo.set` | Places pane drop |
+| `photo.geo.set` | set or clear the geotag of photos (`{ids, geo: [lat, lon] \| null, confirm?}`; one undo step; moving more than 20 tagged photos or clearing more than 5 is `needs_confirm` without `confirm`); the Places pane's drop and pin, MCP's `set_metadata {geo}` (M13.14) |
+| `geo.copy` / `geo.paste` / `geo.clear` | Tools ▸ Geotag ▸ Copy Location (`{id}`: the photo's place kept in the session), Paste Location (`{ids}`: one undo step) and Clear Location… (`{ids, confirm?}`) (M13.14) |
+| `places.list` | query: the geotags of the photos shown or selected, with the count of places (`{ids? \| section?}`) (M13.14) |
+| `places.search` | look up a place (`{text}`): typed coordinates (decimal, or degrees, minutes and seconds) are found without the network, else the geocoding service is asked on a worker, only when asked; results with name and place (M13.20) |
+| `map.allow` | Allow map tiles (`{on}`): the Places pane's question and Options ▸ Network (M13.20) |
+| `faces.list` | query: faces with their photo, rectangle and group (`{person \| unnamed \| ids, ignored?}`); without `--automation-allow-people` names are `null` and rectangles left out over automation (M13.15) |
+| `faces.name` | name faces (`{faces, person \| name, create?}`): an existing name, ignoring case, assigns to that person, an unknown one is `needs_person` (New Person) unless `create`; one undo step (M13.15) |
+| `faces.ignore` / `faces.move` / `faces.remove` | ignore faces (`{faces}`), move them to another person (`{faces, person}`), or send them back to Unnamed (`{faces}`); one undo step each (M13.15) |
+| `faces.add` | a face drawn by hand (`{id, rect, person?}`, the rectangle in the stored frame); one undo step (M13.15) |
+| `people.list` | query: the people with their counts, thumbnail faces and pending suggestions (`{sort: name \| count}`) (M13.15) |
+| `people.create` / `people.rename` / `people.merge` / `people.delete` / `people.setThumbnail` | New Person (`{name, nickname?}`), Rename, Merge Into (the faces move, the target's name is kept), Delete Person (`{person, confirm}`; its faces go back to Unnamed), Set as Person Thumbnail; one undo step each (M13.15) |
+| `faces.models.list` / `.inspect` / `.install` / `.download` / `.cancel` / `.remove` / `.select` | the face models (`faces.md` §3, §9): installed, built-in and `catalog.json` models with licence, commercial use, training data, size, site and state; a file's shapes (`{path}`); install a local file (`{path, acknowledged}`) or download one (`{id, acknowledged}`, a `network` job), nothing happening unless `acknowledged` is `true`, which agents never set on their own; cancel a download, remove a model and its cached embeddings, use another (`{id}`) (M13.16) |
+| `faces.enable` | Find faces in my photos (`{on}`): on starts the face scan, off stops it and offers to drop the cached embeddings (M13.18) |
+| `faces.detect` / `faces.index` | find the faces of photos now (`{ids, apply?}`); query: the face scan's progress for the People group's header (M13.18) |
+| `faces.removeInFolders` | the Folder Manager's Remove Faces (`{folders, confirm}`) (M13.18) |
+| `faces.suggest` | query: unnamed faces with their "Name?" person while Suggest names is on (`{ids? \| person?}`) (M13.26) |
+| `faces.confirm` / `faces.confirmAll` / `faces.reject` | confirm suggestions (`{faces}`; each a reference from then on), all of a person's (`{person}`, one undo step), or reject them (`{faces}`; the pair is never suggested again) (M13.26) |
+| `faces.findMore` | query: unnamed faces near a person's (`{person}`), most similar first (M13.26) |
+| `faces.evaluate` | query: per confidence step, the suggestions that would be made on the user's named faces and how many are right (`faces.md` §5) (M13.26) |
 | `photo.inspect` | query: everything known about photos (`{ids}`) |
 | `library.query` | query: search with the search-box grammar, filters and paging |
 | `library.inspect` | query: the library's state for agents (`control-protocol.md` §6.4: counts, tree, sections, search, undo, unsaved edits, pending writes, problems; `{photos?, section?, offset?, limit?}`) |
@@ -233,6 +251,11 @@ commands change nothing and record no undo step.
 | `section.scrollTo` | scroll the light table to a section (tree click) |
 | `tray.hold` / `tray.clear` | tray buttons (Hold: Ctrl+H) |
 | `tray.select` | the tray's own selection (`{ids, mode}`: click, Ctrl-click, rubber band in the tray) |
+
+The window's own M13 commands (the People and Places panes, the Unnamed grid, the person and face
+menus and their dialogs, the map's zoom, pan and pin) are UI commands (`roadmap.md` M13.4) listed
+in `control-protocol.md`; Picture ▸ Find Faces Again is `faces.reset {ids}` (M13.18) and Tools ▸
+Experimental ▸ Write People Names to Photos… `faces.writeXmp {ids, confirm}` (M13.19).
 
 ## 2. Keyboard shortcuts by context
 
@@ -380,15 +403,15 @@ Tabs: **General · File Types · Slideshow · Network · People · Photo Viewer 
 Shortcuts** (§2.0). Buttons [OK] [Cancel] [Apply] (Apply disabled until something changes; Cancel discards
 changes since the last Apply).
 
-Every option of the General, File Types, Slideshow, Photo Viewer and Export tabs is a row of the
-engine's options catalogue
+Every option of the General, File Types, Slideshow, Network, People, Photo Viewer and Export tabs
+is a row of the engine's options catalogue
 (`crates/engine/src/options.rs`), stored in `settings.json` under the key given here
 (`interface.animations` is `{"interface": {"animations": …}}`; `data-model.md` §4). The dialog, the
 `options.list {tab?}` and `options.set {values}` commands (§1.9) and MCP all read that catalogue: its
 type, default, range or choices, group, label and hint, when a change applies (at once, after a
 rescan, at the next launch), and whether its feature exists yet. An option whose feature arrives
 later is shown disabled with its reason ("Arrives with sound support") and its setting is stored
-only once its feature reads it. A test fails when a row of these five tables and the catalogue
+only once its feature reads it. A test fails when a row of these seven tables and the catalogue
 disagree.
 
 ### General
@@ -452,13 +475,40 @@ support") until it does.
 
 ### Network
 
-Allow map tiles (off until the Places pane asks) · Map tile server (URL template, default
-OpenStreetMap with attribution) · Geocoding service · Proxy (system / manual) · Log level.
+As [`organizing.md`](organizing.md) §7. Nothing on this tab connects by itself: tiles are fetched
+only once Allow map tiles is on and only while the Places pane is open (the pane asks the first
+time), a place is looked up only when the user presses Enter in "Search for a place:". The map
+tile provider, its attribution and terms, and the geocoding service wait on reserved decisions 4
+and 9 (`roadmap.md`): until they are recorded the Map rows are drawn disabled ("Arrives once a map
+tile provider is chosen") and so is the proxy ("Arrives with map tiles and model downloads"); the
+defaults below are the spec's. The network log has no writer yet, so its level is drawn disabled
+("Arrives with the network log").
+
+| Group | Option | Key | Default |
+|---|---|---|---|
+| Map | Allow map tiles (off until the Places pane asks) | `network.allowMapTiles` | off |
+| | Map tile server (an address template with `{z}`, `{x}` and `{y}`) | `network.tileServer` | OpenStreetMap's tiles |
+| | Map attribution (shown under the tiles) | `network.tileAttribution` | © OpenStreetMap contributors |
+| | Geocoding service (an address template with `{query}`) | `network.geocoder` | OpenStreetMap's Nominatim search |
+| Proxy | Proxy (Use the system's proxy settings: `HTTPS_PROXY` and `NO_PROXY` on every OS; or Manual: host and port, `CONNECT` only, no proxy authentication) | `network.proxy` | system |
+| | Proxy host | `network.proxyHost` | empty |
+| | Proxy port (1–65535) | `network.proxyPort` | 8080 |
+| Troubleshooting | Network log level (Errors only, Requests, Details; arrives with the network log) | `network.logLevel` | Errors only |
 
 ### People
 
-Find faces in my photos (on) · Suggest names (on) · Suggestion confidence (85) · Grouping
-confidence (85) · Store people names in photos (off) · Face model: status + [Download…] / [Remove].
+As [`organizing.md`](organizing.md) §6.1 and [`faces.md`](faces.md) §3–§5. Below the options,
+**Face model** shows the status of the recogniser in use with [Download…] / [Remove] / [Use]: the
+face model dialog's, through `faces.models.*` (§1.9), not an option of the catalogue; the model
+chosen with Use is stored as `people.model` (`data-model.md` §4).
+
+| Group | Option | Key | Default |
+|---|---|---|---|
+| Faces | Find faces in my photos | `people.findFaces` | on |
+| | Suggest names | `people.suggestNames` | on |
+| | Suggestion confidence (50–95 in steps of 5) | `people.suggestionConfidence` | 85 |
+| | Grouping confidence (50–95 in steps of 5) | `people.groupingConfidence` | 85 |
+| Files | Store people names in photos (face regions, `xmp-interop.md` §6) | `people.storeNamesInPhotos` | off |
 
 ### Photo Viewer
 

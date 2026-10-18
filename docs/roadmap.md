@@ -7635,7 +7635,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     equal; the sorted, pretty output is byte-stable; each hostile value is skipped with the rest
     of the photo kept; unknown keys in a face survive a rewrite; every existing sidecar test passes
     unchanged.
-- ⬜ **M13.3 `engine`: M13's command modules, settings and options rows**
+- ✅ **M13.3 `engine`: M13's command modules, settings and options rows**
   - after: M11.1, M12.5, M12.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/people.rs`, `crates/engine/src/cmd/faces.rs`, `crates/engine/src/cmd/face_scan.rs`, `crates/engine/src/cmd/face_models.rs`, `crates/engine/src/cmd/face_regions.rs`, `crates/engine/src/cmd/suggest.rs`, `crates/engine/src/cmd/places.rs`, `crates/engine/src/cmd/map.rs`, `crates/engine/src/faces_scan.rs`, `crates/engine/src/faces_index.rs`, `crates/engine/src/face_models.rs`, `crates/engine/src/face_tiles.rs`, `crates/engine/src/suggestions.rs`, `crates/engine/src/places.rs`, `crates/engine/src/map_tiles.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M13 so M13.14–M13.26 never share a file: empty `cmd/people.rs`,
