@@ -4,9 +4,11 @@
 //! Paste on five photos replaces their recipes and keeps an unknown operation of the copied
 //! recipe; Paste with `history` is a step of that photo's history and not of the library; Undo All
 //! Edits asks, empties the unsaved recipes, undo brings them back and a saved photo's file is
-//! untouched; an operation this build cannot render (a stub effect, trimming) answers `disabled`
-//! with its reason and an effect that renders applies; inside a group the change is the group's;
-//! each command's contract and graceful failures.
+//! untouched; Batch Edit's Sepia on 20 photos is one library undo step and one `edit.undo`
+//! restores the 20 recipes (M12.19); an operation this build cannot render (a stub effect,
+//! trimming) answers `disabled` with its reason, an effect that renders applies, and Batch Edit's
+//! five effects render; inside a group the change is the group's; each command's contract and
+//! graceful failures.
 
 use std::time::Duration;
 
@@ -64,6 +66,34 @@ fn auto_fix_on_100_photos_is_one_step_and_one_undo_restores_every_recipe_and_red
     assert_eq!(s.undo_stack().redo_label(), Some("Auto Fix"));
     s.execute("edit.redo", &json!({})).unwrap();
     assert!(ids.iter().all(|id| edits(&s, *id).last().map(String::as_str) == Some("autofix()")));
+}
+
+#[test]
+fn sepia_on_20_photos_is_one_step_and_one_undo_restores_the_20_recipes() {
+    let (_lib, _disk, _folder, mut s, ids) = lisbon(&photos(20), None);
+    // Some photos hold edits and a redo list already; the redo list is cleared and comes back.
+    for id in ids.iter().step_by(3) {
+        s.execute("photo.history.apply", &json!({ "id": id, "op": "autocolor()" })).unwrap();
+        s.execute("photo.history.apply", &json!({ "id": id, "op": "rotate(90)" })).unwrap();
+        s.execute("photo.history.undo", &json!({ "id": id })).unwrap();
+    }
+    let before: Vec<Recipe> = ids.iter().map(|id| recipe(&s, *id)).collect();
+    let steps = s.undo_stack().len();
+
+    let v = s.execute("edit.apply", &json!({ "ids": ids, "op": "sepia" })).unwrap();
+    assert_eq!(v["operation"], json!("sepia()"));
+    assert_eq!(v["ids"], json!(ids));
+    assert_eq!(s.undo_stack().len(), steps + 1, "one library step");
+    assert_eq!(s.undo_stack().undo_label(), Some("Sepia"));
+    for (id, old) in ids.iter().zip(&before) {
+        let mut want = old.edits.clone();
+        want.push("sepia()".into());
+        assert_eq!(recipe(&s, *id), Recipe { edits: want, redo: vec![] }, "photo {id}");
+    }
+
+    s.execute("edit.undo", &json!({})).unwrap();
+    let after: Vec<Recipe> = ids.iter().map(|id| recipe(&s, *id)).collect();
+    assert_eq!(after, before, "one undo restores the 20 recipes and redo lists");
 }
 
 #[test]
@@ -241,6 +271,10 @@ fn an_operation_this_build_cannot_render_is_disabled_with_its_reason() {
     // Trimming (M15) never renders on a photo in this build.
     for op in ["trim", "trim(0,1)"] {
         assert_eq!(s.execute("edit.apply", &json!({ "ids": [ids[0]], "op": op })), Err(CmdError::Disabled(ARRIVES_WITH_VIDEO.into())), "{op}");
+    }
+    // Batch Edit's five effects render (M12.6, M12.7), at their defaults.
+    for name in ["sepia", "sharpen", "warmify", "grain", "bw"] {
+        assert!(dalica_edit::catalog::lookup(name).is_some_and(|row| row.renders()), "{name} renders");
     }
     // Each effect is greyed with its reason while its module is a stub, and applies once it renders.
     let mut applied = 0;
