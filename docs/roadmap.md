@@ -7746,7 +7746,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     at 50; the margin holds back a near tie; a confirmed face is never suggested and a rejected
     pair never returns; the 64-face cap keeps a person with 10 000 faces cheap; the order is the
     same on every run; proptest: no input (`NaN`, zero vectors, mixed dimensions) panics.
-- ⬜ **M13.8 `fetch`: consented, resumable, hash-pinned downloads**
+- ✅ **M13.8 `fetch`: consented, resumable, hash-pinned downloads**
   - after: M12.R
   - files: `crates/fetch/src/lib.rs`, `crates/fetch/src/spec.rs`, `crates/fetch/src/transport.rs`, `crates/fetch/tests/download.rs`, `crates/fetch/README.md`
   - scope: `faces.md` §3.1 and `security.md` §8.2, whatever the transport: a file spec (https URL,
