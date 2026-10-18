@@ -17,7 +17,8 @@
 //!   A preview pane already on the photo is used as it is (the edit view's); otherwise the preview
 //!   opens the photo in pane [`PANE`], which it closes again when it ends, and never touches while
 //!   compare holds that pane (`edit.compare` other than `one`). The section's neighbours are
-//!   prefetched.
+//!   prefetched. An area over the window takes the pointer meanwhile, so nothing beneath is
+//!   hovered and no tooltip is drawn over the photo.
 //! - [`stats`]: what the preview drew, frame by frame (tests).
 
 use std::sync::{Arc, Weak};
@@ -235,6 +236,11 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let rect = ui.max_rect();
     let ppp = ctx.pixels_per_point();
     let fit = ((rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32);
+    // An area over the whole window takes the pointer, so nothing under the preview is hovered:
+    // no tooltip of the cell (or button) the keys went down over is drawn over the photo.
+    egui::Area::new(key().with("cover")).order(egui::Order::Foreground).fixed_pos(rect.min).show(&ctx, |ui| {
+        ui.allocate_rect(rect, egui::Sense::hover());
+    });
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, key()));
     painter.rect_filled(rect, 0, t.viewer_bg);
 
