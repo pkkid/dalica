@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-use dalica_core::{Date, DateTime};
+use dalica_core::{Date, DateTime, Rect01};
 
 /// A position on the globe, in decimal degrees (north and east positive).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -257,6 +257,8 @@ pub struct OwnedFields {
     pub place: Option<Place>,
     pub date_taken: Option<DateTaken>,
     pub date_source: Option<DateSource>,
+    /// The face regions of the file (`xmp-interop.md` §6), in the upright frame, in file order.
+    pub faces: Vec<FaceRegion>,
 }
 
 impl OwnedFields {
@@ -305,6 +307,18 @@ pub struct XmpOwned {
     pub date_created: Option<DateTaken>,
     /// `xmp:CreateDate`.
     pub create_date: Option<DateTaken>,
+    /// The `Face` entries of `mwg-rs:Regions` that hold a usable box (at most
+    /// [`MAX_FACES`](crate::xmp::regions::MAX_FACES)).
+    pub faces: Vec<FaceRegion>,
+}
+
+/// A face region of a file (`xmp-interop.md` §6): its box on the photo after its EXIF orientation
+/// (the stored frame of `data-model.md` §3.3), clipped to the photo, and the name given to it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FaceRegion {
+    /// `mwg-rs:Name`, cleaned ([`clean_text`]); `None` for an unnamed face.
+    pub name: Option<String>,
+    pub rect: Rect01,
 }
 
 /// Each source's values before precedence.
@@ -318,7 +332,8 @@ pub struct Sources {
 impl Sources {
     /// The precedence rules of `xmp-interop.md` §2, the first source with a value winning: caption
     /// XMP → IPTC → EXIF; tags XMP → IPTC; rating XMP only; place EXIF → XMP; date taken EXIF →
-    /// XMP `exif:DateTimeOriginal` → `photoshop:DateCreated` → `xmp:CreateDate` → IPTC.
+    /// XMP `exif:DateTimeOriginal` → `photoshop:DateCreated` → `xmp:CreateDate` → IPTC; faces
+    /// XMP only.
     pub fn resolve(&self) -> OwnedFields {
         let (exif, iptc, xmp) = (&self.exif, &self.iptc, &self.xmp);
         let tags = if xmp.tags.is_empty() { iptc.keywords.clone() } else { xmp.tags.clone() };
@@ -337,6 +352,7 @@ impl Sources {
             place: exif.place.or(xmp.place),
             date_source: date.as_ref().map(|(_, s)| *s),
             date_taken: date.map(|(d, _)| d),
+            faces: xmp.faces.clone(),
         }
     }
 }

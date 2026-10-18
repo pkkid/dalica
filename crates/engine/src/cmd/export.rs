@@ -382,6 +382,7 @@ fn owned_changes(s: &Session, id: PhotoId, star: bool) -> Changes {
         star: Some(star),
         place: None,
         date_taken: info.date.map(DateTaken::local),
+        faces: None,
     }
 }
 

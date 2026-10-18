@@ -389,6 +389,7 @@ fn edit_of_changes() {
         star: Some(true),
         place: Some(None),
         date_taken: Some(date("2026-01-01T00:00:00", None, None)),
+        faces: None,
     };
     let e = ExifEdit::of(&c);
     assert_eq!(e, ExifEdit { caption: Some(None), date_taken: c.date_taken.clone(), place: Some(None) });

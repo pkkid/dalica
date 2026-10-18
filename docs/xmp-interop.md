@@ -17,7 +17,10 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 > stars and dates (M6.33, `crates/engine/src/metadata.rs`: every command's change, undo and redo
 > included, written per its option as a "Writing metadata" job, imports and conflicts of §5 back
 > in the library, a failed write shown as a failure toast); reading on scan M6.32; places and
-> people M13. The parser and writer are our own, in `crates/meta`
+> people M13: MWG face regions read and written in `dalica-meta` (M13.11,
+> `crates/meta/src/xmp/regions.rs`: §6, through the merge writer into every container that takes
+> XMP and `.xmp` sidecars, `Changes::faces` under `WriteOptions::people_names`), the engine's use
+> of them M13.19. The parser and writer are our own, in `crates/meta`
 > (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
 > §9).
 
@@ -233,12 +236,16 @@ the format most photo applications use for named faces.
 - **Reading:** entries of `mwg-rs:Type` `Face` become face rectangles; a `mwg-rs:Name` becomes a
   person (matched by name to existing people, or created). `stArea:x`/`y` are the box centre and
   `w`/`h` its size, normalised to the photo; `stArea:unit="pixel"` areas are divided by
-  `mwg-rs:AppliedToDimensions` and dropped without it. Boxes are clipped to the photo; a box that
-  misses it entirely, or has a non-finite, zero or negative size, is skipped and the rest are kept.
-  Entries of other types (`Pet`, `Focus`, `BarCode`) are kept in the file and ignored.
+  `mwg-rs:AppliedToDimensions` and dropped without it (an area in any other unit, or without a
+  width and height, such as a point or a circle, is skipped too). Boxes are clipped to the photo; a
+  box that misses it entirely, or has a non-finite, zero or negative size, is skipped and the rest
+  are kept. Entries of other types (`Pet`, `Focus`, `BarCode`) are kept in the file and ignored.
+  The first top-level `mwg-rs:Regions` counts, and at most 256 faces are read from it.
 - **Orientation:** regions are on the EXIF-upright photo. A `mwg-rs:Rotation` of −π/2, +π/2 or ±π
-  (a box given in the sensor's frame) is turned back into the upright frame; mirrored orientations
-  are taken as written. That is the frame of Dalica's sidecar coordinates too (reserved decision
+  (a box given in the sensor's frame) is turned back into the upright frame: an area (x, y, w, h)
+  with −π/2 (EXIF orientation 6) is the upright box (1 − y, x, h, w), with +π/2 (orientation 8)
+  (y, 1 − x, h, w), with ±π (orientation 3) (1 − x, 1 − y, w, h), the angle taken modulo 2π to
+  within 0.05; any other angle and mirrored orientations are taken as written. That is the frame of Dalica's sidecar coordinates too (reserved decision
   11, decided 2026-10-12: stored rectangles and points use the photo after its EXIF orientation and
   before Dalica's own rotations and flips; `data-model.md` §3.3), so regions are read and written
   without conversion.
@@ -249,6 +256,17 @@ the format most photo applications use for named faces.
   fields and get Dalica's name and area; unmatched Dalica faces are appended; face entries with no
   Dalica counterpart (the user removed or ignored that face after it was imported; §1 principle 3
   imports anything new before every write) are removed. Non-face entries are never touched.
+  In detail (M13.11): the entries are edited where they are, everything else in the packet byte for
+  byte. Each named face takes the free readable face entry with IoU ≥ 0.5, one already of its name
+  first, then the closest. A matched entry's name and area are rewritten only when they differ
+  (boxes within 10⁻⁵), the area in the entry's own unit and `mwg-rs:Rotation`, so its other fields
+  (rotation, description, extensions, a pixel unit) keep their bytes and their meaning. A face entry
+  Dalica cannot read (no usable box) was never imported, so it is kept. An existing
+  `mwg-rs:AppliedToDimensions` is kept (other entries in pixels depend on it); a missing one is
+  added. Inserted elements reuse the prefixes bound where they go and declare the others. A packet
+  without regions gets a new `mwg-rs:Regions` in Dalica's own description (§3), every namespace
+  it uses declared on it so it can be kept there as written; named faces start a new packet as a
+  caption does. Writing the same faces again changes nothing. At most 256 faces are written.
 - **Option off:** nothing is written; regions in the file are read and preserved. **Tools →
   Experimental → Write People Names to Photos…** (`faces.writeXmp`) writes them for a selection
   once, after a confirmation.

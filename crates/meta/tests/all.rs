@@ -10,6 +10,7 @@ mod carry;
 mod exif_edit;
 mod iptc_write;
 mod read;
+mod regions;
 mod write_jpeg;
 mod write_png_webp_tiff;
 mod xmp;

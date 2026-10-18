@@ -34,6 +34,7 @@ fn everything() -> Changes {
         star: Some(true),
         place: Some(Place::new(-33.856_784, -151.215_297)),
         date_taken: DateTaken::parse_iso("2026-06-04T19:42:10.123-03:30"),
+        faces: None,
     }
 }
 

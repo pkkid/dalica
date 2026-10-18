@@ -7804,7 +7804,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     unknown one gets stated assumptions, the self-test refuses a model whose shapes do not match;
     with `DALICA_FACE_MODELS` set, the real models pass their self-test (skipped and said so
     otherwise).
-- ⬜ **M13.11 `meta`: MWG face regions**
+- ✅ **M13.11 `meta`: MWG face regions**
   - after: M10.37, M12.R
   - files: `crates/meta/src/xmp/regions.rs`, `crates/meta/src/fields.rs`, `crates/meta/src/write/mod.rs`, `crates/meta/src/xmp/rdf.rs`, `crates/meta/tests/regions.rs`, `crates/meta/fuzz/fuzz_targets/regions.rs`, `crates/meta/fuzz/Cargo.toml`, `docs/xmp-interop.md`
   - scope: `xmp-interop.md` §6: reading `mwg-rs:Regions` (`Face` entries with their name, centre

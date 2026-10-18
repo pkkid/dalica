@@ -47,6 +47,7 @@ fn tagged_jpeg(seed: u64) -> Vec<u8> {
         star: Some(true),
         place: Some(Place::new(38.71, -9.14)),
         date_taken: Some(DateTaken::local(date("2026-06-04T19:42:10"))),
+        faces: None,
     };
     dalica_meta::write_owned(&plain_jpeg(seed), &changes, &options()).unwrap()
 }

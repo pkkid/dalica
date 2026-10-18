@@ -361,6 +361,7 @@ fn the_owned_fields_are_merged() {
         star: Some(true),
         place: Some(Some(place)),
         date_taken: Some(date.clone()),
+        faces: None,
     };
     let options =
         WriteOptions { stars_as_ratings: true, metadata_date: DateTaken::parse_iso("2026-10-13T10:00:00+02:00"), ..WriteOptions::default() };

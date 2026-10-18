@@ -13,6 +13,12 @@ pub const DC: &str = "http://purl.org/dc/elements/1.1/";
 pub const XMP: &str = "http://ns.adobe.com/xap/1.0/";
 pub const EXIF: &str = "http://ns.adobe.com/exif/1.0/";
 pub const PHOTOSHOP: &str = "http://ns.adobe.com/photoshop/1.0/";
+/// The Metadata Working Group region schema (`xmp-interop.md` §6).
+pub const MWG_RS: &str = "http://www.metadataworkinggroup.com/schemas/regions/";
+/// The area structure of a region (`stArea:x`, `y`, `w`, `h`, `unit`).
+pub const ST_AREA: &str = "http://ns.adobe.com/xmp/sType/Area#";
+/// The dimensions structure (`stDim:w`, `h`, `unit`) of `mwg-rs:AppliedToDimensions`.
+pub const ST_DIM: &str = "http://ns.adobe.com/xap/1.0/sType/Dimensions#";
 
 /// The usual prefix of well-known namespaces, for listing labels (a packet may bind any prefix).
 const PREFIXES: &[(&str, &str)] = &[
@@ -31,9 +37,9 @@ const PREFIXES: &[(&str, &str)] = &[
     ("http://ns.adobe.com/camera-raw-settings/1.0/", "crs"),
     ("http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/", "Iptc4xmpCore"),
     ("http://iptc.org/std/Iptc4xmpExt/2008-02-29/", "Iptc4xmpExt"),
-    ("http://www.metadataworkinggroup.com/schemas/regions/", "mwg-rs"),
-    ("http://ns.adobe.com/xmp/sType/Area#", "stArea"),
-    ("http://ns.adobe.com/xap/1.0/sType/Dimensions#", "stDim"),
+    (MWG_RS, "mwg-rs"),
+    (ST_AREA, "stArea"),
+    (ST_DIM, "stDim"),
     (XML_NS, "xml"),
 ];
 
@@ -166,7 +172,7 @@ fn fields_of(doc: &Doc<'_>, el: usize) -> Vec<Field> {
 
 /// The value of a property element (or an array item). Recursion follows the element tree, whose
 /// depth the tokenizer bounds.
-fn value_of(doc: &Doc<'_>, el: usize) -> Value {
+pub fn value_of(doc: &Doc<'_>, el: usize) -> Value {
     let Some(e) = doc.element(el) else { return Value::Text(String::new()) };
     if let Some(uri) = doc.attr(el, RDF, "resource") {
         return Value::Text(uri.to_owned());

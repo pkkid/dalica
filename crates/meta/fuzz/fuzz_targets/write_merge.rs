@@ -14,6 +14,7 @@ fuzz_target!(|data: &[u8]| {
         star: (pick & 8 == 8).then_some(pick & 16 == 16),
         place: (pick & 32 == 32).then(|| Place::new(-33.5, 151.25)),
         date_taken: (pick & 64 == 64).then(|| DateTaken::parse_iso("2026-06-04T19:42:10.250+10:00")).flatten(),
+        faces: None,
     };
     let Ok(after) = write_owned(file, &changes, &options) else { return };
     let allowed = changes.allowed(&options);

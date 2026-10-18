@@ -261,6 +261,7 @@ fn precedence_rules() {
         date_time_original: d("2002-01-01T00:00:00"),
         date_created: d("2003-01-01T00:00:00"),
         create_date: d("2004-01-01T00:00:00"),
+        faces: Vec::new(),
     };
     let all = Sources { exif: exif.clone(), iptc: iptc.clone(), xmp: xmp.clone() };
     let o = all.resolve();

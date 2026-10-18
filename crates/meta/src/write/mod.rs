@@ -14,7 +14,9 @@ mod webp;
 
 use crate::container::{self, Container, Scan, outside, payload, same_bytes};
 use crate::fields::{DateTaken, Place, clean_tags, clean_text};
+use crate::xmp::regions;
 use crate::{BlockKind, Error, Limits, Metadata, Result, read_scan};
+use dalica_core::Rect01;
 
 /// What to change. `None` leaves a field as the file has it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -29,11 +31,40 @@ pub struct Changes {
     /// `Some(None)` removes the place.
     pub place: Option<Option<Place>>,
     pub date_taken: Option<DateTaken>,
+    /// The named faces of the photo, written as MWG face regions (`xmp-interop.md` §6) when
+    /// [`WriteOptions::people_names`] is on. `Some` with no faces removes every face entry Dalica
+    /// can read; non-face regions are never touched.
+    pub faces: Option<NamedFaces>,
+}
+
+/// The faces a write puts into a file's MWG regions: every **named** face (unnamed and ignored
+/// faces are never written) and the photo's upright pixel size for `mwg-rs:AppliedToDimensions`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NamedFaces {
+    /// The photo's width and height after its EXIF orientation, in pixels (written only when both
+    /// are above zero).
+    pub width: u32,
+    pub height: u32,
+    /// At most [`MAX_FACES`](crate::xmp::regions::MAX_FACES) are written; names are cleaned and a
+    /// face whose name cleans to nothing is left out.
+    pub faces: Vec<NamedFace>,
+}
+
+/// One named face: its box in the stored frame (`data-model.md` §3.3) and the person's name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamedFace {
+    pub name: String,
+    pub rect: Rect01,
 }
 
 impl Changes {
     pub fn is_empty(&self) -> bool {
-        self.caption.is_none() && self.tags.is_none() && self.star.is_none() && self.place.is_none() && self.date_taken.is_none()
+        self.caption.is_none()
+            && self.tags.is_none()
+            && self.star.is_none()
+            && self.place.is_none()
+            && self.date_taken.is_none()
+            && self.faces.is_none()
     }
 
     /// The changes the options allow (`xmp-interop.md` §1 principle 5: with an option off the
@@ -45,6 +76,7 @@ impl Changes {
             star: self.star.filter(|_| options.stars_as_ratings),
             place: self.place.filter(|_| options.captions_tags_places),
             date_taken: self.date_taken.clone().filter(|_| options.dates),
+            faces: self.faces.clone().filter(|_| options.people_names),
         }
     }
 }
@@ -59,6 +91,8 @@ pub struct WriteOptions {
     pub stars_as_ratings: bool,
     /// Write date changes to files (default on).
     pub dates: bool,
+    /// Store people names in photos (Options → People, default off): named faces as MWG regions.
+    pub people_names: bool,
     /// The time of the write, for `xmp:MetadataDate`: the caller sets it from the Session's clock
     /// (this crate reads no clock). `None` (the default, for callers without a clock) leaves the
     /// `xmp:MetadataDate` of Dalica's description as it is, and a new description gets none.
@@ -68,7 +102,14 @@ pub struct WriteOptions {
 
 impl Default for WriteOptions {
     fn default() -> WriteOptions {
-        WriteOptions { captions_tags_places: true, stars_as_ratings: false, dates: true, metadata_date: None, limits: Limits::default() }
+        WriteOptions {
+            captions_tags_places: true,
+            stars_as_ratings: false,
+            dates: true,
+            people_names: false,
+            metadata_date: None,
+            limits: Limits::default(),
+        }
     }
 }
 
@@ -170,6 +211,11 @@ fn check_fields(old: &Metadata, new: &Metadata, changes: &Changes, limits: &Limi
         && got.date_taken.as_ref() != Some(date)
     {
         return fail("date taken");
+    }
+    if let Some(faces) = &changes.faces
+        && !regions::same_faces(&got.faces, &regions::wanted(faces, limits))
+    {
+        return fail("people names");
     }
     Ok(())
 }

@@ -27,7 +27,7 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 29 | 4 | 1 | 1 |
-| B. Organizing | 24 | 5 | 14 | 0 |
+| B. Organizing | 24 | 6 | 13 | 0 |
 | C. Editing | 20 | 4 | 1 | 4 |
 | D. Viewing | 0 | 4 | 2 | 2 |
 | E. Output | 1 | 0 | 1 | 9 |
@@ -35,7 +35,7 @@ same commit.
 | G. Preferences and system | 7 | 9 | 7 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
 | I. Keyboard shortcuts | 75 | 2 | 8 | 0 |
-| **All** | 167 | 42 | 39 | 17 |
+| **All** | 167 | 43 | 38 | 17 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -116,7 +116,7 @@ and DATA-FMT-JPEG-FAST (P2).
 | PPL-SUGGEST | Suggestions with confirm/reject | P1 | ⬜ | the maths (M13.7): a person's score is their best match over at most 64 confirmed faces (most recent, most varied), "Name?" at or above the Suggestion threshold and 0.05 ahead of the runner-up, confirmed faces never suggested, rejected pairs skipped, Find More above 80 % of the threshold most similar first, `evaluate` per confidence step with burst shots ignored, embeddings at 8 bits in memory with float32 settling decisions within the 8-bit error: `crates/faces/src/matching.rs`, `crates/faces/src/evaluate.rs`, `crates/faces/tests/grouping.rs`; no command or view yet |
 | PPL-PANE | People pane, add person manually | P1 | ⬜ | moved here by the P0 audit (M10.26): drops on people (LIB-SEL); people names and person: in search (SRCH-LIVE); in the library (M13.1): `person:` and plain words match people's names and nicknames, the index following every people op: `crates/library/src/search/`, `crates/library/tests/people.rs` |
 | PPL-MANAGER | People Manager | P2 | ⬜ | |
-| PPL-XMP | Write people names to photos (XMP regions) | P2 | ⬜ | moved here by the P0 audit (M10.26): people regions written to the files (DATA-META) |
+| PPL-XMP | Write people names to photos (XMP regions) | P2 | 🟡 | moved here by the P0 audit (M10.26): people regions written to the files (DATA-META); `dalica-meta` reads and writes MWG face regions (M13.11, `crates/meta/src/xmp/regions.rs`, `crates/meta/tests/regions.rs`: pixel and normalised areas, every orientation and `mwg-rs:Rotation`, named faces into JPEG, PNG, WebP, TIFF and `.xmp` sidecars, foreign entries and fields byte for byte, idempotent, bounded); missing: the engine end to end (scan import, the option, Write People Names to Photos), M13.19 |
 | PPL-CROP | Face-aware crop suggestions | P1 | ⬜ | moved from EDIT-CROP by the P0 audit (M10.26); with faces (M13) |
 | GEO-PANE | Places pane with map, drag to geotag, search | P1 | ⬜ | ref 04 §7; moved here by the P0 audit (M10.26): drops on the map (LIB-SEL); geo in sidecars (DATA-SIDECAR); the sidecar key `geo` read and written (M13.2: `crates/sidecar/src/fields.rs`, `crates/sidecar/tests/fields.rs`), not yet mapped to the model; the ground (M13.1): typed coordinates, distances and the Web Mercator tile maths (`crates/core/src/geo.rs`, `crates/core/tests/geo.rs`), geotags in the model with undo, the model's word over the file's GPS (`crates/library/tests/places.rs`) |
 | GEO-WRITE | EXIF GPS write/clear | P1 | ⬜ | moved here by the P0 audit (M10.26): place write-back (DATA-META) |

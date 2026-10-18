@@ -324,6 +324,7 @@ fn write_options(options: &Options, now: Timestamp) -> WriteOptions {
         captions_tags_places: options.captions_tags_places,
         stars_as_ratings: options.stars_as_ratings,
         dates: options.dates,
+        people_names: false,
         metadata_date: DateTime::from_unix_secs(now.as_secs()).and_then(|d| DateTaken::new(d, Some(0), None)),
         limits: options.limits,
     }
