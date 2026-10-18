@@ -24,14 +24,28 @@
 //!     entry, placed in the stored frame) of `Grain/100 ×` [`GRAIN_AMOUNT`]; the soft edges and
 //!     the vignette follow the output picture (after the crop): [`lens`].
 //!
-//!   Every blur is made by each band for its own rows with the blur's reach around them (exact:
-//!   a region render equals that window of the whole render), on a grid of cell averages when it
-//!   is wide, so its cost stays near the picture's size whatever the radius.
+//! - **Speed** (M13.39: within the slider's caps, 16 ms for a draft and 100 ms for a final of the
+//!   24 MP photo on the 2560 × 1600 screen, `development.md` §8). Every blur is a
+//!   [`crate::fx::GridBlur`] (cells about a third of its sigma): on cells wider than a pixel its
+//!   grid is made once per render for every band and each grid row a band's rows lie between is
+//!   read across once ([`Rows::Grid`]); on one-pixel cells (HDR Look's fine detail at the screen's
+//!   sizes, the drafts' blurs) each band convolves its own rows and the kernel's reach with the
+//!   kernel of the grid's box passes ([`Rows::Pixels`]), so no band waits on a full-resolution
+//!   blur of the whole picture. Both are exact: a region render equals that window of the whole
+//!   render. HDR Look blurs the luma alone (one channel, not three: the luma is linear) and eases
+//!   its detail in through a branch-free `tanh` ([`tanh`]); Plastic Lens's grain is `Noise::row`'s,
+//!   each lattice row blended across once per band where the stored frame lies square
+//!   ([`Grain`]). Each pass's per-pixel work runs on flat rows of channel values, every loop a
+//!   function of its own so the compiler vectorises it.
 
 use std::fmt;
 
+use std::sync::OnceLock;
+
+use rayon::prelude::*;
+
 use super::{Adjust, Band, FADE, Operation, ParamError, Pass, Prepare, Reach, Reader, View, clamp, num};
-use crate::fx::{Blend, Gaussian, Noise, Plane, Space, fade, luma, mix, noise, smoothstep};
+use crate::fx::{GridBlur, Noise, Space, Window, apart, luma, noise};
 
 /// The range of HDR Look's Radius, thousandths of the shorter side.
 pub const HDR_RADIUS: (f64, f64) = (1.3, 80.0);
@@ -160,7 +174,7 @@ impl Operation for PlasticLens {
     }
 }
 
-// Rendering (M12.10).
+// Rendering (M12.10; M13.39: within the slider's caps).
 
 /// HDR Look's finest detail, left out of the boost: a blur of this sigma (a fraction of the
 /// shorter side) stands for the photo in `in − blur(r)`, so the boost lifts the picture's local
@@ -182,13 +196,8 @@ pub const GRAIN_AMOUNT: f64 = 0.15;
 /// The grain's lattice cell, a fraction of the shorter side.
 pub const GRAIN_CELL: f64 = 0.0012;
 
-/// The smallest blur three whole-pixel boxes make (radii 0, 0, 1: σ ≈ 0.82 px); a smaller one is
-/// this blur mixed in by the share of its variance, so a small render blurs as a large one does.
-const MIN_SIGMA: f64 = 0.82;
-/// A wide blur runs on a grid of cells about this many times smaller than its sigma.
-const CELL_SIGMA: f64 = 3.0;
-/// The largest grid cell, in output pixels.
-const MAX_CELL: u32 = 32;
+/// HDR Look's roll-off takes `tanh` as 1 past this (`1 − tanh(9)` is 3 · 10⁻⁸).
+const TANH_SPAN: f32 = 9.0;
 
 impl Adjust for Hdr {
     fn prepare(&self, ctx: &Prepare<'_>) -> Option<Box<dyn Pass>> {
@@ -197,9 +206,9 @@ impl Adjust for Hdr {
             return None;
         }
         let space = Space::new(ctx)?;
-        let blur = BandBlur::new(space.length(h.radius / 1000.0), space.size())?;
-        let fine = BandBlur::new(space.length(HDR_FINE), space.size());
-        Some(Box::new(HdrPass { blur, fine, strength: h.strength as f32, fade: h.fade }))
+        let blur = Blur::new(GridBlur::new(space.length(h.radius / 1000.0), space.size())?);
+        let fine = GridBlur::new(space.length(HDR_FINE), space.size()).map(Blur::new);
+        Some(Box::new(HdrPass { blur, fine, strength: h.strength as f32, alpha: alpha(h.fade) }))
     }
 }
 
@@ -211,8 +220,8 @@ impl Adjust for DreamGlow {
         }
         let space = Space::new(ctx)?;
         // Bloom 0 (or a blur under a pixel's worth) overlays the photo on itself.
-        let blur = BandBlur::new(space.length(d.bloom / 1000.0), space.size());
-        Some(Box::new(DreamGlowPass { blur, lift: (d.brightness / 100.0 * LIFT) as f32, fade: d.fade }))
+        let blur = GridBlur::new(space.length(d.bloom / 1000.0), space.size()).map(Blur::new);
+        Some(Box::new(DreamGlowPass { blur, lift: (d.brightness / 100.0 * LIFT) as f32, alpha: alpha(d.fade) }))
     }
 }
 
@@ -223,123 +232,387 @@ impl Adjust for PlasticLens {
             return None;
         }
         let space = Space::new(ctx)?;
-        let blur = BandBlur::new(space.length(p.blur / 100.0 * EDGE_SIGMA), space.size());
+        let blur = GridBlur::new(space.length(p.blur / 100.0 * EDGE_SIGMA), space.size()).map(Blur::new);
         let grain = (p.grain / 100.0 * GRAIN_AMOUNT) as f32;
-        let noise = Noise::new(noise::seed(&format!("{}({p})", Self::NAME)), GRAIN_CELL);
-        Some(Box::new(PlasticLensPass { blur, grain, noise, space, fade: p.fade }))
+        let seed = noise::seed(&format!("{}({p})", Self::NAME));
+        Some(Box::new(PlasticLensPass { blur, grain, noise: Noise::new(seed, GRAIN_CELL), seed, space, alpha: alpha(p.fade) }))
     }
 }
 
+/// How much of an effect Fade keeps: `1 − Fade/100` ([`crate::fx::fade`]'s weight).
+fn alpha(fade: f64) -> f32 {
+    unit((1.0 - fade.clamp(0.0, 100.0) / 100.0) as f32)
+}
+
 /// `out = in + C · (L − blur(L))` on the luma `L`, the same added to every channel (local
-/// contrast without a colour shift), then Fade.
+/// contrast without a colour shift), then Fade. Both blurs keep the luma alone (it is linear: the
+/// luma of the blurred picture is the blur of its luma).
 struct HdrPass {
-    blur: BandBlur,
+    blur: Blur<1>,
     /// The finest detail left out of the boost (`None`: under a pixel's worth).
-    fine: Option<BandBlur>,
+    fine: Option<Blur<1>>,
     strength: f32,
-    fade: f64,
+    alpha: f32,
 }
 
 impl Pass for HdrPass {
     fn reach(&self) -> Reach {
-        Reach::Pixels(self.blur.reach().max(self.fine.map_or(0, |f| f.reach())))
+        Reach::Pixels(self.blur.grid.reach().max(self.fine.as_ref().map_or(0, |f| f.grid.reach())))
     }
 
     fn run(&self, band: &mut Band<'_>) {
+        let w = band.width as usize;
         let Some(view) = band.before else { return };
-        let Some(plane) = self.blur.plane(view, band) else { return };
+        let Some(wide) = Rows::<1>::new(&self.blur, view, band) else { return };
         let fine = match &self.fine {
-            Some(f) => match f.plane(view, band) {
-                Some(p) => Some((f, p)),
+            Some(f) => match Rows::<1>::new(f, view, band) {
+                Some(rows) => Some((f.grid.strength(), rows)),
                 None => return,
             },
             None => None,
         };
-        each(band, |x, y, input| {
-            let blurred = self.blur.read(&plane, input, x, y);
-            let sharp = fine.as_ref().map_or(input, |(f, p)| f.read(p, input, x, y));
-            let detail = self.strength * (luma(sharp) - luma(blurred));
-            fade(input, input.map(|v| v + roll_off(v, detail)), self.fade)
-        });
+        let (Some(mut blurred), Some(mut sharp), Some(mut detail)) = (zeros(w, 0.0f32), zeros(w, 0.0f32), zeros(w.saturating_mul(3), 0.0f32)) else {
+            return;
+        };
+        let sw = self.blur.grid.strength();
+        for (ly, row) in band.pixels.chunks_mut(w.max(1)).enumerate() {
+            let y = offset(band.y0, ly);
+            wide.row(y, &mut blurred);
+            let sf = match &fine {
+                Some((strength, rows)) => {
+                    rows.row(y, &mut sharp);
+                    *strength
+                }
+                None => 0.0,
+            };
+            let fine = fine.as_ref().map(|_| (sharp.as_slice(), sf));
+            hdr_detail(row, &blurred, sw, fine, self.strength, detail.as_chunks_mut::<3>().0);
+            hdr_boost(row.as_flattened_mut(), &detail, self.alpha);
+        }
     }
+}
+
+/// Each pixel's detail, `C · (fine − blurred)` on the luma (the blurs mixed in by their
+/// strengths), for each of its channels.
+#[inline(never)]
+fn hdr_detail(row: &[[f32; 3]], blurred: &[f32], sw: f32, fine: Option<(&[f32], f32)>, strength: f32, detail: &mut [[f32; 3]]) {
+    match fine {
+        Some((sharp, sf)) => {
+            for (((px, &b), &s), d) in row.iter().zip(blurred).zip(sharp).zip(detail) {
+                let l = luma(*px);
+                *d = [strength * ((l + (s - l) * sf) - (l + (b - l) * sw)); 3];
+            }
+        }
+        None => {
+            for ((px, &b), d) in row.iter().zip(blurred).zip(detail) {
+                let l = luma(*px);
+                *d = [strength * (l - (l + (b - l) * sw)); 3];
+            }
+        }
+    }
+}
+
+/// [`boost`] along a row (each loop of the passes is a function of its own: inside a pass's
+/// `run` the compiler does not vectorise them).
+#[inline(never)]
+fn hdr_boost(row: &mut [f32], detail: &[f32], alpha: f32) {
+    for (v, &d) in row.iter_mut().zip(detail) {
+        *v = boost(*v, d, alpha);
+    }
+}
+
+/// One channel `input` with the luma's `detail` added, eased into the room left to black or white
+/// (`room · tanh(detail / room)`: a small detail is added as it is, a large one approaches black
+/// or white without clipping, so a halo keeps its shape and a pixel averaging an edge is boosted
+/// as the edge's pixels are), then faded by `alpha`. Branch-free, so a row of them vectorises: no
+/// room gives `0 · tanh(∞ or NaN)`, and [`tanh`] takes both as its span (0 added).
+#[inline]
+fn boost(input: f32, detail: f32, alpha: f32) -> f32 {
+    let v = input.clamp(0.0, 1.0);
+    let room = if detail >= 0.0 { 1.0 - v } else { v };
+    let roll = (room * tanh(detail.abs() / room)).copysign(detail);
+    input + (input + roll - input) * alpha
+}
+
+/// `tanh(x)` for `x` from 0 (`NaN` and infinity as `TANH_SPAN`) within 6 · 10⁻⁷, without a branch
+/// or a call so a row of them vectorises: Lambert's continued fraction for `tanh` cut after its
+/// tenth term, `x · P(x²) / Q(x²)` (the coefficients its convergent gives, divided by the
+/// constant term), held at 1 past `TANH_SPAN`.
+#[inline]
+fn tanh(x: f32) -> f32 {
+    const P: [f32; 6] = [1.0, 0.142_857_14, 0.004_678_362_6, 4.914_246_4e-5, 1.560_078_2e-7, 7.273_092e-11];
+    const Q: [f32; 6] = [1.0, 0.476_190_47, 0.030_075_188, 5.503_956e-4, 3.276_164_3e-6, 4.800_240_7e-9];
+    let x = x.min(TANH_SPAN);
+    let z = x * x;
+    let p = P[0] + z * (P[1] + z * (P[2] + z * (P[3] + z * (P[4] + z * P[5]))));
+    let q = Q[0] + z * (Q[1] + z * (Q[2] + z * (Q[3] + z * (Q[4] + z * Q[5]))));
+    (x * p / q).min(1.0)
 }
 
 /// The blurred copy overlaid on the photo, then the midtone lift, then Fade.
 struct DreamGlowPass {
     /// `None`: the blur is under a pixel's worth; the photo overlays itself.
-    blur: Option<BandBlur>,
+    blur: Option<Blur<3>>,
     lift: f32,
-    fade: f64,
+    alpha: f32,
 }
 
 impl Pass for DreamGlowPass {
     fn reach(&self) -> Reach {
         match &self.blur {
-            Some(b) => Reach::Pixels(b.reach()),
+            Some(b) => Reach::Pixels(b.grid.reach()),
             None => Reach::Pixel,
         }
     }
 
     fn run(&self, band: &mut Band<'_>) {
-        let plane = match (&self.blur, band.before) {
-            (Some(blur), Some(view)) => match blur.plane(view, band) {
-                Some(p) => Some(p),
-                None => return,
-            },
-            (Some(_), None) => return,
-            (None, _) => None,
+        let w = band.width as usize;
+        let Some(blur) = &self.blur else {
+            let pixels = band.pixels.as_flattened_mut();
+            let Some(own) = zeros(pixels.len(), 0.0f32) else { return };
+            glow_row(pixels, &own, 0.0, self.lift, self.alpha);
+            return;
         };
-        each(band, |x, y, input| {
-            let glow = match (&self.blur, &plane) {
-                (Some(blur), Some(plane)) => blur.read(plane, input, x, y),
-                _ => input,
-            };
-            let over = Blend::Overlay.apply(input, glow);
-            let lifted = over.map(|v| unit(v + self.lift * v * (1.0 - v)));
-            fade(input, lifted, self.fade)
-        });
+        let Some(view) = band.before else { return };
+        let Some(rows) = Rows::<3>::new(blur, view, band) else { return };
+        let Some(mut glow) = zeros(w.saturating_mul(3), 0.0f32) else { return };
+        let strength = unit(blur.grid.strength());
+        for (ly, row) in band.pixels.chunks_mut(w.max(1)).enumerate() {
+            rows.row(offset(band.y0, ly), &mut glow);
+            glow_row(row.as_flattened_mut(), &glow, strength, self.lift, self.alpha);
+        }
+    }
+}
+
+/// Dream Glow along a row: each channel's `glow` (mixed in by the blur's `strength`) overlaid on
+/// it, lifted by `lift`, faded by `alpha`.
+#[inline(never)]
+fn glow_row(row: &mut [f32], glow: &[f32], strength: f32, lift: f32, alpha: f32) {
+    for (v, &g) in row.iter_mut().zip(glow) {
+        let input = *v;
+        let (b, t) = (unit(input), unit(input + (g - input) * strength));
+        // `Blend::Overlay`, written out.
+        let over = if b <= 0.5 { 2.0 * b * t } else { 1.0 - (1.0 - (2.0 * b - 1.0)) * (1.0 - t) };
+        let lifted = unit(over + lift * over * (1.0 - over));
+        *v = input + (lifted - input) * alpha;
     }
 }
 
 /// Soft edges (the blur mixed in toward the corners), the vignette, the grain, then Fade.
 struct PlasticLensPass {
     /// `None`: Blur Edges 0 (or under a pixel's worth).
-    blur: Option<BandBlur>,
+    blur: Option<Blur<3>>,
     grain: f32,
     noise: Noise,
+    /// The noise's seed (the entry's).
+    seed: u32,
     space: Space,
-    fade: f64,
+    alpha: f32,
 }
 
 impl Pass for PlasticLensPass {
     fn reach(&self) -> Reach {
         match &self.blur {
-            Some(b) => Reach::Pixels(b.reach()),
+            Some(b) => Reach::Pixels(b.grid.reach()),
             None => Reach::Pixel,
         }
     }
 
     fn run(&self, band: &mut Band<'_>) {
-        let plane = match (&self.blur, band.before) {
-            (Some(blur), Some(view)) => match blur.plane(view, band) {
-                Some(p) => Some(p),
-                None => return,
-            },
-            (Some(_), None) => return,
-            (None, _) => None,
-        };
-        let size = self.space.size();
-        each(band, |x, y, input| {
-            let (soft, shade) = lens(size, x, y);
-            let mut out = input;
-            if let (Some(blur), Some(plane), true) = (&self.blur, &plane, soft > 0.0) {
-                out = mix(out, blur.read(plane, input, x, y), soft);
+        let w = band.width as usize;
+        let blur = match &self.blur {
+            Some(b) => {
+                let Some(view) = band.before else { return };
+                let Some(rows) = Rows::<3>::new(b, view, band) else { return };
+                Some((unit(b.grid.strength()), rows))
             }
-            let g = if self.grain > 0.0 { self.grain * self.noise.at(&self.space, x, y, 0) } else { 0.0 };
-            out = out.map(|v| unit(v * shade + g));
-            fade(input, out, self.fade)
-        });
+            None => None,
+        };
+        let grain = if self.grain > 0.0 { Grain::new(&self.noise, self.seed, &self.space, band) } else { None };
+        let (hw, hh) = half(self.space.size());
+        // The squared distance across, by column (the same on every row).
+        let Some(mut across) = zeros(w, 0.0f32) else { return };
+        for (k, a) in across.iter_mut().enumerate() {
+            let dx = (offset(band.x0, k) as f32 + 0.5 - hw) / hw;
+            *a = dx * dx;
+        }
+        let w3 = w.saturating_mul(3);
+        let (Some(mut noise), Some(mut soft), Some(mut shade)) = (zeros(w, 0.0f32), zeros(w, 0.0f32), zeros(w, 1.0f32)) else { return };
+        let (Some(mut grain3), Some(mut soft3), Some(mut shade3), Some(mut blurred)) =
+            (zeros(w3, 0.0f32), zeros(w3, 0.0f32), zeros(w3, 1.0f32), zeros(w3, 0.0f32))
+        else {
+            return;
+        };
+        for (ly, row) in band.pixels.chunks_mut(w.max(1)).enumerate() {
+            let y = offset(band.y0, ly);
+            if self.grain > 0.0 {
+                if !grain.as_ref().is_some_and(|g| g.row(ly, &mut noise)) {
+                    self.noise.row(&self.space, band.x0, y, 0, &mut noise);
+                }
+                triple(&noise, self.grain, grain3.as_chunks_mut::<3>().0);
+            }
+            let dy = (y as f32 + 0.5 - hh) / hh;
+            lens_weights(&across, dy * dy, &mut soft, &mut shade);
+            triple(&soft, 1.0, soft3.as_chunks_mut::<3>().0);
+            triple(&shade, 1.0, shade3.as_chunks_mut::<3>().0);
+            let strength = match &blur {
+                Some((strength, rows)) => {
+                    rows.row(y, &mut blurred);
+                    *strength
+                }
+                None => 0.0,
+            };
+            let blurred = blur.as_ref().map(|_| (blurred.as_slice(), strength));
+            lens_row(row.as_flattened_mut(), blurred, &soft3, &shade3, &grain3, self.alpha);
+        }
     }
+}
+
+/// Plastic Lens's weights ([`weights`]) along a row whose squared distance down is `dy2`.
+#[inline(never)]
+fn lens_weights(across: &[f32], dy2: f32, soft: &mut [f32], shade: &mut [f32]) {
+    for ((s, v), &dx2) in soft.iter_mut().zip(shade.iter_mut()).zip(across) {
+        (*s, *v) = weights(dx2 + dy2);
+    }
+}
+
+/// Each of `values` times `scale`, three times over (once a channel).
+#[inline(never)]
+fn triple(values: &[f32], scale: f32, out: &mut [[f32; 3]]) {
+    for (o, &v) in out.iter_mut().zip(values) {
+        *o = [v * scale; 3];
+    }
+}
+
+/// Plastic Lens along a row: the blur (mixed in by its strength, `None` without one) mixed in by
+/// the soft edge, the vignette's shade and the grain, then Fade.
+#[inline(never)]
+fn lens_row(row: &mut [f32], blurred: Option<(&[f32], f32)>, soft: &[f32], shade: &[f32], grain: &[f32], alpha: f32) {
+    match blurred {
+        Some((blurred, strength)) => {
+            for ((((v, &b), &soft), &shade), &g) in row.iter_mut().zip(blurred).zip(soft).zip(shade).zip(grain) {
+                let input = *v;
+                let edge = input + ((input + (b - input) * strength) - input) * soft;
+                let out = unit(edge * shade + g);
+                *v = input + (out - input) * alpha;
+            }
+        }
+        None => {
+            for (((v, &shade), &g), _) in row.iter_mut().zip(shade).zip(grain).zip(soft) {
+                let input = *v;
+                let out = unit(input * shade + g);
+                *v = input + (out - input) * alpha;
+            }
+        }
+    }
+}
+
+/// Plastic Lens's grain along a band's rows: [`Noise::row`]'s values, bit for bit. Where the
+/// stored frame lies square in the output (no straighten: a row keeps one lattice row and a column
+/// one lattice column), each lattice row the band's rows lie between is hashed and blended across
+/// once, and a row is the blend of its two (as `Noise::row` blends the four corners of each cell);
+/// a row that does not, or a band whose cells are much smaller than its pixels, is left to
+/// `Noise::row`.
+struct Grain {
+    width: usize,
+    /// The lattice row of the first line.
+    first: i64,
+    /// Each lattice row the band's rows lie between, blended across the band's columns.
+    lines: Vec<f32>,
+    /// Per row of the band: its lattice row and the smoothstep weight of the next, or `None`.
+    rows: Vec<Option<(i64, f32)>>,
+    /// What `Noise::row` scales by where a pixel spans more than a cell.
+    attenuation: f32,
+}
+
+impl Grain {
+    /// The most lattice cells a pixel spans for the lines to be worth making.
+    const MOST_CELLS: f64 = 4.0;
+
+    fn new(noise: &Noise, seed: u32, space: &Space, band: &Band<'_>) -> Option<Grain> {
+        // `Noise::row_values`'s steps: the row's start and the step over `STRIDE` pixels.
+        const STRIDE: u32 = 1024;
+        let (w, cell) = (band.width as usize, noise.cell());
+        let x1 = band.x0.saturating_add(STRIDE);
+        let span = f64::from(x1 - band.x0).max(1.0);
+        let (u0, _) = space.pixel_units(band.x0, band.y0);
+        let (u1, _) = space.pixel_units(x1, band.y0);
+        let (x, dx) = (u0 / cell, (u1 - u0) / span / cell);
+        if !(x.is_finite() && dx.is_finite()) || dx.abs() > Self::MOST_CELLS {
+            return None;
+        }
+        // Each column's lattice column and smoothstep weight.
+        let mut columns = zeros(w, (0i64, 0.0f32))?;
+        for (k, c) in columns.iter_mut().enumerate() {
+            let px = (x + dx * k as f64).clamp(-1e9, 1e9);
+            let ci = floor(px);
+            let fx = (px - ci as f64) as f32;
+            *c = (ci, fx * fx * (3.0 - 2.0 * fx));
+        }
+        let lo = columns.iter().map(|c| c.0).min()?;
+        let hi = columns.iter().map(|c| c.0).max()?;
+        // Each row's lattice row, where the row starts and steps as the band's first row does and
+        // the step does not move down the lattice.
+        let mut rows = zeros(band.rows as usize, None)?;
+        let (mut first, mut last) = (i64::MAX, i64::MIN);
+        for (ly, r) in rows.iter_mut().enumerate() {
+            let y = offset(band.y0, ly);
+            let ((ua, va), (ub, vb)) = (space.pixel_units(band.x0, y), space.pixel_units(x1, y));
+            let py = va / cell;
+            if ua != u0 || ub != u1 || va != vb || !py.is_finite() {
+                continue;
+            }
+            let py = py.clamp(-1e9, 1e9);
+            let cj = floor(py);
+            let fy = (py - cj as f64) as f32;
+            *r = Some((cj, fy * fy * (3.0 - 2.0 * fy)));
+            (first, last) = (first.min(cj), last.max(cj.saturating_add(1)));
+        }
+        let count = if first <= last { usize::try_from(last - first + 1).ok()? } else { 0 };
+        if count as f64 > (rows.len() as f64 + 2.0) * Self::MOST_CELLS {
+            return None;
+        }
+        let mut lattice = zeros(usize::try_from(hi - lo + 2).ok()?, 0.0f32)?;
+        let mut lines = zeros(count.checked_mul(w)?, 0.0f32)?;
+        for (n, line) in lines.chunks_mut(w.max(1)).enumerate() {
+            let j = first + n as i64;
+            for (m, h) in lattice.iter_mut().enumerate() {
+                *h = 2.0 * noise::hash01((lo + m as i64) as i32, j as i32, 0, seed) - 1.0;
+            }
+            for (o, &(ci, su)) in line.iter_mut().zip(&columns) {
+                let m = (ci - lo) as usize;
+                let (c0, c1) = (lattice.get(m).copied().unwrap_or(0.0), lattice.get(m + 1).copied().unwrap_or(0.0));
+                *o = c0 + (c1 - c0) * su;
+            }
+        }
+        Some(Grain { width: w, first, lines, rows, attenuation: noise.attenuation(space) })
+    }
+
+    /// The noise along the band's row `ly`, into `out`; false (and `out` as it was) for a row the
+    /// lines do not serve.
+    fn row(&self, ly: usize, out: &mut [f32]) -> bool {
+        let Some(Some((j, sv))) = self.rows.get(ly).copied() else { return false };
+        let line = |j: i64| {
+            let n = usize::try_from(j - self.first).unwrap_or(usize::MAX);
+            n.checked_mul(self.width).and_then(|at| self.lines.get(at..at.checked_add(self.width)?)).unwrap_or(&[])
+        };
+        let spread = noise::SPREAD as f32;
+        for ((o, &top), &bottom) in out.iter_mut().zip(line(j)).zip(line(j + 1)) {
+            *o = (top + (bottom - top) * sv) / spread;
+        }
+        if self.attenuation != 1.0 {
+            for o in out.iter_mut() {
+                *o *= self.attenuation;
+            }
+        }
+        true
+    }
+}
+
+/// `⌊v⌋` of a finite `v` inside ±10⁹, as `Noise` takes it.
+fn floor(v: f64) -> i64 {
+    let t = v as i64;
+    if (t as f64) > v { t - 1 } else { t }
 }
 
 /// Plastic Lens's weights at the output pixel `(x, y)` of a `size` output (after the crop): how
@@ -348,136 +621,426 @@ impl Pass for PlasticLensPass {
 /// picture's centre on an ellipse through its corners (0 at the centre, 1 in a corner), so they
 /// fit any shape and size.
 pub fn lens(size: (u32, u32), x: u32, y: u32) -> (f32, f32) {
-    let (hw, hh) = (f64::from(size.0.max(1)) / 2.0, f64::from(size.1.max(1)) / 2.0);
-    let (dx, dy) = ((f64::from(x) + 0.5 - hw) / hw, (f64::from(y) + 0.5 - hh) / hh);
-    let d = dx.hypot(dy) / std::f64::consts::SQRT_2;
-    let soft = smoothstep(EDGE_FROM, 1.0, d);
-    let shade = 1.0 - VIGNETTE * smoothstep(VIGNETTE_FROM, 1.0, d);
-    (soft as f32, shade as f32)
+    let (hw, hh) = half(size);
+    let (dx, dy) = ((x as f32 + 0.5 - hw) / hw, (y as f32 + 0.5 - hh) / hh);
+    weights(dx * dx + dy * dy)
 }
 
-/// `f(x, y, pixel)` for every pixel of the band (whole-output coordinates), in place.
-fn each(band: &mut Band<'_>, f: impl Fn(u32, u32, [f32; 3]) -> [f32; 3]) {
-    let (x0, y0, w) = (band.x0, band.y0, band.width as usize);
-    if w == 0 {
-        return;
-    }
-    for (ly, row) in band.pixels.chunks_mut(w).enumerate() {
-        let y = y0.saturating_add(u32::try_from(ly).unwrap_or(u32::MAX));
-        for (lx, px) in row.iter_mut().enumerate() {
-            let x = x0.saturating_add(u32::try_from(lx).unwrap_or(u32::MAX));
-            *px = f(x, y, *px);
-        }
-    }
+/// Half of each side of a `size` output (at least half a pixel).
+fn half(size: (u32, u32)) -> (f32, f32) {
+    (size.0.max(1) as f32 / 2.0, size.1.max(1) as f32 / 2.0)
 }
 
-/// `detail` added to `v` eased into the room left to black or white, `room · tanh(detail / room)`:
-/// a small detail is added as it is, a large one approaches black or white without clipping (so a
-/// halo keeps its shape, and a pixel averaging an edge is boosted as the edge's pixels are).
-fn roll_off(v: f32, detail: f32) -> f32 {
-    let v = unit(v);
-    let room = if detail >= 0.0 { 1.0 - v } else { v };
-    if room <= 0.0 || !detail.is_finite() {
-        return 0.0;
-    }
-    room * (detail / room).tanh()
+/// [`lens`]'s weights at the squared distance `d2` from the centre (2 in a corner).
+#[inline]
+fn weights(d2: f32) -> (f32, f32) {
+    let d = d2.sqrt() / std::f32::consts::SQRT_2;
+    let soft = smooth(EDGE_FROM as f32, d);
+    let shade = 1.0 - VIGNETTE as f32 * smooth(VIGNETTE_FROM as f32, d);
+    (soft, shade)
 }
 
+/// [`crate::fx::smoothstep`] from `e0` (under 1) to 1, written out so a row of it vectorises.
+#[inline]
+fn smooth(e0: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (1.0 - e0)).clamp(0.0, 1.0);
+    let t = if t.is_nan() { 0.0 } else { t };
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The output coordinate `start + k` (saturating).
+fn offset(start: u32, k: usize) -> u32 {
+    start.saturating_add(u32::try_from(k).unwrap_or(u32::MAX))
+}
+
+/// `n` copies of `v`; `None` when the buffer cannot be had.
+fn zeros<T: Clone>(n: usize, v: T) -> Option<Vec<T>> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(n).ok()?;
+    out.resize(n, v);
+    Some(out)
+}
+
+#[inline]
 fn unit(v: f32) -> f32 {
     if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) }
 }
 
-/// A Gaussian blur of the picture as it was before a pass, made by each band for its own rows
-/// with the blur's reach around them (a plane cut with that margin blurs exactly as the whole
-/// picture's, [`Gaussian`]), so no band waits on another and a region render equals that window of
-/// the whole render. A blur wider than `CELL_SIGMA` pixels runs on a grid of cell averages (a cell
-/// about a third of its sigma, at most `MAX_CELL` pixels) read back bilinearly, so a band reads
-/// its rows and the reach around them once and blurs a small grid.
-#[derive(Clone, Copy, Debug)]
-struct BandBlur {
-    /// The blur on the grid.
-    gaussian: Gaussian,
-    /// The grid's cell side in output pixels (1: the blur runs on the pixels themselves).
-    cell: u32,
-    /// How much of the blur is mixed in (below 1 only for a blur under `MIN_SIGMA`).
-    strength: f32,
+/// A pass's blur: a [`GridBlur`] (cells about a third of its sigma) and, for one-pixel cells, its
+/// rows blurred across, made once per render.
+struct Blur<const C: usize> {
+    grid: GridBlur,
+    across: OnceLock<Option<Across<C>>>,
 }
 
-impl BandBlur {
-    /// A blur of `sigma` output pixels over a `size` output; `None` when it changes nothing.
-    fn new(sigma: f64, size: (u32, u32)) -> Option<BandBlur> {
-        if !sigma.is_finite() || sigma <= 0.0 {
-            return None;
+impl<const C: usize> Blur<C> {
+    fn new(grid: GridBlur) -> Blur<C> {
+        Blur { grid, across: OnceLock::new() }
+    }
+}
+
+/// A [`Blur`] of a pass's `before` view read back along a band's rows, `C` values a pixel (1: its
+/// luma, [`GridBlur::luma`]; 3: RGB, [`GridBlur::rgb`]), not yet mixed in by the blur's strength.
+enum Rows<'a, const C: usize> {
+    /// One-pixel cells (a blur under 6 pixels: HDR Look's fine detail at the sizes a screen
+    /// shows, the drafts' blurs): the rows blurred across, blurred down.
+    Pixels { across: &'a Across<C>, offset: usize, width: usize },
+    /// Wider cells: the grid, made once per render, read back.
+    Grid(Lines<C>),
+}
+
+impl<'a, const C: usize> Rows<'a, C> {
+    fn new(blur: &'a Blur<C>, view: &View<'_>, band: &Band<'_>) -> Option<Rows<'a, C>> {
+        if blur.grid.cell() == 1 {
+            let across = blur.across.get_or_init(|| apart(|| Across::new(&blur.grid, view))).as_ref()?;
+            let offset = (band.x0.checked_sub(view.x0)? as usize).checked_mul(C)?;
+            let width = (band.width as usize).checked_mul(C)?;
+            return (offset + width <= across.width).then_some(Rows::Pixels { across, offset, width });
         }
-        // The averaging and the bilinear read add about cell²/4 to the variance, taken off the
-        // grid's.
-        let cell = (sigma / CELL_SIGMA).floor().clamp(1.0, f64::from(MAX_CELL));
-        let on_grid = (sigma * sigma - if cell > 1.0 { cell * cell / 4.0 } else { 0.0 }).max(0.0).sqrt() / cell;
-        let grid = (size.0.div_ceil(cell as u32).max(1), size.1.div_ceil(cell as u32).max(1));
-        let gaussian = Gaussian::new(on_grid.max(MIN_SIGMA), grid);
-        let strength = (on_grid / gaussian.sigma().max(1e-9)).powi(2).min(1.0) as f32;
-        if gaussian.is_identity() || strength < 1e-4 {
-            return None;
-        }
-        Some(BandBlur { gaussian, cell: cell as u32, strength })
+        let window = Window::of(view)?;
+        let grid = match C {
+            1 => blur.grid.luma(window).map(|m| Grid { x0: m.x0, y0: m.y0, width: m.width, height: m.height, data: &m.data })?,
+            3 => blur.grid.rgb(window).map(|p| Grid { x0: p.x0, y0: p.y0, width: p.width, height: p.height, data: p.data.as_flattened() })?,
+            _ => return None,
+        };
+        Lines::new(grid, blur.grid.cell(), band).map(Rows::Grid)
     }
 
-    /// How far a blurred pixel reads, in output pixels: the grid's reach, the bilinear read and
-    /// the cells' extent.
-    fn reach(&self) -> u32 {
-        self.gaussian.reach().saturating_add(3).saturating_mul(self.cell)
+    /// The blur along the output row `y` (one of the band's), into `out` (`C` values a pixel).
+    fn row(&self, y: u32, out: &mut [f32]) {
+        match self {
+            Rows::Pixels { across, offset, width } => across.down(y, *offset, *width, out),
+            Rows::Grid(l) => l.row(y, out),
+        }
+    }
+}
+
+/// A blur on the pixels themselves (a [`GridBlur`] of one-pixel cells): the kernel of its three
+/// box passes applied across every row of the window once per render ([`Across::new`]), then down
+/// by each band for its rows ([`Across::down`]), each value one weighted sum in a fixed order, so
+/// it depends only on the pixels under the kernel (a region render equals the whole render). The
+/// pixels past the picture's edge repeat its edge pixels ([`View::get`]), each channel
+/// `byte · (1/255)` as the grid's one-pixel cells take it. The same blur as the box passes within
+/// their fixed point's rounding, except within the kernel's reach of the picture's edge, where the
+/// passes repeat their own edge values rather than the picture's.
+struct Across<const C: usize> {
+    kernel: Vec<f32>,
+    /// The window's rows, its top row in the whole output, and the whole output's height.
+    rows: usize,
+    y0: u32,
+    full_height: u32,
+    /// Values a row (`C` a pixel of the window).
+    width: usize,
+    data: Vec<f32>,
+}
+
+impl<const C: usize> Across<C> {
+    fn new(blur: &GridBlur, view: &View<'_>) -> Option<Across<C>> {
+        let kernel = boxes(blur.gaussian().radii())?;
+        let r = kernel.len() / 2;
+        let (w, rows) = (view.width as usize, view.height as usize);
+        // The view's column for every pixel a row's kernel reads, clamped as `View::get`; the run
+        // of them that steps one by one from the view's column `start` is read straight from the
+        // row's bytes, the rest (the repeated edges) through their columns.
+        let mut columns = zeros(w.checked_add(2 * r)?, 0usize)?;
+        let last_x = i64::from(view.full_width.max(1)) - 1;
+        let last_lx = i64::from(view.width.max(1)) - 1;
+        for (k, c) in columns.iter_mut().enumerate() {
+            let x = (i64::from(view.x0) - r as i64 + k as i64).clamp(0, last_x);
+            *c = (x - i64::from(view.x0)).clamp(0, last_lx) as usize;
+        }
+        let from = columns.iter().zip(columns.iter().skip(1)).position(|(a, b)| b.checked_sub(*a) == Some(1)).unwrap_or(0);
+        let start = columns.get(from).copied().unwrap_or(0);
+        let steps = columns.iter().skip(from).enumerate().take_while(|&(i, &c)| c == start + i).count();
+        let width = w.checked_mul(C)?;
+        let mut data = zeros(rows.checked_mul(width)?, 0.0f32)?;
+        let line = w * 4;
+        data.par_chunks_mut(width.max(1)).enumerate().for_each_init(
+            || zeros(columns.len().saturating_mul(C), 0.0f32),
+            |values, (ly, out)| {
+                let Some(values) = values else { return };
+                let bytes = view.data.get(ly * line..(ly + 1) * line).unwrap_or(&[]);
+                let pixels = bytes.get(start * 4..).unwrap_or(&[]).as_chunks::<4>().0;
+                for (v, p) in values.as_chunks_mut::<C>().0.iter_mut().skip(from).take(steps).zip(pixels) {
+                    texel(p, v);
+                }
+                for (k, (v, &c)) in values.as_chunks_mut::<C>().0.iter_mut().zip(&columns).enumerate() {
+                    if k < from || k >= from + steps {
+                        match bytes.get(c * 4..c * 4 + 4).and_then(|p| p.as_chunks::<4>().0.first()) {
+                            Some(p) => texel(p, v),
+                            None => v.fill(0.0),
+                        }
+                    }
+                }
+                // The kernel is symmetric: each pair of taps at once, then the middle one.
+                let tap = |i: usize| values.get(i * C..).unwrap_or(&[]);
+                for (i, &k) in kernel.iter().take(r).enumerate() {
+                    accumulate(out, tap(i), tap(2 * r - i), k);
+                }
+                accumulate(out, tap(r), &[], kernel.get(r).copied().unwrap_or(0.0));
+            },
+        );
+        Some(Across { kernel, rows, y0: view.y0, full_height: view.full_height, width, data })
     }
 
-    /// The blurred grid over the band's rows and the reach around them, within the window `view`
-    /// holds; `None` when a buffer cannot be had.
-    fn plane(&self, view: &View<'_>, band: &Band<'_>) -> Option<Plane> {
-        if band.width == 0 || band.rows == 0 || self.cell == 0 {
-            return None;
+    /// The blur at the output row `y`, the `width` values from `offset` of the window's rows,
+    /// into `out`: the rows the kernel reads (clamped into the picture, then the window) blurred
+    /// down.
+    fn down(&self, y: u32, offset: usize, width: usize, out: &mut [f32]) {
+        out.fill(0.0);
+        let r = self.kernel.len() / 2;
+        let (last_y, last_ly) = (i64::from(self.full_height.max(1)) - 1, self.rows.max(1) as i64 - 1);
+        let line = |i: usize| {
+            let row = (i64::from(y) - r as i64 + i as i64).clamp(0, last_y);
+            let ly = (row - i64::from(self.y0)).clamp(0, last_ly) as usize;
+            let at = ly * self.width + offset;
+            self.data.get(at..at + width).unwrap_or(&[])
+        };
+        for (i, &k) in self.kernel.iter().take(r).enumerate() {
+            accumulate(out, line(i), line(2 * r - i), k);
         }
-        let reach = self.reach();
-        let y1 = band.y0.saturating_add(band.rows);
-        let top = band.y0.saturating_sub(reach).max(view.y0) / self.cell;
-        let bottom = y1.saturating_add(reach).min(view.y0.saturating_add(view.height)).div_ceil(self.cell);
-        let left = view.x0 / self.cell;
-        let right = view.x0.saturating_add(view.width).div_ceil(self.cell);
-        let mut plane = Plane::from_fn(left, top, right.saturating_sub(left), bottom.saturating_sub(top), |cx, cy| self.cell_mean(view, cx, cy))?;
-        self.gaussian.apply(&mut plane).then_some(plane)
+        accumulate(out, line(r), &[], self.kernel.get(r).copied().unwrap_or(0.0));
     }
+}
 
-    /// The grid cell `(cx, cy)`: the mean of its pixels (the picture's edge pixels repeated past
-    /// it, as [`View::get`] reads them).
-    fn cell_mean(&self, view: &View<'_>, cx: u32, cy: u32) -> [f32; 3] {
-        if self.cell == 1 {
-            return view.get(i64::from(cx), i64::from(cy));
+/// `out += k · (a + b)` value by value (`b` empty: `out += k · a`).
+#[inline(never)]
+fn accumulate(out: &mut [f32], a: &[f32], b: &[f32], k: f32) {
+    if b.is_empty() {
+        for (o, &a) in out.iter_mut().zip(a) {
+            *o += k * a;
         }
-        let c = i64::from(self.cell);
-        let (x0, y0) = (i64::from(cx) * c, i64::from(cy) * c);
-        let mut sum = [0.0f32; 3];
-        for y in y0..y0 + c {
-            for x in x0..x0 + c {
-                let p = view.get(x, y);
-                sum = [sum[0] + p[0], sum[1] + p[1], sum[2] + p[2]];
+    } else {
+        for ((o, &a), &b) in out.iter_mut().zip(a).zip(b) {
+            *o += k * (a + b);
+        }
+    }
+}
+
+/// A pixel's `C` working values: its Rec.601 luma (1) or its RGB (3), each channel `byte · (1/255)`
+/// as a grid's one-pixel cell takes it.
+#[inline]
+fn texel(p: &[u8; 4], out: &mut [f32]) {
+    let scale = 1.0f32 / 255.0;
+    let rgb = [f32::from(p[0]) * scale, f32::from(p[1]) * scale, f32::from(p[2]) * scale];
+    if out.len() == 1 {
+        out.fill(luma(rgb));
+    } else {
+        for (o, v) in out.iter_mut().zip(rgb) {
+            *o = v;
+        }
+    }
+}
+
+/// The kernel of three box passes of `radii` (each the mean of `2r + 1` pixels): their
+/// convolution, `2 · Σr + 1` weights adding up to 1; `None` past 4 097 weights.
+fn boxes(radii: [usize; 3]) -> Option<Vec<f32>> {
+    let len = radii.iter().try_fold(1usize, |n, &r| n.checked_add(r.checked_mul(2)?))?;
+    if len > 4097 {
+        return None;
+    }
+    let mut kernel = zeros(len, 0.0f64)?;
+    let mut next = zeros(len, 0.0f64)?;
+    if let Some(k) = kernel.first_mut() {
+        *k = 1.0;
+    }
+    let mut n = 1;
+    for r in radii {
+        let wide = 2 * r + 1;
+        next.fill(0.0);
+        for (j, &k) in kernel.iter().take(n).enumerate() {
+            for o in next.iter_mut().skip(j).take(wide) {
+                *o += k / wide as f64;
             }
         }
-        let n = (c * c) as f32;
-        sum.map(|v| v / n)
+        std::mem::swap(&mut kernel, &mut next);
+        n += 2 * r;
+    }
+    Some(kernel.into_iter().map(|k| k as f32).collect())
+}
+
+/// A [`GridBlur`]'s grid: `C` values a cell, row-major, placed in the whole output by cells.
+#[derive(Clone, Copy)]
+struct Grid<'a> {
+    x0: u32,
+    y0: u32,
+    width: u32,
+    height: u32,
+    data: &'a [f32],
+}
+
+/// A grid blur read back along a band's rows with the values of `GridBlur::read` and
+/// `GridBlur::read_luma` (the same taps, the same order of operations): each grid row the band's
+/// rows lie between is read across once, and each output row is then the mix of its two lines, a
+/// flat loop.
+struct Lines<const C: usize> {
+    cell: u32,
+    /// Values a line (`C` a pixel).
+    width: usize,
+    /// The grid row of the first line.
+    first: i64,
+    lines: Vec<f32>,
+}
+
+impl<const C: usize> Lines<C> {
+    fn new(grid: Grid<'_>, cell: u32, band: &Band<'_>) -> Option<Lines<C>> {
+        let w = band.width as usize;
+        let last = i64::from(grid.width.max(1)) - 1;
+        let at = |i: i64| (i - i64::from(grid.x0)).clamp(0, last) as usize * C;
+        let mut taps = zeros(w, (0usize, 0usize, 0.0f32))?;
+        for (k, t) in taps.iter_mut().enumerate() {
+            let (i, tx) = tap(cell, offset(band.x0, k));
+            *t = (at(i), at(i + 1), tx);
+        }
+        let first = tap(cell, band.y0).0;
+        let end = tap(cell, offset(band.y0, (band.rows as usize).saturating_sub(1))).0 + 1;
+        let count = usize::try_from(end - first + 1).ok()?;
+        let width = w.checked_mul(C)?;
+        let mut lines = zeros(count.checked_mul(width)?, 0.0f32)?;
+        let grid_line = grid.width as usize * C;
+        let last_row = i64::from(grid.height.max(1)) - 1;
+        for (n, line) in lines.chunks_mut(width.max(1)).enumerate() {
+            let j = (first + n as i64 - i64::from(grid.y0)).clamp(0, last_row) as usize;
+            let row = grid.data.get(j * grid_line..(j + 1) * grid_line).unwrap_or(&[]);
+            for (o, &(i0, i1, tx)) in line.as_chunks_mut::<C>().0.iter_mut().zip(&taps) {
+                let (a, b) = (row.get(i0..i0 + C).unwrap_or(&[]), row.get(i1..i1 + C).unwrap_or(&[]));
+                for ((o, &a), &b) in o.iter_mut().zip(a).zip(b) {
+                    *o = a + (b - a) * tx;
+                }
+            }
+        }
+        Some(Lines { cell, width, first, lines })
     }
 
-    /// The blur at the output pixel `(x, y)` whose own value is `input`: the grid read back at
-    /// the pixel's centre, bilinearly, mixed in by the blur's strength.
-    fn read(&self, plane: &Plane, input: [f32; 3], x: u32, y: u32) -> [f32; 3] {
-        let blurred = if self.cell == 1 {
-            plane.get(i64::from(x), i64::from(y))
-        } else {
-            let c = f64::from(self.cell);
-            let (u, v) = ((f64::from(x) + 0.5) / c - 0.5, (f64::from(y) + 0.5) / c - 0.5);
-            let (i, j) = (u.floor(), v.floor());
-            let (tx, ty) = ((u - i) as f32, (v - j) as f32);
-            let (i, j) = (i as i64, j as i64);
-            let top = mix(plane.get(i, j), plane.get(i + 1, j), tx);
-            let bottom = mix(plane.get(i, j + 1), plane.get(i + 1, j + 1), tx);
-            mix(top, bottom, ty)
+    /// The blur along the output row `y` (one of the band's), into `out`.
+    fn row(&self, y: u32, out: &mut [f32]) {
+        let (j, ty) = tap(self.cell, y);
+        let line = |j: i64| {
+            let n = usize::try_from(j - self.first).unwrap_or(usize::MAX);
+            n.checked_mul(self.width).and_then(|at| self.lines.get(at..at.checked_add(self.width)?)).unwrap_or(&[])
         };
-        mix(input, blurred, self.strength)
+        lerp(out, line(j), line(j + 1), ty);
+    }
+}
+
+/// `out = a + (b − a) · t`, value by value.
+#[inline(never)]
+fn lerp(out: &mut [f32], a: &[f32], b: &[f32], t: f32) {
+    for ((o, &a), &b) in out.iter_mut().zip(a).zip(b) {
+        *o = a + (b - a) * t;
+    }
+}
+
+/// The grid cell before the pixel coordinate `p` along one axis on a grid of `cell` pixels and
+/// the weight of the next (as [`GridBlur`] taps it).
+fn tap(cell: u32, p: u32) -> (i64, f32) {
+    let c = f64::from(cell.max(1));
+    let u = (f64::from(p) + 0.5) / c - 0.5;
+    // `⌊u⌋` (`u` is above −0.5) without a call to the library's `floor`.
+    let i = u as i64 - i64::from(u < 0.0);
+    (i, (u - i as f64) as f32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fx::Mono;
+    use crate::{Geometry, Recipe};
+    use dalica_image::Orientation;
+
+    /// `w × h` RGBA pixels of a seeded pattern with edges and gradients.
+    fn picture(w: u32, h: u32) -> Vec<u8> {
+        (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .flat_map(|(x, y)| {
+                let v = |k: u32| ((x * (7 + k) + y * (13 - k) + (x / 9) * (y / 7) * 31) % 256) as u8;
+                [v(0), v(1), v(2), 255]
+            })
+            .collect()
+    }
+
+    /// A one-pixel-cell blur's rows, convolved, are the grid's box passes
+    /// ([`GridBlur::luma`], [`GridBlur::rgb`]) within their fixed point's rounding away from the
+    /// picture's edge (within the kernel's reach of it the passes repeat their own edge values).
+    #[test]
+    fn the_convolved_rows_are_the_grids_blur() {
+        let (w, h) = (90u32, 70u32);
+        let data = picture(w, h);
+        let view = View { data: &data, x0: 0, y0: 0, width: w, height: h, full_width: w, full_height: h };
+        for sigma in [0.6, 1.5, 3.0, 5.5] {
+            let blur = GridBlur::new(sigma, (w, h)).unwrap();
+            assert_eq!(blur.cell(), 1);
+            let r = blur.gaussian().reach() as usize;
+            let window = Window::of(&view).unwrap();
+            let (mono, rgb): (Mono, Vec<[f32; 3]>) = (blur.luma(window).unwrap().clone(), blur.rgb(window).unwrap().data.clone());
+            let mut pixels = vec![[0.0f32; 3]; (w * 32) as usize];
+            let band = Band { pixels: &mut pixels, width: w, rows: 32, x0: 0, y0: 20, before: Some(&view) };
+            let (one, three) = (Blur::<1>::new(GridBlur::new(sigma, (w, h)).unwrap()), Blur::<3>::new(GridBlur::new(sigma, (w, h)).unwrap()));
+            let (luma, colour) = (Rows::new(&one, &view, &band).unwrap(), Rows::new(&three, &view, &band).unwrap());
+            let (mut a, mut b) = (vec![0.0f32; w as usize], vec![0.0f32; 3 * w as usize]);
+            for ly in 0..32usize {
+                let y = 20 + ly as u32;
+                luma.row(y, &mut a);
+                colour.row(y, &mut b);
+                for x in r..w as usize - r {
+                    let at = y as usize * w as usize + x;
+                    assert!((a[x] - mono.data[at]).abs() < 2e-5, "sigma {sigma} at {x},{y}: {} vs {}", a[x], mono.data[at]);
+                    for c in 0..3 {
+                        assert!((b[3 * x + c] - rgb[at][c]).abs() < 2e-5, "sigma {sigma} at {x},{y}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Plastic Lens's grain lines give `Noise::row`'s values bit for bit where the stored frame
+    /// lies square (cells wider and narrower than a pixel, a crop), and serve no row of a
+    /// straightened photo (`Noise::row` does).
+    #[test]
+    fn the_grain_lines_are_the_noise_rows() {
+        let seed = noise::seed("plastic_lens(70,30,0)");
+        let noise = Noise::new(seed, GRAIN_CELL);
+        for (ops, (w, h), square) in [
+            (&[][..], (3000u32, 2000u32), true),
+            (&[][..], (600, 400), true),
+            (&["crop(0.1,0.2,0.7,0.9)"][..], (1800, 1400), true),
+            (&["straighten(3)"][..], (900, 600), false),
+        ] {
+            let recipe = Recipe::parse(ops.iter().copied()).unwrap();
+            let geometry = Geometry::new(&recipe, Orientation::default(), 3000, 2000);
+            let space = Space::from_geometry(&geometry, w, h).unwrap();
+            for (x0, y0) in [(0u32, 0u32), (0, 352), (0, h - 32)] {
+                let mut pixels = vec![[0.0f32; 3]; (w * 32) as usize];
+                let band = Band { pixels: &mut pixels, width: w, rows: 32, x0, y0, before: None };
+                let grain = Grain::new(&noise, seed, &space, &band);
+                let (mut got, mut want) = (vec![0.0f32; w as usize], vec![0.0f32; w as usize]);
+                let mut served = 0;
+                for ly in 0..32usize {
+                    noise.row(&space, x0, y0 + ly as u32, 0, &mut want);
+                    if grain.as_ref().is_some_and(|g| g.row(ly, &mut got)) {
+                        assert_eq!(got, want, "{ops:?} {w}x{h} row {}", y0 + ly as u32);
+                        served += 1;
+                    }
+                }
+                assert_eq!(served, if square { 32 } else { 0 }, "{ops:?} {w}x{h}");
+            }
+        }
+    }
+
+    /// The branch-free roll-off is `room · tanh(detail / room)` within 10⁻⁶, over every room a
+    /// pixel can have and every detail, and the input itself where the detail is 0.
+    #[test]
+    fn the_roll_off_follows_tanh() {
+        for vi in 0..=255 {
+            let v = vi as f32 / 255.0;
+            for di in -1200..=1200 {
+                let d = di as f32 / 100.0;
+                let room = f64::from(if d >= 0.0 { 1.0 - v } else { v });
+                let want = f64::from(v) + if room > 0.0 { room * (f64::from(d) / room).tanh() } else { 0.0 };
+                let got = boost(v, d, 1.0);
+                assert!((f64::from(got) - want).abs() < 1e-6, "{v} {d}: {got} vs {want}");
+            }
+            assert_eq!(boost(v, 0.0, 1.0), v);
+        }
     }
 }
