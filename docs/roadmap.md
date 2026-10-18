@@ -7225,8 +7225,97 @@ a maintainer decision mid-run.
     that window of the whole render for Soften (everywhere and painted) and Heal; Soften and Heal
     render times at 12 MP (release, `Target::Full` and a 1:1 window, median of five) not worse,
     before/after in the PR; the `NOTICE` row; `cargo xtask ci`.
+- ⬜ **M12.29 `engine`: a size-changing effect's tile shows its whole picture**
+  - after: M12.5, M12.13, M12.14
+  - files: `crates/engine/src/effect_tiles.rs`, `crates/engine/tests/effects.rs`, `docs/editing.md`
+  - scope: a fix task from the M12.R review screenshots. Every tile is rendered at the scale that
+    covers the 78 × 48 box and cut around the centre (`render_tile`'s `max` scale and `cover`),
+    which is right for an effect that keeps the picture's shape but crops away what a frame adds:
+    the Border tile looks like the plain photo, and Drop Shadow's and Museum Matte's show their
+    white edge at the left and right only (the grown 3:2 picture is taller than the 1.625:1 box,
+    so its top and bottom are cut); Widescreen Film's 1.7:1 picture loses its sides. For an
+    effect whose catalogue row says `changes_size` (Border, Drop Shadow, Museum Matte, Widescreen
+    Film), the tile renders the whole grown picture at the scale that fits it in the box and
+    centres it on `gray 38` (the placeholder grey of `editing.md` §8.1), so every side of the
+    frame shows; every other effect keeps the covering scale and its cut, unchanged. The small
+    decode stays large enough for the fitted render. `editing.md` §8.1 says so in one sentence.
+    At their defaults a Border's bands stay thin at tile size (20 and 5 thousandths of the shorter
+    side, about one tile pixel): that is the effect's default, not this task's.
+  - done when: `crates/engine/tests/effects.rs`: a Border, a Drop Shadow and a Museum Matte tile
+    each have their frame colour (the Border's outer colour, the Drop Shadow's background, the
+    Museum Matte's outer mat) on all four sides of the picture inside the box, with `gray 38` only
+    in the bars around it; a Widescreen Film tile shows its black bars at top and bottom; a tile of
+    an effect that keeps the shape (Sepia) is the same pixels as before; `cargo xtask ci`.
+- ⬜ **M12.30 `ui-kit`: an effect tile's label fits its tile**
+  - after: M12.4, M12.15
+  - files: `crates/ui-kit/src/widgets/effect_tile.rs`, `crates/ui-kit/tests/effect_widgets.rs`, `crates/ui-kit/tests/fingerprints/effect-widgets*.json`, `crates/ui/tests/fingerprints/edit-effects-tab4-1400x900.json`, `docs/design-system.md`
+  - scope: a fix task from the M12.R review screenshots. "Widescreen Film" is cut to
+    "Widescreen …" on its tile at 1400 × 900 and 900 × 600: the label is laid out in SemiBold 11
+    within the tile's width less 4 pt (82 pt, `effect_tile`'s `one_line`) and elided. The tile
+    cannot grow (three 86 pt tiles and two 4 pt gaps already take 266 of the panel's 280 pt) and
+    has room under the preview for one line only (69 − 51 pt). A label that does not fit at
+    SemiBold 11 steps its size down by half points to at least 9 pt until it fits (the full tile
+    width, 86 pt less 2, its room), and only a label that still does not fit is cut with "…".
+    Every other label of the 27 keeps SemiBold 11, so tabs 3 and 5 do not change.
+    `design-system.md`'s `effect_tile` row says so. The ui crate's tab-4 grid fingerprint changes
+    with the label: run `cargo test -p dalica-ui --test all effect_tiles` (the task gate tests
+    ui-kit only) and bless that baseline with its diff images, the why in the commit body.
+  - done when: `crates/ui-kit/tests/effect_widgets.rs`: a "Widescreen Film" tile draws its whole
+    label (no "…", inside the tile) and an 11 pt label ("Drop Shadow") is unchanged; a label
+    too long even at 9 pt is still cut with "…"; the changed fingerprints blessed with their diff
+    images on the PR; a 1400 × 900 and a 900 × 600 screenshot of tab 4 on the PR;
+    `cargo xtask ci`.
+- ⬜ **M12.31 `ui-kit`: the CPU rasterizer leaves no gap between two triangles of a quad**
+  - after: M12.27
+  - files: `crates/ui-kit/src/raster.rs`
+  - scope: a fix task from the M12.R review screenshots. A Border'd photo's cell in the Recently
+    Updated album showed one dark pixel (10, 10, 10) inside the picture at (328, 241) at both
+    window sizes, and the folder's cell of the same photo did not. Reproduced with
+    `dalica-cli snapshot --demo-fresh` (a Border applied, back to the library): the pixel sits
+    exactly on the diagonal of the album cell's image rect, (272, 203.23)–(416, 300.77) (the
+    letterboxed 496 × 336 picture has fractional edges), it moves along the diagonal with the
+    picture's shape (a Drop Shadow puts it at (375, 273)), keeps its colour whatever the frame's
+    colour, and is the photo's drop shadow under the image showing through. Both cells draw the
+    same texture; the CPU rasterizer that draws headless screenshots and fingerprints
+    (`raster.rs`, `Target::triangle`) evaluates a shared edge in `f32` from each triangle's own
+    end (`edge(a, b, p)` and `edge(b, a, p)` are not exact negatives), so a pixel centre within
+    rounding of the diagonal can fail both triangles' tests and is painted by neither. The window
+    (wgpu) has watertight rules and does not show it. Make the edge test watertight: evaluate each
+    edge with its end points in one canonical order and negate for the other triangle (or snap the
+    vertices to a fixed-point grid first), keeping the top-left rule so a shared edge's pixels are
+    painted exactly once.
+  - done when: a unit test in `raster.rs` paints a textured quad (two triangles, as egui
+    tessellates an image) at the rect above over a contrasting fill and finds no pixel of the fill
+    inside it, which fails before the fix; a seeded sweep of quads at fractional offsets paints
+    every pixel centre inside each quad exactly once (no gap, no double blend); the ui-kit and ui
+    fingerprint suites run (`cargo test -p dalica-ui-kit`, `cargo test -p dalica-ui --test all`)
+    with no baseline moved beyond its tolerance, or the moved ones reported on the issue with
+    their diff images (never blessed outside this task's files); `cargo xtask ci`.
+- ⬜ **M12.32 `edit`: Drop Shadow's defaults read at a glance**
+  - after: M12.14
+  - files: `crates/edit/src/ops/mats.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/mats.rs`, `crates/edit/tests/fingerprints/mats-drop-shadow.json`, `docs/editing.md`
+  - scope: a fix task from the M12.R review (the maintainer's answer to Q7). At today's defaults
+    (`drop_shadow(#000000,4,90,10,30,#ffffff)`: Distance 4 and Blur 10 thousandths of the shorter
+    side, 1.3 px and 3.2 px on a 480 × 320 photo) the shadow is one grey pixel column at the
+    photo's right edge, and the effect reads as a plain white frame in the edit view, the tile and
+    the thumbnail. The renderer is right (opacity `1 − Fade/100`, the shadow cast along Angle);
+    only the defaults change: Distance 15 and Blur 25 thousandths of the shorter side (about
+    4.8 px and 8 px at 480 × 320; the canvas margin grows with them to 65 thousandths), Angle 90,
+    Fade 30, the colours and the ranges as they are. One place sets them: `DropShadow::default`
+    in `ops/mats.rs` and the catalogue row's defaults in `catalog.rs` agree (the catalogue's
+    tests already check every default prints back and renders the same). `editing.md` §8.4's
+    Drop Shadow row and §8.5's entry at its defaults read the new numbers. A recipe written with
+    the old defaults keeps its own numbers (they are its parameters, not defaults), so no saved
+    photo changes. `docs/editing.md` is also in M12.29's files: the board runs the two one after
+    the other.
+  - done when: `crates/edit/tests/mats.rs`: at the defaults on a 480 × 320 picture the shadow
+    darkens the background by at least 20 levels (of 255) 8 px beyond the photo's right edge
+    (about 32 levels there by the tent's closed form), the same distance beyond the left edge is
+    lighter than that (the shadow visibly offset, not a halo), and the far corners are the
+    background; the `mats-drop-shadow` fingerprint re-blessed after looking at its diff images
+    (the why in the commit body, images on the PR); `cargo xtask ci`.
 - ⬜ **M12.22 `accept M12`**
-  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27, M12.28
+  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27, M12.28, M12.29, M12.30, M12.31, M12.32
   - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
   - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: each tab's grid filling with previews; each of the 27
