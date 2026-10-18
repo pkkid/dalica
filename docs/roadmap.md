@@ -7781,7 +7781,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     embeddings round-trip, a torn tail drops only the last record, a second model's cache is never
     mixed in, removing a model deletes only its file; a crash at one point before and one after the
     commit (`fs` faults) keeps the old or the new state.
-- ⬜ **M13.10 `faces`: the detector, alignment, embeddings, manifests and the self-test**
+- ✅ **M13.10 `faces`: the detector, alignment, embeddings, manifests and the self-test**
   - after: M13.6, M12.R
   - files: `crates/faces/src/detect.rs`, `crates/faces/src/detect/**`, `crates/faces/src/align.rs`, `crates/faces/src/embed.rs`, `crates/faces/src/manifest.rs`, `crates/faces/src/catalog.rs`, `crates/faces/src/known.rs`, `crates/faces/src/hash.rs`, `crates/faces/src/selftest.rs`, `crates/faces/tests/detect.rs`, `crates/faces/tests/models.rs`, `crates/faces/README.md`, `docs/faces.md`
   - scope: `faces.md` §2–§3 with the models reserved decision 5 chose (asked at M12.R; the spec's

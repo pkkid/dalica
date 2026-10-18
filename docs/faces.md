@@ -2,8 +2,10 @@
 
 Adapted from LightCraft `docs/faces.md` and `crates/faces` (revision 88ea1a8); MIT OR Apache-2.0.
 
-> **Status: Planned (M13; suggestions and the People pane M13).** Nothing here is built. The
-> user-facing behaviour (the People group,
+> **Status: Partly built (M13).** `crates/faces` has the interpreter and its limits (§2, M13.6),
+> grouping and suggestions (§5, M13.7), and the detector, alignment, embeddings, manifests, the
+> bring-your-own catalog, the known models and the self-test (§2–§3, M13.10); the scan, the
+> downloads and the UI follow in M13. The user-facing behaviour (the People group,
 > Unnamed, suggestions, the People pane, options) is specified in [`organizing.md`](organizing.md)
 > §6; where faces are stored is in [`data-model.md`](data-model.md) §2–§5; how names travel in
 > files is in [`xmp-interop.md`](xmp-interop.md) §6. This document is the engine design behind
@@ -53,7 +55,10 @@ photo ──► upright preview (≤ 2048 px; RAW: embedded preview)
   elements, tensor rank ≤ 8, live tensors plus convolution scratch ≤ 512 MiB; every weight and
   activation must be finite; embeddings are normalised with a float64 norm to avoid overflow.
 - **Coordinates:** detected boxes are stored like every face rectangle: normalised floats on the
-  photo as displayed after rotation (`data-model.md` §3). Detection always looks at the upright,
+  photo as displayed after rotation (`data-model.md` §3). The detector's boxes are clipped to the
+  photo and its five landmarks normalised the same way (they may lie slightly outside it); it keeps
+  at most 256 faces per photo, best first. Which decoder a detector needs is named by its manifest
+  (`yunet-v2`, the candidate detector's outputs), and its input side comes from the manifest too. Detection always looks at the upright,
   uncropped photo with no edits, so edits never change which faces exist.
 - **Small faces:** the detector sees a 640 px version of the photo, so it finds faces from about
   10 px at that size; very small faces in large group photos can be missed (tiled detection is a
@@ -81,7 +86,10 @@ dialog.
    **Add a model file…** (or dropping an `.onnx` on the window) installs a local file after the same
    licence dialog. Known files are recognised by their SHA-256; for others Dalica reads the input and
    output shapes and states its assumptions (112 × 112 aligned RGB faces, `(x − 127.5) / 127.5`, one
-   vector per face).
+   vector per face). An unknown file with several outputs (a detector) or another input is refused
+   with the reason: only a detector known by its hash can be added.
+5. Every manifest, whatever its source, is validated before use: a licence (its name and its terms
+   in plain words) is required, every address is `https://`, and every size and number is bounded.
 
 The models folder is `<config>/models` (Linux `~/.config/dalica/models`, macOS
 `~/Library/Application Support/Dalica/models`, Windows `%APPDATA%\Dalica\models`) or
@@ -108,6 +116,12 @@ Candidates, with what is publicly known (the maintainer decides; *Reserved decis
   calibration table), shown with its notice in `caution` colour.
 - Each manifest records the model's preprocessing (size, RGB/BGR, mean/std), embedding dimension,
   a recommended match threshold (`matchCosine`) and, for built-in models, a calibration table (§5).
+- **Until reserved decision 5 is recorded** (it was not at M13.10), the built-in download list is
+  empty (`known::OFFERED` in `crates/faces`): a model comes from **Add a model file…** or the user's
+  `catalog.json`. The three candidates above are known by their SHA-256, so a file the user already
+  has is recognised and shown with its terms, and each one's address is kept pinned to a commit of
+  its own repository, so the decision is a change to that one list. A model whose weights are for
+  non-commercial use is never offered, whatever the list says.
 
 ### 3.3 Switching models
 
@@ -217,8 +231,9 @@ never set it on their own initiative.
 - **No real models in tests by default.** Seeded synthetic networks exercise the interpreter
   (every operator, PReLU broadcasting, grouped convolutions, padding reuse, limits, overflow,
   concurrent calls); malformed, truncated and ambiguous ONNX files must fail to load, never panic.
-- **Real models** run only in `#[ignore]` tests with `DALICA_FACE_MODELS=<folder>`, which check the
-  self-test against locally supplied, hash-recognised files; models and crops stay out of git.
+- **Real models** are self-tested only when `DALICA_FACE_MODELS=<folder>` is set
+  (`crates/faces/tests/models.rs`): every hash-recognised file there must pass its self-test;
+  without it the test says it skipped. Models and crops stay out of git.
 - **Corpus:** `corpus/public-faces/` (public-domain portraits with `SOURCES.tsv`) behind the
   `corpus` feature: detection floor, alignment, embedding agreement with the recorded reference
   vectors, and a suggestion-precision floor at the default confidence. Floors only rise.

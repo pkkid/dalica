@@ -16,9 +16,14 @@ autotests = false
 ndarray.workspace = true
 matrixmultiply.workspace = true
 thiserror.workspace = true
+# Manifests and the bring-your-own `catalog.json`; SHA-256 of model files.
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+tempfile.workspace = true
 
 [[test]]
 name = "all"

@@ -173,13 +173,20 @@ file and revision in its first lines:
   crates/faces/tests/inference.rs (tests)    LightCraft crates/faces/src/net.rs, net/recognition_tests.rs,
                                              graph/tests.rs, onnx.rs @ f34c7a8a
   crates/faces/src/matching.rs               LightCraft crates/faces/src/matching.rs @ f34c7a8a (M13.7)
-  crates/faces/src/detect.rs                 LightCraft crates/faces/src/yunet.rs @ f34c7a8a (M13.10)
+  crates/faces/src/detect.rs                 LightCraft crates/faces/src/yunet.rs @ f34c7a8a (M13.10; with
+                                             crates/faces/src/detect/decode.rs, detect/letterbox.rs)
   crates/faces/src/align.rs                  LightCraft crates/faces/src/align.rs @ f34c7a8a (M13.10)
   crates/faces/src/manifest.rs               LightCraft crates/faces/src/manifest.rs @ f34c7a8a (M13.10)
   crates/faces/src/catalog.rs                LightCraft crates/faces/src/catalog.rs @ f34c7a8a (M13.10)
   crates/faces/src/known.rs                  LightCraft crates/faces/src/known.rs, crates/faces/src/suggest.rs
                                              @ f34c7a8a (M13.10)
   crates/faces/src/hash.rs                   LightCraft crates/faces/src/hash.rs @ f34c7a8a (M13.10)
+  crates/faces/src/embed.rs                  LightCraft crates/faces/src/runtime.rs @ f34c7a8a (M13.10)
+  crates/faces/src/selftest.rs               LightCraft crates/faces/src/runtime.rs @ f34c7a8a (M13.10)
+  crates/faces/tests/detect.rs (tests)       LightCraft crates/faces/src/yunet.rs, align.rs, runtime.rs
+                                             @ f34c7a8a (M13.10)
+  crates/faces/tests/models.rs (tests)       LightCraft crates/faces/src/manifest.rs, catalog.rs, known.rs,
+                                             suggest.rs, hash.rs, runtime.rs @ f34c7a8a (M13.10)
   crates/fetch/src/lib.rs                    LightCraft crates/fetch/src/lib.rs @ f34c7a8a, without its HTTP code
                                              (M13.8; with crates/fetch/src/spec.rs, transport.rs)
   crates/fetch/src/http.rs                   LightCraft crates/fetch/src/http.rs @ f34c7a8a (M13.13)
