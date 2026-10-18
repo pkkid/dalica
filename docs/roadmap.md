@@ -7152,8 +7152,43 @@ a maintainer decision mid-run.
     limit) for the maintainer at M12.R.
   - done when: both budgets pass on two consecutive Budgets runs on GitHub, or the task is blocked with the
     measurements and options; before/after numbers in the PR; `cargo xtask ci`.
+- ⬜ **M12.27 `ui` + `engine` + `edit`: a frame's grown size everywhere a size is read, and the effect docs as built**
+  - after: M12.13, M12.14
+  - files: `crates/edit/src/recipe.rs`, `crates/edit/tests/recipe.rs`, `crates/edit/src/ops/mod.rs`, `crates/edit/README.md`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/src/panels/viewer/strip.rs`, `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui/tests/edited_cells.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/viewer.rs`, `crates/ui/tests/adjust_date.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/tests/library_inspect.rs`, `docs/parity.md`
+  - scope: a fix task from M12.13 (#768). M12.13 made Border and Widescreen Film (and M12.14 Drop
+    Shadow and Museum Matte) change the picture's size through `edit::render::Reframe`, and
+    `edit::Geometry` includes the frames in `size`, `output_size`, `display_size` and the point
+    maps (`photo_size()`, `photo_area()`, `frames()` are new), so everything that reads `Geometry`
+    or renders through `edit::render` already shows the grown size (the edit canvas, the
+    slideshow, the viewer, the engine's preview, Save, Export, the thumbnails' pixels). Seven
+    readers still turn the file's size by the recipe's rotations and flips alone
+    (`turn.display_size(w, h)`) and miss a frame: the thumbnail cell's shape and size
+    (`panels/thumbnails.rs`, `recipe_orientation`), the status bar's dimensions (`status_text.rs`),
+    the edit view's filmstrip (`panels/edit/filmstrip.rs`), the viewer's strip
+    (`panels/viewer/strip.rs`), Adjust Date's preview (`dialogs/adjust_date.rs`),
+    `photo.inspect`'s `displayed` and the Properties pane through `cmd::photo::displayed_size`, and
+    `library.inspect`'s photo rows (`cmd/inspect.rs`, which give the file's `width`/`height` and
+    `rotate` only: they gain the shown size as `displayed`, as `photo.inspect`'s, the params doc
+    saying so). One helper in `edit` (beside `Recipe::display_size`, through `Geometry`) gives the
+    shown size of a recipe on a `w × h` photo, a recipe `edit` cannot read counting as none as
+    today; every reader calls it. Each reader keeps what it shows today for a photo without a frame
+    (whether it counts a crop is the spec's call for that surface; record it in the commit body).
+    Docs as built: the doc comment on `ops::Prepare` (its size is the canvas at the operation's
+    place, frames included) and `crates/edit/README.md` (no longer calls the effects stubs:
+    each live family's effects in one line, `render::Reframe`, `Soften::coverage`, the
+    `Geometry` additions, the test files M12.6–M12.14 added). Rows `FX-T3`, `FX-T4`, `FX-T5` and
+    the engine half of `FX-TILES`, which M12.6–M12.13 left because `parity.md` was not in their
+    files: set as built when this task runs, each effect measured by its tests, never claimed.
+  - done when: `crates/edit/tests/recipe.rs`: the helper gives a Border's grown size, turned by a
+    later rotation, and the file's turned size without a frame; with a Border on a photo, the
+    grown size shows in the thumbnail cell (`crates/ui/tests/edited_cells.rs`), the status bar
+    (`crates/ui/tests/status_line.rs`), the filmstrip and the viewer's strip (`crates/ui/tests/viewer.rs`
+    or each module's own `mod tests`), Adjust Date's preview (`crates/ui/tests/adjust_date.rs`),
+    `photo.inspect` (the unit test in `cmd/photo.rs`) and `library.inspect`
+    (`crates/engine/tests/library_inspect.rs`); the docs read as built; the parity rows updated
+    and `cargo xtask parity --write` run; `panic_hunt` green; `cargo xtask ci`.
 - ⬜ **M12.22 `accept M12`**
-  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26
+  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27
   - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
   - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: each tab's grid filling with previews; each of the 27
@@ -7215,6 +7250,7 @@ wave 2   M12.5 effect list, tiles, pick  ‖  M12.6 colour effects  ‖  M12.7 s
 wave 3   M12.14 drop shadow + museum matte  ‖  M12.15 tile grids  ‖  M12.16 parameter panel
          ‖  M12.19 batch edit effects  ‖  M12.20 W11
 wave 4   M12.17 crosshair  ‖  M12.18 soften brush  ‖  M12.21 M12 budgets
+         (fix task: M12.27 a frame's grown size everywhere and the effect docs, after M12.14)
 wave 5   M12.22 accept M12 → M12.R          (M12.23 lead: M14 blocks, any time after M11.25)
 ```
 
