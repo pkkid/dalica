@@ -7225,7 +7225,7 @@ a maintainer decision mid-run.
     that window of the whole render for Soften (everywhere and painted) and Heal; Soften and Heal
     render times at 12 MP (release, `Target::Full` and a 1:1 window, median of five) not worse,
     before/after in the PR; the `NOTICE` row; `cargo xtask ci`.
-- ⬜ **M12.29 `engine`: a size-changing effect's tile shows its whole picture**
+- ✅ **M12.29 `engine`: a size-changing effect's tile shows its whole picture**
   - after: M12.5, M12.13, M12.14
   - files: `crates/engine/src/effect_tiles.rs`, `crates/engine/tests/effects.rs`, `docs/editing.md`
   - scope: a fix task from the M12.R review screenshots. Every tile is rendered at the scale that
