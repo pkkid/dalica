@@ -11,6 +11,11 @@
 //! clickable (`editing.md` §5): another tab shows its content disabled, the open tool's panel
 //! stays. A Tuning session leaves the panel enabled.
 //!
+//! **A short panel** (the 900 × 600 window): the effect tabs' grids never scroll, so the content
+//! claims the grid's height ([`effects::needed_height`]) and the Histogram & Camera Info box gives
+//! way: it shrinks (to [`MIN_HISTOGRAM`]) and, when even that leaves too little, is not drawn. The
+//! other tabs and a panel tall enough (1400 × 900) keep the full box.
+//!
 //! **Show original** (`button:edit.showOriginal`, `editing.md` §4) sits at the tab strip's right
 //! end: pressed and held, it shows the focused photo unedited (`edit.showOriginal {on: true}`), and
 //! let go, as edited again (`{on: false}`).
@@ -67,14 +72,43 @@ fn span(x0: f32, x1: f32, y0: f32, y1: f32) -> Rect {
     Rect::from_min_max(pos2(x0, y0), pos2(x1.max(x0), y1.max(y0)))
 }
 
+/// The shortest the histogram box gets before it gives way altogether: its title, a 24 pt plot and
+/// the camera lines.
+pub const MIN_HISTOGRAM: f32 = 106.0;
+
 /// The parts of a panel `rect`: the tabs along the top edge (the whole width), the histogram box at
 /// the bottom, Undo / Redo above it, the content between. A panel too short for them squeezes the
 /// content first.
 pub fn parts(rect: Rect) -> Parts {
+    parts_for(rect, 0.0)
+}
+
+/// [`parts`] for content that needs `need` points of height: the histogram box shrinks to leave
+/// them (never below [`MIN_HISTOGRAM`]) and, when that is still too tall, is left out (an empty
+/// rect at the panel's foot, Undo / Redo moving down). With room to spare it is [`parts`].
+pub fn parts_for(rect: Rect, need: f32) -> Parts {
     let (l, r) = (rect.min.x + MARGIN, rect.max.x - MARGIN);
     let tabs = span(rect.min.x, rect.max.x, rect.min.y, rect.min.y + TABS);
-    let histogram = span(l, r, (rect.max.y - MARGIN - HISTOGRAM).max(tabs.max.y), (rect.max.y - MARGIN).max(tabs.max.y));
-    let history = span(l, r, (histogram.min.y - MARGIN - HISTORY).max(tabs.max.y), (histogram.min.y - MARGIN).max(tabs.max.y));
+    // Everything but the content and the histogram box: the tabs, Undo / Redo and four margins.
+    let fixed = TABS + HISTORY + 4.0 * MARGIN;
+    let room = rect.height() - fixed - MARGIN - need;
+    // `None`: left out.
+    let h = if need.is_nan() || need <= 0.0 || room.is_nan() {
+        Some(HISTOGRAM)
+    } else if room >= MIN_HISTOGRAM {
+        Some(room.min(HISTOGRAM))
+    } else {
+        None
+    };
+    let histogram = match h {
+        Some(h) => span(l, r, (rect.max.y - MARGIN - h).max(tabs.max.y), (rect.max.y - MARGIN).max(tabs.max.y)),
+        None => {
+            let foot = rect.max.y.max(tabs.max.y);
+            span(l, r, foot, foot)
+        }
+    };
+    let above = if h.is_some() { histogram.min.y - MARGIN } else { rect.max.y - MARGIN };
+    let history = span(l, r, (above - HISTORY).max(tabs.max.y), above.max(tabs.max.y));
     let content = span(l, r, tabs.max.y + MARGIN, history.min.y - MARGIN);
     Parts { tabs, content, history, histogram }
 }
@@ -93,11 +127,18 @@ fn part(ui: &mut Ui, salt: &str, rect: Rect, enabled: bool, add: impl FnOnce(&mu
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
-    let p = parts(ui.max_rect());
+    let need = effects::needed_height(app.tokens(), app.state().edit.tab);
+    let p = parts_for(ui.max_rect(), need);
     // A modal tool (Crop, Straighten, Retouch) holds the panel until Apply or Cancel.
     let modal = tools::open_tool(app).filter(|t| t.modal()).map(|t| t.kind());
     part(ui, "tabs", p.tabs, true, |ui| tabs(app, ui));
     let tab = app.state().edit.tab;
+    // The tiles' work stops when no grid takes them (another tab, or a panel in the grid's place);
+    // the grid asks again when it is back.
+    let grid = effects::tab_number(tab).is_some() && !matches!(modal, Some(ToolKind::Crop | ToolKind::Retouch | ToolKind::Effect));
+    if !grid && let Some(s) = app.session_mut().filter(|s| s.effect_tiles_pending() > 0) {
+        s.close_effect_tiles();
+    }
     part(ui, "content", p.content, true, |ui| match modal {
         Some(ToolKind::Crop) => crop::show(app, ui),
         Some(ToolKind::Retouch) => retouch::show(app, ui),
@@ -226,6 +267,27 @@ mod tests {
             let p = parts(Rect::from_min_size(pos2(0.0, 0.0), vec2(280.0, h)));
             for r in [p.tabs, p.content, p.history, p.histogram] {
                 assert!(r.width() >= 0.0 && r.height() >= 0.0, "{h}: {r:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_histogram_box_gives_way_to_a_grid_that_needs_the_height() {
+        let tall = Rect::from_min_size(pos2(0.0, 72.0), vec2(280.0, 712.0));
+        assert_eq!(parts_for(tall, 288.0), parts(tall), "1400 × 900: room for both");
+        // 1100 × 700: the box shrinks to leave the grid its height.
+        let mid = parts_for(Rect::from_min_size(pos2(0.0, 72.0), vec2(280.0, 512.0)), 288.0);
+        assert!(mid.content.height() >= 288.0 && (MIN_HISTOGRAM..HISTOGRAM).contains(&mid.histogram.height()), "{mid:?}");
+        // 900 × 600: even the smallest box leaves too little; it is left out and Undo / Redo move down.
+        let short = Rect::from_min_size(pos2(0.0, 72.0), vec2(280.0, 412.0));
+        let p = parts_for(short, 288.0);
+        assert!(!p.histogram.is_positive() && p.content.height() >= 288.0, "{p:?}");
+        assert_eq!(p.history.max.y, short.max.y - MARGIN);
+        assert_eq!(parts_for(short, 0.0), parts(short), "a tab that needs nothing keeps the box");
+        for need in [f32::NAN, -5.0, 1e9] {
+            let p = parts_for(short, need);
+            for r in [p.tabs, p.content, p.history, p.histogram] {
+                assert!(r.width() >= 0.0 && r.height() >= 0.0, "{need}: {r:?}");
             }
         }
     }

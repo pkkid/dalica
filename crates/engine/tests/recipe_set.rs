@@ -43,7 +43,7 @@ fn a_set_on_two_photos_is_one_step_of_each_history_and_undo_restores_both() {
     assert_eq!(edits(&s, a), new, "verbatim: the two rotations are not merged");
     assert_eq!(edits(&s, b), new);
     assert_eq!(v["photos"][0]["changed"], json!(true));
-    assert_eq!(v["photos"][1]["undoLabel"], json!("Undo Black and White"));
+    assert_eq!(v["photos"][1]["undoLabel"], json!("Undo B&W"));
     assert_eq!(s.undo_stack().len(), library_steps, "photo steps never reach the library stack");
     s.flush().unwrap();
     let sidecar: Value = serde_json::from_slice(&std::fs::read(folder.join(".dalica.json")).unwrap()).unwrap();

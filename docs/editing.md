@@ -129,7 +129,7 @@ While a tool or effect panel is open, clicking another tab is allowed, but the o
 the rest of the edit panel is drawn disabled until Apply/Cancel. Esc = Cancel. (In Dalica the tabs
 run along the panel's top edge on a `canvas` strip, the one shown joined to the panel; the tab
 content and Undo/Redo are what is drawn disabled; a Tuning session is not a panel and leaves them
-enabled. Until the effects arrive (M12) tabs 3–5 show "No effects yet".)
+enabled. Tabs 3–5 show their tile grids, §8.1.)
 
 ### 5.1 Undo / Redo
 
@@ -162,7 +162,9 @@ mean so tall spikes clip), computed from the displayed preview and updated live 
 below it two columns: camera make/model, focal length (+ 35 mm equivalent, "35 mm (52 mm equiv.)") |
 shutter, aperture, ISO ("ISO 200"); each line only when the file has it. No EXIF: "No camera
 information"; while the file is still being read: "Reading camera information…". Until a preview of
-the photo is shown the histogram is an empty plate.
+the photo is shown the histogram is an empty plate. (In Dalica, when the panel is too short for both the box and an
+effect tab's grid, which never scrolls, the box shrinks, down to 106 pt, and then is left out; at
+1400 × 900 it is always whole.)
 
 ## 6. Tab 1 — Basic fixes
 
@@ -260,7 +262,12 @@ new tab session changes depends on what came after that Tuning:
 
 - Each tab is a fixed grid of tiles, three columns and at most four rows (no scrolling): a live 78 × 48 preview of the current
   photo with the effect at default settings, label below (SemiBold 11), tooltip describing it.
-  Tiles render asynchronously (placeholder `gray 38`).
+  Tiles render asynchronously (placeholder `gray 38`). (In Dalica each tile is rendered in the
+  background at the preview's size in device pixels from a small decode, never written to disk;
+  after an edit a tile keeps its old preview until the remade one replaces it, so the grid does not
+  flash grey. The grid is centred in the panel, ids `effect:<name>`; a one-click tile runs
+  `edit.effect.apply {name}`, any other `edit.tool.open {tool: "effect", name}`; while a modal tool
+  is open the grid is drawn disabled, and an effect's own panel takes its place.)
 - **One-click effects** (Sepia, B&W, Warmify, Invert Colors) apply immediately and show a small
   "1-click" corner badge on their tile.
 - **Parameter effects** replace the grid with a panel: title (effect name), up to 4 sliders with the

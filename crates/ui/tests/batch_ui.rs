@@ -113,7 +113,7 @@ fn batch_auto_fix_on_twenty_held_photos_is_one_undo_step_and_effects_are_greyed(
             }
             assert!(edits(&t, t.ids[20]).is_empty() && edits(&t, t.ids[21]).is_empty(), "{path}: photos outside the tray are left alone");
             let stack = t.d.app().session().unwrap().undo_stack();
-            assert_eq!((stack.len(), stack.undo_label()), (steps + 1, Some(label)), "{path}: one library step, named as the menu item");
+            assert_eq!((stack.len(), stack.undo_label()), (steps + 1, Some(row.label)), "{path}: one library step, named by the operation");
             ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Z" }));
             for id in &held {
                 assert!(edits(&t, *id).is_empty(), "{path}: one Ctrl+Z restores photo {id}");

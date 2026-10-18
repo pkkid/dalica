@@ -1,5 +1,5 @@
 //! The edit panel (`editing.md` §2, §5–§6), driven through the control channel as an agent would:
-//! each tab by its id (`tab:edit.*`, the effect tabs' empty state); the Basic Fixes grid (Auto Fix
+//! each tab by its id (`tab:edit.*`, the effect tabs' tiles); the Basic Fixes grid (Auto Fix
 //! by click and by Ctrl+Shift+E is one "Auto Fix" step of the photo's history, Auto Contrast and
 //! Auto Color likewise; Crop, Straighten and Retouch open their tool); the Undo / Redo pair with the
 //! labels of the photo's history, walked by its buttons, and Edit ▸ Undo / Redo following the same
@@ -154,7 +154,7 @@ const TABS: [(&str, &str, &str); 5] = [
 const GRID: [&str; 6] = ["tool:crop", "tool:straighten", "tool:retouch", "tool:autofix", "tool:autocontrast", "tool:autocolor"];
 
 /// Each tab by its id: it becomes the tab shown (the only active one), the Basic Fixes grid shows
-/// only on its tab, the effect tabs show their empty state; each tab's label is its tooltip.
+/// only on its tab, the effect tabs show their tiles; each tab's label is its tooltip.
 #[test]
 fn each_tab_is_shown_by_its_id() {
     let mut t = setup((1400, 900), 3);
@@ -174,7 +174,8 @@ fn each_tab_is_shown_by_its_id() {
         }
         assert_eq!(widget(&t, id).label, tip);
         assert_eq!(find(&t, "tool:autofix").is_some(), name == "basic", "{id}");
-        assert_eq!(find(&t, "empty:edit.effects").is_some(), name.starts_with("effects"), "{id}");
+        let tiles = t.d.widgets().iter().any(|w| w.id.starts_with("effect:"));
+        assert_eq!(tiles, name.starts_with("effects"), "{id}: the effect tiles on the effect tabs only");
         // Undo / Redo and the histogram box are under every tab.
         for under in ["button:edit.undo", "button:edit.redo", "box:histogram", "histogram:edit"] {
             assert!(find(&t, under).is_some(), "{under} under {id}");
@@ -344,7 +345,7 @@ fn camera_information_with_exif_and_without() {
 }
 
 /// The edit panel per tab (Basic Fixes after an Auto Fix, with the preview's histogram; Tuning; an
-/// effect tab) and with Straighten open.
+/// effect tab, its previews not yet arrived) and with Straighten open.
 #[test]
 fn the_edit_panel_matches_its_fingerprints() {
     let (w, h) = LARGE;
@@ -360,8 +361,12 @@ fn the_edit_panel_matches_its_fingerprints() {
     check_region(&t, &format!("edit-panel-basic-{w}x{h}"), panel);
     click(&mut t, "tab:edit.tuning");
     check_region(&t, &format!("edit-panel-tuning-{w}x{h}"), panel);
-    click(&mut t, "tab:edit.effects");
+    // The effect tab on the frame it opens, its tile previews still `gray 38`: the baseline does not
+    // move with the effects' renderers (their own fingerprints pin them; `effect_tiles.rs` proves
+    // the previews arrive).
+    t.d.run("edit.tab", &json!({ "tab": "effects" })).unwrap();
     check_region(&t, &format!("edit-panel-effects-{w}x{h}"), panel);
+    t.d.settle(FRAMES).unwrap();
     click(&mut t, "tab:edit.basic");
     click(&mut t, "tool:straighten");
     check_region(&t, &format!("edit-panel-straighten-{w}x{h}"), panel);

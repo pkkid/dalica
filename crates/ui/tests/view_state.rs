@@ -978,7 +978,7 @@ fn bad_effect_values_are_refused_and_change_nothing() {
 
 /// `edit.tool.open {tool: "effect", name: "sharpen"}` opens the stub panel in place of the grid:
 /// its title, Apply │ Cancel, the draft at Sharpen's defaults; Esc closes it and the grid's empty
-/// state is back. A one-click effect has no panel.
+/// is back. A one-click effect has no panel.
 #[test]
 fn an_effect_panel_opens_and_esc_closes_it() {
     let mut t = setup();
@@ -986,7 +986,7 @@ fn an_effect_panel_opens_and_esc_closes_it() {
     ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": p[0] } }));
     ok(&mut t, "engine.execute", json!({ "command": "edit.tab", "params": { "tab": "effects" } }));
     ok(&mut t, "ui.wait", json!({ "ms": 50 }));
-    assert!(rect_of(&t, "empty:edit.effects").is_some(), "the grid's stub");
+    assert!(rect_of(&t, "effect:sharpen").is_some(), "the grid");
     let opened = ok(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "effect", "name": "sharpen" } }));
     assert_eq!(opened, json!({ "tool": "effect", "name": "sharpen" }), "{opened}");
     ok(&mut t, "ui.wait", json!({ "ms": 50 }));
@@ -995,30 +995,30 @@ fn an_effect_panel_opens_and_esc_closes_it() {
     for id in ["button:panel.apply", "button:panel.cancel"] {
         assert!(rect_of(&t, id).is_some(), "{id} drawn");
     }
-    assert!(rect_of(&t, "empty:edit.effects").is_none(), "the panel replaces the grid");
+    assert!(rect_of(&t, "effect:sharpen").is_none(), "the panel replaces the grid");
     assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty());
     ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
     let e = state(&mut t)["edit"].clone();
     assert_eq!((&e["tool"], &e["effect"]), (&Value::Null, &Value::Null));
     assert_eq!(state(&mut t)["view"], "edit", "Esc closed the panel and stayed");
-    assert!(rect_of(&t, "empty:edit.effects").is_some());
+    assert!(rect_of(&t, "effect:sharpen").is_some());
     assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "effect", "name": "sepia" } })), "bad_params");
     assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "effect" } })), "bad_params");
     assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "crop", "name": "sharpen" } })), "bad_params");
 }
 
 /// Ctrl+Shift+B is the edit view's (B&W, `edit.bw`): in the library it runs nothing; in the edit
-/// view it reaches the stub.
+/// view it appends B&W to the open photo.
 #[test]
 fn ctrl_shift_b_does_nothing_in_the_library() {
     let mut t = setup();
     let p = t.photos.clone();
-    let not_yet = dalica_ui::commands::effects::NOT_YET;
+    let edits = |t: &mut T| ok(t, "engine.execute", json!({ "command": "photo.history.state", "params": { "id": p[0] } }))["edits"].clone();
     let before = state(&mut t);
     ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Shift+B" }));
-    assert_ne!(t.d.app().state().status, not_yet, "Ctrl+Shift+B ran edit.bw in the library");
+    assert_eq!(edits(&mut t), json!([]), "Ctrl+Shift+B ran edit.bw in the library");
     assert_eq!(state(&mut t), before);
     ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": p[0] } }));
     ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Shift+B" }));
-    assert_eq!(t.d.app().state().status, not_yet);
+    assert_eq!(edits(&mut t), json!(["bw()"]));
 }

@@ -331,7 +331,7 @@ impl Driver {
 
     /// What is still pending, as `ui.settle` lists it: queued input, a library opening or
     /// scanning, a search waiting for its debounce or its answer, the open photo's edit-view
-    /// preview on its way, a photo's metadata being read for
+    /// preview on its way, the effect tab's tile previews on their way, a photo's metadata being read for
     /// the Properties pane, visible thumbnails on their way, an open file dialog (Add Folder's, the
     /// Save As picker, a folder picker such as the Export dialog's Browse…, until its answer has
     /// run), a running animation. `jobs` also counts long jobs and background generation: metadata
@@ -354,6 +354,13 @@ impl Driver {
         let preview = self.app.session().map_or(0, dalica_engine::Session::preview_busy);
         if preview > 0 {
             busy.push(format!("edit preview: {preview}"));
+        }
+        // Counted only while an effect tab's grid asks for them (the grid takes them each frame).
+        let edit = &self.app.state().edit;
+        let grid = self.app.state().view == crate::state::View::Edit && crate::panels::edit::effects::tab_number(edit.tab).is_some();
+        let tiles = if grid { self.app.session().map_or(0, dalica_engine::Session::effect_tiles_pending) } else { 0 };
+        if tiles > 0 {
+            busy.push(format!("effect tiles: {tiles}"));
         }
         let reading = self.app.session().map_or(0, dalica_engine::Session::photo_metadata_pending);
         if reading > 0 {
