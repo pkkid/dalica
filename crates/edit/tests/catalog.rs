@@ -240,7 +240,7 @@ fn defaults_print_back_and_render_the_same_every_time() {
 /// changes the picture at its defaults, among the same operations.
 #[test]
 fn a_recipe_with_every_stub_effect_renders_as_the_recipe_without_them() {
-    let img = scene(5, 40, 30);
+    let img = scene(5, 200, 150);
     let around = ["crop(0.1,0.1,0.9,0.9)", "autofix()", "tuning(0.2,0.1,0.05,-0.3,none)", "rotate(90)"];
     let effects: Vec<&OpInfo> = catalog().iter().filter(|op| op.effect.is_some()).collect();
     assert_eq!(effects.len(), 27);
