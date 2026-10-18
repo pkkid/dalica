@@ -523,9 +523,10 @@ fn clearing_every_field_removes_its_keys() {
 }
 
 /// A photo deleted outside Dalica whose entry holds only Dalica's fields other than the star (M6's
-/// info; M8's copy saved beside) is Dalica's entry like a starred one (`data-model.md` §7): marked
-/// at the folder's next write, kept for 30 days, pruned by the first write after them; the copy
-/// saved beside is another photo and keeps its own entry.
+/// info; M8's copy saved beside; M13's faces, or only a removed location, `"geo": null`) is
+/// Dalica's entry like a starred one (`data-model.md` §7): marked at the folder's next write, kept
+/// for 30 days, pruned by the first write after them; the copy saved beside is another photo and
+/// keeps its own entry.
 #[test]
 fn an_entry_with_only_dalica_fields_is_marked_and_pruned_when_its_file_is_gone() {
     use dalica_store::stale::{MISSING_KEY, PRUNE_AFTER};
@@ -537,7 +538,7 @@ fn an_entry_with_only_dalica_fields_is_marked_and_pruned_when_its_file_is_gone()
         redo: strings(&["sepia()"]),
         date: Some(dt("2026-06-04T19:42:10")),
     };
-    let cases: [(&str, [&str; 2], Op, &str, Value); 2] = [
+    let cases: [(&str, [&str; 2], Op, &str, Value); 4] = [
         ("M6 info", ["b.jpg", "a.jpg"], Op::SetPhotoInfo { photos: vec![(PhotoId::new(1), info)] }, "/photos/b.jpg/caption", json!("gone soon")),
         (
             "savedAs",
@@ -546,6 +547,14 @@ fn an_entry_with_only_dalica_fields_is_marked_and_pruned_when_its_file_is_gone()
             "/photos/a.CR2/savedAs/name",
             json!("a.jpg"),
         ),
+        (
+            "faces",
+            ["b.jpg", "a.jpg"],
+            Op::SetFaces { faces: vec![(PhotoId::new(1), vec![Face::new(rect(0.1, 0.2, 0.3, 0.4), FacePerson::Ignored)])] },
+            "/photos/b.jpg/faces/0/person",
+            json!("ignored"),
+        ),
+        ("geo null", ["b.jpg", "a.jpg"], Op::SetGeo { geo: vec![(PhotoId::new(1), Some(Geo::Removed))] }, "/photos/b.jpg/geo", Value::Null),
     ];
     for (case, names, set, kept_at, kept) in cases {
         let dir = tempfile::tempdir().unwrap();

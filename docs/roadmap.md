@@ -7856,7 +7856,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     body, a stalled server timing out, oversized headers refused, a proxy `CONNECT` used when set
     and skipped for a `NO_PROXY` host; a certificate that does not validate fails; `cargo xtask
     deps` passes; `cargo +nightly fuzz build` builds the target.
-- ⬜ **M13.45 `scan` + `engine` + `store`: faces, geotags and people read from the sidecars on scan and rebuild**
+- ✅ **M13.45 `scan` + `engine` + `store`: faces, geotags and people read from the sidecars on scan and rebuild**
   - after: M13.9
   - files: `crates/scan/src/walk.rs`, `crates/scan/src/lib.rs`, `crates/engine/src/scanning.rs`, `crates/store/src/stale.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/fields.rs`, `crates/engine/tests/sidecar_people_places.rs`, `crates/scan/README.md`, `crates/store/README.md`, `docs/data-model.md`
   - scope: a data-safety task found by M13.9 (#861), ahead of the first writers of these keys

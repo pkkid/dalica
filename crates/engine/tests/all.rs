@@ -66,6 +66,7 @@ mod save_formats;
 mod save_recovery;
 mod search;
 mod settings;
+mod sidecar_people_places;
 mod slideshow;
 mod synthetic;
 mod tags;

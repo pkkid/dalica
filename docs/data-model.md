@@ -237,6 +237,18 @@ Format rules:
     Notes about faces and people give counts and person ids, never names or rectangles
     (`faces.md` §7). The index keeps people, faces and geotags (snapshot `people`, `faces`, `geo`;
     the journal records their ops).
+  - **Read on scan (M13.45).** Scans and the watcher's rescans read these keys on the scan's
+    thread with the rest of the sidecar, by the same rules (`dalica-scan` `photo_faces`,
+    `photo_geo`, `folder_people`), and they ride in the op that adds the photos, so no sidecar
+    write can run in between: the people the faces name that the model lacks are created first
+    (under the folder's name and nickname, or `people.json`'s during a rebuild), by the rebuild's
+    rules (a name another person holds, ignoring case, is that person; `dalica-store`
+    `rebuild::People`), then the faces and the geotags, `null` included, so a later first-scan
+    import of the file's GPS sees the user's word. A face naming a person named nowhere stays out
+    of the model and in the file. Photos the model knows keep the model's word, and a scan never
+    writes these keys. A rebuild (`library.rebuild`, or a damaged index) also reads `people.json`
+    and ends by creating the people it has that no folder brought back and setting the
+    thumbnails it names where the face is the person's.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -842,7 +854,8 @@ ids are the same everywhere (`control-protocol.md` §5.4).
   - **Stale entries:** a photo deleted outside Dalica leaves the library at once. Its sidecar entry
     stays: the folder's next sidecar write marks it in `dalica.missing` (§3) with the time, and the
     first write 30 days or more later prunes the entry (pruning happens only on a write). An entry
-    is stale only while it holds Dalica's data, has a plain file name, is not a photo of the
+    is stale only while it holds Dalica's data (the star, any of the photo's fields above: albums,
+    faces and a geotag, `"geo": null` included), has a plain file name, is not a photo of the
     library and has no file in the folder; a file that comes back (or one the scans skip) keeps its
     entry, and entries only other programs wrote are never touched. The sidecar, not the index,
     remembers the time, so it survives a rebuild of the index and travels with the folder.

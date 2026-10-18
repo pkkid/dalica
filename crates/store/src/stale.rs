@@ -10,8 +10,8 @@
 //! hold, checked again at every write:
 //!
 //! - it is an object holding Dalica's own data (a key the model writes, [`crate::mapping`]: the
-//!   star, M6's fields, `savedAs` and M9's `albums`), so an entry only another program wrote is
-//!   never touched;
+//!   star, M6's fields, `savedAs`, M9's `albums` and M13's `faces` and `geo`, a `"geo": null`
+//!   included), so an entry only another program wrote is never touched;
 //! - its name is a plain file name ([`dalica_sidecar::plain_name`]): a hostile key never reaches
 //!   a path;
 //! - the model holds no photo of that name in the folder, and
@@ -29,7 +29,7 @@ use std::time::Duration;
 use dalica_core::{DateTime, Timestamp};
 use serde_json::{Map, Value};
 
-use crate::mapping::{PHOTO_DATA_M9, PHOTO_FIELDS, PHOTO_INFO_FIELDS, SAVED_AS_FIELDS, Source};
+use crate::mapping::{FACE_FIELDS, PHOTO_DATA_M9, PHOTO_DATA_M13, PHOTO_FIELDS, PHOTO_INFO_FIELDS, SAVED_AS_FIELDS, Source};
 
 /// How long an entry whose file is gone is kept.
 pub const PRUNE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -70,18 +70,22 @@ fn read_stamp(v: &Value) -> Option<String> {
 
 /// The keys under `photos.<name>` that hold Dalica's own data: the star and every field of what
 /// the user said about the photo (caption, tags, hidden, recipe, redo list, date), and the copy a
-/// Save wrote beside it (`savedAs`, M8), and its album memberships (`albums`, M9).
+/// Save wrote beside it (`savedAs`, M8), its album memberships (`albums`, M9), its faces and its
+/// geotag (`faces`, `geo`, M13).
 fn dalica_keys() -> impl Iterator<Item = &'static str> {
     let mut keys: Vec<&'static str> = PHOTO_FIELDS
         .iter()
         .chain(&PHOTO_INFO_FIELDS)
         .chain(&SAVED_AS_FIELDS)
         .chain(&PHOTO_DATA_M9)
+        .chain(&PHOTO_DATA_M13)
+        .chain(&FACE_FIELDS)
         .filter_map(|(_, s)| match s {
             Source::Sidecar(key) => Some(*key),
             _ => None,
         })
         .collect();
+    keys.sort_unstable();
     keys.dedup();
     keys.into_iter()
 }
