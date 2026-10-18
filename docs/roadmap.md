@@ -8140,7 +8140,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     restart; Remove Faces drops the folder's faces and Keep Faces keeps them; the Faces filter
     shows only photos with faces; at 900 × 600 the dialog and the tab fit; fingerprints of the
     dialog and the tab at 1400 × 900.
-- ⬜ **M13.28 `ui`: Options ▸ Network, allowing map tiles and searching for a place**
+- ✅ **M13.28 `ui`: Options ▸ Network, allowing map tiles and searching for a place**
   - after: M13.20, M13.22
   - files: `crates/ui/src/dialogs/options/network.rs`, `crates/ui/src/panels/places/tiles.rs`, `crates/ui/src/panels/places/search.rs`, `crates/ui/src/commands/map.rs`, `crates/ui/tests/map_tiles_ui.rs`, `crates/ui/tests/fingerprints/dialog-options-network-*.json`, `crates/ui/tests/fingerprints/places-tiles-*.json`
   - scope: `menus-and-shortcuts.md` §5 and `organizing.md` §7: Options ▸ Network (Allow map tiles,

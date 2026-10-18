@@ -36,6 +36,8 @@ serde_json.workspace = true
 dalica-engine = { workspace = true, features = ["faults"] }
 # Synthetic face embeddings planted in the recogniser's cache (`tests/suggestions_ui.rs`).
 dalica-faces.workspace = true
+# An in-memory tile server and geocoding service (`tests/map_tiles_ui.rs`): no test touches the network.
+dalica-fetch.workspace = true
 dalica-meta.workspace = true
 dalica-scan.workspace = true
 dalica-scenes.workspace = true
