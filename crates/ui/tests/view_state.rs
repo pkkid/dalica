@@ -1241,9 +1241,11 @@ fn the_new_menu_items_are_listed_and_greyed() {
     let paste = row(&mut t, "geo.paste", Value::Null);
     assert_eq!((&paste["live"], &paste["enabled"]), (&json!(true), &json!(false)), "geo.paste: {paste}");
     assert!(paste["reason"].is_string(), "geo.paste: {paste}");
+    // Picture ▸ Find Faces Again is the engine's (M13.18).
+    let reset = row(&mut t, "faces.reset", Value::Null);
+    assert_eq!((&reset["live"], &reset["enabled"]), (&json!(true), &json!(true)), "faces.reset: {reset}");
     for (id, live, reason) in [
         ("geo.clear", true, dalica_engine::cmd::places::NONE_LOCATED),
-        ("faces.reset", false, "Not available yet."),
         ("faces.writeXmp", false, "Not available yet."),
         ("people.manager", false, "Not available yet."),
     ] {

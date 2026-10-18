@@ -236,6 +236,9 @@ fn faces_of_a_scenes_set_appear_under_unnamed_in_groups() {
             let (photo, index) = f.split_once('.').unwrap();
             let r = dalica_library::FaceRef { photo: photo.parse().unwrap(), index: index.parse().unwrap() };
             assert_eq!(s.face_group(r), Some(n));
+            let listed = s.execute("faces.list", &json!({ "ids": [r.photo] })).unwrap();
+            let row = listed["faces"].as_array().unwrap().iter().find(|x| x["id"] == json!(f)).unwrap().clone();
+            assert_eq!(row["group"], json!(n), "faces.list gives the group");
         }
     }
     // The scan's job ended; its progress was the People group's header.

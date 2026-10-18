@@ -154,8 +154,8 @@ Turning on **Find faces in my photos** starts a scan of the library at the lowes
 How it is built (M13.18; engine `faces_scan.rs`, `faces_index.rs`, `cmd/face_scan.rs`):
 
 - **Models folder.** The host gives the session its models folder (`Session::set_face_models_dir`
-  with `default_models_dir`: `$DALICA_FACE_MODELS` or `<config>/models`; the app, the CLI and MCP
-  are wired to it with the model commands); a session given none scans nothing, so tests and
+  with `default_models_dir`: `$DALICA_FACE_MODELS` or `<config>/models`, as the app and the CLI
+  do); a session given none scans nothing, so tests and
   benches never pick up a user's models. An installed model is a folder named by its id holding
   `model.onnx` and its manifest `face-model.json`; a file whose SHA-256 differs from its
   manifest's is refused. The recogniser in use is `people.model` when installed, else the newest;

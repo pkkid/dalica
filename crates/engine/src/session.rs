@@ -821,6 +821,7 @@ impl Session {
         n += self.poll_file_jobs();
         n += self.poll_search();
         n += self.poll_duplicates();
+        n += self.poll_face_scan();
         self.sync_damage();
         self.jobs.prune(self.clock.now());
         n

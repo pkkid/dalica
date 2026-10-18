@@ -22,7 +22,7 @@
 //!   without an undo step (as a scan's imports are). A detection overlapping a face the photo has
 //!   (named, unnamed or ignored) is that face, never a second one; a face the user removed is not
 //!   found again because the photo stays searched.
-//! - **Which photos, in which order** ([`Session::poll_face_scan`]): photos with named faces first
+//! - **Which photos, in which order** ([`Session::poll_face_scan`], every [`Session::poll`]): photos with named faces first
 //!   (they seed suggestions), then the newest folders first, newest photos first. Videos, folders
 //!   with "Find faces in this folder" off, hidden folders and folders on offline volumes are
 //!   skipped: their files are never read. Find Faces Again (`faces.reset`) and `faces.detect` put

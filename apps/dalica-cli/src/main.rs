@@ -197,7 +197,10 @@ pub(crate) fn library_arg(args: &[String]) -> Option<std::path::PathBuf> {
 /// Opens the library, or prints why not and gives exit code 3.
 pub(crate) fn open(dir: &std::path::Path) -> Result<dalica_engine::Session, ExitCode> {
     match dalica_engine::Session::open(dir, std::sync::Arc::new(dalica_core::SystemClock)) {
-        Ok(s) => Ok(s),
+        Ok(mut s) => {
+            s.set_face_models_dir(dalica_engine::faces_scan::default_models_dir());
+            Ok(s)
+        }
         Err(e) => {
             eprintln!("dalica-cli: {e}");
             Err(ExitCode::from(3))
