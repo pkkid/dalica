@@ -71,7 +71,17 @@ pub const BENCHES: &[Bench] = &[
     Bench {
         name: "slideshow",
         package: "dalica-ui",
-        what: "a slideshow of 24 MP JPEGs in the headless app, every transition: an advance to its first frame with the next photo prefetched, a transition frame, and changes that waited",
+        what: "a slideshow of 24 MP JPEGs in the headless app, every transition: an advance to its first frame with the next photo prefetched, a transition frame, an upload frame, and changes that waited",
+    },
+    Bench {
+        name: "effects",
+        package: "dalica-edit",
+        what: "the 27 effects at their defaults: a slider's draft and final on the 2560 × 1600 screen, and a 24 MP render as Save renders it",
+    },
+    Bench {
+        name: "effect_tiles",
+        package: "dalica-engine",
+        what: "an effect tab's tiles of a 24 MP JPEG, from opening the photo in the edit view to the tab's last tile, tabs 3, 4 and 5",
     },
 ];
 
@@ -405,8 +415,8 @@ pub fn judge_batch_edit(stdout: &str, plant: f64) -> Result<String, String> {
 }
 
 /// `slideshow --json` in release over 24 MP photos: no change waited for its preview, the advance's
-/// median and a transition frame's p95 within their budgets, and that p95 within 16 ms (a planted
-/// slowdown added to every frame).
+/// median, a transition frame's p95 and an upload frame's p95 (M12.21) within their budgets, each
+/// p95 within 16 ms (a planted slowdown added to every frame).
 pub fn judge_slideshow(stdout: &str, plant: f64) -> Result<String, String> {
     let report = release_report("slideshow", stdout)?;
     let px = report.get("photo_px").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).product::<u64>()).unwrap_or(0);
@@ -429,9 +439,137 @@ pub fn judge_slideshow(stdout: &str, plant: f64) -> Result<String, String> {
     if frame > budget {
         return Err(format!("transition frame: p95 {frame:.2} ms{}, over the {budget} ms budget", planted(p95, plant, "ms")));
     }
+    let upload_p95 = row_number("slideshow", &report, "upload frame", "p95_ms")?;
+    let upload = upload_p95 + plant;
+    let upload_budget = SLIDESHOW_UPLOAD_P95_MS.min(SLIDESHOW_FRAME_CAP_MS);
+    if upload > upload_budget {
+        return Err(format!("upload frame: p95 {upload:.2} ms{}, over the {upload_budget} ms budget", planted(upload_p95, plant, "ms")));
+    }
     Ok(format!(
-        "{changes} changes, 0 waits; advance median {judged:.2} ms ≤ {SLIDESHOW_ADVANCE_MS} ms; transition frame p95 {frame:.3} ms ≤ {budget} ms (cap {SLIDESHOW_FRAME_CAP_MS} ms)"
+        "{changes} changes, 0 waits; advance median {judged:.2} ms ≤ {SLIDESHOW_ADVANCE_MS} ms; transition frame p95 {frame:.3} ms ≤ {budget} ms (cap {SLIDESHOW_FRAME_CAP_MS} ms); upload frame p95 {upload:.2} ms ≤ {upload_budget} ms"
     ))
+}
+
+// ---------------------------------------------------------------------------------------------
+// M12's budgets (M12.21, `docs/development.md` §8): the 27 effects' renders, the effect tabs' tile
+// grids and the slideshow's upload frame.
+// ---------------------------------------------------------------------------------------------
+
+/// A slideshow frame that uploads the next photo's texture during the display time (`slideshow` →
+/// the `upload frame` row): its p95, 1.5 × the first measurement (M12.21), never above
+/// [`SLIDESHOW_FRAME_CAP_MS`].
+pub const SLIDESHOW_UPLOAD_P95_MS: f64 = 6.8;
+
+/// The effects' budgets (`effects` → `BUDGETS`): per effect, its 24 MP Save render's median, in ms.
+/// A draft's and a final's speed on the screen are printed, not budgeted: the slider's 16 ms draft
+/// and 100 ms final at p95 are per-effect speed tasks of M13 (the maintainer at M12.R).
+pub const EFFECT_BUDGETS: [(&str, f64); 27] = [
+    ("sharpen", 1225.0),
+    ("sepia", 485.0),
+    ("bw", 275.0),
+    ("warmify", 1485.0),
+    ("grain", 870.0),
+    ("tint", 460.0),
+    ("saturation", 2060.0),
+    ("soft_focus", 1280.0),
+    ("glow", 2565.0),
+    ("filtered_bw", 240.0),
+    ("focal_bw", 505.0),
+    ("graduated_tint", 370.0),
+    ("infrared", 245.0),
+    ("plastic_lens", 2295.0),
+    ("hdr", 3775.0),
+    ("widescreen", 765.0),
+    ("dream_glow", 2250.0),
+    ("invert", 240.0),
+    ("duotone", 500.0),
+    ("boost", 2460.0),
+    ("soften", 2700.0),
+    ("vignette", 780.0),
+    ("pixelate", 670.0),
+    ("focal_zoom", 22355.0),
+    ("border", 470.0),
+    ("drop_shadow", 340.0),
+    ("museum_matte", 390.0),
+];
+/// An empty recipe's final on the screen (p95) and its 24 MP Save render (median) (`effects` →
+/// `EMPTY_FINAL_BUDGET_MS`, `EMPTY_SAVE_BUDGET_MS`).
+pub const EFFECT_EMPTY_FINAL_MS: f64 = 12.0;
+pub const EFFECT_EMPTY_SAVE_MS: f64 = 55.0;
+/// The photo and the screen the effects' budgets hold for.
+pub const EFFECT_PHOTO: [u64; 2] = [6000, 4000];
+pub const EFFECT_SCREEN: [u64; 2] = [2560, 1600];
+
+/// The tile grids' budgets (`effect_tiles` → `TAB_BUDGETS_MS`): per effect tab, the median from
+/// opening a 24 MP photo in the edit view to the tab's last tile, in ms.
+pub const TILE_BUDGETS: [(u8, f64); 3] = [(3, 355.0), (4, 350.0), (5, 360.0)];
+
+/// `[w, h]` of `key` in `report`, `[0, 0]` when missing.
+fn size_of(report: &Value, key: &str) -> [u64; 2] {
+    let v: Vec<u64> = report.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+    match v.as_slice() {
+        [w, h] => [*w, *h],
+        _ => [0, 0],
+    }
+}
+
+/// `effects --json` in release over a 24 MP photo on the 2560 × 1600 screen: every effect's Save
+/// render's median and the empty recipe's final p95 and Save median within their budgets (a planted
+/// slowdown added once per render); the drafts and finals of the effects are printed by the bench,
+/// not judged. Every miss is listed.
+pub fn judge_effects(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("effects", stdout)?;
+    let (photo, fit) = (size_of(&report, "photo_px"), size_of(&report, "fit"));
+    if photo[0] * photo[1] < EFFECT_PHOTO[0] * EFFECT_PHOTO[1] || fit != EFFECT_SCREEN {
+        return Err(format!(
+            "effects ran over a {} × {} photo on a {} × {} screen; the budgets hold for {} × {} on {} × {}",
+            photo[0], photo[1], fit[0], fit[1], EFFECT_PHOTO[0], EFFECT_PHOTO[1], EFFECT_SCREEN[0], EFFECT_SCREEN[1]
+        ));
+    }
+    let mut checks: Vec<(String, &str, f64, &str)> =
+        vec![("no effect final".into(), "p95_ms", EFFECT_EMPTY_FINAL_MS, "p95"), ("no effect save".into(), "p50_ms", EFFECT_EMPTY_SAVE_MS, "median")];
+    checks.extend(EFFECT_BUDGETS.iter().map(|(name, save)| (format!("{name} save"), "p50_ms", *save, "median")));
+    let (mut missed, mut worst) = (Vec::new(), 0.0f64);
+    for (name, key, budget, stat) in &checks {
+        let measured = row_number("effects", &report, name, key)?;
+        let judged = measured + plant;
+        if judged > *budget {
+            missed.push(format!("{name}: {stat} {judged:.2} ms{}, over the {budget} ms budget", planted(measured, plant, "ms")));
+        }
+        worst = worst.max(judged / budget);
+    }
+    if !missed.is_empty() {
+        return Err(format!("{} of {} missed: {}", missed.len(), checks.len(), missed.join("; ")));
+    }
+    Ok(format!(
+        "{} effects' Saves and the empty recipe within their budgets, the closest at {:.0} % of its own (drafts and finals printed)",
+        EFFECT_BUDGETS.len(),
+        worst * 100.0
+    ))
+}
+
+/// `effect_tiles --json` in release over a 24 MP photo: each tab's median from opening the photo to
+/// its last tile within its budget (a planted slowdown added once per sample).
+pub fn judge_effect_tiles(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("effect_tiles", stdout)?;
+    let photo = size_of(&report, "photo_px");
+    if photo[0] * photo[1] < EFFECT_PHOTO[0] * EFFECT_PHOTO[1] {
+        return Err(format!(
+            "effect_tiles ran over a {} × {} photo; the budgets hold for {} × {}",
+            photo[0], photo[1], EFFECT_PHOTO[0], EFFECT_PHOTO[1]
+        ));
+    }
+    let mut parts = Vec::new();
+    for (tab, budget) in TILE_BUDGETS {
+        let name = format!("tab {tab} tiles");
+        let p50 = row_number("effect_tiles", &report, &name, "p50_ms")?;
+        let judged = p50 + plant;
+        if judged > budget {
+            return Err(format!("{name}: median {judged:.1} ms{}, over the {budget} ms budget", planted(p50, plant, "ms")));
+        }
+        parts.push(format!("{name} {judged:.1} ms ≤ {budget} ms"));
+    }
+    Ok(format!("medians to the last tile: {}", parts.join("; ")))
 }
 
 fn append(path: &Path, line: &str) -> Result<(), String> {
@@ -579,12 +717,84 @@ pub(crate) mod tests {
         format!("{r}\n")
     }
 
-    /// What `slideshow --json` prints.
+    /// What `slideshow --json` prints, an upload frame at its first measurement (M12.21).
     pub fn slideshow_out(mode: &str, px: [u64; 2], advance: f64, p95: f64, waits: u64) -> String {
+        slideshow_upload_out(mode, px, advance, p95, waits, SLIDESHOW_UPLOAD_MEASURED)
+    }
+
+    /// The upload frame's first measurement (M12.21): its p95.
+    pub const SLIDESHOW_UPLOAD_MEASURED: f64 = 4.51;
+
+    /// What `slideshow --json` prints, with an upload frame's p95.
+    pub fn slideshow_upload_out(mode: &str, px: [u64; 2], advance: f64, p95: f64, waits: u64, upload: f64) -> String {
         let r = json!({ "bench": "slideshow", "mode": mode, "photo_px": px, "rows": [
             { "name": "advance", "p50_ms": advance, "changes": 18, "waits": waits },
             { "name": "transition frame", "p50_ms": p95 / 2.0, "p95_ms": p95 },
+            { "name": "upload frame", "p50_ms": upload / 2.0, "p95_ms": upload },
         ]});
+        format!("{r}\n")
+    }
+
+    /// The effects' first measurement (M12.21): per effect, its draft's and final's p95 (printed,
+    /// not budgeted) and its Save's median, in ms.
+    pub const EFFECTS_MEASURED: [(&str, f64, f64, f64); 27] = [
+        ("sharpen", 13.801, 223.673, 816.017),
+        ("sepia", 4.722, 73.609, 320.319),
+        ("bw", 3.098, 48.445, 180.871),
+        ("warmify", 21.431, 294.772, 987.811),
+        ("grain", 8.702, 139.321, 579.218),
+        ("tint", 4.602, 71.512, 303.866),
+        ("saturation", 29.037, 455.864, 1372.597),
+        ("soft_focus", 41.183, 267.192, 850.319),
+        ("glow", 29.391, 540.344, 1706.819),
+        ("filtered_bw", 2.222, 34.716, 158.344),
+        ("focal_bw", 5.048, 79.907, 333.724),
+        ("graduated_tint", 3.619, 56.707, 245.386),
+        ("infrared", 2.224, 34.895, 161.591),
+        ("plastic_lens", 55.204, 473.580, 1527.933),
+        ("hdr", 30.057, 750.487, 2515.803),
+        ("widescreen", 21.563, 114.749, 507.836),
+        ("dream_glow", 20.598, 355.676, 1498.082),
+        ("invert", 2.231, 35.086, 159.155),
+        ("duotone", 4.889, 77.492, 333.263),
+        ("boost", 35.962, 428.028, 1639.044),
+        ("soften", 23.120, 487.722, 1798.765),
+        ("vignette", 10.646, 150.981, 519.994),
+        ("pixelate", 7.209, 116.296, 446.290),
+        ("focal_zoom", 81.393, 2682.801, 14900.034),
+        ("border", 21.425, 68.319, 313.240),
+        ("drop_shadow", 19.753, 45.839, 223.459),
+        ("museum_matte", 20.237, 53.536, 259.663),
+    ];
+    /// The empty recipe's first measurement: its final's p95 and its Save's median.
+    pub const EMPTY_MEASURED: (f64, f64) = (7.500, 33.480);
+
+    /// What `effects --json` prints: the empty recipe's rows from `empty`, each effect's from
+    /// `times` (draft p95, final p95, Save median).
+    pub fn effects_out(mode: &str, photo: [u64; 2], fit: [u64; 2], empty: (f64, f64), times: &[(&str, f64, f64, f64)]) -> String {
+        let mut rows = vec![
+            json!({ "name": "no effect final", "p50_ms": empty.0 / 2.0, "p95_ms": empty.0 }),
+            json!({ "name": "no effect save", "p50_ms": empty.1, "p95_ms": empty.1 * 1.1 }),
+        ];
+        for (name, draft, final_, save) in times {
+            rows.push(json!({ "name": format!("{name} draft"), "p50_ms": draft / 2.0, "p95_ms": draft, "draft_scale": 0.25 }));
+            rows.push(json!({ "name": format!("{name} final"), "p50_ms": final_ / 2.0, "p95_ms": final_ }));
+            rows.push(json!({ "name": format!("{name} save"), "p50_ms": save, "p95_ms": save * 1.1 }));
+        }
+        let r = json!({ "bench": "effects", "mode": mode, "photo_px": photo, "fit": fit, "effects": times.len(), "rows": rows });
+        format!("{r}\n")
+    }
+
+    /// The tile grids' first measurement (M12.21): per tab, the median to the last tile.
+    pub const TILES_MEASURED: [(u8, f64); 3] = [(3, 234.8), (4, 230.9), (5, 239.0)];
+
+    /// What `effect_tiles --json` prints.
+    pub fn tiles_out(mode: &str, photo: [u64; 2], medians: &[(u8, f64)]) -> String {
+        let rows: Vec<Value> = medians
+            .iter()
+            .map(|(tab, p50)| json!({ "name": format!("tab {tab} tiles"), "p50_ms": p50, "p95_ms": p50 * 1.2, "first_p50_ms": p50 / 2.0 }))
+            .collect();
+        let r = json!({ "bench": "effect_tiles", "mode": mode, "photo_px": photo, "fit": [2560, 1600], "tile_px": [78, 48], "rows": rows });
         format!("{r}\n")
     }
 
@@ -640,8 +850,76 @@ pub(crate) mod tests {
         let e = judge_slideshow(&slideshow_out("release", full, 16.0, 0.164, 0), 8.0).unwrap_err();
         assert!(e.starts_with("transition frame: p95 8.16 ms"), "{e}");
         assert!(SLIDESHOW_TRANSITION_P95_MS.min(SLIDESHOW_FRAME_CAP_MS) <= 16.0, "a transition frame within 16 ms whatever the first measurement");
+        // The upload frame (M12.21): its p95 within its budget, a planted slowdown added.
+        assert!(ok.contains(&format!("upload frame p95 {SLIDESHOW_UPLOAD_MEASURED:.2} ms ≤ {SLIDESHOW_UPLOAD_P95_MS} ms")), "{ok}");
+        let over = SLIDESHOW_UPLOAD_P95_MS + 0.01;
+        let e = judge_slideshow(&slideshow_upload_out("release", full, 16.0, 0.199, 0, over), 0.0).unwrap_err();
+        assert!(e.starts_with("upload frame: p95"), "{e}");
+        let upload_cap = SLIDESHOW_UPLOAD_P95_MS.min(SLIDESHOW_FRAME_CAP_MS);
+        assert!((upload_cap - SLIDESHOW_UPLOAD_P95_MS).abs() < f64::EPSILON, "an upload frame within 16 ms whatever the first measurement");
+        assert!(judge_slideshow("{\"mode\":\"release\",\"photo_px\":[6000,4000],\"rows\":[{\"name\":\"advance\",\"p50_ms\":16.0,\"changes\":18,\"waits\":0},{\"name\":\"transition frame\",\"p95_ms\":0.2}]}", 0.0).unwrap_err().contains("no row `upload frame`"));
         assert!(judge_slideshow(&slideshow_out("debug", full, 1.0, 0.1, 0), 0.0).unwrap_err().contains("debug build"));
         assert!(judge_slideshow(&slideshow_out("release", [640, 427], 1.0, 0.1, 0), 0.0).unwrap_err().contains("6000 × 4000"));
+    }
+
+    #[test]
+    fn the_effects_budgets_judge_every_save_and_the_empty_recipe() {
+        let (photo, screen) = (EFFECT_PHOTO, EFFECT_SCREEN);
+        let ok = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("27 effects' Saves and the empty recipe within their budgets"), "{ok}");
+        // Each budget is 1.5 × the first measurement rounded up (5 ms; the empty final 1 ms), in
+        // the grids' order.
+        for ((name, budget), (m, _, _, measured)) in EFFECT_BUDGETS.iter().zip(EFFECTS_MEASURED) {
+            assert_eq!(*name, m);
+            assert!(*budget >= 1.5 * measured && *budget < 1.5 * measured + 5.0, "{name}: {budget} is not 1.5 × {measured} rounded up");
+        }
+        assert!(EFFECT_EMPTY_FINAL_MS >= 1.5 * EMPTY_MEASURED.0 && EFFECT_EMPTY_FINAL_MS < 1.5 * EMPTY_MEASURED.0 + 1.0);
+        assert!(EFFECT_EMPTY_SAVE_MS >= 1.5 * EMPTY_MEASURED.1 && EFFECT_EMPTY_SAVE_MS < 1.5 * EMPTY_MEASURED.1 + 5.0);
+        // Drafts and finals are not judged: a slow one passes (the caps are M13's speed tasks).
+        let mut slow = EFFECTS_MEASURED;
+        slow[0].1 = 500.0;
+        slow[0].2 = 5000.0;
+        assert!(judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &slow), 0.0).is_ok());
+        // A slow Save, or a slow empty recipe, misses; every miss is listed.
+        let mut slow = EFFECTS_MEASURED;
+        slow[1].3 *= 2.0;
+        slow[26].3 *= 2.0;
+        let e = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &slow), 0.0).unwrap_err();
+        assert!(e.starts_with("2 of 29 missed: sepia save: median") && e.contains("museum_matte save: median"), "{e}");
+        let e = judge_effects(&effects_out("release", photo, screen, (EFFECT_EMPTY_FINAL_MS + 0.5, EMPTY_MEASURED.1), &EFFECTS_MEASURED), 0.0)
+            .unwrap_err();
+        assert!(e.starts_with("1 of 29 missed: no effect final: p95"), "{e}");
+        // A planted slowdown of 8 ms per render misses the empty final (1.5 × a few ms).
+        let e = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED), 8.0).unwrap_err();
+        assert!(e.contains("no effect final: p95") && e.contains("measured + 8.00 ms planted"), "{e}");
+        // A missing effect, a debug build, a small photo or another screen judge nothing.
+        let e = judge_effects(&effects_out("release", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED[1..]), 0.0).unwrap_err();
+        assert!(e.contains("no row `sharpen save`"), "{e}");
+        assert!(judge_effects(&effects_out("debug", photo, screen, EMPTY_MEASURED, &EFFECTS_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        let e = judge_effects(&effects_out("release", [600, 400], [256, 160], EMPTY_MEASURED, &EFFECTS_MEASURED), 0.0).unwrap_err();
+        assert!(e.contains("hold for 6000 × 4000"), "{e}");
+        let e = judge_effects(&effects_out("release", photo, [1400, 900], EMPTY_MEASURED, &EFFECTS_MEASURED), 0.0).unwrap_err();
+        assert!(e.contains("on 2560 × 1600"), "{e}");
+        assert!(judge_effects("no report", 0.0).unwrap_err().contains("no JSON report"));
+    }
+
+    #[test]
+    fn the_tile_grid_budgets_judge_each_tabs_median() {
+        let ok = judge_effect_tiles(&tiles_out("release", EFFECT_PHOTO, &TILES_MEASURED), 0.0).unwrap();
+        assert!(ok.contains("tab 3 tiles") && ok.contains("tab 5 tiles"), "{ok}");
+        for ((tab, budget), (t, measured)) in TILE_BUDGETS.iter().zip(TILES_MEASURED) {
+            assert!(*tab == t && *budget >= measured, "tab {tab}");
+            let mut slow = TILES_MEASURED;
+            slow[usize::from(t - 3)].1 = budget + 1.0;
+            let e = judge_effect_tiles(&tiles_out("release", EFFECT_PHOTO, &slow), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("tab {tab} tiles: median")), "{e}");
+        }
+        let plant = TILE_BUDGETS.iter().zip(TILES_MEASURED).map(|((_, b), (_, m))| b - m).fold(f64::INFINITY, f64::min) + 1.0;
+        let e = judge_effect_tiles(&tiles_out("release", EFFECT_PHOTO, &TILES_MEASURED), plant).unwrap_err();
+        assert!(e.contains("ms planted)"), "{e}");
+        assert!(judge_effect_tiles(&tiles_out("debug", EFFECT_PHOTO, &TILES_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_effect_tiles(&tiles_out("release", [600, 400], &TILES_MEASURED), 0.0).unwrap_err().contains("hold for 6000 × 4000"));
+        assert!(judge_effect_tiles(&tiles_out("release", EFFECT_PHOTO, &TILES_MEASURED[..2]), 0.0).unwrap_err().contains("no row `tab 5 tiles`"));
     }
 
     /// The benches' own `--check` budgets are the ones judged here.
@@ -666,6 +944,17 @@ pub(crate) mod tests {
         ] {
             assert!(source.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours: {ours}");
         }
+        // M12.21: the effects' table, row by row, and the tile grids'.
+        let effects = std::fs::read_to_string(root.join("crates").join("edit").join("benches").join("effects.rs")).unwrap();
+        for (name, save) in EFFECT_BUDGETS {
+            assert!(effects.contains(&format!("(\"{name}\", {save:?}),")), "the effects bench's budget for {name} is ours");
+        }
+        assert!(effects.contains(&format!("const EMPTY_FINAL_BUDGET_MS: f64 = {EFFECT_EMPTY_FINAL_MS:?};")));
+        assert!(effects.contains(&format!("const EMPTY_SAVE_BUDGET_MS: f64 = {EFFECT_EMPTY_SAVE_MS:?};")));
+        assert!(effects.contains("format!(\"{} save\", m.name)") && effects.contains("row(\"no effect final\""));
+        let tiles = read("engine", "effect_tiles");
+        let table = TILE_BUDGETS.iter().map(|(t, b)| format!("({t}, {b:?})")).collect::<Vec<_>>().join(", ");
+        assert!(tiles.contains(&format!("const TAB_BUDGETS_MS: [(u8, f64); 3] = [{table}];")), "the tile grids' budgets are ours: {table}");
     }
 
     #[test]

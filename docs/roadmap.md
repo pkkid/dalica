@@ -7099,7 +7099,7 @@ a maintainer decision mid-run.
     `SYS-MCP`.
   - done when: `cargo test -p dalica-mcp` runs W11 green; `cargo xtask stats`
     prints 12 / 12 passing and `stats --check` fails below that.
-- ⬜ **M12.21 `edit` + `engine` + `xtask`: M12's budgets: effect renders and tile grids**
+- ✅ **M12.21 `edit` + `engine` + `xtask`: M12's budgets: effect renders and tile grids**
   - after: M12.5, M12.6, M12.7, M12.8, M12.9, M12.10, M12.11, M12.12, M12.14
   - files: `crates/edit/benches/effects.rs`, `crates/engine/benches/effect_tiles.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
   - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS` and

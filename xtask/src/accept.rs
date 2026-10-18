@@ -238,9 +238,25 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 11,
         name: "slideshow",
-        what: "slideshow: 24 MP JPEGs in the headless app at 1400 × 900, every transition: no change waits for its preview, an advance to its first frame median ≤ 24 ms, a transition frame p95 ≤ 1 ms (never above 16 ms)",
+        what: "slideshow: 24 MP JPEGs in the headless app at 1400 × 900, every transition: no change waits for its preview, an advance to its first frame median ≤ 24 ms, a transition frame p95 ≤ 1 ms (never above 16 ms), an upload frame p95 ≤ 6.8 ms",
         cargo: &["bench", "-p", "dalica-ui", "--bench", "slideshow", "--", "--json"],
         judge: crate::bench::judge_slideshow,
+        relative: None,
+    },
+    Budget {
+        milestone: 12,
+        name: "effects",
+        what: "effects: each of the 27 effects at its defaults on a 24 MP photo rendered as Save renders it, median within 1.5 × its first measurement, and an empty recipe's final on the 2560 × 1600 screen (p95) and Save (median) within theirs; a slider's drafts and finals are printed (their 16 and 100 ms are M13's speed tasks)",
+        cargo: &["bench", "-p", "dalica-edit", "--bench", "effects", "--", "--json"],
+        judge: crate::bench::judge_effects,
+        relative: None,
+    },
+    Budget {
+        milestone: 12,
+        name: "effect tiles",
+        what: "effect_tiles: an effect tab's tiles of a 24 MP JPEG, from opening it in the edit view to the tab's last tile, median ≤ 355 ms (tab 3), 350 ms (tab 4), 360 ms (tab 5)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "effect_tiles", "--", "--json"],
+        judge: crate::bench::judge_effect_tiles,
         relative: None,
     },
 ];
@@ -1153,6 +1169,19 @@ mod tests {
                     (true, crate::bench::tests::import_out("release", 1000, 2048, 23.2, 211.2, 29_101.0))
                 } else if args.contains(&"batch_edit") {
                     (true, crate::bench::tests::batch_out("release", 1000, 4.65, 3.31))
+                } else if args.contains(&"effects") {
+                    (
+                        true,
+                        crate::bench::tests::effects_out(
+                            "release",
+                            crate::bench::EFFECT_PHOTO,
+                            crate::bench::EFFECT_SCREEN,
+                            crate::bench::tests::EMPTY_MEASURED,
+                            &crate::bench::tests::EFFECTS_MEASURED,
+                        ),
+                    )
+                } else if args.contains(&"effect_tiles") {
+                    (true, crate::bench::tests::tiles_out("release", crate::bench::EFFECT_PHOTO, &crate::bench::tests::TILES_MEASURED))
                 } else if args.contains(&"slideshow") {
                     (true, crate::bench::tests::slideshow_out("release", [6000, 4000], 16.0, 0.199, 0))
                 } else if args.contains(&"first_thumbnails") && args.contains(&"0") && args.contains(&"20000") {
@@ -1166,19 +1195,21 @@ mod tests {
         };
         assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
         // 8 ms planted per frame: every frame budget misses, the search queries' (a few ms), the
-        // scan's (8 ms per photo), Batch Edit's and the slideshow's; a first screenful well inside
-        // its second does not, nor the save and export medians well inside theirs, nor a cold start
-        // of three frames, nor the import (8 s more over 1 000 files is inside its 1.5 ×).
+        // scan's (8 ms per photo), Batch Edit's, the slideshow's and the effects' empty recipe (a few
+        // ms); a first screenful well inside its second does not, nor the save and export medians
+        // well inside theirs, nor a cold start of three frames, nor the import (8 s more over
+        // 1 000 files is inside its 1.5 ×), nor the tile grids (a few hundred ms).
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("7 of 11 missed")
+            e.contains("8 of 13 missed")
                 && e.contains("M4 light table scroll")
                 && e.contains("M4 thumb at top speed")
                 && e.contains("M5 scanned scroll")
                 && e.contains("M9 search: one word")
                 && e.contains("M10 scan throughput")
                 && e.contains("M11 batch edit: auto fix 1000")
-                && e.contains("M11 slideshow: transition frame"),
+                && e.contains("M11 slideshow: transition frame")
+                && e.contains("M12 effects: 1 of 29 missed: no effect final"),
             "{e}"
         );
         // 15 ms planted misses the import too: its first screenful and, per file, its copy rate.
@@ -1186,18 +1217,18 @@ mod tests {
         assert!(e.contains("M11 import: first thumbnails"), "{e}");
         // The largest planted slowdown misses every budget, the cold start's included.
         let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
-        assert!(e.contains("11 of 11 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
+        assert!(e.contains("13 of 13 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 11 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 13 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 11 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 13 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("11 of 11 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("13 of 13 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }
