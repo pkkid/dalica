@@ -3,16 +3,24 @@
 //! (Ignore Face, Delete), moving faces to a new or an existing person and back to Unnamed, and the
 //! header's [Show Ignored Faces] and [Expand Groups].
 //!
-//! The faces a command acts on are its `faces` (each `"<PhotoId>.<n>"`), else the faces selected in
-//! the grid (`unnamed.selection`). Naming, ignoring and moving are one library undo step each,
-//! through the engine's `faces.name`, `faces.ignore`, `faces.move` and `faces.remove` (M13.15);
-//! a name nobody has yet asks New Person first (`crate::dialogs::new_person`), and ignoring asks
-//! "Ignore these faces?" unless told not to.
+//! - **The faces a command acts on** are its `faces` (each `"<PhotoId>.<n>"`), else the faces
+//!   selected in the grid (`unnamed.selection`); a group's are every face of Unnamed group `n` as
+//!   the grid numbers them now (`crate::panels::faces::model`), shown or not.
+//! - **Naming** (`faces.nameGroup`) takes the name given, else the one typed under the group: a
+//!   name a person has (ignoring case) names the faces as that person's through the engine's
+//!   `faces.name`, one library undo step; a name nobody has opens New Person, Name prefilled
+//!   (`crate::dialogs::new_person`), whose OK makes the person and names the faces as one step.
+//! - **Ignoring** (`faces.ignoreGroup`, `faces.ignoreSelected`) asks "Ignore these faces?" first
+//!   unless `"confirm": true` is sent or "Don't ask again" was ticked; then the engine's
+//!   `faces.ignore`, one step.
+//! - **Moving**: Move to New Person… opens New Person for the faces; Move to Person ▸ runs the
+//!   engine's `faces.move`, Remove from Person its `faces.remove` (back to Unnamed; on an ignored
+//!   face, it is no longer ignored). One step each.
+//! - After a change, the names typed under the groups follow their groups and faces that left the
+//!   grid leave the selection.
 //!
-//! M13.4's stubs: the ids, parameters and keys are final, and the two toggles act on the view
-//! state; the commands that change the library check their parameters, then refuse with
-//! [`NOT_YET`] (their menu rows greyed with it) until M13.21 makes them act. Their ids are the UI's
-//! own, never the engine's, so `engine.execute faces.ignore` always reaches the engine.
+//! The ids are the UI's own, never the engine's, so `engine.execute faces.ignore` always reaches
+//! the engine.
 
 use dalica_core::PersonId;
 use dalica_engine::CmdError;
@@ -21,10 +29,18 @@ use serde_json::{Value, json};
 
 use super::{Check, UiCommand, parse, parse_object};
 use crate::app::App;
+use crate::dialogs::new_person;
+use crate::panels::faces::model::{self, Grid};
 use crate::state::FaceRef;
 
-/// Why the commands that change the library do not act yet.
-pub const NOT_YET: &str = "Arrives with the Unnamed faces.";
+/// Why the face rows are off with no face selected.
+pub const NO_FACES: &str = "Select some faces first.";
+/// Why Remove from Person is off on faces that are nobody's.
+pub const UNNAMED_ALREADY: &str = "These faces are not anyone's.";
+/// Why naming a group refuses an empty name.
+pub const NO_NAME: &str = "Type a name first.";
+/// Why the commands refuse before the library is open.
+pub const OPENING: &str = "The library is still opening.";
 
 pub const COMMANDS: &[UiCommand] = &[
     UiCommand {
@@ -32,7 +48,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Name Group",
         menu: "",
         keys: &[],
-        params: "{group: n, name?}: name every face of Unnamed group n (`group:<n>`) with `name`, else the name typed under it; one undo step",
+        params: "{group: n, name?}: name every face of Unnamed group n (`group:<n>`) with `name`, else the name typed under it; one undo step. A name nobody has opens New Person first ({dialog: \"newPerson\"})",
         run: name_group,
     },
     UiCommand {
@@ -40,7 +56,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Ignore Group",
         menu: "",
         keys: &[],
-        params: "{group: n}: ignore every face of Unnamed group n (its ×), after \"Ignore these faces?\"",
+        params: "{group: n, confirm?}: ignore every face of Unnamed group n (its ×); asks \"Ignore these faces?\" first ({dialog: \"ignoreFaces\"}) unless confirm is true or the question was turned off",
         run: ignore_group,
     },
     UiCommand {
@@ -48,7 +64,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Ignore Face",
         menu: "",
         keys: &[],
-        params: "{faces?}: ignore the faces (default: the faces selected), after \"Ignore these faces?\"; Delete in the Unnamed grid",
+        params: "{faces?, confirm?}: ignore the faces (default: the faces selected); asks \"Ignore these faces?\" first unless confirm is true or the question was turned off; Delete in the Unnamed grid",
         run: ignore_selected,
     },
     UiCommand {
@@ -93,23 +109,43 @@ pub const COMMANDS: &[UiCommand] = &[
     },
 ];
 
-/// The commands that wait for M13.21: their rows are greyed with [`NOT_YET`].
+/// The face menu's rows are off with nothing to act on.
 pub const CHECKS: &[(&str, Check)] = &[
-    ("faces.nameGroup", not_yet),
-    ("faces.ignoreGroup", not_yet),
-    ("faces.ignoreSelected", not_yet),
-    ("faces.moveToNewPerson", not_yet),
-    ("faces.moveToPerson", not_yet),
-    ("faces.removeFromPerson", not_yet),
+    ("faces.ignoreSelected", has_faces),
+    ("faces.moveToNewPerson", has_faces),
+    ("faces.moveToPerson", has_faces),
+    ("faces.removeFromPerson", named_faces),
 ];
 
-fn not_yet(_: &App, _: &Value) -> Result<(), String> {
-    Err(NOT_YET.into())
+/// The faces a check reads: the `faces` sent, else the selection (anything unreadable: none).
+fn checked_faces(app: &App, params: &Value) -> Vec<FaceRef> {
+    match params.get("faces") {
+        Some(v) => serde_json::from_value(v.clone()).unwrap_or_default(),
+        None => app.state().unnamed.selection.clone(),
+    }
+}
+
+fn has_faces(app: &App, params: &Value) -> Result<(), String> {
+    if app.session().is_none() {
+        return Err(OPENING.into());
+    }
+    if checked_faces(app, params).is_empty() { Err(NO_FACES.into()) } else { Ok(()) }
+}
+
+/// Remove from Person needs a face that is someone's or ignored.
+fn named_faces(app: &App, params: &Value) -> Result<(), String> {
+    has_faces(app, params)?;
+    let lib = app.session().map(dalica_engine::Session::library).ok_or_else(|| OPENING.to_string())?;
+    let someone = checked_faces(app, params).iter().any(|f| {
+        lib.face(dalica_library::FaceRef { photo: f.photo, index: usize::from(f.index) })
+            .is_some_and(|face| face.person != dalica_library::FacePerson::Unnamed)
+    });
+    if someone { Ok(()) } else { Err(UNNAMED_ALREADY.into()) }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Group {
+struct NameGroup {
     group: u32,
     #[serde(default)]
     name: Option<String>,
@@ -117,9 +153,26 @@ struct Group {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct IgnoreGroup {
+    group: u32,
+    #[serde(default)]
+    confirm: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Faces {
     #[serde(default)]
     faces: Option<Vec<FaceRef>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IgnoreFaces {
+    #[serde(default)]
+    faces: Option<Vec<FaceRef>>,
+    #[serde(default)]
+    confirm: bool,
 }
 
 #[derive(Deserialize)]
@@ -153,58 +206,127 @@ pub fn known_faces(app: &App, faces: Vec<FaceRef>) -> Result<Vec<FaceRef>, CmdEr
     Ok(faces)
 }
 
-/// A stub that changes the library: what it will run once M13.21 lands (the engine's `command`
-/// with `params`), refused with [`NOT_YET`] for now.
-fn waits(_command: &str, _params: Value) -> Result<Value, CmdError> {
-    Err(CmdError::Disabled(NOT_YET.into()))
+/// `faces`, known and not empty (`disabled` with [`NO_FACES`] when empty, or before the library
+/// opens).
+fn some_faces(app: &App, faces: Vec<FaceRef>) -> Result<Vec<FaceRef>, CmdError> {
+    if app.session().is_none() {
+        return Err(CmdError::Disabled(OPENING.into()));
+    }
+    let faces = known_faces(app, faces)?;
+    if faces.is_empty() {
+        return Err(CmdError::Disabled(NO_FACES.into()));
+    }
+    Ok(faces)
+}
+
+/// The grid as it is now (empty before the library opens).
+pub fn grid_now(app: &mut App) -> Grid {
+    let ignored = app.state().unnamed.show_ignored;
+    app.session_mut().map(|s| model::grid(s, ignored)).unwrap_or_default()
+}
+
+/// The faces of group `n` of the grid now (`not_found` when there is no such group).
+fn group_faces(app: &mut App, n: u32) -> Result<(Grid, Vec<FaceRef>), CmdError> {
+    if app.session().is_none() {
+        return Err(CmdError::Disabled(OPENING.into()));
+    }
+    let grid = grid_now(app);
+    let faces = grid.group(n).map(|g| g.faces.clone()).ok_or_else(|| CmdError::NotFound(format!("the Unnamed grid has no group {n}")))?;
+    Ok((grid, faces))
+}
+
+/// After the faces changed: the names typed follow their groups from `old` to the grid now, and
+/// the selection keeps only the faces still shown.
+pub fn settle(app: &mut App, old: &Grid) {
+    let new = grid_now(app);
+    let u = &mut app.state_mut().unnamed;
+    u.names = model::remap_names(&u.names, old, &new);
+    u.selection = model::still_shown(&u.selection, &new);
+}
+
+/// Runs the engine's `command` with `params`, then [`settle`]s from `old`.
+fn change(app: &mut App, old: &Grid, command: &str, params: &Value) -> Result<Value, CmdError> {
+    let reply = app.run(command, params)?;
+    settle(app, old);
+    Ok(reply)
+}
+
+/// Names `faces` `name`: a person's name names them at once; a new name opens New Person.
+fn name_faces(app: &mut App, old: &Grid, faces: Vec<FaceRef>, name: &str) -> Result<Value, CmdError> {
+    let known = app.session().is_some_and(|s| s.library().person_by_name(name).is_some());
+    if !known {
+        return crate::dialogs::open(app, new_person::dialog(name, &faces));
+    }
+    change(app, old, "faces.name", &json!({ "faces": faces, "name": name }))
+}
+
+/// Ignores `faces`, asking first unless `confirm` or the question is off.
+fn ignore(app: &mut App, old: &Grid, faces: Vec<FaceRef>, confirm: bool) -> Result<Value, CmdError> {
+    if !confirm && new_person::asks_before_ignoring(app) {
+        return crate::dialogs::open(app, new_person::ignore_dialog(&faces));
+    }
+    change(app, old, "faces.ignore", &json!({ "faces": faces }))
 }
 
 fn name_group(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let p: Group = parse(params)?;
+    let p: NameGroup = parse(params)?;
     let name = p.name.or_else(|| app.state().unnamed.names.get(&p.group).cloned()).unwrap_or_default();
     if name.chars().count() > crate::state::MAX_DRAFT {
         return Err(CmdError::BadParams(format!("`name` is at most {} characters", crate::state::MAX_DRAFT)));
     }
-    waits("faces.name", json!({ "group": p.group, "name": name }))
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(CmdError::Disabled(NO_NAME.into()));
+    }
+    let (grid, faces) = group_faces(app, p.group)?;
+    name_faces(app, &grid, faces, &name)
 }
 
-fn ignore_group(_app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let p: Group = parse(params)?;
-    if p.name.is_some() {
-        return Err(CmdError::BadParams("`faces.ignoreGroup` takes `group` only".into()));
-    }
-    waits("faces.ignore", json!({ "group": p.group }))
+fn ignore_group(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    let p: IgnoreGroup = parse(params)?;
+    let (grid, faces) = group_faces(app, p.group)?;
+    ignore(app, &grid, faces, p.confirm)
 }
 
 fn ignore_selected(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let p: Faces = parse_object(params)?;
-    let faces = known_faces(app, targets(app, p.faces))?;
-    waits("faces.ignore", json!({ "faces": faces }))
+    let p: IgnoreFaces = parse_object(params)?;
+    let faces = some_faces(app, targets(app, p.faces))?;
+    let grid = grid_now(app);
+    ignore(app, &grid, faces, p.confirm)
 }
 
 fn move_to_new_person(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let p: Faces = parse_object(params)?;
-    let faces = known_faces(app, targets(app, p.faces))?;
-    waits("faces.name", json!({ "faces": faces, "create": true }))
+    let faces = some_faces(app, targets(app, p.faces))?;
+    crate::dialogs::open(app, new_person::dialog("", &faces))
 }
 
 fn move_to_person(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let p: ToPerson = parse(params)?;
-    let faces = known_faces(app, targets(app, p.faces))?;
-    waits("faces.move", json!({ "faces": faces, "person": p.person }))
+    let faces = some_faces(app, targets(app, p.faces))?;
+    let grid = grid_now(app);
+    change(app, &grid, "faces.move", &json!({ "faces": faces, "person": p.person }))
 }
 
 fn remove_from_person(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let p: Faces = parse_object(params)?;
-    let faces = known_faces(app, targets(app, p.faces))?;
-    waits("faces.remove", json!({ "faces": faces }))
+    let faces = some_faces(app, targets(app, p.faces))?;
+    let grid = grid_now(app);
+    change(app, &grid, "faces.remove", &json!({ "faces": faces }))
 }
 
 fn show_ignored(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let p: On = parse_object(params)?;
     let u = &mut app.state_mut().unnamed;
     u.show_ignored = p.on.unwrap_or(!u.show_ignored);
-    Ok(json!({ "showIgnored": u.show_ignored }))
+    let on = u.show_ignored;
+    // Hidden ignored faces leave the selection.
+    if !on {
+        let shown = grid_now(app);
+        let u = &mut app.state_mut().unnamed;
+        u.selection = model::still_shown(&u.selection, &shown);
+    }
+    Ok(json!({ "showIgnored": on }))
 }
 
 fn expand_groups(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -221,12 +343,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_toggles_act_on_the_view_state_and_the_stubs_wait() {
+    fn the_toggles_act_on_the_view_state_and_bad_params_change_nothing() {
         let mut app = App::new(None);
         assert_eq!(app.run("faces.showIgnored", &json!({})).unwrap(), json!({ "showIgnored": true }));
         assert_eq!(app.run("faces.showIgnored", &json!({ "on": true })).unwrap(), json!({ "showIgnored": true }));
         assert_eq!(app.run("faces.expandGroups", &Value::Null).unwrap(), json!({ "expanded": true }));
         assert!(app.state().unnamed.show_ignored && app.state().unnamed.expanded);
+        // Before the library opens the library's commands wait for it.
         for (id, params) in [
             ("faces.nameGroup", json!({ "group": 0, "name": "Ana" })),
             ("faces.ignoreGroup", json!({ "group": 2 })),
@@ -235,8 +358,7 @@ mod tests {
             ("faces.moveToPerson", json!({ "person": "p00a1" })),
             ("faces.removeFromPerson", json!({ "faces": ["12.0", "3.255"] })),
         ] {
-            assert_eq!(app.run(id, &params), Err(CmdError::Disabled(NOT_YET.into())), "{id}");
-            assert_eq!(super::super::enabled(&app, id, &json!({})), Err(NOT_YET.into()), "{id}");
+            assert_eq!(app.run(id, &params), Err(CmdError::Disabled(OPENING.into())), "{id}");
         }
         // A face past a photo's 256, a bad person, a long name: bad_params.
         for (id, params) in [
@@ -245,6 +367,7 @@ mod tests {
             ("faces.moveToPerson", json!({ "person": "a00a1" })),
             ("faces.nameGroup", json!({ "group": 0, "name": "x".repeat(4097) })),
             ("faces.nameGroup", json!({ "group": -1 })),
+            ("faces.ignoreGroup", json!({ "group": 0, "name": "Ana" })),
         ] {
             assert!(matches!(app.run(id, &params), Err(CmdError::BadParams(_))), "{id} {params}");
         }

@@ -1220,7 +1220,8 @@ fn the_new_menu_items_are_listed_and_greyed() {
     assert_eq!(ids, ["faces.moveToNewPerson", "faces.removeFromPerson", "people.thumbnail", "faces.ignoreSelected"]);
     assert!(face.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Face/Move to Person"), "{face}");
     for r in &rows {
-        let why = if r["id"] == "people.thumbnail" { people::NOT_YET } else { faces::NOT_YET };
+        // M13.21 made the face rows act: with no face selected they wait for one.
+        let why = if r["id"] == "people.thumbnail" { people::NOT_YET } else { faces::NO_FACES };
         assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(why)), "{r}");
     }
     assert_eq!(rows[0]["dialog"], "newPerson");
@@ -1268,8 +1269,9 @@ fn m13s_stub_dialogs_and_options_tabs_are_drawn_with_their_ids() {
     use dalica_ui::dialogs::{self, Dialog, DialogKind};
     let mut t = setup();
     for (kind, buttons) in [
-        (DialogKind::NewPerson, &["button:dialog.ok", "button:dialog.cancel"][..]),
-        (DialogKind::IgnoreFaces, &["button:dialog.ignore", "button:dialog.cancel"][..]),
+        // M13.21 drew these two (Cancel then the default button, rightmost); empty, they refuse.
+        (DialogKind::NewPerson, &["button:dialog.cancel", "button:dialog.ok"][..]),
+        (DialogKind::IgnoreFaces, &["button:dialog.cancel", "button:dialog.ignore"][..]),
         (DialogKind::RenamePerson, &["button:dialog.ok", "button:dialog.cancel"][..]),
         (DialogKind::MergePeople, &["button:dialog.merge", "button:dialog.cancel"][..]),
         (DialogKind::DeletePerson, &["button:dialog.delete", "button:dialog.cancel"][..]),

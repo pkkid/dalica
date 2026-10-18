@@ -323,9 +323,12 @@ fn the_menu_tree_lists_every_item_of_the_spec_in_order() {
     let section = ok(&mut t, "ui.menu.tree", json!({ "context": "section" }));
     let folder = menus.iter().find(|m| m["widget"] == "menu:Folder").unwrap();
     assert_eq!(section, folder["children"]);
-    for c in ["treeGroup", "tag", "face"] {
+    for c in ["treeGroup", "tag"] {
         assert_eq!(code(&mut t, "ui.menu.tree", json!({ "context": c })), "unsupported", "{c}");
     }
+    // The face menu (M13.21): its rows with Move to Person ▸ filled.
+    let face = ok(&mut t, "ui.menu.tree", json!({ "context": "face" }));
+    assert_eq!(face, menus::nodes_json(&dalica_ui::panels::faces::menu::nodes(t.d.app(), menus::Platform::current())));
     for bad in [json!({ "context": "nope" }), json!({ "context": 3 }), json!({ "extra": 1 }), json!([1])] {
         assert_eq!(code(&mut t, "ui.menu.tree", bad.clone()), "bad_params", "{bad}");
     }

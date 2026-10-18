@@ -8024,7 +8024,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     placeholder; "38.7116, -9.1389" and "38°42′42″N 9°8′20″W" are found without a request; a
     hostile geocoder reply is refused without a panic; the cache prunes only its own files; the
     owner thread made no `fs` call.
-- ⬜ **M13.21 `ui`: the Unnamed face grid, naming, ignoring and the face menu**
+- ✅ **M13.21 `ui`: the Unnamed face grid, naming, ignoring and the face menu**
   - after: M13.4, M13.5, M13.15
   - files: `crates/ui/src/panels/faces.rs`, `crates/ui/src/panels/faces/**`, `crates/ui/src/commands/faces.rs`, `crates/ui/src/dialogs/new_person.rs`, `crates/ui/tests/unnamed_faces.rs`, `crates/ui/tests/fingerprints/unnamed-*.json`
   - scope: `organizing.md` §6.2 and §6.3: selecting Unnamed shows the face grid in place of the

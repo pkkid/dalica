@@ -1,5 +1,7 @@
-//! The face pictures of the People pane: the engine's face tiles (`Session::request_face_tiles`,
-//! cut on a worker, in memory only) as textures, kept per face and side.
+//! The face pictures of the People pane and the Unnamed grid (`crate::panels::faces`): the
+//! engine's face tiles (`Session::request_face_tiles`, cut on a worker, in memory only) as
+//! textures, kept per face and side. The session hands each tile to one taker only, so every view
+//! showing faces reads this one store; each calls [`begin`] and [`finish`] around its faces.
 //!
 //! Each frame the pane calls [`begin`] (the tiles made since are taken and uploaded), [`picture`]
 //! for each face it draws (a face without its texture yet is noted), then [`finish`] (the faces

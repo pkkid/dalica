@@ -36,6 +36,7 @@ pub(super) fn tree(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error
         Some("photo") => menus::nodes_json(&menus::photo_menu(app, platform)),
         Some("tray") => menus::nodes_json(&crate::panels::bottom::tray::context_nodes(app, &tray_targets(app))),
         Some("person") => menus::nodes_json(&menus::person_menu(app, platform)),
+        Some("face") => menus::nodes_json(&crate::panels::faces::menu::nodes(app, platform)),
         Some(c) if CONTEXTS.contains(&c) => {
             return Err(Error::new(Code::Unsupported, format!("the {c} context menu is not built yet; it comes with its region")));
         }
