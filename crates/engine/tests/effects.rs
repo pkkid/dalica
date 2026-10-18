@@ -417,6 +417,88 @@ mod tabs {
         assert_eq!(s.effect_tiles_pending(), 0);
     }
 
+    /// The tiles of tab `tab` of photo `id` at `size`.
+    fn tiles_of(s: &mut Session, id: PhotoId, tab: u8, size: (u32, u32)) -> Vec<EffectTile> {
+        s.request_effect_tiles(id, tab, size).unwrap();
+        let tiles = take(s, names(tab).len());
+        assert_eq!(tiles.len(), names(tab).len());
+        tiles
+    }
+
+    fn pixel(t: &EffectTile, x: u32, y: u32) -> [u8; 4] {
+        let at = ((y * t.image.width + x) * 4) as usize;
+        t.image.data[at..at + 4].try_into().unwrap()
+    }
+
+    /// The placeholder grey (`editing.md` §8.1, `gray 38`).
+    const GREY: [u8; 4] = [38, 38, 38, 255];
+
+    /// The box of the tile's pixels that are not the placeholder grey: x0, y0, x1, y1 (exclusive).
+    fn picture_box(t: &EffectTile) -> (u32, u32, u32, u32) {
+        let (w, h) = (t.image.width, t.image.height);
+        let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+        for y in 0..h {
+            for x in 0..w {
+                if pixel(t, x, y) != GREY {
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+                }
+            }
+        }
+        (x0, y0, x1, y1)
+    }
+
+    fn near(p: [u8; 4], c: [u8; 3]) -> bool {
+        p.iter().zip(c).all(|(a, b)| a.abs_diff(b) <= 12) && p[3] == 255
+    }
+
+    /// `roadmap.md` M12.29: a size-changing effect's tile is its whole grown picture fitted in the
+    /// box and centred on `gray 38`, its frame colour on all four sides; Widescreen Film's tile
+    /// shows its black bars at top and bottom; Sepia's (the shape kept) is still the covering
+    /// render cut around the centre.
+    #[test]
+    fn a_size_changing_effects_tile_shows_its_whole_frame() {
+        // Large enough that the default bands are a few pixels wide.
+        const BIG: (u32, u32) = (390, 240);
+        let photos = scenes(1);
+        let (_dir, _folder, mut s, ids) = library(&owned(&photos));
+        let five = tiles_of(&mut s, ids[0], 5, BIG);
+        for (name, frame) in [("border", [0, 0, 0]), ("drop_shadow", [255, 255, 255]), ("museum_matte", [0x1a, 0x0e, 0x03])] {
+            let t = five.iter().find(|t| t.name == name).unwrap();
+            assert_eq!((t.image.width, t.image.height), BIG);
+            let (x0, y0, x1, y1) = picture_box(t);
+            assert!((x0 == 0 && x1 == BIG.0) || (y0 == 0 && y1 == BIG.1), "{name}: the picture fits the box: {:?}", (x0, y0, x1, y1));
+            assert!(x0.abs_diff(BIG.0 - x1) <= 1 && y0.abs_diff(BIG.1 - y1) <= 1, "{name}: centred");
+            assert!(x0 + y0 > 0, "{name}: a framed 3:2 picture leaves grey bars in a 1.625:1 box");
+            let (mx, my) = ((x0 + x1) / 2, (y0 + y1) / 2);
+            for (x, y) in [(x0, my), (x1 - 1, my), (mx, y0), (mx, y1 - 1)] {
+                assert!(near(pixel(t, x, y), frame), "{name}: the frame at {x}, {y}: {:?}", pixel(t, x, y));
+            }
+        }
+
+        let four = tiles_of(&mut s, ids[0], 4, BIG);
+        let wide = four.iter().find(|t| t.name == "widescreen").unwrap();
+        let (x0, y0, x1, y1) = picture_box(wide);
+        assert_eq!((x0, x1), (0, BIG.0), "the 1.7:1 picture keeps its sides");
+        assert!(y0 > 0 && y1 < BIG.1, "grey above and below the wide picture");
+        for y in [y0, y0 + 4, y1 - 5, y1 - 1] {
+            for x in [0, BIG.0 / 2, BIG.0 - 1] {
+                assert!(near(pixel(wide, x, y), [0, 0, 0]), "the letterbox bar at {x}, {y}: {:?}", pixel(wide, x, y));
+            }
+        }
+
+        // Sepia keeps the shape: the covering render, cut around the centre (a 480 × 320 photo at
+        // 390 / 480 is 390 × 260, of which rows 10..250).
+        let three = tiles_of(&mut s, ids[0], 3, BIG);
+        let sepia = three.iter().find(|t| t.name == "sepia").unwrap();
+        let options = dalica_image::DecodeOptions::default();
+        let decoded = dalica_image::decode_thumbnail_with(&photos[0].1, 1170, &options, &dalica_image::Limits::default()).unwrap();
+        let recipe = dalica_edit::Recipe::parse(["sepia()"]).unwrap();
+        let whole = dalica_edit::render(dalica_edit::Source::upright(&decoded), &recipe, dalica_edit::Target::Scale(390.0 / 480.0)).unwrap();
+        assert_eq!((whole.width, whole.height), (390, 260));
+        let row = (whole.width * 4) as usize;
+        assert!(sepia.image.data == whole.data[10 * row..250 * row], "the Sepia tile is the covering render's centre");
+    }
+
     /// `roadmap.md` M12.5: a tile request waits behind the edit view's preview; an edit remakes
     /// the tiles on the new recipe; opening another photo cancels them.
     #[test]

@@ -11,7 +11,10 @@
 //!   new tab makes no new decode.
 //! - **A tile** renders the recipe so far with the effect's default entry appended
 //!   (`OpInfo::default_entry`) from the small decode, at the scale that covers the box, then cut to
-//!   the box's shape around the centre and brought to exactly the size asked for. The whole
+//!   the box's shape around the centre and brought to exactly the size asked for. An effect that
+//!   changes the picture's size (its catalogue row says `changes_size`: a frame, Widescreen Film)
+//!   renders instead the whole grown picture at the scale that fits it in the box, centred on
+//!   [`PLACEHOLDER`], so every side of its frame shows (M12.29). The whole
 //!   recipe renders in each tile so that every stored-frame point and angle of the effect lands
 //!   where the edit view puts it (a crop or a rotation before it included). An effect whose
 //!   renderer is still a stub (`OpInfo::renders` false) shows the photo as it is.
@@ -54,6 +57,8 @@ pub const DECODES: usize = 2;
 pub const MAX_READY: usize = 64;
 /// The largest photo file a tile reads.
 pub const MAX_FILE: u64 = dalica_thumbs::MAX_FILE;
+/// Around a fitted tile: the effect tiles' placeholder grey (`gray 38`, `editing.md` §8.1).
+pub const PLACEHOLDER: [u8; 4] = [38, 38, 38, 255];
 
 /// One tile made: the photo with its recipe so far and the effect at its defaults.
 #[derive(Clone, Debug)]
@@ -111,6 +116,8 @@ struct Job {
     name: &'static str,
     /// The effect at its defaults, as the recipe writes it.
     entry: String,
+    /// Whether the effect changes the picture's size: its tile fits the whole picture in the box.
+    fit: bool,
 }
 
 /// What the last request asked for.
@@ -213,7 +220,9 @@ fn file_of(s: &Session, id: PhotoId) -> Option<Source> {
 
 /// The tiles of tab `tab`, in grid order.
 fn jobs_of(tab: u8) -> VecDeque<Job> {
-    catalog::effects(tab).filter_map(|(op, e)| op.default_entry().map(|entry| Job { place: e.place, name: op.name, entry })).collect()
+    catalog::effects(tab)
+        .filter_map(|(op, e)| op.default_entry().map(|entry| Job { place: e.place, name: op.name, entry, fit: op.changes_size }))
+        .collect()
 }
 
 /// The longer side a decode needs so that a `size` box is covered [`COVER`] times by a photo of
@@ -262,10 +271,49 @@ fn cover(image: &Rgba8, size: (u32, u32)) -> Result<Rgba8, String> {
     dalica_image::resize::resize(&window, size.0, size.1).map_err(|e| e.reason())
 }
 
-/// One tile: `recipe` with `entry` appended, rendered from `decode` to cover `size`, then cut to it.
-fn render_tile(decode: &Rgba8, recipe: &[String], entry: &str, size: (u32, u32)) -> Result<Rgba8, String> {
+/// `image`, no larger than a `size` box, centred on [`PLACEHOLDER`] filling it.
+fn letterbox(image: &Rgba8, size: (u32, u32)) -> Result<Rgba8, String> {
+    let (bw, bh) = (size.0.max(1), size.1.max(1));
+    let (w, h) = (image.width.min(bw), image.height.min(bh));
+    let bytes = usize::try_from(u64::from(bw) * u64::from(bh) * 4).map_err(|_| "a tile too large".to_string())?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(bytes).map_err(|_| "no memory for a tile".to_string())?;
+    data.extend(std::iter::repeat_n(PLACEHOLDER, bytes / 4).flatten());
+    let (x0, y0) = ((bw - w) / 2, (bh - h) / 2);
+    let (row, src_row) = (usize::try_from(bw).unwrap_or(0) * 4, usize::try_from(image.width).unwrap_or(0) * 4);
+    let (x0, y0, w) = (usize::try_from(x0).unwrap_or(0), usize::try_from(y0).unwrap_or(0), usize::try_from(w).unwrap_or(0) * 4);
+    for y in 0..usize::try_from(h).unwrap_or(0) {
+        let from = image.data.get(y * src_row..y * src_row + w).ok_or_else(|| "a picture shorter than its size".to_string())?;
+        let start = (y0 + y) * row + x0 * 4;
+        let to = data.get_mut(start..start + w).ok_or_else(|| "a tile shorter than its size".to_string())?;
+        to.copy_from_slice(from);
+    }
+    Ok(Rgba8 { width: bw, height: bh, data })
+}
+
+/// One tile: `recipe` with `entry` appended, rendered from `decode` to cover `size`, then cut to it;
+/// or, with `fit` (a size-changing effect), the whole picture fitted in `size` and centred on
+/// [`PLACEHOLDER`].
+fn render_tile(decode: &Rgba8, recipe: &[String], entry: &str, fit: bool, size: (u32, u32)) -> Result<Rgba8, String> {
     let texts = recipe.iter().map(String::as_str).chain(std::iter::once(entry));
     let recipe = Recipe::parse(texts).map_err(|e| e.to_string())?;
+    if fit {
+        // `Target::Fit` never enlarges and keeps a frame's whole-pixel bands inside the box; a
+        // decode smaller than the box (a tiny photo) is brought up to fill it on one side.
+        let image = dalica_edit::render(dalica_edit::Source::upright(decode), &recipe, Target::Fit { width: size.0, height: size.1 })
+            .map_err(|e| e.to_string())?;
+        let (w, h) = (u64::from(image.width.max(1)), u64::from(image.height.max(1)));
+        let (bw, bh) = (u64::from(size.0), u64::from(size.1));
+        let image = if w < bw && h < bh {
+            // The larger fitted size, one side reaching the box.
+            let (fw, fh) = if w * bh >= h * bw { (bw, (h * bw / w).clamp(1, bh)) } else { ((w * bh / h).clamp(1, bw), bh) };
+            let (fw, fh) = (u32::try_from(fw).unwrap_or(size.0), u32::try_from(fh).unwrap_or(size.1));
+            dalica_image::resize::resize(&image, fw, fh).map_err(|e| e.reason())?
+        } else {
+            image
+        };
+        return letterbox(&image, size);
+    }
     let geometry = Geometry::new(&recipe, Orientation::default(), decode.width, decode.height);
     let (w, h) = geometry.size();
     let (dw, dh) = if geometry.orientation().swaps() { (h, w) } else { (w, h) };
@@ -357,12 +405,12 @@ impl Session {
         let queue: Vec<Job> = tiles.want.as_mut().map(|w| w.queue.drain(..).collect()).unwrap_or_default();
         for job in queue {
             let (decode, recipe, entry) = (Arc::clone(&decode), recipe.clone(), job.entry.clone());
-            let place = job.place;
+            let (place, fit) = (job.place, job.fit);
             tiles.submit(generation, Work::Tile(place), Some(job), move |cancel| {
                 if cancel.load(Ordering::SeqCst) {
                     return Done::Tile(Err("cancelled".into()));
                 }
-                Done::Tile(render_tile(&decode, &recipe, &entry, size))
+                Done::Tile(render_tile(&decode, &recipe, &entry, fit, size))
             });
         }
     }
@@ -521,5 +569,18 @@ mod tests {
         assert_eq!(cover(&image, (8, 4)).unwrap().data, image.data, "the same shape and size is the picture itself");
         assert!(cover(&Rgba8 { width: 0, height: 0, data: vec![] }, (2, 2)).is_err());
         assert!(cover(&Rgba8 { width: 4, height: 4, data: vec![0; 3] }, (2, 2)).is_err(), "a buffer that is not the picture");
+    }
+
+    #[test]
+    fn a_fitted_tile_of_a_tiny_photo_still_reaches_the_box() {
+        // A 12 × 8 decode, smaller than the box: `Target::Fit` does not enlarge, the tile does.
+        let decode = Rgba8 { width: 12, height: 8, data: [200, 120, 40, 255].repeat(96) };
+        let entry = catalog::lookup("museum_matte").and_then(|op| op.default_entry()).unwrap();
+        let tile = render_tile(&decode, &[], &entry, true, (78, 48)).unwrap();
+        assert_eq!((tile.width, tile.height), (78, 48));
+        let grey = |x: u32, y: u32| tile.data.get(((y * 78 + x) * 4) as usize..((y * 78 + x) * 4 + 4) as usize) == Some(&PLACEHOLDER[..]);
+        assert!(!grey(39, 0) && !grey(39, 47), "the picture reaches the top and bottom");
+        assert!(grey(0, 24) && grey(77, 24), "grey at the sides");
+        assert!(letterbox(&Rgba8 { width: 4, height: 4, data: vec![0; 3] }, (8, 8)).is_err(), "a buffer that is not the picture");
     }
 }
