@@ -74,8 +74,8 @@ pub use drag_pill::{
 };
 pub use dropdown::{DROPDOWN_ITEM_MAX_W, DROPDOWN_ITEM_MIN_W, dropdown, dropdown_item, dropdown_popup_id};
 pub use effect_tile::{
-    EFFECT_BADGE, EFFECT_GRID_COLUMNS, EFFECT_GRID_ROWS, EFFECT_TILE_GAP, EffectGridOut, EffectTile, effect_grid, effect_grid_size, effect_tile,
-    effect_tile_id,
+    EFFECT_BADGE, EFFECT_GRID_COLUMNS, EFFECT_GRID_ROWS, EFFECT_LABEL_MIN, EFFECT_TILE_GAP, EffectGridOut, EffectTile, effect_grid, effect_grid_size,
+    effect_tile, effect_tile_id, effect_tile_label,
 };
 pub use feedback::{
     ProgressOut, TOAST_ERROR_SECS, TOAST_LINES, TOAST_SECS, ToastKind, ToastText, elide_middle, empty_state, progress_row, toast, toast_galley,

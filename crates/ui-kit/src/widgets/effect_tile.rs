@@ -3,7 +3,9 @@
 //! [`effect_grid`] lays a tab's tiles out three to a row, at most four rows, in the 280-wide edit
 //! panel.
 
-use egui::{Align2, Color32, CornerRadius, Rect, Response, TextureId, Ui, Vec2, WidgetType, pos2, vec2};
+use std::sync::Arc;
+
+use egui::{Align2, Color32, CornerRadius, Galley, Painter, Rect, Response, TextureId, Ui, Vec2, WidgetType, pos2, vec2};
 
 use super::{Target, allocate, focus_ring, one_line, register, tooltip};
 use crate::Tokens;
@@ -24,6 +26,12 @@ pub const EFFECT_BADGE: f32 = 16.0;
 const PREVIEW_TOP: f32 = 3.0;
 /// The badge's distance from the preview's edges.
 const BADGE_INSET: f32 = 2.0;
+/// The smallest size a label steps down to before it is cut with "…".
+pub const EFFECT_LABEL_MIN: f32 = 9.0;
+/// The step a label's size goes down by while it does not fit.
+const LABEL_STEP: f32 = 0.5;
+/// The room a label leaves at each side of its tile.
+const LABEL_MARGIN: f32 = 1.0;
 
 /// One tile: what it shows and says.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,7 +58,7 @@ pub fn effect_tile_id(name: &str) -> String {
 
 /// An effect tile (`metrics.effect_tile`, 86 × 69): the preview (`metrics.effect_preview`, 78 × 48,
 /// square corners) 3 pt from the top, or the `placeholder` (`gray 38`) until it arrives; the label
-/// below in SemiBold 11, centred and cut with "…"; for a one-click effect a [`EFFECT_BADGE`]
+/// below centred ([`effect_tile_label`]: SemiBold 11, smaller only when it does not fit); for a one-click effect a [`EFFECT_BADGE`]
 /// `badge_plate` square 2 pt inside the preview's top-right corner holding the 12 pt one-click
 /// glyph. Rest: no fill, label `text_label`; hovered: `hover` fill (radius 4), label `text`; held:
 /// `pressed`; disabled: the preview dimmed by `excluded_dim`, label and badge glyph
@@ -94,7 +102,7 @@ pub fn effect_tile(ui: &mut Ui, t: &Tokens, tile: &EffectTile<'_>) -> Response {
         let glyph = if enabled { t.text } else { t.text_disabled };
         paint_effect(p, Rect::from_center_size(plate.center(), Vec2::splat(m.icon_badge)), EffectIcon::OneClick, glyph);
     }
-    let galley = one_line(p, tile.label, fonts::semibold(t.small), text, r.rect.width() - 4.0);
+    let galley = effect_tile_label(p, t, tile.label, text);
     let row = Rect::from_min_max(pos2(r.rect.min.x, preview.max.y), r.rect.max);
     let at = Align2::CENTER_CENTER.align_size_within_rect(galley.size(), row).min;
     p.galley(at.round(), galley, text);
@@ -102,6 +110,25 @@ pub fn effect_tile(ui: &mut Ui, t: &Tokens, tile: &EffectTile<'_>) -> Response {
     register(ui.ctx(), &id, Role::Tool, tile.label, Target::Widget(&r), false);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, tile.label));
     tooltip(r, t, tile.label, Some(tile.tooltip))
+}
+
+/// The galley of a tile's label: SemiBold `small` (11) when it fits the tile's width less 2 pt;
+/// otherwise the size steps down by half points to [`EFFECT_LABEL_MIN`] until it fits, and a label
+/// that does not fit even then is cut with "…" at that size.
+pub fn effect_tile_label(p: &Painter, t: &Tokens, label: &str, color: Color32) -> Arc<Galley> {
+    let room = t.metrics.effect_tile.x - 2.0 * LABEL_MARGIN;
+    let mut size = t.small;
+    loop {
+        let galley = p.layout_no_wrap(label.to_owned(), fonts::semibold(size), color);
+        if galley.size().x <= room {
+            return galley;
+        }
+        let next = size - LABEL_STEP;
+        if next < EFFECT_LABEL_MIN || !next.is_finite() {
+            return one_line(p, label, fonts::semibold(size.max(EFFECT_LABEL_MIN)), color, room);
+        }
+        size = next;
+    }
 }
 
 /// The size of a grid of `count` tiles: three columns wide whatever the count (so a tab's grid
