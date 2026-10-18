@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::common::{jpeg, lisbon, open, options};
 use dalica_core::SystemClock;
@@ -34,6 +34,17 @@ fn downloads(n: u64) -> (tempfile::TempDir, PathBuf) {
     let sidecar = json!({ "dalica": { "version": 1 }, "photos": { "IMG_0002.jpg": { "star": true } } });
     put(&folder.join(".dalica.json"), &serde_json::to_vec_pretty(&sidecar).unwrap());
     (disk, folder)
+}
+
+/// Pins the modification times of `downloads(n)`'s photos to whole seconds in the order they were
+/// written, `IMG_{n}` oldest, each the next a second newer: the folder's display order (sort date,
+/// then name) then puts a later-named photo first, as a second boundary while writing them would.
+fn pin_times(folder: &Path, n: u64) {
+    let start = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    for i in 1..=n {
+        let at = start + Duration::from_secs(n - i);
+        std::fs::File::options().write(true).open(folder.join(format!("IMG_{i:04}.jpg"))).unwrap().set_modified(at).unwrap();
+    }
 }
 
 /// `viewer.list` with `params`, asked again until it is no longer pending.
@@ -117,6 +128,7 @@ fn a_photo_of_a_watched_folder_is_the_librarys_own() {
 #[test]
 fn starring_a_photo_of_an_unwatched_folder_adds_it_as_scan_once_and_one_undo_removes_both() {
     let (_disk, folder) = downloads(4);
+    pin_times(&folder, 4);
     let lib = tempfile::tempdir().unwrap();
     let mut s = open(lib.path());
     let photo = folder.join("IMG_0003.jpg");
@@ -129,7 +141,11 @@ fn starring_a_photo_of_an_unwatched_folder_adds_it_as_scan_once_and_one_undo_rem
     assert_eq!(s.folder_rules().get(&folder).and_then(|r| r.mode), Some(Mode::Once));
     let fid = s.library().folder_by_path(&folder).unwrap();
     assert_eq!(s.library().photos_in(fid).len(), 4, "the folder's photos as listed");
-    let starred: Vec<String> = s.library().photos_in(fid).iter().filter(|p| p.star).map(|p| p.name.clone()).collect();
+    // Which photos are starred, as a set: `photos_in` is the folder's display order (sort date, then
+    // name), which the pinned file times make `IMG_0003` before `IMG_0002`; that order is the
+    // `library` crate's to test.
+    let mut starred: Vec<String> = s.library().photos_in(fid).iter().filter(|p| p.star).map(|p| p.name.clone()).collect();
+    starred.sort();
     assert_eq!(starred, ["IMG_0002.jpg", "IMG_0003.jpg"], "the sidecar's star kept, the new one added");
     assert_eq!(s.undo_stack().len(), 1, "one step");
     let l = listed(&mut s, &json!({})).unwrap();

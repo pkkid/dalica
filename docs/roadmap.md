@@ -8449,7 +8449,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     and Boost's tiles show the frame's colour at the middle of all four sides; a default
     Border's tile shows its outer band at least 2 px wide on every side; tiles of photos without
     a frame are byte for byte unchanged; `cargo xtask ci`.
-- ⬜ **M13.46 `engine`: the viewer star test compares the starred photos as a set**
+- ✅ **M13.46 `engine`: the viewer star test compares the starred photos as a set**
   - after: M12.R
   - files: `crates/engine/tests/viewer.rs`
   - scope: a flake from a task gate (passed on three reruns):
