@@ -7291,7 +7291,7 @@ a maintainer decision mid-run.
     fingerprint suites run (`cargo test -p dalica-ui-kit`, `cargo test -p dalica-ui --test all`)
     with no baseline moved beyond its tolerance, or the moved ones reported on the issue with
     their diff images (never blessed outside this task's files); `cargo xtask ci`.
-- ⬜ **M12.32 `edit`: Drop Shadow's defaults read at a glance**
+- ✅ **M12.32 `edit`: Drop Shadow's defaults read at a glance**
   - after: M12.14
   - files: `crates/edit/src/ops/mats.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/mats.rs`, `crates/edit/tests/fingerprints/mats-drop-shadow.json`, `docs/editing.md`
   - scope: a fix task from the M12.R review (the maintainer's answer to Q7). At today's defaults

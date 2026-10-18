@@ -1,7 +1,7 @@
 //! Drop Shadow and Museum Matte (M12.14, `editing.md` §8.4) on M12.13's frames. A fingerprint per
 //! effect at its defaults (the same at two render sizes after a downscale); the canvas grows and the
-//! photo's pixels are unchanged inside; the shadow falls on the side its angle names and the
-//! canvas's corners stay the background; two Museum Mattes are larger than one and frame it; a
+//! photo's pixels are unchanged inside; the default shadow reads at a glance (M12.32); the shadow
+//! falls on the side its angle names and the canvas's corners stay the background; two Museum Mattes are larger than one and frame it; a
 //! region equals that window of the whole render. Fingerprints: `fingerprints/mats-*.json`.
 
 use crate::common::{assert_two_sizes_agree, check_fingerprint, recipe, rgba, run, scene, window};
@@ -9,7 +9,7 @@ use dalica_edit::{Region, Source, Target, render, render_region};
 use dalica_image::Rgba8;
 use dalica_scenes::{Kind, Scene};
 
-const SHADOW: &str = "drop_shadow(#000000,4,90,10,30,#ffffff)";
+const SHADOW: &str = "drop_shadow(#000000,15,90,25,30,#ffffff)";
 const MATTE: &str = "museum_matte(#1a0e03,25,#f0eae4,40)";
 
 fn px(img: &Rgba8, x: u32, y: u32) -> [u8; 4] {
@@ -42,7 +42,7 @@ fn the_canvas_grows_and_the_photos_pixels_are_unchanged_inside() {
     // 200 px on the shorter side: Drop Shadow's margin is Distance + Blur + 25 thousandths, Museum
     // Matte's both mats, each rounded to whole pixels.
     for (op, margin) in [
-        (SHADOW, 8u32),
+        (SHADOW, 13u32),
         ("drop_shadow(#ff0000,30,200,100,0,#102030)", 31),
         ("drop_shadow(#000000,0,0,0,100,#ffffff)", 5),
         (MATTE, 13),
@@ -64,6 +64,26 @@ fn the_canvas_grows_and_the_photos_pixels_are_unchanged_inside() {
     assert_eq!(px(&matte, 13 + 300, 13 + 200), inner, "the inner mat's lit corner");
     let (top, bottom) = (mean(&matte, 50, 5, 200, 1), mean(&matte, 50, 13 + 200 + 7, 200, 1));
     assert!(top + 20.0 < bottom, "the inner shadow along the top ({top:.1}) and not the bottom ({bottom:.1})");
+}
+
+#[test]
+fn the_default_shadow_reads_at_a_glance() {
+    // 320 px on the shorter side: Distance 15 is 4.8 px, Blur 25 is 8 px, the margin 65 → 21 px.
+    let up = scene(19, 480, 320);
+    let img = run(&up, &[SHADOW]);
+    let m = 21u32;
+    assert_eq!((img.width, img.height), (480 + 2 * m, 320 + 2 * m));
+    // Two columns centred 8 px beyond each side of the photo, away from the corners. On the right
+    // the shadow's edge is 3.2 px nearer: the tent's closed form gives 0.7 × 4.8² / 128 of the way
+    // to black, about 32 levels. On the left the shadow has moved away: the background.
+    let rows = (m + 40, 240);
+    let right = mean(&img, m + 480 + 7, rows.0, 2, rows.1);
+    let left = mean(&img, m - 9, rows.0, 2, rows.1);
+    assert!(right <= 255.0 - 20.0, "the shadow 8 px beyond the right edge ({right:.1})");
+    assert!(left > right + 20.0, "offset, not a halo: the left ({left:.1}) lighter than the right ({right:.1})");
+    for (x, y) in [(0, 0), (img.width - 1, 0), (0, img.height - 1), (img.width - 1, img.height - 1)] {
+        assert_eq!(px(&img, x, y), [255, 255, 255, 255], "the background at {x},{y}");
+    }
 }
 
 #[test]

@@ -710,9 +710,9 @@ static CATALOG: [OpInfo; 39] = [
         "drop_shadow(color,distance,angle,blur,fade,background)",
         &[
             colour("color", "Shadow color", "#000000"),
-            number("distance", "Distance", mats::DISTANCE, "4"),
+            number("distance", "Distance", mats::DISTANCE, "15"),
             number("angle", "Angle", mats::ANGLE, "90"),
-            number("blur", "Blur", mats::BLUR, "10"),
+            number("blur", "Blur", mats::BLUR, "25"),
             fade("30"),
             colour("background", "Background", "#ffffff"),
         ],
