@@ -5,7 +5,9 @@
 //! R = G = B, B&W's grey is the Rec.601 luma within one level, a red filter lightens a red patch
 //! over a blue one of the same luma; Sepia gives R ≥ G ≥ B and keeps the order of lumas; Warmify
 //! raises R − B and keeps the luma within 3 %; Tint gives every coloured pixel the tint's hue and
-//! Fade 100 gives the input; Saturation 0 is the identity and −1 gives R = G = B.
+//! Fade 100 gives the input; Saturation 0 is the identity and −1 gives R = G = B. Warmify and
+//! Saturation also match fingerprints of a large photo rendered whole (`colour-*-large`, blessed
+//! from the M12 code before M13.38 made their passes faster).
 
 use crate::common::{assert_two_sizes_agree, check_fingerprint, pixels, recipe, rgba, run, scene, window};
 use dalica_edit::ops::colour::REC601;
