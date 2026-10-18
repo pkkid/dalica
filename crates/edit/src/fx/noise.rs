@@ -12,6 +12,11 @@
 //!   spans more than a cell, scales the value down by `cell / pixel` (the spread of the mean of the
 //!   cells under the pixel), so a small render's grain is as strong as a large render's grain
 //!   after it is shrunk.
+//! - **Rows** (M13.34): [`Noise::row`] and [`Noise::row_values`] fill a row of pixels at once,
+//!   for the effects that draw noise at every pixel: the stored-frame point steps along the row
+//!   by one affine step per pixel, a lattice corner is hashed once per cell the row crosses, and
+//!   the smoothstep blend runs in `f32`. They agree with [`Noise::at`] and [`Noise::value`] within
+//!   10⁻⁴.
 //!
 //! Ported from PhotoCraft `crates/algo/src/noise.rs` (`hash01`) at revision e4b2868a and LightCraft
 //! `crates/pipeline/src/finish.rs` (`grain_noise`: the smoothstep blend of lattice values) at
@@ -75,12 +80,67 @@ impl Noise {
         self.value(u, v, channel) * self.attenuation(space)
     }
 
+    /// [`Noise::at`] for the pixels `(x0, y) … (x0 + out.len() − 1, y)` of `space` and `channel`,
+    /// into `out` (within 10⁻⁴ of it).
+    pub fn row(&self, space: &Space, x0: u32, y: u32, channel: u32, out: &mut [f32]) {
+        self.row_values(space, x0, y, channel, out);
+        let k = self.attenuation(space);
+        if k != 1.0 {
+            for v in out.iter_mut() {
+                *v *= k;
+            }
+        }
+    }
+
+    /// [`Noise::value`] at the centres of the pixels `(x0, y) … (x0 + out.len() − 1, y)` of
+    /// `space` for `channel` (without [`Noise::attenuation`]), into `out` (within 10⁻⁴ of it).
+    pub fn row_values(&self, space: &Space, x0: u32, y: u32, channel: u32, out: &mut [f32]) {
+        // The pixel centres along the row are an affine function of `x`: the step taken over
+        // `STRIDE` pixels (a power of two, so the division is exact) to keep its rounding small.
+        const STRIDE: u32 = 1024;
+        let (u0, v0) = space.pixel_units(x0, y);
+        let (u1, v1) = space.pixel_units(x0.saturating_add(STRIDE), y);
+        let span = f64::from(x0.saturating_add(STRIDE) - x0).max(1.0);
+        let (x, y) = (u0 / self.cell, v0 / self.cell);
+        let (dx, dy) = ((u1 - u0) / span / self.cell, (v1 - v0) / span / self.cell);
+        if !(x.is_finite() && y.is_finite() && dx.is_finite() && dy.is_finite()) {
+            out.fill(0.0);
+            return;
+        }
+        let spread = SPREAD as f32;
+        // The cell last hashed and its corners' values (top-left, top-right, bottom-left,
+        // bottom-right).
+        let mut cell: Option<(i64, i64)> = None;
+        let mut corners = [0.0f32; 4];
+        for (i, o) in out.iter_mut().enumerate() {
+            let k = i as f64;
+            let (px, py) = ((x + dx * k).clamp(-1e9, 1e9), (y + dy * k).clamp(-1e9, 1e9));
+            let (ci, cj) = (floor(px), floor(py));
+            if cell != Some((ci, cj)) {
+                let h = |a: i64, b: i64| 2.0 * hash01(a as i32, b as i32, channel, self.seed) - 1.0;
+                corners = [h(ci, cj), h(ci + 1, cj), h(ci, cj + 1), h(ci + 1, cj + 1)];
+                cell = Some((ci, cj));
+            }
+            let (fx, fy) = ((px - ci as f64) as f32, (py - cj as f64) as f32);
+            let (su, sv) = (fx * fx * (3.0 - 2.0 * fx), fy * fy * (3.0 - 2.0 * fy));
+            let top = corners[0] + (corners[1] - corners[0]) * su;
+            let bottom = corners[2] + (corners[3] - corners[2]) * su;
+            *o = (top + (bottom - top) * sv) / spread;
+        }
+    }
+
     /// The factor [`Noise::at`] scales by in `space`: 1 while a pixel is at most a cell, then
     /// `cell / pixel`.
     pub fn attenuation(&self, space: &Space) -> f32 {
         let pixel = space.pixel();
         if pixel.is_finite() && pixel > self.cell { (self.cell / pixel) as f32 } else { 1.0 }
     }
+}
+
+/// `⌊v⌋` of a finite `v` inside ±10⁹, without a call to the library's `floor`.
+fn floor(v: f64) -> i64 {
+    let t = v as i64;
+    if (t as f64) > v { t - 1 } else { t }
 }
 
 /// The seed of an entry: FNV-1a of its parameter text (`Operation`'s `Display`, or the effect's

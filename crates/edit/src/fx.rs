@@ -11,16 +11,24 @@
 //!   [`Gaussian::reach`]) as in the whole render; [`Blurred`] blurs a pass's `before` view once per
 //!   render for every band; [`apart`] makes any such one-time setup that runs `rayon` work apart
 //!   from the bands' pool, so a band never waits on a setup it is making.
+//! - [`grid`]: [`GridBlur`], a wide Gaussian on a coarse grid of cell means anchored in the whole
+//!   output, made once per render for every band and read back bilinearly (M13.34): what the wide
+//!   blurs of the looks and Soft Focus share.
 //! - [`noise`]: [`Noise`], smooth value noise seeded from an entry's parameters ([`noise::seed`])
 //!   and placed in the stored frame, so a thumbnail, the edit view, a zoomed region and a Save
-//!   agree; mean 0 and a standard deviation of 1 before its amount.
+//!   agree; mean 0 and a standard deviation of 1 before its amount; a row at a time by
+//!   [`Noise::row`].
 //! - [`mask`]: per-pixel masks in output pixels from stored-frame shapes: a [`Circle`] with a
 //!   feathered edge, a linear [`Gradient`] with its start, angle and feather, and the distance from
 //!   the picture's [`Edges`].
 //! - [`brush`]: dabs along painted and erased strokes ([`Dabs`], [`paint`]), for Soften's mask.
 //! - [`blend`]: the blend modes ([`Blend`]: normal, screen, overlay, soft light, multiply), [`fade`]
 //!   (`alpha = 1 − Fade/100` toward the input) and [`mix`].
-//! - [`color`]: [`luma`] (Rec.601) and sRGB ↔ linear light ([`to_linear`], [`to_srgb`]).
+//! - [`color`]: [`luma`] (Rec.601) and sRGB ↔ linear light ([`to_linear`], [`to_srgb`]), and the
+//!   same curves as shared tables ([`linear_light`]) for an effect that converts every pixel.
+//!
+//! The primitives are made for speed (M13.34): flat slices, work at a blur's own scale, once per
+//! render rather than once per band, tables for per-pixel curves, rows rather than per-pixel maps.
 //!
 //! Every size is relative to the stored photo's shorter side ([`Space::length`]), every point a
 //! normalised stored-frame [`crate::Point`]; nothing here panics or allocates without a bound,
@@ -30,14 +38,16 @@ pub mod blend;
 pub mod blur;
 pub mod brush;
 pub mod color;
+pub mod grid;
 pub mod mask;
 pub mod noise;
 pub mod space;
 
 pub use blend::{Blend, fade, mix};
-pub use blur::{Blurred, Gaussian, Plane, apart};
+pub use blur::{Blurred, Gaussian, Mono, Plane, apart};
 pub use brush::{Dabs, paint};
-pub use color::{luma, to_linear, to_srgb};
+pub use color::{LinearLight, linear_light, luma, to_linear, to_srgb};
+pub use grid::{GridBlur, Window};
 pub use mask::{Circle, Edges, Gradient};
 pub use noise::Noise;
 pub use space::Space;
