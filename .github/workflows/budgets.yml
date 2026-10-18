@@ -59,8 +59,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # The history and the release tags: the save and search budgets are judged against the
-          # last release measured on this same runner.
+          # The history and the release tags: the save, search and import (first screenful,
+          # listing) budgets are judged against the last release measured on this same runner.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
         with:

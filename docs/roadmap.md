@@ -10,8 +10,24 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-17, M11.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-18, M12.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-18 (M12.R, the Release 0.7 gate).* M12 is done: `cargo xtask accept M12` passes in 122 s (309 s with the
+release budgets), and the tests on `main` went from 3 545 to 3 756. The edit view's tabs 3–5 hold all 27 effects:
+tile grids that preview each effect on the photo in the background (tab 3 fills in 170 ms at 24 MP with the release
+build, budget 355), one-click effects, a parameter panel with sliders, colour swatches, a picker and an eyedropper,
+Fade and a live preview, a crosshair for the four focal effects that lands where it was put on a turned photo, and
+Soften's brush. Every effect is one step of the photo's history named after it, survives a restart and a rebuild and
+shows on its thumbnail; Border, Widescreen Film, Drop Shadow and Museum Matte grow the picture, and every size the
+app reads accounts for it. Batch Edit's five effects are live, W11 passes over MCP (12 of 12 workflows), and the
+slideshow's upload frame dropped from 14–22 ms to about 4 ms at p95. Not done: effects are slow at large sizes (at 24 MP
+on two cores 15 of 27 finals miss the 100 ms cap, Focal Zoom 2.7 s; the caps are M13.34–M13.43, by the maintainer's
+answer), and the two checks by hand move to M13.R. The run found and fixed a render deadlock (a one-time setup running
+pool work inside a band, M12.7 and M12.28; Soften 767 → 254 ms) and, at the review, four visual faults no gate saw
+(frame tiles cropped, a cut label, a rasterizer gap in screenshots, a barely visible Drop Shadow; M12.29–M12.32), and
+a `main` left red for 50 minutes by an edit-only change that broke a ui test. 33 tasks merged with 7 workers. Parity
+✅ 167 · 🟡 42 · ⬜ 39 · 🚫 17. M12.R is the 0.7 release gate (version 0.7.0).
 
 *2026-10-17 (M11.R, the Release 0.6 gate).* M11 is done: `cargo xtask accept M11` passes in 111 s (480 s with the
 release budgets), and the tests on `main` went from 3 304 to 3 545. Import from cards, drives and folders: photos
@@ -311,7 +327,7 @@ waits for.)
 | Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ✅ |
 | | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ✅ |
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ✅ |
-| | M12 | Effects | effect tiles, parameter panels and all 27 effects | ⬜ |
+| | M12 | Effects | effect tiles, parameter panels and all 27 effects | ✅ |
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ⬜ |
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ⬜ |
 | Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ⬜ |
@@ -7344,7 +7360,7 @@ a maintainer decision mid-run.
     Craft-app code names the source files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
     M14 tasks as planned.
-- ⬜ **M12.R Release 0.7 gate**
+- ✅ **M12.R Release 0.7 gate**
   - after: M12.22
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -7558,6 +7574,31 @@ its row. M13's budgets join `development.md` §8 at 1.5 × their first measureme
 time while the face scan runs (within 16 ms at p95), and are never loosened. Apart from the
 reserved decisions and the go-ahead to publish the face corpus (both asked at M12.R), no step of
 M13 needs a maintainer decision mid-run.
+
+**Effect speed** (the maintainer at M12.R). The spec caps a slider's draft at 16 ms and its final
+at 100 ms at p95 (`development.md` §8: two cores, a 24 MP photo, the 2560 × 1600 screen); at
+M12.21's first measurement 13 drafts and 15 finals missed them, and 0.7 shipped with "effects slow
+at large sizes" as a known issue. M13.34–M13.43 make every effect meet both caps, one task per
+`edit::ops` module that misses, so their `files` never overlap: M13.34 first makes the shared
+`fx` primitives fast (the box passes, a coarse-grid blur made once per render, noise by rows, the
+linear-light tables), M13.35 makes the engine render a frame's draft from the halved base instead
+of the fractional resample, the seven module tasks (M13.36–M13.42) use them, and M13.43 turns the
+caps into budgets once all pass. The rules for all of them: the speed comes from the algorithm
+and the loops (work at the blur's own scale on a grid anchored to the whole output, compute once
+per render rather than once per band, tables for per-pixel curves, rows instead of per-pixel
+`f64` maps, flat slices LLVM can vectorise), never from `unsafe`, a C dependency, a GPU path
+(`development.md` §14) or a smaller draft than ¼ (`MIN_DRAFT_SCALE` stays 0.25); a render's
+output stays what it was within the effect's fingerprint tolerance (0.5) and the two-sizes test's
+(2.0), and a region render still equals that window of the whole render exactly. Before changing
+an effect, its task blesses a `<case>-large` fingerprint of the current code at 1200 × 800 (large
+enough that the grids and the fast paths are taken; the 320 × 240 fingerprints are not), in its
+own commit, and the speed commit must match it without re-blessing. A look change only when no
+lever reaches the cap without one: then the task re-blesses with the diff images on the PR and
+the reason in the commit body, and the review asks about it. A cap no lever reaches is never
+loosened: the task blocks with its before and after numbers and the options. Every task reports
+the effect's draft, final and Save numbers before and after (`taskset -c 0,1 cargo bench -p
+dalica-edit --bench effects -- --only <ids>`); a Save median never rises above its M12.21 budget.
+The workstation is faster than the review's two-vCPU runner, so aim for about 12 ms and 75 ms.
 
 - ⬜ **M13.1 `core` + `library`: places, faces and people in the model**
   - after: M9.8, M10.29, M12.R
@@ -8115,8 +8156,239 @@ M13 needs a maintainer decision mid-run.
   - done when: `cargo xtask bench inference`, `bench faces_scan` and `bench people_places` print
     their numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each
     fail.
+- ⬜ **M13.34 `edit`: fast shared effect primitives: box passes, a grid blur, noise by rows, linear-light tables**
+  - after: M12.R
+  - files: `crates/edit/src/fx.rs`, `crates/edit/src/fx/blur.rs`, `crates/edit/src/fx/grid.rs`, `crates/edit/src/fx/noise.rs`, `crates/edit/src/fx/color.rs`, `crates/edit/tests/fx.rs`
+  - scope: effect speed (paragraph *Effect speed* above). The ground the module tasks M13.36–M13.42
+    build on, so no module writes its own:
+    - **Box passes** (`Gaussian::apply`): today each pass reads through a bounds-checked closure
+      per tap, accumulates in `i64` and turns the plane twice with a naive transpose. Make them
+      run on flat slices with the clamped edges handled outside the inner loop (a padded row or
+      a split loop), the vertical passes in column strips with one running sum per column
+      (cache-friendly, vectorisable across the strip) or a blocked transpose, and `i32` sums
+      wherever the bound proves they fit. The sums stay exact integers, so the planes come out
+      **bit for bit** the same (the order of exact integer adds is free): `Blurred`, Soften's
+      blur and every `Gaussian` user gets faster with no output change.
+    - **A grid blur** (`fx::grid`, `GridBlur`): the coarse-grid Gaussian that `ops/looks.rs`
+      (`BandBlur`) and `ops/focal.rs` (Soft Focus) each wrote for themselves, generalised and
+      made **once per render** for every band (in a `OnceLock`, through `apart`, as `Blurred`
+      is) instead of by every 32-row band for its rows plus the blur's reach (at HDR Look's
+      default the reach is about 150 px, so each band averages and blurs ten times its own
+      rows): cells about a third of the sigma (at most 32 px) anchored at multiples of the cell
+      in the whole output, each cell's mean summed straight from the window's 8-bit rows, the
+      grid blurred by the box passes, read back bilinearly at a pixel's centre, with
+      `BandBlur`'s variance correction (the cell's averaging and the bilinear read taken off the
+      grid's sigma) and its mix-in for a blur under the smallest box blur. Over a region window
+      and its margin it gives exactly the whole render's values. An optional per-pixel weight
+      before averaging (Glow's highlights) and a one-channel form (a luma) are part of it.
+    - **Noise by rows** (`Noise`): `Noise::at` maps each pixel through `Space` in `f64` and hashes
+      four lattice corners per pixel; Film Grain, Plastic Lens and Widescreen Film call it per
+      pixel. Add a row sampler that steps the stored-frame point along the row (one affine step
+      per pixel), hashes a lattice corner once per cell it crosses and blends with the smoothstep
+      in `f32`; it agrees with `Noise::at` within 10⁻⁴ (a test over random rows, turned and
+      straightened spaces included), so the effects' fingerprints do not move.
+    - **Linear light** (`fx::color`): one shared pair of 4 096-step tables
+      (`to_linear` / `to_srgb` as `ops/colour.rs` and `ops/remap.rs` each build today, within
+      0.01 of a level), so Vignette and the module tasks stop calling `powf` per channel.
+  - done when: `crates/edit/tests/fx.rs`: the new box passes give the same plane, bit for bit, as
+    the M12 ones (kept in the test as the oracle) on seeded planes of odd sizes and radii up to
+    the plane's size; `GridBlur` over a region window plus its margin equals the whole render's
+    grid there exactly, and its sigma matches `Gaussian` within the existing tolerance; the row
+    sampler agrees with `Noise::at` within 10⁻⁴; the tables within 0.01 of a level; every effect's
+    fingerprint and region test in `crates/edit/tests/` passes unchanged; the bench's `glow` and
+    `soften` final before and after in the PR (they use the box passes directly); `cargo xtask ci`.
+- ⬜ **M13.35 `engine`: a frame's draft renders from the halved base, not through the fractional resample**
+  - after: M12.R
+  - files: `crates/engine/src/preview/jobs.rs`, `crates/engine/tests/preview.rs`, `crates/edit/benches/effects.rs`
+  - scope: effect speed. The drafts of the four frames miss 16 ms although their own painting is
+    cheap: Border 20.9 ms, Museum Matte 20.0, Drop Shadow 19.3 and Widescreen Film 24.5 at p95.
+    `preview::jobs::render` takes the halved base only when the recipe is `unwarped`, which it
+    tests on `Geometry::size()`: a frame grows that size, so a framed recipe renders from the
+    3000 × 2000 source at `Target::Scale(¼)`, the fractional resample `jobs.rs`'s header
+    measures as the expensive part. Test the photo's own size instead (`Geometry::photo_size()`,
+    after crop and straighten, before any frame): a recipe that neither crops nor straightens
+    renders at `Target::Full` from the base however many frames it has, which grow their canvas
+    in whole pixels at the base's scale (`fit` still from the grown size, so the box stays
+    covered); a crop or a straighten still renders from the source at that scale. The draft
+    rule stays as it is (1, ½, ¼ from the last final's cost; never ⅛). The bench's copy of the
+    rule (`Screen::render` in `crates/edit/benches/effects.rs`) changes with it, in the same
+    commit, so it keeps measuring what the engine does; `jobs.rs`'s header says so.
+  - done when: `crates/engine/tests/preview.rs`: a Border's and a Drop Shadow's draft render from
+    the base (the preview's source untouched, the frame on all four sides, the draft within the
+    two-sizes tolerance of the final shrunk), and a cropped Border still renders from the source;
+    the bench's `border`, `museum_matte`, `drop_shadow` and `widescreen` drafts within 16 ms at
+    p95 on two cores (before and after in the PR; Widescreen Film's final is M13.42's);
+    `cargo xtask ci`.
+- ⬜ **M13.36 `edit`: Glow, Sharpen and Film Grain within the slider's caps**
+  - after: M12.R, M13.34
+  - files: `crates/edit/src/ops/detail.rs`, `crates/edit/tests/detail_effects.rs`, `crates/edit/tests/fingerprints/detail-*.json`
+  - scope: effect speed. Draft / final p95 at M12.21: Glow 21.2 / 409 ms, Film Grain 11.7 /
+    197 ms, Sharpen 7.9 / 145 ms; the caps 16 / 100 ms. Levers:
+    - **Glow:** its highlights blurred by a full-resolution `Blurred` plane of sigma 3 % of the
+      shorter side (60 px on the final): move it to M13.34's `GridBlur` with the smoothstep
+      highlight weight applied before the cells are averaged, so it blurs a grid a few hundred
+      cells wide instead of 6 MP; the screen blend per pixel stays.
+    - **Sharpen:** a 7-tap separable Gaussian (sigma under a pixel, floored at 0.5 px) convolved
+      per band through a closure and a bounds-checked `get` per tap: convert the band's rows and
+      their margin to `f32` once, run both passes on flat slices with the edges handled outside
+      the inner loop, keeping the taps' order (the output stays bit for bit the same).
+    - **Film Grain:** one noise value per pixel through `Noise::at`: M13.34's row sampler.
+  - done when: the bench's `glow`, `grain` and `sharpen` drafts within 16 ms and finals within
+    100 ms at p95 on two cores (before and after in the PR, Saves not above their budgets);
+    `crates/edit/tests/detail_effects.rs`: the `detail-*-large` fingerprints blessed from the
+    M12 code match, the existing fingerprints, two-sizes tests and the region test pass
+    unchanged (Sharpen's output bit for bit as before); `cargo xtask ci`.
+- ⬜ **M13.37 `edit`: Soft Focus within the slider's caps**
+  - after: M12.R, M13.34
+  - files: `crates/edit/src/ops/focal.rs`, `crates/edit/tests/focal_effects.rs`, `crates/edit/tests/fingerprints/focal-*.json`
+  - scope: effect speed. Draft / final p95 at M12.21: Soft Focus 45.9 / 274 ms; the caps 16 /
+    100 ms (Focal B&W and Graduated Tint already meet them). Its blur (sigma `Amount ×
+    SOFT_SIGMA`, 22 px on the final at the default) is made by every band for its rows plus the
+    reach, on a grid of cell means read through `View::get` per pixel. Levers: M13.34's
+    `GridBlur`, made once per render (the same cells and sigma, so the output should not move);
+    no blur read where the circle leaves the photo sharp (the mask is 0 inside Size); the mix by
+    the mask on flat rows. The draft's share that does not shrink with the picture (the per-band
+    reach is most of it) goes with the shared grid.
+  - done when: the bench's `soft_focus` draft within 16 ms and final within 100 ms at p95 on two
+    cores (before and after in the PR, its Save not above its budget); `crates/edit/tests/
+    focal_effects.rs`: the `focal-soft-focus-large` fingerprint blessed from the M12 code
+    matches, the existing fingerprints, two-sizes tests and the region test pass unchanged;
+    `cargo xtask ci`.
+- ⬜ **M13.38 `edit`: Boost, Saturation and Warmify within the slider's caps**
+  - after: M12.R, M13.34
+  - files: `crates/edit/src/ops/remap.rs`, `crates/edit/src/ops/colour.rs`, `crates/edit/tests/remap_effects.rs`, `crates/edit/tests/colour_effects.rs`, `crates/edit/tests/fingerprints/remap-*.json`, `crates/edit/tests/fingerprints/colour-*.json`
+  - scope: effect speed. Draft / final p95 at M12.21: Boost 35.7 / 476 ms, Saturation 21.5 /
+    345 ms, Warmify 16.1 / 252 ms; the caps 16 / 100 ms. All three are pixel-only passes, so the
+    cost is the per-pixel maths: Boost and Saturation run `vibrance_lin` (three `powf`, an `exp`,
+    an HSV hue and its branches) between two table lookups; Warmify a matrix in linear light and
+    `set_luma`. Levers: since each is a fixed function of the pixel's RGB for one render, a 3-D
+    table built once at prepare (33³ or 65³ entries, tetrahedral or trilinear, built in parallel
+    and bounded) read per pixel, within 1 level of 255 of the exact function over every 8-bit
+    input (fused passes may hand it values between levels, which the interpolation covers); or,
+    if that misses the tolerance on a saturated edge, 1-D tables for `t^p` and `(1 − t)^q` and
+    the `exp` term with the constant `a` folded at prepare; the shared linear-light tables from
+    M13.34 instead of each module's own; loops on flat slices. The other remaps and colour
+    effects (already within the caps) keep their code unless the shared tables replace theirs.
+  - done when: the bench's `boost`, `saturation` and `warmify` drafts within 16 ms and finals
+    within 100 ms at p95 on two cores (before and after in the PR, Saves not above their
+    budgets); a test over every 8-bit grey and a seeded million RGB inputs: each fast pass within
+    1 level of the exact function; the `remap-boost-large`, `colour-saturation-large` and
+    `colour-warmify-large` fingerprints blessed from the M12 code match; the existing
+    fingerprints and region tests pass unchanged; `cargo xtask ci`.
+- ⬜ **M13.39 `edit`: HDR Look, Plastic Lens and Dream Glow within the slider's caps**
+  - after: M12.R, M13.34
+  - files: `crates/edit/src/ops/looks.rs`, `crates/edit/tests/look_effects.rs`, `crates/edit/tests/fingerprints/looks-*.json`
+  - scope: effect speed. Draft / final p95 at M12.21: HDR Look 31.1 / 740 ms, Plastic Lens 44.6 /
+    367 ms, Dream Glow 16.0 / 287 ms; the caps 16 / 100 ms. Each band blurs its own rows plus the
+    blur's reach (`BandBlur`): at HDR's default the reach is about 150 px around a 32-row band,
+    and HDR also blurs the fine detail (`HDR_FINE`, about 3 px) at full resolution per band with
+    two transposes. Levers: M13.34's `GridBlur`, made once per render, for every blur (the same
+    cells and sigmas, so the output should not move); HDR uses only the luma of both blurs, so
+    blur one luma channel instead of three (luma is linear: the same picture to the fixed point's
+    rounding); HDR's `tanh` roll-off through a table; Plastic Lens's `lens` weights (an `f64`
+    `hypot` and two smoothsteps per pixel) by rows, no blur read where its soft weight is 0 (the
+    middle, out to `EDGE_FROM`), its grain through M13.34's row sampler; Dream Glow's overlay and
+    lift on flat rows.
+  - done when: the bench's `hdr`, `plastic_lens` and `dream_glow` drafts within 16 ms and finals
+    within 100 ms at p95 on two cores (before and after in the PR, Saves not above their
+    budgets); `crates/edit/tests/look_effects.rs`: the `looks-*-large` fingerprints blessed from
+    the M12 code match, the existing fingerprints, two-sizes tests and the region test pass
+    unchanged; `cargo xtask ci`.
+- ⬜ **M13.40 `edit`: Soften within the slider's caps**
+  - after: M12.R, M13.34
+  - files: `crates/edit/src/ops/soften.rs`, `crates/edit/tests/soften.rs`, `crates/edit/tests/fingerprints/soften-*.json`
+  - scope: effect speed. Draft / final p95 at M12.21: Soften 30.0 / 539 ms (at its defaults, no
+    strokes: the whole photo); the caps 16 / 100 ms. It blurs the masked box at full resolution
+    (sigma `Softness/100 × SIGMA`, 30 px on the final) and paints a coverage mask per pixel.
+    Levers: M13.34's `GridBlur` for the blur over the masked box (made once per render through
+    `apart`, as today); no mask at all without strokes (coverage 1 everywhere, no buffer); with
+    strokes, the mask only over the strokes' box; the screen, the fade and the mix on flat rows.
+    A brush drag's own drafts (strokes added while painting) are measured too: one long stroke
+    on the 24 MP photo, the draft within 16 ms.
+  - done when: the bench's `soften` draft within 16 ms and final within 100 ms at p95 on two
+    cores (before and after in the PR, its Save not above its budget); `crates/edit/tests/
+    soften.rs`: the `soften-whole-large` and `soften-stroke-large` fingerprints blessed from the
+    M12 code match, the existing fingerprints, the region test and the M12.28 no-deadlock test
+    pass unchanged; `cargo xtask ci`.
+- ⬜ **M13.41 `edit`: Focal Zoom, Vignette and Pixelate within the slider's caps**
+  - after: M12.R, M13.34
+  - files: `crates/edit/src/ops/stylize.rs`, `crates/edit/tests/stylize_effects.rs`, `crates/edit/tests/fingerprints/stylize-*.json`
+  - scope: effect speed. Draft / final p95 at M12.21: Focal Zoom 78.9 / 2 685 ms, Vignette 8.1 /
+    128 ms, Pixelate 7.3 / 117 ms; the caps 16 / 100 ms (Focal Zoom needs 27× on the final).
+    Levers:
+    - **Focal Zoom:** the zoom blur is `n₁ × n₂` taps evenly spaced in scale made as two passes
+      of about √N bilinear taps each (about 45 per pixel on the final, the fine pass over the
+      whole window). Split it into three or more passes of about ∛N taps (the same set of
+      scales, composed: about 25 taps a pixel), or resample to log-polar about the centre, run
+      a box along the radius with running sums and resample back (a constant cost per pixel);
+      skip the final pass inside the circle and the fine pass where no later pass reads; bilinear
+      taps in `f32` stepping along the ray instead of an `f64` map per tap. The centre stays a
+      stored-frame point and a region still equals the whole render.
+    - **Vignette:** `fx::to_linear` and `to_srgb` per channel (`powf`) → M13.34's tables; the
+      distance by rows in `f32`; the untouched middle skipped by row spans.
+    - **Pixelate:** the cell of each pixel by an `f64` division per pixel → a per-row table of
+      column cells; in Normal mode at Fade 0 a row span takes its cell's mean by a copy.
+  - done when: the bench's `focal_zoom`, `vignette` and `pixelate` drafts within 16 ms and
+    finals within 100 ms at p95 on two cores (before and after in the PR, Saves not above their
+    budgets); `crates/edit/tests/stylize_effects.rs`: the `stylize-*-large` fingerprints blessed
+    from the M12 code match (a Focal Zoom made another way is the case most likely to need a
+    look change: then re-blessed with its diff images and the reason, asked at the review), the
+    existing fingerprints, two-sizes tests and the region test pass; `cargo xtask ci`.
+- ⬜ **M13.42 `edit`: Widescreen Film's final and the frames' drafts within the slider's caps**
+  - after: M12.R, M13.34, M13.35
+  - files: `crates/edit/src/ops/canvas.rs`, `crates/edit/src/ops/mats.rs`, `crates/edit/tests/canvas.rs`, `crates/edit/tests/mats.rs`, `crates/edit/tests/fingerprints/canvas-*.json`, `crates/edit/tests/fingerprints/mats-*.json`
+  - scope: effect speed. Widescreen Film's final is 127 ms at p95 (the cap 100 ms): its film
+    colour is a few multiplies, but its grain calls `Noise::at` per pixel (an `f64` map and four
+    hashes); levers: M13.34's row sampler; the bar rows filled without the per-pixel colour; the
+    anti-aliased bar edge only on its one row. The frames' drafts (Border 20.9, Museum Matte
+    20.0, Drop Shadow 19.3, Widescreen Film 24.5 ms) are M13.35's: measure them after it and,
+    where one still misses 16 ms, make the frame's own painting cheaper (Border's and Museum
+    Matte's per-pixel coverage only on the band rows and columns, the photo's opening copied by
+    rows; Drop Shadow's profiles, already closed-form, applied by rows), measured at M12.32's
+    new Drop Shadow defaults.
+  - done when: the bench's `widescreen` final within 100 ms and the drafts of `widescreen`,
+    `border`, `museum_matte` and `drop_shadow` within 16 ms at p95 on two cores (before and
+    after in the PR, Saves not above their budgets); `crates/edit/tests/canvas.rs` and
+    `mats.rs`: the `canvas-widescreen-large` fingerprint blessed from the M12 code matches, the
+    existing fingerprints and region tests pass unchanged; `cargo xtask ci`.
+- ⬜ **M13.43 `edit` + `xtask`: every effect's draft and final become budgets**
+  - after: M13.35, M13.36, M13.37, M13.38, M13.39, M13.40, M13.41, M13.42
+  - files: `crates/edit/benches/effects.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `docs/development.md`
+  - scope: `development.md` §8: M12.21 printed the effects' drafts and finals without judging
+    them; now that every effect meets the caps, they join the budgets. Measure all 27 (the median
+    of three runs, release, `taskset -c 0,1`) and set each effect's draft and final budget at
+    1.5 × its measurement, never above 16 ms and 100 ms (drafts rounded up to 0.1 ms, finals to
+    1 ms), in the bench's `BUDGETS` and in `EFFECT_BUDGETS` in `xtask/src/bench.rs`;
+    `judge_effects` judges every `<effect> draft` and `<effect> final` row's p95 with the Saves
+    and the empty recipe (a planted slowdown added per render), and `--check` in the bench does
+    the same; the `effects` row of `BUDGETS` in `xtask/src/accept.rs` and §8's table and prose
+    say the caps are now judged (drop "printed, not budgeted" and "not yet joined"); the
+    numbers in §8 and §13 with the machine. A budget is never set above a cap: an effect that no
+    longer meets its cap on the day goes back to its module's task. `xtask/src/bench.rs` and
+    `docs/development.md` are also in M13.31's files: the board runs the two one after the other.
+  - done when: `cargo xtask bench effects` prints all 27 within their new budgets (in the PR);
+    `cargo xtask budgets` passes with them, and `--plant-ms 17` makes every draft miss and
+    `--plant-ms 101` every final (the `xtask` tests: the judge with a recorded report and a
+    planted slowdown); `cargo xtask ci`.
+- ⬜ **M13.44 `engine`: effect tiles of an already framed photo show the whole picture, and a frame reads at tile size**
+  - after: M12.R
+  - files: `crates/engine/src/effect_tiles.rs`, `crates/engine/tests/effects.rs`, `docs/editing.md`
+  - scope: a fix task from the M12.R review screenshots (after M12.29 #794). M12.29 fits a
+    size-changing effect's tile in its box, but every other tile still renders at the covering
+    scale and cuts around the centre, so once a photo's recipe already holds a frame (Border,
+    Drop Shadow, Museum Matte, Widescreen Film) the tiles of tabs 3–5 crop that frame away and
+    show it only at two sides. Fit every tile whose rendered picture includes a frame (the recipe
+    so far or the effect itself; `Geometry::frames()`), on the gray 38 placeholder. A default
+    Border is 20 + 5 thousandths of the shorter side, about one pixel at tile size, so its tile
+    looks like the plain photo: draw a frame effect's tile with its bands at least 2 px each at
+    tile size (the tile alone; the effect's own render is unchanged) and say so in `editing.md`
+    §8.1. Drop Shadow's tile follows the same rule for its shadow's reach.
+  - done when: `crates/engine/tests/effects.rs`: on a photo with a Border in its recipe, Sepia's
+    and Boost's tiles show the frame's colour at the middle of all four sides; a default
+    Border's tile shows its outer band at least 2 px wide on every side; tiles of photos without
+    a frame are byte for byte unchanged; `cargo xtask ci`.
 - ⬜ **M13.32 `accept M13`**
-  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31
+  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44
   - files: `tests/acceptance/m13.rs`, `tests/acceptance/m13_*.rs`, `tests/acceptance/m13.md`, `tests/acceptance/fingerprints/m13-*.json`
   - scope: every *Done when* of M13's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a synthetic model installed from a local file after the
@@ -8197,6 +8469,13 @@ wave 5   M13.25 People tree + person sections  ‖  M13.26 suggestions  ‖  M13
          ‖  M13.28 Options ▸ Network + tiles  ‖  M13.29 W13, W14
 wave 6   M13.30 suggestions in the window  ‖  M13.31 M13 budgets
 wave 7   M13.32 accept M13 → M13.R          (M13.33 lead: M15 blocks, any time after M12.23)
+
+speed lane (effect speed, from M12.R; the board fits it between the feature waves, whose files
+it never shares except M13.43 with M13.31):
+speed 1  M13.34 fx: box passes, grid blur, noise rows, tables  ‖  M13.35 engine: frames' drafts from the base
+speed 2  M13.36 detail  ‖  M13.37 focal  ‖  M13.38 remap + colour  ‖  M13.39 looks  ‖  M13.40 soften
+         ‖  M13.41 stylize  ‖  M13.42 canvas + mats (also after M13.35)
+speed 3  M13.43 effect budgets (after M13.31 on the board: shared files) → M13.32
 ```
 
 ### M14 — Collage and legacy sidecars
