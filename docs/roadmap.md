@@ -6861,7 +6861,7 @@ a maintainer decision mid-run.
     `crates/ui-kit/tests/icons_effects.rs`: each new icon stays in its grid at 12, 16, 20 and 28 px in rest, hover and disabled colours;
     gallery and icon fingerprints; `widget_ids`, contrast, `cargo xtask assets` and `cargo xtask
     names` pass.
-- ⬜ **M12.5 `engine`: the effect list, tile previews and the colour pick**
+- ✅ **M12.5 `engine`: the effect list, tile previews and the colour pick**
   - after: M11.1, M12.1, M12.4
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/effects.rs`, `crates/engine/src/effect_tiles.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/effects.rs`, `crates/engine/README.md`
   - scope: `editing.md` §8.1 and the decisions above: `effect.list {tab?}` (query: the catalogue's
