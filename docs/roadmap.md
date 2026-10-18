@@ -7032,7 +7032,7 @@ a maintainer decision mid-run.
     Ctrl+Shift+B gives "Undo B&W"; Sharpen's click opens its panel and the grid is disabled until
     Cancel; tabs 4 and 5 show 7 and 8 tiles; at 900 × 600 each grid fits the panel; a fingerprint of
     each tab's grid at 1400 × 900.
-- ⬜ **M12.16 `ui`: the parameter panel: sliders, choices, swatches, the eyedropper, Fade and the live preview**
+- ✅ **M12.16 `ui`: the parameter panel: sliders, choices, swatches, the eyedropper, Fade and the live preview**
   - after: M12.2, M12.4, M12.5, M12.6, M12.7
   - files: `crates/ui/src/panels/edit/effect_panel.rs`, `crates/ui/src/panels/edit/effect_panel/**`, `crates/ui/src/commands/effect_session.rs`, `crates/ui/tests/effect_panel.rs`, `crates/ui/tests/fingerprints/effect-panel-*.json`
   - scope: `editing.md` §8.1: the panel in place of the grid for every parameter effect, built from
