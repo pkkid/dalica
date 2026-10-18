@@ -1,6 +1,7 @@
 //! The caption bar under the photo (`editing.md` §2): 36 high on `canvas`, the show-captions toggle
 //! at the left (`button:caption.toggle`, for the slideshow: `slideshow.captions`, enabled as that
-//! command is, M11.21), the photo's
+//! command is, M11.21; drawn selected, as ui-kit's icon button is when active, while captions are
+//! on, and registered active then), the photo's
 //! caption in a centred field with the placeholder "Add a caption" (`field:caption`), and the trash
 //! button at the right (`button:edit.trash`).
 //!
@@ -20,9 +21,11 @@
 use std::sync::Arc;
 
 use dalica_core::PhotoId;
-use dalica_ui_kit::icons::EditIcon;
-use dalica_ui_kit::widgets::TextField;
-use egui::{Id, Rect, Ui, UiBuilder, pos2, vec2};
+use dalica_ui_kit::Tokens;
+use dalica_ui_kit::icons::{EditIcon, paint_edit};
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, Target, TextField, focus_ring};
+use egui::{CornerRadius, Id, Rect, Response, Sense, Ui, UiBuilder, Vec2, WidgetType, pos2, vec2};
 use serde_json::json;
 
 use super::top_bar;
@@ -70,9 +73,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let bar = ui.max_rect();
     let y = bar.center().y;
     let button = |x: f32| Rect::from_center_size(pos2(x, y), vec2(BUTTON, BUTTON));
-    // The slideshow's captions setting, live as `slideshow.captions` is.
-    let captions = crate::commands::enabled(app, "slideshow.captions", &json!({})).is_ok();
-    if top_bar::glyph_button(ui, &t, TOGGLE_ID, EditIcon::CaptionToggle, button(bar.min.x + MARGIN + BUTTON / 2.0), captions, TOGGLE_TIP).clicked() {
+    // The slideshow's captions setting, live as `slideshow.captions` is, selected while it is on.
+    let live = crate::commands::enabled(app, "slideshow.captions", &json!({})).is_ok();
+    let on = app.session().is_some_and(|s| s.settings().slideshow().captions);
+    if toggle(ui, &t, button(bar.min.x + MARGIN + BUTTON / 2.0), on, live).clicked() {
         let _ = app.run("slideshow.captions", &json!({}));
     }
     if top_bar::glyph_button(ui, &t, TRASH_ID, EditIcon::Trash, button(bar.max.x - MARGIN - BUTTON / 2.0), true, TRASH_TIP).clicked() {
@@ -116,6 +120,36 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     app.state_mut().caption_bar = editing.then_some(CaptionEdit { photo, draft: text });
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(EDITING), editing));
+}
+
+/// The show-captions toggle over `rect`, as ui-kit's icon button draws one with an edit glyph: a
+/// `tool_active` plate and a `pick` glyph while `on`; otherwise a `hover × 0.7` plate when hovered
+/// and the glyph `icon` at rest, `text` hovered; `text_disabled` when not `live`. Registered as
+/// [`TOGGLE_ID`] (role `iconButton`), active while `on`.
+fn toggle(ui: &mut Ui, t: &Tokens, rect: Rect, on: bool, live: bool) -> Response {
+    let c = top_bar::child(ui, rect, live);
+    let r = c.interact(rect, Id::new(TOGGLE_ID), Sense::click());
+    let p = c.painter();
+    if on {
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.tool_active);
+    } else if live && r.hovered() {
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.hover.gamma_multiply(0.7));
+    }
+    focus_ring(p, t, &r, rect, t.radius);
+    let glyph = if !live {
+        t.text_disabled
+    } else if on {
+        t.pick
+    } else if r.hovered() {
+        t.text
+    } else {
+        t.icon
+    };
+    let side = (rect.width().min(rect.height()) * 0.6).round();
+    paint_edit(p, Rect::from_center_size(rect.center(), Vec2::splat(side)), EditIcon::CaptionToggle, glyph);
+    widgets::register(c.ctx(), TOGGLE_ID, Role::IconButton, TOGGLE_TIP, Target::Widget(&r), on);
+    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, live, on, TOGGLE_TIP));
+    if live { r.on_hover_text(TOGGLE_TIP) } else { r.on_disabled_hover_text(TOGGLE_TIP) }
 }
 
 /// Whether the caption field had the keyboard last frame. egui drops the focus as soon as Esc is

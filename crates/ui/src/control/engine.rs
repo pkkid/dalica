@@ -158,7 +158,11 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
             return Ok(Outcome::Work(Box::new(move || {
                 match paths::check_output(&path, &config.effective_write_roots(), &watched, paths::Output::Folder) {
                     Err(e) => Next::Reply(Err(e)),
-                    Ok(_) => Next::Resume(Box::new(move |host| checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from))),
+                    Ok(_) => Next::Resume(Box::new(move |host| {
+                        // What the room's command asks before it imports (`super::refuse`).
+                        super::vet::record(path, watched, Ok(()));
+                        checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from)
+                    })),
                 }
             })));
         }

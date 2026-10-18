@@ -4,13 +4,14 @@
 //! one undo removes it); Esc changes nothing; a click elsewhere and scrolling the cell away commit;
 //! the view's shortcuts (Ctrl+8, Ctrl+A, Ctrl+Z) do nothing while typing; the Caption and Tags
 //! thumbnail-caption modes show the model's text, middle-elided; the cells with captions and the
-//! open editor match their fingerprints at 1400 × 900 (at 900 × 600 they only have to fit). Renders go to
+//! open editor match their fingerprints at 1400 × 900 (at 900 × 600 they only have to fit); the edit
+//! view's show-captions toggle looks selected while captions are on. Renders go to
 //! `target/test-output/ui/`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, LARGE, check_pixels, new_driver, out_dir};
+use crate::common::{FRAMES, LARGE, check_pixels, new_driver, out_dir, rect_pixels, shot, widget};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_fs::Expect;
@@ -293,4 +294,25 @@ fn the_cells_with_captions_and_the_open_editor_match_their_fingerprints() {
     d.type_text("Miradouro").unwrap();
     d.settle(FRAMES).unwrap();
     check_cells(&d, &format!("region-cells-caption-{case}"));
+}
+
+/// The edit view's show-captions toggle (`button:caption.toggle`) looks selected while the
+/// slideshow's captions are on: registered active, its plate and glyph drawn differently from off.
+#[test]
+fn the_edit_views_captions_toggle_looks_selected_while_captions_are_on() {
+    let (_l, _d, _f, mut d, ids) = setup(1, LARGE);
+    d.run("view.edit", &json!({ "id": ids[0].get() })).unwrap();
+    d.settle(FRAMES).unwrap();
+    let look = |d: &Driver, name: &str| {
+        shot(d, name);
+        let w = widget(d, dalica_ui::panels::edit::caption_bar::TOGGLE_ID);
+        (w.active, rect_pixels(&d.screenshot().unwrap(), w.rect).2)
+    };
+    let (on, on_pixels) = look(&d, "caption-toggle-on-1400");
+    assert!(on, "captions are on by default, and the toggle says so");
+    d.run("slideshow.captions", &json!({ "on": false })).unwrap();
+    d.settle(FRAMES).unwrap();
+    let (off, off_pixels) = look(&d, "caption-toggle-off-1400");
+    assert!(!off, "the toggle is not selected once captions are off");
+    assert_ne!(on_pixels, off_pixels, "the toggle is drawn differently on and off");
 }

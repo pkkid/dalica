@@ -911,6 +911,46 @@ fn removing_from_a_card_is_never_automated_and_an_import_destination_keeps_to_th
     assert!(!elsewhere.exists(), "nothing was made there");
 }
 
+/// A destination strip's folder inside a write root as written, but a link to a folder outside
+/// every root and watched folder, is refused over automation (`security.md` §5.7): over
+/// `engine.execute`, and when a click or a batch's click presses Import All, its links resolved
+/// off the UI thread before the click played; nothing is made behind the link.
+#[test]
+fn an_import_destination_linked_out_of_the_write_roots_is_refused_over_automation() {
+    let mut t = setup_with(1, |dir| Config { write_roots: vec![dir.join("allowed")], allow_external: true, ..Config::default() });
+    let (_roll, pictures) = list_card(&mut t);
+    let (allowed, outside) = (pictures.parent().unwrap().to_path_buf(), t.dir.path().join("outside"));
+    dalica_fs::create_dir_all(&allowed).unwrap();
+    dalica_fs::create_dir_all(&outside).unwrap();
+    let link = allowed.join("link");
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(&outside, &link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(&outside, &link);
+    if let Err(e) = made {
+        // Windows makes links only with Developer Mode or the privilege to.
+        eprintln!("skipped: cannot make a folder link here: {e}");
+        return;
+    }
+    ok(&mut t, "engine.execute", json!({ "command": "import.open" }));
+    ok(&mut t, "ui.set", json!({ "import": { "destination": { "place": link, "folderName": "Out" } } }));
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "import.importAll" })), "path_denied");
+    ok(&mut t, "ui.settle", json!({}));
+    let click = json!({ "id": "button:import.importAll" });
+    ok(&mut t, "ui.clickWidget", click.clone());
+    ok(&mut t, "ui.settle", json!({}));
+    assert!(t.d.state().status.contains("outside every automation write root"), "{}", t.d.state().status);
+    nothing_imported(&mut t, &outside);
+    ok(&mut t, "batch", json!({ "steps": [{ "method": "ui.clickWidget", "params": click }, { "method": "ui.settle" }] }));
+    nothing_imported(&mut t, &outside);
+}
+
+/// No import ran, and nothing was made in `outside`.
+fn nothing_imported(t: &mut T, outside: &Path) {
+    assert_eq!(t.d.app_mut().session_mut().unwrap().execute("import.status", &json!({})).unwrap()["state"], Value::Null, "no import ran");
+    assert_eq!(std::fs::read_dir(outside).unwrap().count(), 0, "nothing was made behind the link");
+}
+
 /// A card of two pictures of their own (the library's photo is another, so neither is a
 /// duplicate) in a mount folder, opened and listed in the app's import session; returns its roll
 /// folder and the Pictures folder inside the `allowed` write root.
