@@ -4,7 +4,8 @@
 //! at two sizes and under a crop (anchored in the stored frame); Focal Zoom leaves its circle as it
 //! was, wherever the photo is turned, straightened or cropped, and blurs along the radius more than
 //! across it; Fade 100 gives the input; a zoomed region equals that window of the whole render;
-//! hostile sizes render without a panic.
+//! hostile sizes render without a panic. `stylize-*-large.json` holds a whole 1200 × 800 render
+//! of each at its defaults, `stylize-focal-zoom-coarse.json` a 2400 × 1600 Focal Zoom.
 
 use crate::common::{assert_two_sizes_agree, check_fingerprint, exif, pixels, recipe, rgba, run, scene, stored, window};
 use dalica_edit::fx::Space;
@@ -46,6 +47,20 @@ fn each_effect_at_its_defaults_matches_its_fingerprint_at_two_sizes() {
         assert_ne!(small, render(Source::upright(&img), &recipe(&[]), Target::Fit { width: 96, height: 96 }).unwrap(), "{op} changes the picture");
         check_fingerprint(case, &small, 0.5);
     }
+}
+
+/// A whole 1200 × 800 render of each effect at its defaults, large enough for Focal Zoom's long
+/// paths and Pixelate's cells of many pixels, matches its `stylize-*-large` fingerprint, and a
+/// 2400 × 1600 Focal Zoom (past `COARSE_PIXELS`, blurred on a grid of 2 × 2 cells) its
+/// `stylize-focal-zoom-coarse` one, all blessed from the M12 code before M13.41 made them faster.
+#[test]
+fn each_effect_at_its_defaults_matches_its_large_fingerprint() {
+    let img = rgba(&Scene::new(5, 1200, 800).with_kind(Kind::Horizon).render().unwrap());
+    for (case, op) in DEFAULTS {
+        check_fingerprint(&format!("{case}-large"), &run(&img, &[op]), 0.5);
+    }
+    let img = rgba(&Scene::new(5, 2400, 1600).with_kind(Kind::Horizon).render().unwrap());
+    check_fingerprint("stylize-focal-zoom-coarse", &run(&img, &["focal_zoom(0.5,0.5,0.3,50,50,0)"]), 0.5);
 }
 
 #[test]
