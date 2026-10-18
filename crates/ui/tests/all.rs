@@ -62,6 +62,7 @@ mod options_dialog;
 mod options_tabs;
 mod peek;
 mod photo_menu;
+mod places_pane;
 mod properties_pane;
 mod quick_tags;
 mod release_notes;

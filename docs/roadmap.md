@@ -8041,7 +8041,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     name opens New Person; × asks and ignores, Show Ignored Faces shows them; a rubber band selects
     faces across groups; Move to Person ▸ lists people; at 900 × 600 the grid fits; a fingerprint
     of the grid at 1400 × 900.
-- ⬜ **M13.22 `ui`: the Places pane, geotagging by drag and pin, and the Geotag menu**
+- ✅ **M13.22 `ui`: the Places pane, geotagging by drag and pin, and the Geotag menu**
   - after: M13.4, M13.12, M13.14
   - files: `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/**`, `crates/ui/src/commands/places.rs`, `crates/ui/src/dialogs/geotag_confirm.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/places_pane.rs`, `crates/ui/tests/fingerprints/places-*.json`, `docs/organizing.md`
   - scope: `organizing.md` §7: the pane (header "Places", "No places in the selection" / "9 places

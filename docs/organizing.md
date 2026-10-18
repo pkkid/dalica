@@ -404,6 +404,37 @@ Manager.
   (M13.1).
 - Folder/album **Place** (Properties) is a free-text field, searchable, distinct from geotags.
 
+How Dalica does it (M13.22):
+
+- **Which photos.** The map shows the places of the selected photos; with nothing selected, of the
+  folder selected in the tree. Photos at the same point (six decimals) are one place and one
+  marker with their count; markers closer than about 32 points on screen are drawn as one with the
+  sum. The status line counts places: "No places in the selection", "1 place in the selection",
+  "9 places in the selection".
+- **Markers.** A click on a marker opens its bubble: "%d photos here" with the photos' thumbnail
+  stack, [Show These Photos] (selects them and closes the bubble) and [Remove Location]. A click
+  on a group of several places zooms the map in two levels on it, until they part (at the deepest
+  zoom it opens the first place's bubble). A click on the map itself closes the bubble.
+- **Dropping photos.** Photos dragged from the light table over the map show where they would
+  land; let go, the point shows as the pin and the bubble asks "Put %d photos here?" ("Move %d
+  photos here?" when any of them has a location) with their stack, [OK] [Cancel]. OK geotags them
+  all there as one undo step.
+- **The pin.** The pin tool beside zoom +/− arms the pin (the button stays pressed); the next click
+  on the map places it and disarms the tool. Typed coordinates in "Search for a place:" (decimal
+  degrees or degrees, minutes and seconds, as `38.7116, -9.1389` or `38°42'41.8"N 9°8'20"W`)
+  place the pin there on Enter and move the map to it, without the network; any other text is a
+  place name for the geocoding service (M13.28). Placing the pin opens its bubble for the selection
+  ("Put %d photos here?", or "Select the photos to put here." while nothing is selected); OK puts
+  them there and the pin goes, now a marker.
+- **Questions.** Changing the location of more than 20 photos that already have one asks "Change
+  the location of %d photos?" [Change Location]; Remove Location on more than 5 asks "Remove the
+  location from %d photos?" [Remove Location]; fewer go at once. Tools ▸ Geotag ▸ Clear Location…
+  always asks, for the selection, and is greyed while none of it has a location. Copy Location
+  takes the focused photo's place, Paste Location gives it to the selection (greyed until something
+  is copied).
+- **The badge** on a thumbnail follows the photo's effective geotag: a location set in Dalica shows
+  it, one removed hides it.
+
 ## 8. Search and filters
 
 ### 8.1 Search box (toolbar, right)

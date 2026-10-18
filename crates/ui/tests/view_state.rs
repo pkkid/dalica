@@ -1147,23 +1147,27 @@ fn bad_m13_values_are_refused_and_change_nothing() {
     }
 }
 
-/// `pane.people` and `pane.places` open the stub panes; `unnamed.open` shows the Unnamed grid in the
-/// light table's place, and its header's toggles act.
+/// `pane.people` opens the stub pane and `pane.places` the Places pane, which registers its region;
+/// `unnamed.open` shows the Unnamed grid in the light table's place, and its header's toggles act.
 #[test]
 fn the_people_and_places_panes_and_the_unnamed_grid_open_as_stubs() {
     let mut t = setup();
-    for (command, pane, region, stub) in [
-        ("pane.people", "pane:people", "people", dalica_ui::panels::people_pane::STUB),
-        ("pane.places", "pane:places", "places", dalica_ui::panels::places::STUB),
-    ] {
+    for (command, pane, region) in [("pane.people", "pane:people", "people"), ("pane.places", "pane:places", "places")] {
         ok(&mut t, "engine.execute", json!({ "command": command }));
         ok(&mut t, "ui.wait", json!({ "ms": 50 }));
         assert!(rect_of(&t, pane).is_some_and(|r| r[2] > 0.0 && r[3] > 0.0), "{pane}");
         assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty(), "{pane}");
-        assert!(!stub.is_empty());
-        // The region's name is known; the pane registers it once it is drawn (M13.22, M13.24).
-        assert_eq!(ok(&mut t, "ui.widgets", json!({ "region": region })), json!([]), "{region}");
-        assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"][region], Value::Null, "{region}");
+        let widgets = ok(&mut t, "ui.widgets", json!({ "region": region }));
+        if region == "places" {
+            // The Places pane registers its region (M13.22): the map is in it.
+            assert_eq!(rect_of(&t, "region:places"), rect_of(&t, pane));
+            assert!(widgets.as_array().unwrap().iter().any(|w| w["id"] == "map:places"), "{widgets}");
+        } else {
+            // The region's name is known; the pane registers it once it is drawn (M13.24).
+            assert!(!dalica_ui::panels::people_pane::STUB.is_empty());
+            assert_eq!(widgets, json!([]), "{region}");
+            assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"][region], Value::Null, "{region}");
+        }
     }
     ok(&mut t, "engine.execute", json!({ "command": "pane.places" }));
     ok(&mut t, "ui.wait", json!({ "ms": 50 }));
@@ -1208,7 +1212,7 @@ fn rows_of(nodes: &Value) -> Vec<Value> {
 /// their tasks make them act, with the reason; View ▸ People and Places are live.
 #[test]
 fn the_new_menu_items_are_listed_and_greyed() {
-    use dalica_ui::commands::{faces, people, places};
+    use dalica_ui::commands::{faces, people};
     let mut t = setup();
     let first = t.photos[0];
     ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [first] } }));
@@ -1230,16 +1234,16 @@ fn the_new_menu_items_are_listed_and_greyed() {
         assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(people::NOT_YET)), "{r}");
     }
     assert!(person.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Person/Merge Into"));
-    // The bar: Tools ▸ Geotag's Clear Location… waits for its task, Copy and Paste Location are
-    // the engine's (M13.14: Copy live, Paste greyed with nothing copied); the other M13 rows not
-    // live yet; View ▸ People and Places live.
+    // The bar: Tools ▸ Geotag's Clear Location… greyed with no located photo selected (M13.22),
+    // Copy and Paste Location are the engine's (M13.14: Copy live, Paste greyed with nothing
+    // copied); the other M13 rows not live yet; View ▸ People and Places live.
     let copy = row(&mut t, "geo.copy", Value::Null);
     assert_eq!((&copy["live"], &copy["enabled"]), (&json!(true), &json!(true)), "geo.copy: {copy}");
     let paste = row(&mut t, "geo.paste", Value::Null);
     assert_eq!((&paste["live"], &paste["enabled"]), (&json!(true), &json!(false)), "geo.paste: {paste}");
     assert!(paste["reason"].is_string(), "geo.paste: {paste}");
     for (id, live, reason) in [
-        ("geo.clear", true, places::NOT_YET),
+        ("geo.clear", true, dalica_engine::cmd::places::NONE_LOCATED),
         ("faces.reset", false, "Not available yet."),
         ("faces.writeXmp", false, "Not available yet."),
         ("people.manager", false, "Not available yet."),

@@ -246,11 +246,12 @@ pub fn is_hidden(library: &Library, photo: &Photo) -> bool {
 
 /// What `photo`'s badges show: what the model knows. Starred, held, edited when it has edits not
 /// yet saved into its file, rotations and flips included (`edited`, [`Thumbnails::edited`], the
-/// folder header's "n edited" test), and geotagged when its file holds a GPS location (the
-/// photo's search facts, which the Geotagged filter reads: a lookup per cell drawn, read on scan,
-/// never the file); videos once the model carries them.
+/// folder header's "n edited" test), and geotagged by its effective geotag
+/// ([`Library::is_geotagged`], `organizing.md` §7: the library's word when it has one, a point
+/// set in Dalica or a location removed, else its file's GPS as the scan read it; a lookup per cell
+/// drawn, never the file); videos once the model carries them.
 pub fn badges_of(photo: &Photo, library: &Library, edited: bool, held: bool) -> Badges {
-    Badges { starred: photo.star, edited, geotagged: library.facts(photo.id).geotagged, held, ..Badges::default() }
+    Badges { starred: photo.star, edited, geotagged: library.is_geotagged(photo.id), held, ..Badges::default() }
 }
 
 /// The caption line's text for `mode` (`ui-layout.md` §5.3), before fitting: the file name; the
