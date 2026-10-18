@@ -155,7 +155,8 @@ file and revision in its first lines:
   crates/ui-kit/src/widgets/swatch.rs        PhotoCraft crates/ui-egui/src/widgets.rs @ e4b2868a
   crates/edit/src/ops/colour.rs              PhotoCraft crates/compose/src/adjust.rs,
                                              crates/color/src/convert.rs @ e4b2868a
-  crates/edit/src/ops/detail.rs              PhotoCraft crates/algo/src/sharpen.rs, crates/algo/src/noise.rs @ e4b2868a
+  crates/edit/src/ops/detail.rs              PhotoCraft crates/algo/src/sharpen.rs, crates/algo/src/blur.rs,
+                                             crates/algo/src/noise.rs @ e4b2868a
   crates/edit/src/ops/remap.rs               PhotoCraft crates/compose/src/effects.rs,
                                              crates/compose/src/adjust.rs @ e4b2868a
   crates/edit/src/ops/stylize.rs             LightCraft crates/pipeline/src/finish.rs @ 0da998f2,

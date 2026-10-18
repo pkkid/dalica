@@ -7187,7 +7187,7 @@ a maintainer decision mid-run.
     `photo.inspect` (the unit test in `cmd/photo.rs`) and `library.inspect`
     (`crates/engine/tests/library_inspect.rs`); the docs read as built; the parity rows updated
     and `cargo xtask parity --write` run; `panic_hunt` green; `cargo xtask ci`.
-- ⬜ **M12.28 `edit`: no one-time setup inside a render band waits on the pool it runs in (Soften, Heal, …)**
+- ✅ **M12.28 `edit`: no one-time setup inside a render band waits on the pool it runs in (Soften, Heal, …)**
   - after: M12.7, M12.11
   - files: `crates/edit/src/ops/soften.rs`, `crates/edit/src/ops/retouch.rs`, `crates/edit/src/fx/blur.rs`, `crates/edit/src/fx.rs`, `crates/edit/tests/soften.rs`, `crates/edit/tests/retouch.rs`, `crates/edit/tests/fx.rs`, `NOTICE`
   - scope: a fix task from M12.7 (#776), M12.8 and M12.12. A pass that makes something once per

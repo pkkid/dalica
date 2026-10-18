@@ -26,7 +26,9 @@
 //!   brush) is painted on a grid halved until it fits and sampled bilinearly, so any accepted
 //!   entry renders in bounded time and memory. The blur covers only the box where the mask
 //!   applies, grown by its reach, so a small stroke on a large photo blurs a small patch; a
-//!   region render equals that window of the whole render.
+//!   region render equals that window of the whole render. The mask and the blur are made once
+//!   per render, by the first band to run, through [`crate::fx::apart`] (M12.28): apart from the
+//!   bands' pool, so no band waits on a setup it is making.
 
 use std::fmt;
 use std::sync::OnceLock;
@@ -37,7 +39,7 @@ use rayon::prelude::*;
 use super::{Adjust, Band, FADE, Operation, ParamError, Pass, Prepare, Reach, Reader, View, clamp, num, num_point};
 use crate::frame::Point;
 use crate::fx::brush::{MAX_DABS, dab_alpha, dab_spacing};
-use crate::fx::{Blend, Dabs, Gaussian, Plane, Space, fade, mix};
+use crate::fx::{Blend, Dabs, Gaussian, Plane, Space, apart, fade, mix};
 use crate::render::Geometry;
 
 /// The range of Softness.
@@ -220,7 +222,8 @@ struct SoftenPass {
     fade: f64,
     /// `None`: everywhere.
     brush: Option<Brush>,
-    /// The mask and the blurred picture over the `before` view, made by the first band to run.
+    /// The mask and the blurred picture over the `before` view, made by the first band to run,
+    /// through [`apart`] (both run `rayon` work, which must not wait inside the bands' pool).
     done: OnceLock<Option<Made>>,
 }
 
@@ -281,7 +284,7 @@ impl Pass for SoftenPass {
 
     fn run(&self, band: &mut Band<'_>) {
         let Some(view) = band.before else { return };
-        let Some(made) = self.done.get_or_init(|| self.make(view)) else { return };
+        let Some(made) = self.done.get_or_init(|| apart(|| self.make(view))) else { return };
         let Some(plane) = &made.plane else { return };
         let (x0, y0, w) = (band.x0, band.y0, band.width as usize);
         if w == 0 {
