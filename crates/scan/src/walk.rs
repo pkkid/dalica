@@ -17,13 +17,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-use dalica_core::{AlbumId, Clock, DateTime, PosKey, SystemClock, Timestamp};
+use dalica_core::geo::LatLon;
+use dalica_core::{AlbumId, Clock, DateTime, PersonId, PosKey, Rect01, SystemClock, Timestamp};
 use dalica_fs::{Entry, Limits};
 use dalica_image::{Format, Header};
 use dalica_library::{
-    FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort, Project, SavedAs, SortBy,
+    Face, FacePerson, FolderInfo, Geo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort, Project,
+    SavedAs, SortBy,
 };
-use dalica_sidecar::{Field, Sidecar};
+use dalica_sidecar::fields::GeoTag;
+use dalica_sidecar::{Field, PersonName, Sidecar};
 
 use crate::meta::{FileValues, ReadMetadata};
 use crate::originals::{self, Originals};
@@ -62,6 +65,13 @@ pub struct FoundPhoto {
     /// When Dalica last changed what is said about the photo, from the folder's sidecar
     /// ([`photo_changed`], M10).
     pub changed: Option<Timestamp>,
+    /// The faces the folder's sidecar gives the photo ([`photo_faces`], M13): the ones Dalica can
+    /// hold, in file order; a face naming a person the library may not have is in the list (the
+    /// engine keeps it out of the model unless someone names that person).
+    pub faces: Vec<Face>,
+    /// The folder's sidecar's word on where the photo was taken ([`photo_geo`], M13): a place, the
+    /// location removed by the user (`"geo": null`), or none.
+    pub geo: Option<Geo>,
     /// What the file itself says about the fields Dalica owns (caption, tags, rating, place,
     /// date), read when [`Options::metadata`] asks for it and the file is new or changed; `None`
     /// when not read or unreadable ([`crate::meta`]).
@@ -87,6 +97,9 @@ pub struct FoundFolder {
     pub sort: PhotoSort,
     /// The names the folder's sidecar gives the albums with members in it ([`album_names`], M9).
     pub album_names: BTreeMap<AlbumId, String>,
+    /// The names and nicknames the folder's sidecar gives the people with a face in it
+    /// ([`folder_people`], M13).
+    pub people: BTreeMap<PersonId, PersonName>,
     /// The folder has a sidecar that could not be read or parsed (warned): its photos say nothing,
     /// and their album memberships come from `albums.json`'s copy of the order (M9).
     pub sidecar_unread: bool,
@@ -621,6 +634,7 @@ impl Scanner<'_> {
         let mut kept = Originals::Absent;
         let mut sort = PhotoSort::default();
         let mut names = BTreeMap::new();
+        let mut people = BTreeMap::new();
         let mut sidecar_unread = false;
         if !photos.is_empty() {
             // Read here, on the scan's thread: everything the user said in the sidecar comes in
@@ -633,11 +647,14 @@ impl Scanner<'_> {
                         p.saved_as = originals::saved_as(&sidecar, &p.name);
                         p.albums = photo_albums(&sidecar, &p.name);
                         p.changed = photo_changed(&sidecar, &p.name);
+                        p.faces = photo_faces(&sidecar, &p.name);
+                        p.geo = photo_geo(&sidecar, &p.name);
                     }
                     info = folder_info(&sidecar);
                     project = originals::project(&sidecar);
                     sort = folder_sort(&sidecar);
                     names = album_names(&sidecar);
+                    people = folder_people(&sidecar);
                 }
                 Read::Absent => {}
                 Read::Unread => sidecar_unread = true,
@@ -649,7 +666,7 @@ impl Scanner<'_> {
             photos.sort_by(|a, b| a.name.cmp(&b.name));
             self.summary.progress.found = self.summary.progress.found.saturating_add(photos.len());
         }
-        Some(FoundFolder { path: dir.to_path_buf(), photos, info, project, originals: kept, sort, album_names: names, sidecar_unread })
+        Some(FoundFolder { path: dir.to_path_buf(), photos, info, project, originals: kept, sort, album_names: names, people, sidecar_unread })
     }
 
     /// Reports what the originals record of `dir` could not give.
@@ -714,6 +731,8 @@ fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
         saved_as: None,
         albums: BTreeMap::new(),
         changed: None,
+        faces: Vec::new(),
+        geo: None,
         file: None,
     }
 }
@@ -791,6 +810,61 @@ pub fn folder_sort(sidecar: &Sidecar) -> PhotoSort {
 pub fn album_names(sidecar: &Sidecar) -> BTreeMap<AlbumId, String> {
     match sidecar.album_names() {
         Field::Value(v) => v.names.into_iter().filter_map(|(id, raw)| Some((id, dalica_library::clean_album_name(&raw)?))).collect(),
+        Field::Absent | Field::WrongType(_) => BTreeMap::new(),
+    }
+}
+
+/// The faces `sidecar` gives photo `name`, as a photo new to the model takes them (`data-model.md`
+/// §3; the rules of `dalica-store`'s `mapping::read_photo`): entries Dalica cannot use, those past
+/// [`dalica_library::MAX_FACES`] and those whose rectangle has no width or height are left out
+/// (the file keeps them), and a `faces` that is not a list gives none. A face naming a person is
+/// kept whoever that is: whether the library has them is the engine's to decide.
+pub fn photo_faces(sidecar: &Sidecar, name: &str) -> Vec<Face> {
+    match sidecar.photo_faces(name) {
+        Field::Value(v) => v
+            .faces
+            .iter()
+            .filter_map(|f| {
+                let [x0, y0, x1, y1] = f.rect.corners();
+                let rect = Rect01::new(x0, y0, x1, y1).ok()?;
+                let person = match &f.person {
+                    dalica_sidecar::FacePerson::Unnamed => FacePerson::Unnamed,
+                    dalica_sidecar::FacePerson::Ignored => FacePerson::Ignored,
+                    dalica_sidecar::FacePerson::Named(id) => FacePerson::Person(id.clone()),
+                };
+                Some(Face::new(rect, person))
+            })
+            .collect(),
+        Field::Absent | Field::WrongType(_) => Vec::new(),
+    }
+}
+
+/// `sidecar`'s word on where photo `name` was taken (`data-model.md` §3; the rules of
+/// `dalica-store`'s `mapping::read_photo`): `[lat, lon]` is the place (six decimals), `null` says
+/// the user removed the location, and no key, or a value that is neither, says nothing.
+pub fn photo_geo(sidecar: &Sidecar, name: &str) -> Option<Geo> {
+    match sidecar.geo(name) {
+        Field::Value(GeoTag::At(g)) => LatLon::new(g.lat(), g.lon()).ok().map(|p| Geo::At(p.round6())),
+        Field::Value(GeoTag::Removed) => Some(Geo::Removed),
+        Field::Absent | Field::WrongType(_) => None,
+    }
+}
+
+/// The names and nicknames `sidecar`'s top-level `"people"` gives the people with a face in the
+/// folder (the rules of `dalica-store`'s `mapping::read_people`): each cleaned the way the library
+/// cleans a person's name (a nickname that is nothing once cleaned is none); an entry Dalica
+/// cannot use, or a name that is nothing once cleaned, is left out.
+pub fn folder_people(sidecar: &Sidecar) -> BTreeMap<PersonId, PersonName> {
+    match sidecar.people() {
+        Field::Value(v) => v
+            .people
+            .into_iter()
+            .filter_map(|(id, raw)| {
+                let name = dalica_library::clean_person_name(&raw.name)?;
+                let nickname = raw.nickname.as_deref().and_then(dalica_library::clean_person_name);
+                Some((id, PersonName { name, nickname }))
+            })
+            .collect(),
         Field::Absent | Field::WrongType(_) => BTreeMap::new(),
     }
 }

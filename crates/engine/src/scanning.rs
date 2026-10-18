@@ -89,6 +89,13 @@
 //!   (`album_definitions`). A folder renamed on disk gets back everything the model said about
 //!   it and its photos ([`Session::files_op_after`]). `albums.json` waits while scans apply what
 //!   they found and while a rebuild runs, and is written once they are done (`albums_file.rs`).
+//! - **Faces, geotags and people** (M13.45, `data-model.md` §3, §7): the same way, a new photo's
+//!   faces and geotag (`Geo::Removed` included) ride in the op that adds it (`with_people`), after
+//!   the people they name that the model lacks (`AddPerson`, by `dalica_store::rebuild::People`'s
+//!   name rules); a face naming a person named nowhere stays out of the model and in the file. A
+//!   rebuild's thread reads `people.json` after `albums.json` (names, nicknames), and the rebuild
+//!   ends by creating its people no folder brought back and setting its thumbnails
+//!   (`people_definitions`).
 //!
 //! Seams: [`crate::watching`] starts the periodic verification through
 //! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
@@ -106,6 +113,8 @@ use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
 use dalica_library::{AlbumInfo, Library, Op};
 use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Known, Plan, Progress, ReadMetadata, Scan, Summary};
 use dalica_store::albums::{AlbumsRead, AlbumsReading};
+use dalica_store::people::{PeopleRead, PeopleReading};
+use dalica_store::rebuild::{Defined, People};
 use serde::Serialize;
 use serde_json::json;
 
@@ -151,6 +160,8 @@ pub struct ScanProgress {
 enum Streamed {
     /// A rebuild's thread first: what `albums.json` says (`albums_file.rs`).
     Albums(AlbumsRead),
+    /// Then what `people.json` says (M13.45).
+    People(PeopleRead),
     Event(Event),
     /// The walk's summary, and the walked roots that hold no entries at all.
     End(Summary, Vec<PathBuf>),
@@ -296,6 +307,10 @@ struct ScanJob {
     /// definitions of the albums it brings back, their covers, and the order for folders whose
     /// sidecar cannot be read.
     albums: Option<AlbumsReading>,
+    /// A rebuild's reading of `people.json` (M13.45; `None` for a merge scan, or until it
+    /// arrives): the names and nicknames of the people it brings back, people with no face in a
+    /// watched folder, and the thumbnails.
+    people: Option<PeopleReading>,
     /// A merge scan's folders at paths the model does not know that share photos (by size and
     /// modification time) with a known folder the walk has not found yet: maybe that folder moved
     /// on disk, so they wait until the walk ends and the folders gone are known.
@@ -330,6 +345,7 @@ impl ScanJob {
             synced: false,
             revision: 0,
             albums: None,
+            people: None,
             held: Vec::new(),
             known_keys: None,
             walk_noted: false,
@@ -343,6 +359,7 @@ impl ScanJob {
             let message = if block { rx.recv().map_err(|_| TryRecvError::Disconnected) } else { rx.try_recv() };
             match message {
                 Ok(Streamed::Albums(read)) => self.albums_read(read, warnings),
+                Ok(Streamed::People(read)) => self.people_read(read, warnings),
                 Ok(Streamed::Event(e)) => self.event(e, warnings),
                 Ok(Streamed::End(summary, empty)) => {
                     self.summary = Some(summary);
@@ -384,6 +401,23 @@ impl ScanJob {
             AlbumsRead::SetAside { why, kept } => {
                 let kept = kept.map(|k| format!("kept as {}", k.display())).unwrap_or_else(|| "it could not be kept aside".into());
                 warnings.push(format!("{}: {why}; {kept}", dalica_store::albums::FILE));
+            }
+        }
+    }
+
+    /// A rebuild's reading of `people.json`: kept for the folders to come; what it could not give
+    /// is a warning.
+    fn people_read(&mut self, read: PeopleRead, warnings: &mut Vec<String>) {
+        match read {
+            PeopleRead::Absent => {}
+            PeopleRead::Read(r) => {
+                warnings.extend(r.notes.iter().cloned());
+                self.people = Some(r);
+            }
+            PeopleRead::Unreadable(why) => warnings.push(format!("{}: {why}", dalica_store::people::FILE)),
+            PeopleRead::SetAside { why, kept } => {
+                let kept = kept.map(|k| format!("kept as {}", k.display())).unwrap_or_else(|| "it could not be kept aside".into());
+                warnings.push(format!("{}: {why}; {kept}", dalica_store::people::FILE));
             }
         }
     }
@@ -582,10 +616,14 @@ impl Session {
             (self.dir.clone(), done)
         });
         let spawned = std::thread::Builder::new().name("dalica-scan".into()).spawn(move || {
-            // A rebuild brings back the albums' definitions and covers from `albums.json`.
+            // A rebuild brings back the albums' definitions and covers from `albums.json`, and the
+            // people's names, nicknames and thumbnails from `people.json`.
             if let Some((dir, done)) = flushed {
                 let _ = done.recv();
                 if tx.send(Streamed::Albums(dalica_store::albums::read(&dir, now))).is_err() {
+                    return;
+                }
+                if tx.send(Streamed::People(dalica_store::people::read(&dir, now))).is_err() {
                     return;
                 }
             }
@@ -944,15 +982,16 @@ impl Session {
                 }
                 let Some(op) = job.pending.pop_front() else { break };
                 applied += n;
-                // What the folder's sidecar says about albums and its photo sort rides in the op
-                // that adds the folder or its photos, so no sidecar write can run in between.
+                // What the folder's sidecar says about albums, its photo sort, faces, geotags and
+                // people rides in the op that adds the folder or its photos, so no sidecar write
+                // can run in between.
                 let with = job.current.as_ref().and_then(|folder| {
                     let target = job.fresh.as_ref().unwrap_or(&self.library);
                     match job.kind {
-                        ScanKind::Rebuild => with_albums(target, &op, folder, job.albums.as_ref(), &|_| false),
+                        ScanKind::Rebuild => with_sidecar(target, &op, folder, job.albums.as_ref(), &|_| false, job.people.as_ref()),
                         ScanKind::Merge => {
                             let file = &self.scanning.albums_file;
-                            with_albums(target, &op, folder, file.defs.as_ref(), &|a| file.deleted(target, a))
+                            with_sidecar(target, &op, folder, file.defs.as_ref(), &|a| file.deleted(target, a), None)
                         }
                     }
                 });
@@ -960,7 +999,7 @@ impl Session {
                     Some(with) => match self.apply_scan_op(job, with) {
                         Ok(()) => Ok(()),
                         Err(e) => {
-                            self.scan_warnings.push(format!("album memberships not applied: {e}"));
+                            self.scan_warnings.push(format!("album memberships, faces or geotags not applied: {e}"));
                             self.apply_scan_op(job, op)
                         }
                     },
@@ -1049,14 +1088,14 @@ impl Session {
     }
 
     /// A watcher rescan's `op` with what the sidecars of `folders` (the folders it read) say about
-    /// albums and photo sorts, as [`with_albums`] gives a scan's; `None` when they say nothing the
-    /// op needs. An album deleted this session is never brought back.
+    /// albums, photo sorts, faces, geotags and people, as [`with_sidecar`] gives a scan's; `None`
+    /// when they say nothing the op needs. An album deleted this session is never brought back.
     pub(crate) fn rescan_op_with_albums(&self, op: &Op, folders: &[FoundFolder]) -> Option<Op> {
         let file = &self.scanning.albums_file;
         let mut out: Option<Op> = None;
         for folder in folders {
             let current = out.as_ref().unwrap_or(op);
-            if let Some(with) = with_albums(&self.library, current, folder, file.defs.as_ref(), &|a| file.deleted(&self.library, a)) {
+            if let Some(with) = with_sidecar(&self.library, current, folder, file.defs.as_ref(), &|a| file.deleted(&self.library, a), None) {
                 out = Some(with);
             }
         }
@@ -1092,6 +1131,22 @@ impl Session {
         }
     }
 
+    /// A rebuild's last step for people (M13.45, `data-model.md` §4): the people `people.json` has
+    /// that no folder brought back (no face of theirs in a watched folder) are created, under the
+    /// same name rules as the folders' ([`People`]), and the thumbnails it names are set where the
+    /// face is still the person's.
+    fn finish_rebuild_people(&mut self, job: &mut ScanJob) {
+        let Some(defs) = job.people.take() else { return };
+        let target = job.fresh.as_ref().unwrap_or(&self.library);
+        let (ops, notes) = people_definitions(target, &defs);
+        self.scan_warnings.extend(notes);
+        for op in ops {
+            if let Err(e) = self.apply_scan_op(job, op) {
+                self.scan_warnings.push(format!("people from {} not applied: {e}", dalica_store::people::FILE));
+            }
+        }
+    }
+
     /// Ends a complete scan: the verification pass (or a rebuild's swap), failures remembered, the
     /// thumbnails brought in line, and the job closed. Returns whether the model was replaced.
     fn end_scan(&mut self, mut job: ScanJob) -> bool {
@@ -1106,6 +1161,7 @@ impl Session {
             // with the next scans); one built aside is dropped when cancelled.
             if job.fresh.is_none() || (summary.is_some() && !cancelled) {
                 self.finish_rebuild_albums(&mut job);
+                self.finish_rebuild_people(&mut job);
             }
             self.scanning.albums_file.changed();
         }
@@ -1393,6 +1449,130 @@ fn with_albums(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&Album
     })
 }
 
+/// `op` with what `folder`'s sidecar says that the model does not know yet: albums and the photo
+/// sort ([`with_albums`]), then faces, geotags and people ([`with_people`]); `None` when it says
+/// nothing the op needs.
+fn with_sidecar(
+    lib: &Library,
+    op: &Op,
+    folder: &FoundFolder,
+    albums: Option<&AlbumsReading>,
+    skip: &dyn Fn(&AlbumId) -> bool,
+    people: Option<&PeopleReading>,
+) -> Option<Op> {
+    let with = with_albums(lib, op, folder, albums, skip);
+    with_people(lib, with.as_ref().unwrap_or(op), folder, people).or(with)
+}
+
+/// `op`, one of the ops a scan applies for `folder`, with what the folder's sidecar says about the
+/// faces and geotags of the photos it adds (M13.45, `data-model.md` §3, §7), or `None` when it says
+/// nothing the op needs. Photos the model knows keep the model's word, as for every other field;
+/// a folder renamed on disk gets back what the model said ([`Session::files_op_after`]). After the
+/// op's own: the people those faces name that the model lacks are created first (`AddPerson`,
+/// under `people.json`'s name and nickname, `defs`, when a rebuild read it, else the folder's
+/// `"people"`), by the rebuild's rules ([`People`]: a name another person holds, ignoring case, is
+/// that person); then one `SetFaces` (a face naming a person named nowhere stays out of the model
+/// and in the file) and one `SetGeo` (`Geo::Removed` included). A scan never writes these keys.
+fn with_people(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&PeopleReading>) -> Option<Op> {
+    let children: &[Op] = match op {
+        Op::Batch { ops } => ops,
+        other => std::slice::from_ref(other),
+    };
+    let added = children.iter().find_map(|o| match o {
+        Op::AddFolder { folder: f } if f.path == folder.path => Some(f.id),
+        _ => None,
+    });
+    let id: FolderId = added.or_else(|| lib.folder_by_path(&folder.path))?;
+    if children.iter().any(|o| matches!(o, Op::RemoveFolder { id: r } if *r == id)) {
+        return None;
+    }
+    let mut who = People::new(lib);
+    // People the op adds already (another folder's, in a rescan of several).
+    for o in children {
+        if let Op::AddPerson { id, person } = o {
+            who.assume(id, &person.name);
+        }
+    }
+    let (mut people, mut faces, mut geo) = (Vec::new(), Vec::new(), Vec::new());
+    for o in children {
+        let Op::AddPhotos { photos } = o else { continue };
+        for p in photos.iter().filter(|p| p.folder == id && lib.photo(p.id).is_none()) {
+            let Some(found) = folder.photos.binary_search_by(|f| f.name.as_str().cmp(&p.name)).ok().and_then(|i| folder.photos.get(i)) else {
+                continue;
+            };
+            for person in found.faces.iter().filter_map(|f| f.person.person()) {
+                let named = defs
+                    .and_then(|d| d.people.get(person))
+                    .map(|d| (d.name.clone(), d.nickname.clone()))
+                    .or_else(|| folder.people.get(person).map(|n| (n.name.clone(), n.nickname.clone().unwrap_or_default())));
+                let Some((name, nickname)) = named else { continue };
+                if let Defined::Op(add) = who.define(lib, person, name, nickname, false) {
+                    people.push(add);
+                }
+            }
+            let (list, _) = who.faces(found.faces.clone());
+            if !list.is_empty() {
+                faces.push((p.id, list));
+            }
+            if let Some(g) = found.geo {
+                geo.push((p.id, Some(g)));
+            }
+        }
+    }
+    let mut ops = people;
+    if !faces.is_empty() {
+        ops.push(Op::SetFaces { faces });
+    }
+    if !geo.is_empty() {
+        ops.push(Op::SetGeo { geo });
+    }
+    if ops.is_empty() {
+        return None;
+    }
+    Some(match op.clone() {
+        Op::Batch { ops: mut all } => {
+            all.append(&mut ops);
+            Op::Batch { ops: all }
+        }
+        other => {
+            ops.insert(0, other);
+            Op::Batch { ops }
+        }
+    })
+}
+
+/// The ops that give `lib` what `people.json` (`defs`) says once a rebuild found every folder
+/// (M13.45): the people it has that the folders did not bring back created (their name another
+/// person holds, ignoring case: that person, not created), and the thumbnails it names set where
+/// the face is the person's; with one note per thumbnail that is not.
+fn people_definitions(lib: &Library, defs: &PeopleReading) -> (Vec<Op>, Vec<String>) {
+    let mut who = People::new(lib);
+    let (mut create, mut thumbs, mut notes) = (Vec::new(), Vec::new(), Vec::new());
+    for (id, def) in &defs.people {
+        if let Defined::Op(op) = who.define(lib, id, def.name.clone(), def.nickname.clone(), false) {
+            create.push(op);
+        }
+        if def.thumbnail.is_none() || lib.person(id).is_none() {
+            continue;
+        }
+        match dalica_store::rebuild::thumbnail(lib, id, def) {
+            Some(key) if lib.person(id).and_then(|p| p.thumbnail) != Some(key) => {
+                thumbs.push(Op::SetPersonThumbnail { id: id.clone(), thumbnail: Some(key) });
+            }
+            Some(_) => {}
+            None => notes.push(format!("person {id}'s thumbnail is not one of their faces: they show their first face")),
+        }
+    }
+    let mut ops = Vec::new();
+    if !create.is_empty() {
+        ops.push(Op::Batch { ops: create });
+    }
+    if !thumbs.is_empty() {
+        ops.push(Op::Batch { ops: thumbs });
+    }
+    (ops, notes)
+}
+
 /// The ops that give `lib` what `albums.json` (`defs`) says once a rebuild found every folder
 /// (`data-model.md` §4): the albums it defines that the folders did not bring back (an empty
 /// album, or one whose members are in no watched folder) created, the definitions it holds given,
@@ -1539,6 +1719,78 @@ mod tests {
         assert_eq!(dalica_scan::photo_albums(&sidecar, "p.jpg").len(), 2);
         assert_eq!(dalica_scan::album_names(&sidecar).values().map(String::as_str).collect::<Vec<_>>(), ["Trams", "Best of 2026"]);
         assert!(dalica_scan::folder_sort(&sidecar).reverse);
+    }
+
+    /// M13's fields the same way (M13.45): a photo's faces and geotag and the folder's people, read
+    /// by `dalica-scan` on the scan's thread, are what `dalica-store`'s `mapping` gives a photo and
+    /// a folder new to the model (named, unnamed and ignored faces, entries Dalica cannot use,
+    /// empty rectangles, a place, a removed location, places off the globe, values of the wrong
+    /// type, names to clean or past the cap).
+    #[test]
+    fn the_scans_reading_of_faces_geotags_and_people_is_the_stores() {
+        use dalica_library::{FacePerson, Geo, MAX_FACES, MAX_PERSON_NAME};
+        use dalica_sidecar::{Limits, Sidecar};
+        use dalica_store::mapping::{Reading, read_people, read_photo};
+        use serde_json::Value;
+
+        let many: Vec<Value> = (0..MAX_FACES + 3).map(|i| json!({ "rect": [0.0, 0.0, 0.5, (i + 1) as f64 / 1000.0] })).collect();
+        let photos = [
+            json!({ "faces": [
+                { "rect": [0.41, 0.22, 0.52, 0.38], "person": "p7f3a2c" },
+                { "rect": [0.7, 0.3, 0.78, 0.44], "person": "ignored", "x-tool": 1 },
+                { "rect": [0.1, 0.1, 0.2, 0.2] },
+                { "rect": [0.5, 0.5, 0.5, 0.6] },
+                { "rect": [0.6, 0.6, 0.4, 0.7] },
+                { "rect": [0.1, 0.1, 0.2, 0.2], "person": "not an id" },
+                { "rect": [0.1, 0.1, 0.2, 0.2], "person": null },
+                "not an object"
+            ], "geo": [38.7116, -9.1389] }),
+            json!({ "faces": { "rect": [0.1, 0.1, 0.2, 0.2] }, "geo": null }),
+            json!({ "faces": many, "geo": [91.0, 0.0] }),
+            json!({ "faces": [], "geo": "Lisbon" }),
+            json!({ "geo": [1.0, 2.0, 3.0] }),
+            json!({ "geo": [-33.8567844, 151.2152967] }),
+            json!({ "star": true }),
+        ];
+        let people = [
+            json!({ "p7f3a2c": { "name": "Ana Costa", "nickname": "Aninhas" }, "p0b1d02": { "name": " Rui\tLopes ", "nickname": "  " } }),
+            json!({ "p7f3a2c": { "name": "x".repeat(MAX_PERSON_NAME + 10) }, "zz": { "name": "Bad" }, "p1234": { "name": "  " }, "p5678": {} }),
+            json!(["not", "an", "object"]),
+            json!({}),
+        ];
+        for (k, top) in people.iter().enumerate() {
+            let entries: serde_json::Map<String, Value> = photos.iter().enumerate().map(|(j, p)| (format!("p{j}.jpg"), p.clone())).collect();
+            let doc = json!({ "dalica": { "version": 1 }, "photos": entries, "people": top });
+            let sidecar = Sidecar::parse(&serde_json::to_vec(&doc).unwrap(), &Limits::default()).unwrap();
+            let store = match read_people(&sidecar).0 {
+                Reading::Usable(p) => p,
+                Reading::Unusable => BTreeMap::new(),
+            };
+            assert_eq!(dalica_scan::folder_people(&sidecar), store, "people {k}");
+            for j in 0..=photos.len() {
+                let name = format!("p{j}.jpg");
+                let reading = read_photo(&sidecar, &name);
+                let faces = match reading.faces {
+                    Reading::Usable(f) => f,
+                    Reading::Unusable => Vec::new(),
+                };
+                assert_eq!(dalica_scan::photo_faces(&sidecar, &name), faces, "faces of photo {j}");
+                assert_eq!(dalica_scan::photo_geo(&sidecar, &name), reading.geo.or(None), "geo of photo {j}");
+            }
+        }
+        // The cases are not all empty.
+        let doc = json!({ "photos": { "a.jpg": photos[0], "b.jpg": photos[1], "c.jpg": photos[2] }, "people": people[0] });
+        let sidecar = Sidecar::parse(&serde_json::to_vec(&doc).unwrap(), &Limits::default()).unwrap();
+        let faces = dalica_scan::photo_faces(&sidecar, "a.jpg");
+        assert_eq!(
+            faces.iter().map(|f| f.person.clone()).collect::<Vec<_>>(),
+            [FacePerson::Person(dalica_core::PersonId::parse("p7f3a2c").unwrap()), FacePerson::Ignored, FacePerson::Unnamed]
+        );
+        assert!(matches!(dalica_scan::photo_geo(&sidecar, "a.jpg"), Some(Geo::At(_))));
+        assert_eq!(dalica_scan::photo_geo(&sidecar, "b.jpg"), Some(Geo::Removed));
+        assert_eq!(dalica_scan::photo_faces(&sidecar, "c.jpg").len(), MAX_FACES);
+        let named: Vec<(String, Option<String>)> = dalica_scan::folder_people(&sidecar).into_values().map(|n| (n.name, n.nickname)).collect();
+        assert_eq!(named, [("Rui Lopes".to_string(), None), ("Ana Costa".to_string(), Some("Aninhas".to_string()))]);
     }
 
     #[test]

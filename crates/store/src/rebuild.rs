@@ -410,35 +410,17 @@ fn people_ops(
     for (id, n) in names {
         defs.entry(id).or_insert_with(|| (n.name.clone(), n.nickname.clone().unwrap_or_default()));
     }
-    // Names in use ignoring case, as the ops below leave them.
-    let mut taken: BTreeMap<String, PersonId> = library.people().map(|(id, p)| (fold(&p.name), id.clone())).collect();
+    let mut who = People::new(library);
     let mut person_ops = Vec::new();
-    let mut known: std::collections::BTreeSet<PersonId> = library.people().map(|(id, _)| id.clone()).collect();
-    // People whose name another holds: the same person (names are unique ignoring case).
-    let mut alias: BTreeMap<PersonId, PersonId> = BTreeMap::new();
     for (id, (name, nickname)) in defs {
-        let holder = taken.get(&fold(&name)).filter(|h| *h != id).cloned();
-        match library.person(id) {
-            None if holder.is_none() => {
-                taken.insert(fold(&name), id.clone());
-                known.insert(id.clone());
-                person_ops.push(Op::AddPerson { id: id.clone(), person: Person { name, nickname, thumbnail: None } });
+        match who.define(library, id, name, nickname, true) {
+            Defined::Kept => {}
+            Defined::Op(op) => person_ops.push(op),
+            Defined::Is(holder) => {
+                out.library_problems.push(format!("person {id} has the name of person {holder} (ignoring case): their faces are {holder}'s"));
             }
-            Some(own) if own.name != name || own.nickname != nickname => {
-                if holder.is_none() {
-                    taken.remove(&fold(&own.name));
-                    taken.insert(fold(&name), id.clone());
-                    person_ops.push(Op::RenamePerson { id: id.clone(), name, nickname });
-                } else {
-                    out.library_problems.push(format!("person {id}'s name is another person's (ignoring case): kept as the library has it"));
-                }
-            }
-            Some(_) => {}
-            None => {
-                if let Some(holder) = holder {
-                    out.library_problems.push(format!("person {id} has the name of person {holder} (ignoring case): their faces are {holder}'s"));
-                    alias.insert(id.clone(), holder);
-                }
+            Defined::NameTaken(_) => {
+                out.library_problems.push(format!("person {id}'s name is another person's (ignoring case): kept as the library has it"));
             }
         }
     }
@@ -447,14 +429,7 @@ fn people_ops(
     let mut after: BTreeMap<PhotoId, Vec<Face>> = BTreeMap::new();
     let mut unnamed: BTreeMap<FolderId, usize> = BTreeMap::new();
     for (photo, folder, list) in read_faces {
-        let list = list
-            .into_iter()
-            .map(|f| match f.person.person().and_then(|p| alias.get(p)) {
-                Some(holder) => Face::new(f.rect, dalica_library::FacePerson::Person(holder.clone())),
-                None => f,
-            })
-            .collect();
-        let (list, dropped) = mapping::known_faces(list, |p| known.contains(p));
+        let (list, dropped) = who.faces(list);
         if dropped > 0 {
             *unnamed.entry(folder).or_default() += dropped;
         }
@@ -471,15 +446,10 @@ fn people_ops(
     let mut thumbs = Vec::new();
     if let Some(p) = people {
         for (id, def) in &p.people {
-            if !known.contains(id) {
+            if !who.knows(id) {
                 continue;
             }
-            let key = def.thumbnail.as_ref().and_then(|(path, rect)| {
-                let folder = library.folder_by_path(path.parent()?)?;
-                let photo = library.photo_by_name(folder, path.file_name()?.to_str()?)?.id;
-                let list = after.get(&photo).map_or_else(|| library.faces(photo), Vec::as_slice);
-                list.iter().any(|f| f.rect == *rect && f.person.person() == Some(id)).then_some(FaceKey { photo, rect: *rect })
-            });
+            let key = thumbnail_in(library, id, def, &after);
             if def.thumbnail.is_some() && key.is_none() {
                 out.library_problems.push(format!("person {id}'s thumbnail is not one of their faces: they show their first face"));
             }
@@ -500,6 +470,120 @@ fn people_ops(
     if !thumbs.is_empty() {
         out.ops.push(Op::Batch { ops: thumbs });
     }
+}
+
+/// Who the people the files name are, as the model will hold them (M13.45): one set of rules for
+/// [`import_library`] and the engine's scans (`dalica-engine` `scanning`), so a folder's faces read
+/// the same whichever reads them. A name is unique ignoring case: a person the model does not have
+/// whose name another person holds (in the model, or added through this same `People`) is that
+/// person, and their faces are read as theirs; a face naming a person neither known nor named is
+/// left out ([`People::faces`]; the sidecar keeps it).
+#[derive(Clone, Debug, Default)]
+pub struct People {
+    /// Names in use, folded ([`fold`]), as the ops decided so far leave them.
+    taken: BTreeMap<String, PersonId>,
+    /// The people the model has, or will once the ops decided so far are applied.
+    known: BTreeSet<PersonId>,
+    /// People whose name another holds: that other person.
+    alias: BTreeMap<PersonId, PersonId>,
+}
+
+/// What [`People::define`] decided about one person the files name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Defined {
+    /// Nothing to do: the model has them as the files say, or keeps its own word.
+    Kept,
+    /// This op adds them (`AddPerson`) or gives them the files' name (`RenamePerson`).
+    Op(Op),
+    /// The model does not have them, and their name is this other person's (ignoring case): they
+    /// are that person, and their faces are read as theirs.
+    Is(PersonId),
+    /// The model has them under another name, and the files' name is this other person's: the
+    /// model's stays.
+    NameTaken(PersonId),
+}
+
+impl People {
+    /// The people `library` has, and the names they hold.
+    pub fn new(library: &Library) -> People {
+        People {
+            taken: library.people().map(|(id, p)| (fold(&p.name), id.clone())).collect(),
+            known: library.people().map(|(id, _)| id.clone()).collect(),
+            alias: BTreeMap::new(),
+        }
+    }
+
+    /// Person `id`, called `name`, is added by an op not applied to the library yet (another
+    /// folder's, earlier in the same op).
+    pub fn assume(&mut self, id: &PersonId, name: &str) {
+        self.taken.entry(fold(name)).or_insert_with(|| id.clone());
+        self.known.insert(id.clone());
+    }
+
+    /// Whether `id` is a person the model has or an op decided so far adds.
+    pub fn knows(&self, id: &PersonId) -> bool {
+        self.known.contains(id)
+    }
+
+    /// Person `id`, called `name` and `nickname` (clean, as the readers give them) in the files:
+    /// added when no one has them and no one holds the name, the same person as the holder when
+    /// someone does; one the model has is renamed to the files' word only with `rename` (a
+    /// rebuild's import), else keeps the model's (a scan: the model's word stands).
+    pub fn define(&mut self, library: &Library, id: &PersonId, name: String, nickname: String, rename: bool) -> Defined {
+        let holder = self.taken.get(&fold(&name)).filter(|h| *h != id).cloned();
+        match library.person(id) {
+            Some(own) if rename && (own.name != name || own.nickname != nickname) => match holder {
+                None => {
+                    self.taken.remove(&fold(&own.name));
+                    self.taken.insert(fold(&name), id.clone());
+                    Defined::Op(Op::RenamePerson { id: id.clone(), name, nickname })
+                }
+                Some(h) => Defined::NameTaken(h),
+            },
+            Some(_) => Defined::Kept,
+            None if self.known.contains(id) => Defined::Kept,
+            None => match holder {
+                None => {
+                    self.taken.insert(fold(&name), id.clone());
+                    self.known.insert(id.clone());
+                    Defined::Op(Op::AddPerson { id: id.clone(), person: Person { name, nickname, thumbnail: None } })
+                }
+                Some(h) => {
+                    self.alias.insert(id.clone(), h.clone());
+                    Defined::Is(h)
+                }
+            },
+        }
+    }
+
+    /// A photo's faces as the files give them, as the model takes them: a face of a person whose
+    /// name another holds is that other's, and a face naming a person neither known nor defined
+    /// is left out (the sidecar keeps it). Returns how many were left out too.
+    pub fn faces(&self, list: Vec<Face>) -> (Vec<Face>, usize) {
+        let list = list
+            .into_iter()
+            .map(|f| match f.person.person().and_then(|p| self.alias.get(p)) {
+                Some(holder) => Face::new(f.rect, dalica_library::FacePerson::Person(holder.clone())),
+                None => f,
+            })
+            .collect();
+        mapping::known_faces(list, |p| self.known.contains(p))
+    }
+}
+
+/// Person `id`'s thumbnail as `people.json` gives it (`def`), when that face is theirs in
+/// `library`: its photo found by path and the face by its rectangle.
+pub fn thumbnail(library: &Library, id: &PersonId, def: &crate::people::PersonDef) -> Option<FaceKey> {
+    thumbnail_in(library, id, def, &BTreeMap::new())
+}
+
+/// [`thumbnail`], with `after`'s face lists in place of the library's (ops not applied yet).
+fn thumbnail_in(library: &Library, id: &PersonId, def: &crate::people::PersonDef, after: &BTreeMap<PhotoId, Vec<Face>>) -> Option<FaceKey> {
+    let (path, rect) = def.thumbnail.as_ref()?;
+    let folder = library.folder_by_path(path.parent()?)?;
+    let photo = library.photo_by_name(folder, path.file_name()?.to_str()?)?.id;
+    let list = after.get(&photo).map_or_else(|| library.faces(photo), Vec::as_slice);
+    list.iter().any(|f| f.rect == *rect && f.person.person() == Some(id)).then_some(FaceKey { photo, rect: *rect })
 }
 
 /// The changes that make the saved records of `folder`'s photos match `reading`: a photo named in
