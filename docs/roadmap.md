@@ -8410,7 +8410,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     dragged and zoomed with a mouse and a touchpad, tiles allowed, a geotagged photo opened in
     another application's map).
   - done when: `cargo xtask accept M13` passes everything in M13's *Done when*.
-- ⬜ **M13.33 Lead: task blocks for M15**
+- ✅ **M13.33 Lead: task blocks for M15**
   - after: M12.23
   - owner: lead
   - files: `docs/roadmap.md`
@@ -9067,7 +9067,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     opened in another application; a real folder the previous organizer managed, its stars,
     albums, people and edits, a change in it, then the old program's file compared byte for byte).
   - done when: `cargo xtask accept M14` passes everything in M14's *Done when*.
-- ⬜ **M14.24 Lead: task blocks for M15**
+- ⬜ **M14.24 Lead: M15's task blocks brought up to date**
   - after: M13.33
   - owner: lead
   - files: `docs/roadmap.md`
@@ -9077,7 +9077,8 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     *done when* against the code, writes M15's waves again, and keeps the tasks that hinge on
     reserved decision 2 (video) waiting for the maintainer's answer, asked at M14.R, never guessed;
     a block that can port Craft-app code names the source files in its scope (`architecture.md`
-    §9).
+    §9); and lists for M14.R's check-in the questions M15's blocks wait on (reserved decision 2
+    with its sound, the first languages; M15.1 records the answers).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the
     M15 tasks as planned.
 - ⬜ **M14.R Release 0.9 gate**
@@ -9101,7 +9102,8 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     watched folders are read, so names only in the old program's contacts file are lost; the
     ignore marker read as Ignored; uncertain legacy operations kept as `legacy:` entries; a
     legacy Revert sends the saved file to the trash; the option turned off removes legacy-only
-    data from view), reserved decision 2 (video) for M15, the look of the room, the six styles and
+    data from view), reserved decision 2 (video, with its sound) and the first languages
+    (`localization.md`) for M15, the look of the room, the six styles and
     the legacy notice (approved with their fingerprints); *Where we stand* and the `status.md`
     numbers (each style's layout and render times, the canvas frame, the legacy scan's overhead,
     the workflow pass rate) on a `review/M14.R` branch, a pull request open. Only the maintainer
@@ -9124,14 +9126,946 @@ wave 5   M14.20 Collage entry points  ‖  M14.21 W15, W16  ‖  M14.22 M14 budg
 wave 6   M14.23 accept M14 → M14.R          (M14.24 lead: M15 blocks brought up to date, any time after M13.33)
 ```
 
-### M15 — Video, localisation, OS integration and Release 1.0 (outline)
+### M15 — Video, localisation, OS integration and Release 1.0
 
-| # | In | Done when (sketch) |
-|---|---|---|
-| M15 Video | reserved decision 2 first; then poster frames, playback, trim, frame save — or descope to tiles; slideshow music comes with video sound (the maintainer's answer at M11.R, 2026-10-17) | decided and recorded; tests per chosen scope |
-| M15 Localisation and accessibility | translation catalogs (from LightCraft's `i18n.rs` and `locales/*.json`, with its script-based CJK font fallback), AccessKit labels, screen-reader and keyboard-only passes, scaling | coverage per language reported; AccessKit tree tests |
-| M15 OS integration | drag out to other apps, clipboard files, Open With ▸, external editor, Locate on Disk with selection, default-viewer registration, `dalica --view` handing the file to a Dalica already running (read-only viewer until then; the maintainer's answer at M11.R, 2026-10-17), MTP/PTP cameras | per-OS manual checklist plus what can be tested per OS in CI |
-| M15 Release 1.0 | signed packages, full honest assessment, release notes | the release checklist (`releasing.md`) |
+One milestone in 4 feature areas (*Video*, *Localisation and accessibility*, *OS integration*, *Release 1.0*); one `cargo xtask accept M15` covers every *Done when* below. It ends with the release gate the maintainer owns (Release 1.0).
+
+#### Video
+
+- **In:** reserved decision 2 first (pure-Rust decoding or an optional external process; asked at
+  M14.R, never guessed; slideshow music comes with video sound, the maintainer's answer at M11.R,
+  2026-10-17). Whatever the answer: MP4, MOV, M4V and MKV recognised by their content and probed
+  under limits (duration, frame size, rotation, date, codecs, sound, location), listed in the
+  library when `fileTypes.video` is on, shown as video cells with the sprocket edge and the
+  duration pill (`ui-layout.md` §5), the Videos filter, every path that cannot take a video
+  counting it, and a video opened in the edit view that Dalica cannot play showing "This video
+  can't be played" with [Open With ▸] (`viewing.md` §4). With decoding, as the answer builds it:
+  poster frames (the first non-black frame) as thumbnails and previews; the player in the edit
+  view (play and pause, the scrubber and its readout, volume, Full Screen, frame steps; `editing.md`
+  §11); trim (`trim(start,end)` in the recipe) and rotation; Save Frame as Picture
+  (`Pictures/Dalica/Video Frames`, the Video Frames project); Export Clip; videos in the slideshow
+  (played to the end, muted unless Play video sound) and slideshow music (`viewing.md` §1.5);
+  Export's "Export videos as" row; videos in a collage as their poster; faces found on a poster
+  frame (M13's *Out*); videos over MCP (W17).
+- **Out:** the legacy video formats (AVI, WMV, MPG, 3GP, MTS/M2TS) and a movie maker (`product.md`,
+  dropped as dated); colour editing of video (`editing.md` §11); WebM (not in `formats.md`'s list).
+  If the answer descopes video to tiles, M15.1 records which *In* items leave with it.
+- **Reuse** (`architecture.md` §9): `image`'s bounded ISO BMFF walk
+  (`crates/image/src/formats/bmff.rs`) for MP4 and MOV; LightCraft `crates/codecs/src/video.rs` at
+  4f0b110b (its MP4 and WebM muxers: the box and EBML layouts they write, studied for our readers;
+  nothing of its encoder ships); in this repository M8's one output pipeline for saved and exported
+  frames, M11's slideshow, M14's collage clips and M13's face scan.
+- **Done when:** `cargo xtask accept M15`: a folder with an MP4, a MOV and an MKV lists three video
+  cells with their durations, the Videos filter shows only them, Export and the slideshow count
+  them, and a hostile container is refused without a panic; with decoding, as M15.1 recorded the
+  answer: each cell shows its poster frame, the player plays, steps a frame and trims, the trim
+  survives a restart, Save Frame as Picture writes the frame shown into Video Frames, a slideshow
+  plays a clip to its end, and W17 passes over MCP.
+
+#### Localisation and accessibility
+
+- **In:** `localization.md`: `tl!` and `tln!` over every user-facing literal, TSV catalogs in
+  `crates/ui/src/i18n/`, the language registry (code, endonym, script, plural rule), System
+  following the OS's languages, `DALICA_LANGUAGE`, Options ▸ General ▸ Language switching without a
+  restart, dates, numbers and sizes through locale-aware helpers, command labels and options rows
+  looked up by their English text and id, the release notes line by line, the coverage tests and
+  `cargo xtask i18n`; the first languages the maintainer chooses (asked at M14.R:
+  `localization.md` says they are chosen when M15 starts), each with its style guide; the CJK
+  fallback faces from craft-fonts, by script, in release builds (`releasing.md`); AccessKit: every
+  widget with its role, name and value, the light table, the tree and the canvases as nodes, an
+  audit over every view and dialog; keyboard-only use (every command reachable by its key or the
+  menu bar, Tab order in dialogs, a visible focus); UI scale and font size checked to fit; the
+  screen-reader and input-method passes by hand at M15.R (`architecture.md` §11).
+- **Out:** right-to-left mirroring of the window unless a chosen language needs it; translating
+  what `localization.md` → *What is not translated* lists.
+- **Reuse** (`architecture.md` §9): PhotoCraft `crates/ui-egui/src/i18n/mod.rs`, `catalog.rs` and
+  `system.rs` and `xtask/src/i18n_coverage.rs` at 5b087699 (the TSV format `localization.md`
+  already follows); LightCraft `crates/engine/build.rs` and `crates/engine/src/fonts.rs` (craft-fonts
+  embedded) and the script table of `crates/ui-egui/src/i18n.rs` at 4f0b110b; LightCraft
+  `crates/ui-egui/tests/accessibility.rs` at 4f0b110b (the AccessKit audit).
+- **Done when:** `cargo xtask accept M15`: in each chosen language the library, the edit view and
+  the Options dialog show translated text, plurals read right for 0, 1, 2 and 5, and nothing is
+  clipped at 1400 × 900 and 900 × 600; switching the language keeps the open view, the selection and
+  the undo history; the pseudo-locale leaves no untranslated text outside user data; the AccessKit
+  audit finds no interactive node without a name in any view or dialog; every command is reachable
+  without a pointer.
+
+#### OS integration
+
+- **In:** `product.md`'s OS-integration row: Locate on Disk with the item selected (photos,
+  folders, a folder header's icon, the export notice's Show Folder, the viewer's Show in File
+  Manager); Open With ▸ (the system's handlers for the file's type); Open in External Editor
+  (Ctrl+Shift+O; Options ▸ General ▸ External editor); Copy Path, and the files and the picture on
+  the system clipboard; photos dragged out to other applications; Dalica as the default viewer
+  (Options ▸ Photo Viewer ▸ File Types, the viewer's Settings…, offered after the first run, opt-in
+  per type); `dalica --view` and Open With handing the file to a Dalica already running (the
+  maintainer's answer at M11.R, 2026-10-17) and macOS's open-documents events; cameras and phones
+  over MTP/PTP in the Import room.
+- **Out:** setting the desktop background, printing and e-mail (`product.md`, dropped); a shell
+  extension or file-manager plugin; launching programs over automation (`security.md` §5.11).
+- **Reuse** (`architecture.md` §9): LightCraft `apps/lightcraft/src/editors.rs` and the `reveal`
+  service of `apps/lightcraft/src/main.rs` at 4f0b110b; PhotoCraft
+  `apps/photocraft/src/single_instance.rs` and the clipboard parts of
+  `apps/photocraft/src/services.rs` (`arboard`, `text/uri-list`) at 5b087699; in this repository
+  the `Picker` pattern (`crates/ui/src/picker.rs`), M11.12's viewer session, M11's Import room and
+  `dalica-fs`'s verified copies.
+- **Done when:** `cargo xtask accept M15` (the recording `Os` service): Locate on Disk, Open With,
+  Open in External Editor and the clipboard commands hand the right paths to the service and the
+  launching ones are refused over automation; a second `dalica --view FILE` hands FILE to the first
+  Dalica and exits; a camera (the in-memory PTP responder) lists its pictures and imports them
+  verified with their times; each OS's CI runs what it can, and `tests/acceptance/m15.md` lists
+  the checks by hand on each OS.
+
+#### Release 1.0
+
+- **In:** signed packages (`releasing.md`): Windows `.exe` and `.msi` signed with SHA-256 and a
+  timestamp (a `.pfx` or Azure Trusted Signing); macOS Developer ID signing with the hardened
+  runtime, notarization and stapling, the CLI zip notarized; every signing path run on packaging
+  pull requests with a throwaway identity; the 1.0 parity and security audit (every row measured,
+  `process.md` §5); M15's budgets; the full honest assessment and the release notes at M15.R.
+- **Out:** Linux code signing (checksums, as today); a built-in updater (`SYS-UPDATES`, deferred);
+  a from-source Flathub manifest; per-release SBOMs (`security.md` §10, future hardening); Windows
+  on ARM64.
+- **Reuse:** the Craft apps' release pipeline Dalica already follows (`process.md` §7; PhotoCraft and
+  LightCraft `packaging/windows/sign.ps1`).
+- **Done when:** the release dry run signs every Windows and macOS artifact with the throwaway
+  identities and the signature checks pass; `cargo xtask parity` passes with no unmeasured ✅; the
+  M15 budgets hold; the signed release itself is M15.R's checklist.
+
+#### M15 tasks
+
+M15 finishes the 1.0: videos in the library and, as reserved decision 2's answer allows, played and
+trimmed; the interface in the first languages, for screen readers and without a mouse; the
+operating system's own ways to locate, open, copy, drag and view files; cameras over MTP/PTP; signed
+packages. Its first wave lists the M14 work each task extends and starts once the maintainer has
+closed M14.R. Ten tasks lay the ground the others share, so later tasks never share a file: M15.1
+(the lead) records M14.R's answers and fits the blocks that wait on them; M15.2 gives `image` video
+recognition and probing; M15.3 gives `library` the video facts and the Video Frames project; M15.4
+registers one engine command module per area with stub state, the `Os` and `Sound` service traits
+with their fakes, M15's settings and options rows, and every port's `NOTICE` row; M15.5 adds M15's
+view state, UI commands with stub handlers and the stub video panel; M15.6 gives `ui-kit` the video
+controls and the icons; M15.7 gives `ui` its localisation core and the pseudo-locale; M15.8 gives
+`ui-kit` the fallback faces; M15.9 gives `scan` the PTP reader; M15.10 signs the Windows packages.
+The video work follows in two layers: decision-neutral (videos on scan M15.11, in the session
+M15.16, in the window M15.21) and as the answer builds it (frames M15.15, posters M15.20, playback
+M15.25, the player M15.26, sound M15.27, export and collage M15.28, W17 M15.30); the OS integration
+goes from the app's services (M15.12) through the engine's commands (M15.17) to the window (M15.22,
+M15.23, M15.24) and the hand-off (M15.18); the strings are wrapped late, in three tasks by area
+(M15.31–M15.33), so they catch everything the feature tasks drew, and the catalogs (M15.35) come
+last. Each task updates its `parity.md` rows (`LIB-LT-VIDEO`, `VIEW-VIDEO`, `EDIT-VIDEO`,
+`VIEW-MUSIC`, the videos of `VIEW-SLIDESHOW`, `OUT-EXPORT`, `OUT-COLLAGE`, `SRCH-FILTERS` and
+`PREF-FILETYPES`, the Video Frames of `LIB-TREE-GROUPS`, `SYS-I18N`, `SYS-A11Y`, the Language and
+External editor rows of `PREF-GENERAL`, `PREF-SLIDESHOW`, `PREF-VIEWER`, `FILE-LOCATE`,
+`FILE-COPYPATH`, `FILE-DRAGOUT`, `VIEW-VIEWER`, `VIEW-VIEWER-ASSOC`, `IMP-MTP`, `IMP-DEVICES`,
+`LIB-CTX-PHOTO`, `LIB-TRAY`, `KEY-GLOBAL-CTRL-SHIFT-O`, `KEY-GLOBAL-CTRL-ENTER`, `SYS-PACKAGING`,
+`SYS-RELEASE`, `SYS-MCP`) and names its commands there; first fingerprints of the video cells, the
+player, the new widgets and icons and each language are approved in bulk on the M15.R review page.
+
+Whole-window baselines belong to no task, as in M5–M14: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m14-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+Fingerprints are made at 1400 × 900 only; at 900 × 600 a test asserts that the player, the menus
+and the translated views fit (`architecture.md` §11).
+
+Decisions taken while planning (the check-in lists them for reversal). **The answers M15 waits on.**
+Reserved decision 2 (video, with its sound: the maintainer tied slideshow music to video sound at
+M11.R, and an audio output may need a C-linked system library on Linux, a question of its own under
+`AGENTS.md` §4) and the first languages (`localization.md`: chosen by the maintainer when M15
+starts) are asked at M14.R, never guessed here. M15.1, the lead's first task once M14.R closes,
+records them and fits the blocks that hinge on them: M15.15, M15.20, M15.25–M15.28, M15.30 and the
+video parts of M15.34 (video), M15.35 (languages); each of those lists M15.1, and a worker who finds
+the answer missing from *Reserved decisions* runs `tasks block` with the question and takes another
+task. If the answer descopes video to tiles, M15.1 rewrites those blocks to what remains (their ids
+kept, never reused) and names the parity rows that leave for M15.R. Everything else is
+decision-neutral: probing containers, listing videos, the video cells and the edit view's "This
+video can't be played" are needed under any answer (a codec Dalica cannot play exists under each).
+**Localisation:** the catalogs are TSV as `localization.md` says, ported from PhotoCraft
+(contexts, ids, plurals), rather than the JSON catalogs of LightCraft the outline named; LightCraft
+gives the craft-fonts embedding and the script order. The fonts are embedded by a new
+`crates/ui-kit/build.rs` (the faces are installed by `ui-kit`'s `fonts.rs`), not by
+`crates/ui/build.rs` as `releasing.md` says today. Strings are wrapped late and by area (M15.31 the
+main window, M15.32 the dialogs, M15.33 the edit view, rooms, slideshow and viewer); features drawn
+after M15.7 write `tl!` from the start. Each area is proven by the pseudo-locale (`qps`: every
+translation bracketed and 40 % longer, built from the key set at run time): every text a frame draws
+is bracketed except user data. Engine refusal reasons the window shows are looked up whole by their
+English text; one carrying values stays English and is listed by `cargo xtask i18n`, never failed.
+`ui-kit`'s own few texts (the date picker's month and weekday names, …) come from a table the app
+sets, so `ui`'s catalogs translate them. **Accessibility:** names come from the widget registry's
+labels; the light table exposes only its visible cells, so the AccessKit tree is never work
+proportional to the library; its cost is a budget (M15.34). **OS integration** goes through service
+traits as the native dialogs do (`Picker`): `engine::os::Os` (reveal, the handlers of a type, open
+with, the external editor, the clipboard, the default handler per type) and `engine::sound::Sound`,
+each with a recording or silent fake that headless sessions, `dalica-cli`, MCP and tests use, and
+the real one in `apps/dalica` per OS. No `unsafe` in our crates and no C build dependency: a pure-Rust
+crate after `cargo xtask deps`, or the platform's own program started with an argument vector,
+never a shell; a feature with no such way on an OS keeps its row greyed there with the OS's reason,
+and the task blocks with the question when the only way is `unsafe` or a C library (`AGENTS.md` §4).
+The launching commands (Locate on Disk, Open With, Open in External Editor) are refused over
+automation (`security.md` §5.11); the copy commands work in the window and answer `unavailable`
+headless. Edit ▸ Copy (Ctrl+C) in the library keeps Dalica's own copy and also puts the files on the
+system clipboard (and one photo's picture with its edits), so a paste in a file manager copies them.
+A drag out gives the files on disk: unsaved edits stay in Dalica, and the drag pill says so.
+External editor: the program named in Options ▸ General (`files.externalEditor`), else the system's
+edit verb or default application, ported from LightCraft. **One Dalica per user**, ported from
+PhotoCraft: a later launch hands its files to the running Dalica, which shows the viewer in its own
+window and returns to where it was on Esc; the read-only viewer of M11.12 stays for a library
+another user's Dalica holds. **Default viewer:** Dalica sets a default only where the OS lets an
+application do it (Linux's `mimeapps.list`, merged through `fs` with every other entry kept, the
+replaced handlers remembered for "Don't use Dalica as a viewer"); on Windows and macOS it registers
+as a handler and opens the system's own default-apps settings, saying what to choose. **Cameras:**
+our own PTP/MTP reader from the public specifications over a pure-Rust USB stack; where an OS holds
+the device for its own service (Windows' portable-device driver, macOS's image capture) what is
+reachable is measured and recorded; a Linux device the desktop already mounted shows as a folder
+source; copies are written through `fs` from the stream and checked by reading them back.
+**Signing:** dry runs sign with a throwaway self-signed identity, so the signing path runs on every
+packaging pull request; the real certificates and notarization are the maintainer's secrets,
+checked at M15.R. **Docs:** `security.md`'s status lines for M15 (the video and PTP rows of §4.2,
+§5.11, §7.1's targets, §10's signing) are set by the 1.0 audit (M15.36) from what each task's PR
+and crate README record, so the tasks of a wave never share it. M15's budgets join `development.md`
+§8 at 1.5 × their first measurement, plus the playing video's frame within 16 ms at p95 and the
+AccessKit and translation overheads within 1 ms at p95, and are never loosened. M15.38 (the lead)
+writes M16's blocks while M15 runs, as M16's outline asks.
+
+- ⬜ **M15.1 Lead: M14.R's answers in M15's blocks**
+  - after: M14.R
+  - owner: lead
+  - files: `docs/roadmap.md`, `docs/product.md`
+  - scope: reserved decision 2 (video, with sound: decoding, the audio output and slideshow music)
+    and the first languages are asked at M14.R (M14.24 lists them for its check-in); this task
+    records the answers: decision 2 under *Reserved decisions* with its date and the maintainer's
+    words and in `product.md`'s Video row; then fits the blocks that wait on them: M15.15, M15.20,
+    M15.25, M15.26, M15.27, M15.28, M15.30 and M15.34's video benches get the decoder the answer
+    names, their `files` (a new crate registered in `xtask/src/layers.rs` and `architecture.md` §2,
+    or the bridge to an external program) and *done when* as the answer builds them, or, if video
+    is descoped to tiles, are rewritten to what remains (ids kept, never reused) with the parity
+    rows that leave named for M15.R; M15.35 names the chosen languages (one catalog and style
+    guide each; a CJK language with its glyph check). Nothing is guessed: an answer missing from
+    the review's record is a `tasks block` with the question.
+  - done when: `cargo xtask tasks sync --check` parses the fitted blocks, `tasks sync --dry-run`
+    lists them, and *Reserved decisions* item 2 carries its date.
+- ⬜ **M15.2 `image`: video files recognised by content and probed**
+  - after: M5.10, M14.R
+  - files: `crates/image/src/sniff.rs`, `crates/image/src/formats/mod.rs`, `crates/image/src/formats/video.rs`, `crates/image/src/formats/video/**`, `crates/image/src/decode.rs`, `crates/image/tests/video.rs`, `crates/image/fuzz/**`, `crates/image/README.md`, `docs/formats.md`
+  - scope: `formats.md` §1 and `security.md` §4.2 (needed under any answer to reserved decision 2):
+    `Format::Video(VideoKind)` sniffed by content: ISO BMFF files whose `ftyp` major or compatible
+    brands name MP4, M4V or QuickTime (`isom`, `iso2`…`iso6`, `mp41`, `mp42`, `avc1`, `M4V `,
+    `M4VH`, `qt  `, …), never a still-image brand (`heic`, `mif1`, `avif`, `crx `), and Matroska
+    files by their EBML header's DocType `matroska`; `video::probe` reading, through `bmff.rs`'s
+    bounded walk and a bounded EBML reader of our own written from the public Matroska and EBML
+    specifications (RFC 8794; provenance header), the duration (`mvhd` or `mdhd`; Matroska
+    `Duration` × `TimestampScale`), the frame size, the rotation (the track header's matrix, in
+    quarter turns), the creation date (`mvhd` from 1904; Matroska `DateUTC`), the video and sound
+    codecs (sample entry codes; `CodecID`), the frame rate, whether it has sound, and the location
+    (ISO 6709 `©xyz` in `udta`, or the QuickTime location key); every size and count hostile (box
+    depth ≤ 12, ≤ 4 096 boxes per level, sample tables never read whole, an EBML element inside its
+    parent, unknown-size elements bounded, every read counted by `Work`); `decode` of a video
+    answers unsupported with "This video can't be played" until M15.15 gives frames; the fuzz
+    target `video_probe`; `formats.md`'s Video row says what landed.
+  - done when: `crates/image/tests/video.rs` (fixtures written by the test from the documented
+    layouts): an MP4, an M4V, a MOV turned a quarter by its matrix and an MKV each report their
+    duration to the millisecond, size, rotation, date, codecs, sound and location; HEIC, AVIF and
+    CR3 files are never videos; a file cut at every box boundary is truncated, never a panic;
+    nesting past 12, 4 097 sibling boxes, an EBML size past its parent and an unknown-size element
+    running to the end are refused or bounded; proptest: random bytes after a video header never
+    panic; `cargo +nightly fuzz build` builds `video_probe`.
+- ⬜ **M15.3 `library`: videos and the Video Frames project in the model**
+  - after: M9.1, M14.1, M14.R
+  - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/tree.rs`, `crates/library/tests/video.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
+  - scope: a photo's kind (still or video) and its video facts beside `Facts` (duration in
+    milliseconds, frame size, rotation, codecs, sound, frame rate), set by ops without an undo step
+    or a revision bump of their own (as M14.1's legacy facts); `Project::VideoFrames` beside
+    `Exported` and `Collages` (the Projects group lists it with its icon's kind); queries: a
+    section's videos (for the paths that count them) and the photos a still-only path takes; the
+    Videos filter reading the kind.
+  - done when: `crates/library/tests/video.rs`: a video's facts round-trip and move no revision; a
+    section's videos are counted once; the still-only query leaves them out; the Videos filter
+    keeps only them; `crates/library/tests/tree.rs`: a folder marked Video Frames is listed in
+    Projects; every existing `library` test passes unchanged.
+- ⬜ **M15.4 `engine`: M15's command modules, the `Os` and `Sound` services, settings and options rows**
+  - after: M14.5, M14.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/video.rs`, `crates/engine/src/cmd/video_output.rs`, `crates/engine/src/cmd/os.rs`, `crates/engine/src/cmd/camera.rs`, `crates/engine/src/video.rs`, `crates/engine/src/video_output.rs`, `crates/engine/src/os.rs`, `crates/engine/src/sound.rs`, `crates/engine/src/camera.rs`, `crates/engine/src/session.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`, `NOTICE`
+  - scope: the engine's ground for M15 so later tasks never share a file: empty `cmd/video.rs`,
+    `video_output.rs`, `os.rs` and `camera.rs` joined into the registry once; stubs `video.rs` (the
+    open video and its playback state), `video_output.rs` and `camera.rs` (camera sources), each a
+    field of `Session` once; `os.rs`: the `Os` service (reveal a path with it selected, the
+    handlers of a file's type, open a file with one, open files in the external editor, put files,
+    a picture or text on the system clipboard, the default handler per type and setting it; every
+    call fallible with a reason) with `os::Recording`, the fake that headless sessions,
+    `dalica-cli`, MCP and tests use, the app plugging in the real one (as `Picker`); `sound.rs`:
+    the `Sound` output (open at a rate, queue samples, its clock, stop) with a silent fake that
+    keeps time and records what it was given; settings with typed accessors: `files.externalEditor`
+    (empty: the system's default), `video.volume` (0–100, 80), `viewer.defaultViewer` turned from
+    one flag into the set of chosen types (an old `true` or `false` read as all or none), and
+    `interface.language`'s choices given by the caller at start (`Session::set_languages`, so
+    `ui`'s registry is the one list; `system` first); the options catalogue's External editor row
+    (General ▸ Files) available and Photo Viewer's File Types made a list (greyed until M15.24),
+    Slideshow's Sound rows still greyed until M15.27; `menus-and-shortcuts.md` §1 lists the new
+    commands (`photo.locate`, `folder.locate`, `photo.openWithList`, `photo.openWith`,
+    `photo.openExternal`, `photo.copyToSystem`, `photo.copyPath`, `video.*`, `camera.*`,
+    `viewer.fileTypes`, `viewer.setDefault`) and §2 the edit view's video keys; `data-model.md` §4
+    lists the new keys; the `NOTICE` rows of every port named in M15's blocks.
+  - done when: `crates/engine/tests/settings.rs` round-trips every new setting with unknown keys
+    kept, wrong types and out-of-range values falling back (reported), and an old
+    `viewer.defaultViewer` flag read as all or none; `crates/engine/tests/options_catalogue.rs`:
+    the new rows with defaults equal to their accessors', Language listing the languages given;
+    the recording `Os` keeps each call in order; every existing engine test and `panic_hunt` pass
+    unchanged.
+- ⬜ **M15.5 `ui`: M15's view state, UI commands and the stub video panel**
+  - after: M14.6, M14.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/video.rs`, `crates/ui/src/commands/os.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/default_viewer.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
+  - scope: every M15 field of `UiState` in one go: the video in the edit view (playing, position,
+    the trim handle being dragged, volume, full screen) and the edit panel's video tab; the Open
+    With ▸ submenu's handlers (asked when it opens); a drag leaving the window; the default-viewer
+    question after the first run; the language in effect (`interface.language` mirrored for the next
+    draw); UI commands with stub handlers so M15.21–M15.29 never share a file: the player's
+    (`video.play`, `.pause`, `.toggle`, `.step`, `.seek`, `.setStart`, `.setEnd`, `.volume`,
+    `.fullScreen`, `.saveFrame`, `.exportClip`) in `commands/video.rs`, the OS integration's
+    (`photo.locate`, `folder.locate`, `photo.openWith`, `photo.openExternal`, `photo.copyPath`,
+    the notice's Show Folder, the viewer's Show in File Manager) in `commands/os.rs`; their menu rows
+    of `menus-and-shortcuts.md` §1 wired (greyed until live); the video keys (`/`, Space, `,`, `.`)
+    active in the edit view while a video is open; the stub panel `panels/edit/video.rs` and its
+    folder (`bar.rs`, `tab.rs`); the stub dialog `defaultViewer`; control stubs for the new state;
+    `control-protocol.md` §6.5 and §7 (ids following §7's patterns: `region:video`,
+    `slider:video.position`, `handle:video.trimStart`, `button:video.saveFrame`,
+    `menu:photo.openWith`, `dialog:defaultViewer`, …).
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); a video key does nothing in the library
+    or on a still photo; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay
+    green.
+- ⬜ **M15.6 `ui-kit`: the video controls and M15's icons**
+  - after: M14.7, M14.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/scrubber.rs`, `crates/ui-kit/src/widgets/volume.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/video.rs`, `crates/ui-kit/src/icons/os.rs`, `crates/ui-kit/tests/video_widgets.rs`, `crates/ui-kit/tests/icons_video.rs`, `crates/ui-kit/tests/fingerprints/video-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-video*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §4–§6, `editing.md` §11 and `viewing.md` §4: `scrubber` (a track
+    with the played part, a playhead dragged or clicked, the trim ruler's start and end handles that
+    never cross, the trimmed-away parts dimmed, the readout "00:00:09 / 00:00:41 (trimmed to
+    00:00:21)" from given milliseconds, arrow-key steps); `volume` (a speaker toggle and a short
+    slider); the icons it lacks, our own drawings on the 20-unit grid: play, pause, frame back,
+    frame forward, Set Start, Set End, volume (off, low, high), Save Frame, Export Clip, the Video
+    Frames project, Open With, Locate on Disk, external editor, camera; the widget gallery gains
+    them; `design-system.md` §6's rows.
+  - done when: `crates/ui-kit/tests/video_widgets.rs`: dragging the playhead reports positions in
+    milliseconds clamped to the clip; the start handle never passes the end; the readout formats 0,
+    59 999 ms and 3 h 2 min right and adds the trimmed length only when trimmed; the toggle mutes
+    and restores the volume; `crates/ui-kit/tests/icons_video.rs`: each new icon stays in its grid
+    at 12, 16, 20 and 28 px in rest, hover and disabled colours; gallery and icon fingerprints;
+    `widget_ids`, contrast, `cargo xtask assets` and `cargo xtask names` pass.
+- ⬜ **M15.7 `ui` + `xtask`: the localisation core and the pseudo-locale**
+  - after: M10.10, M14.R
+  - files: `crates/ui/src/i18n.rs`, `crates/ui/src/i18n/catalog.rs`, `crates/ui/src/i18n/plural.rs`, `crates/ui/src/i18n/languages.rs`, `crates/ui/src/i18n/system.rs`, `crates/ui/src/i18n/format.rs`, `crates/ui/src/i18n/pseudo.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/i18n.rs`, `xtask/src/i18n.rs`, `docs/localization.md`, `docs/development.md`
+  - scope: `localization.md`, ported from PhotoCraft `crates/ui-egui/src/i18n/mod.rs`, `catalog.rs`
+    and `system.rs` at 5b087699 (each with its header): `tl!("…")`, `tl!(ctx = "…", "…")`, named
+    placeholders (`tl!("{count} photos selected", count = n)`) and `tln!` for plurals; lookups of a
+    command label by id and English text and of an options row by key and English text, for the
+    places that draw them; the TSV parser (contexts, `@id`, `@plural`, escapes, comments) that
+    never panics and turns a broken catalog into English with a log line; the plural rules of
+    `localization.md`'s table; `LANGUAGES` (code, endonym, script, plural rule, `complete_menus`,
+    catalog) holding English until M15.35, handed to the engine (`Session::set_languages`); the
+    language in effect: System from the OS's preferred languages (read once, no subprocess),
+    regional tags resolved to the closest catalog (Traditional and Simplified Chinese distinct),
+    `DALICA_LANGUAGE` for one launch; Options ▸ General ▸ Language live (the interface follows on
+    its next draw; views, the selection and the undo history kept); dates, numbers and file sizes
+    through `i18n::format`; the release notes looked up line by line; the pseudo-locale `qps`
+    (built at run time from the key set: each translation `⟦…⟧` and 40 % longer) and the headless
+    driver's list of the texts a frame drew, so a test can name every untranslated text; `cargo
+    xtask i18n`, ported from PhotoCraft `xtask/src/i18n_coverage.rs` at 5b087699: the key set
+    (every `tl!` literal of `crates/ui` outside tests, every command label, every options row's
+    label and hint), each language's coverage, and a failure for an empty entry, a placeholder in
+    one column only, a malformed plural, a duplicate key or a missing key of a `complete_menus`
+    language (joined to `cargo xtask ci` by M15.35, once catalogs exist); `localization.md`'s
+    status and `development.md`'s tool list.
+  - done when: `crates/ui/tests/i18n.rs`: a catalog fixture translates plain, context, id and
+    plural entries and falls back to English for a missing one; plurals for 0, 1, 2, 5, 11, 21 and
+    22 in each rule; hostile catalogs (a lone tab, a 1 MiB line, a placeholder in one column,
+    broken escapes) never panic; `de-AT`, `pt-PT`, `zh-TW` and `zh-CN` resolve as the spec says;
+    choosing the pseudo-locale over `options.set` changes the next frame's texts with the open view
+    and the undo history kept; `cargo xtask i18n` passes on the tree and fails on each planted
+    fault.
+- ⬜ **M15.8 `ui-kit`: fallback faces from craft-fonts, by script**
+  - after: M14.R
+  - files: `crates/ui-kit/build.rs`, `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/tests/fonts.rs`, `.github/workflows/ci.yml`, `docs/assets.md`, `docs/releasing.md`
+  - scope: `releasing.md` and `assets.md` → Fonts, ported from LightCraft `crates/engine/build.rs`
+    and `crates/engine/src/fonts.rs` at 4f0b110b: `crates/ui-kit/build.rs` embeds the faces of the
+    craft-fonts manifest at `CRAFT_FONTS_DIR` (none without it: everything builds and runs with
+    Inter alone; `CRAFT_FONTS_REQUIRED=1` makes a missing directory or face a build error naming
+    it); `fonts::install` puts them after Inter as fallbacks, ordered by the language's script
+    (LightCraft's script table in `crates/ui-egui/src/i18n.rs` at 4f0b110b: Japanese faces first
+    for Japanese, and so on), switched with the language without a restart; the faces' OFL texts
+    listed for the packages; `ci.yml` gets its `CRAFT_FONTS_REF` pin so the glyph tests run with
+    the fonts; `releasing.md`'s "not built yet" replaced by what landed.
+  - done when: `crates/ui-kit/tests/fonts.rs`: without `CRAFT_FONTS_DIR` the faces are Inter alone
+    and a CJK string lays out without a panic; with it (skipped and named when absent) every glyph
+    of a Japanese, a Simplified and a Traditional Chinese string and of each script the manifest
+    lists has a face, in the order the script asks; `CRAFT_FONTS_REQUIRED=1` without the directory
+    fails with a message naming it (a build-script unit test).
+- ⬜ **M15.9 `scan`: cameras and phones over MTP/PTP**
+  - after: M11.5, M14.R
+  - files: `crates/scan/src/ptp.rs`, `crates/scan/src/ptp/**`, `crates/scan/src/devices.rs`, `crates/scan/tests/ptp.rs`, `crates/scan/fuzz/**`, `crates/scan/README.md`, `xtask/src/ci.rs`
+  - scope: `organizing.md` §3, with our own reader written from the public PIMA 15740 (PTP) and
+    USB-IF MTP 1.1 specifications (provenance header): containers (command, data, response, event)
+    with their lengths checked; a session (OpenSession, GetDeviceInfo, GetStorageIDs,
+    GetStorageInfo, GetObjectHandles, GetObjectInfo, GetThumb, GetObject and GetPartialObject in
+    bounded chunks, DeleteObject, CloseSession); object dates parsed from their strings, names
+    through `core::names::sanitize`; the transport a trait: USB bulk endpoints through a pure-Rust
+    USB stack (`nusb`, after `cargo xtask deps`) and an in-memory responder for tests; `devices`
+    lists cameras beside cards and drives (vendor, model, storages) and, on Linux, an MTP device
+    the desktop already mounted (gvfs or kio) as a folder source; every length, count and string
+    hostile (an object no larger than its info says and ≤ 4 GiB, ≤ 100 000 handles, strings ≤ 255
+    UTF-16 units, a silent device timed out); where an OS holds the device for its own service
+    (Windows' portable-device driver, macOS's image capture) what is reachable is measured and
+    recorded in `crates/scan/README.md`, and a path that would need `unsafe`, a C library or a
+    driver change blocks with that question (`AGENTS.md` §4); a fuzz workspace `crates/scan/fuzz`
+    with the target `ptp` (excluded in the root `Cargo.toml`, listed where `xtask/src/ci.rs` lists
+    fuzz workspaces; the Fuzz workflow runs every target).
+  - done when: `crates/scan/tests/ptp.rs` (the in-memory responder): a camera with two storages and
+    300 objects lists every picture with its name, size and date; GetObject in chunks gives the
+    exact bytes; a short length, a handle count of 2³², an object larger than its info and a device
+    that stops answering are refused or timed out without a panic; DeleteObject is sent only for
+    the handle asked; proptest: random containers never panic; `cargo +nightly fuzz build` builds
+    `ptp`.
+- ⬜ **M15.10 Windows packages signed**
+  - after: M6.22, M14.R
+  - files: `packaging/windows/sign.ps1`, `packaging/windows/package.ps1`, `packaging/windows/test-sign.ps1`, `.github/workflows/release.yml`, `packaging/README.md`
+  - scope: `releasing.md` → Windows and Secrets: the `sign Windows x64` job signs `dalica.exe` and
+    `dalica-cli.exe`, builds the MSI around the signed programs and signs it, SHA-256 with an
+    RFC 3161 timestamp, through `sign.ps1` with a `.pfx` (`WINDOWS_CERTIFICATE`) or Azure Trusted
+    Signing (the `AZURE_*` secrets), whichever is set; a missing set stays a warning and an
+    unsigned artifact; checksums are written after signing; on a dry run the same path signs with
+    a throwaway self-signed certificate made in the job (never trusted, never drafted), so every
+    packaging pull request runs it; `test-sign.ps1` checks each signature (signed, the expected
+    thumbprint, a timestamp) and refuses an unsigned file when signing was asked; secrets reach the
+    scripts only through environment variables.
+  - done when: the release dry run of the task's pull request (`releasing.md` → Test runs; else the
+    review's run) signs both programs and the MSI with the throwaway certificate and
+    `test-sign.ps1` passes; with signing off it names each unsigned file; `actionlint` and the
+    packaging lint pass; the real certificate is checked at M15.R.
+- ⬜ **M15.11 `scan` + `store`: videos listed on scan**
+  - after: M15.2, M15.3, M9.7, M10.11
+  - files: `crates/scan/src/skip.rs`, `crates/scan/src/facts.rs`, `crates/scan/src/video.rs`, `crates/scan/tests/video.rs`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/video.rs`
+  - scope: `formats.md` §1: `FileType::of` maps `Format::Video` to Video (the wildcard that sends
+    new formats to RAW no longer catches it); with `fileTypes.video` on (the default) a scan lists
+    MP4, MOV, M4V and MKV files as videos with M15.2's probe as their facts (the date from the
+    container, else the file's time; a location imported as a geotag on the first scan, as M6.32
+    imports file metadata; the rotation applied to the cell); turning the type off and on rescans
+    as M10.11 does, keeping the videos' stars, captions and tags; a damaged or hostile container
+    listed with its reason, never a panic; the index and a rebuild keep the facts; the sidecar
+    keeps a video's star, caption, tags and recipe as a photo's (`.dalica.json` unchanged in
+    shape).
+  - done when: `crates/scan/tests/video.rs`: a folder with an MP4, a MOV, an MKV and a JPEG lists
+    four, three of them videos with their durations and dates; with the type off it lists one and
+    the videos' sidecar entries stay; a cut MP4 is listed with its reason;
+    `crates/store/tests/video.rs`: a starred, captioned video survives a restart and a rebuild with
+    its facts; the "nothing silently dropped" mapping test knows the new facts.
+- ⬜ **M15.12 `dalica`: the platform services on each OS**
+  - after: M15.4
+  - files: `apps/dalica/src/os.rs`, `apps/dalica/src/os/**`, `apps/dalica/src/main.rs`, `apps/dalica/tests/os.rs`, `apps/dalica/README.md`
+  - scope: the real `Os` (M15.4) for Linux, Windows and macOS, with no `unsafe` in our code and no
+    C build dependency (a pure-Rust crate after `cargo xtask deps`, or the platform's own program
+    started with an argument vector, never a shell; a path starting with `-` passed as `./-name`;
+    `security.md` §5.11): **reveal** (Windows `explorer /select,`; macOS `open -R`; Linux the
+    `org.freedesktop.FileManager1.ShowItems` D-Bus call, else the folder opened), ported from
+    LightCraft's `reveal` service in `apps/lightcraft/src/main.rs` at 4f0b110b; **handlers** of a
+    file's type (Linux: the desktop entries whose `MimeType` lists it, in `mimeapps.list` order,
+    read bounded; Windows: the registry's `OpenWithProgids` and `OpenWithList`; macOS: the
+    applications LaunchServices offers) with their names and icons where the OS gives them; **open
+    with** one of them; **external editor**, ported from LightCraft `apps/lightcraft/src/editors.rs`
+    at 4f0b110b (a named program, `open -a` on macOS, a Flatpak's forwarding; empty: the system's
+    edit verb or default application); **clipboard**: files (`text/uri-list` and
+    `x-special/gnome-copied-files` on Linux, a file-drop list on Windows, file URLs on macOS), a
+    picture and text through `arboard` as PhotoCraft does (`apps/photocraft/src/services.rs` at
+    5b087699, its Wayland data-control path included); calls that can block run off the UI thread;
+    a feature with no such way on an OS answers "not available on this system" (and blocks with
+    the question when only `unsafe` or a C library would do, `AGENTS.md` §4); the app plugs it in.
+  - done when: `apps/dalica/tests/os.rs`: each OS's argument vectors (a path with spaces, a leading
+    `-`, non-ASCII) never pass through a shell; handler lists parse from fixture desktop entries and
+    `mimeapps.list` files (hostile ones bounded, no panic); on the OS the test runs on, reveal and
+    open-with start the right program (a stub program on `PATH` records its arguments); files and
+    text round-trip through the clipboard where a display is available (skipped and named
+    otherwise).
+- ⬜ **M15.13 macOS packages signed and notarized**
+  - after: M6.23, M15.10
+  - files: `packaging/macos/import-cert.sh`, `packaging/macos/package.sh`, `packaging/macos/notarize.sh`, `packaging/macos/verify.sh`, `packaging/macos/common.sh`, `packaging/macos/entitlements.plist`, `.github/workflows/release.yml`, `packaging/README.md`, `docs/releasing.md`
+  - scope: `releasing.md` → macOS: the `sign macOS universal` job imports the Developer ID
+    certificate into a temporary keychain (`import-cert.sh`), signs inside-out with the hardened
+    runtime and a secure timestamp (no `--deep`; empty entitlements unless a feature proves it needs
+    one), notarizes the app, the DMG and the CLI zip with `xcrun notarytool submit --wait` (the
+    three Apple secrets, all or none), staples the app and the DMG, and `verify.sh` runs strict
+    (`codesign --verify --strict`, `stapler validate`, `spctl --assess`); a missing set stays a
+    warning and an ad hoc signature; on a dry run the job signs with a self-signed code-signing
+    identity made in a temporary keychain (notarization skipped and named), so the signing path
+    runs on each packaging pull request; the keychain is deleted at the job's end whatever happens;
+    `releasing.md` says what landed for both platforms (M15.10's and this).
+  - done when: the release dry run of the task's pull request (else the review's run) signs the app
+    and the CLI with the temporary identity and `verify.sh` passes its signature checks on the DMG
+    as users download it (after a `ditto` copy); without the secrets it warns and signs ad hoc as
+    before; `test.sh`, `actionlint` and the packaging lint pass; the Developer ID signature and
+    notarization are checked at M15.R.
+- ⬜ **M15.14 `ui-kit`: AccessKit for every widget, and the texts `ui-kit` draws**
+  - after: M15.6
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/src/registry.rs`, `crates/ui-kit/src/text.rs`, `crates/ui-kit/tests/accessibility.rs`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: each widget reports its AccessKit role, its name (the label, else the tooltip, else
+    the registry id's last part) and its state: buttons and tool buttons, toggles and checkboxes
+    (checked), sliders, the age slider, the effect slider and the scrubber (value, range, step, the
+    value as text), the stepper, dropdowns (expanded, the chosen item), text fields (value,
+    placeholder), tabs (done), list and tree rows (selected, expanded, level), swatches (the colour
+    as text), effect tiles, key cells, face tiles and boxes, the map (a group with its zoom);
+    Enter and Space activate, and a focus ring from `Tokens` shows on every interactive widget;
+    the few texts `ui-kit` draws itself (the date picker's month and weekday names, the colour
+    picker's labels, …) come from a table the app sets (`ui_kit::text`), English by default, so
+    `ui`'s catalogs translate them; `design-system.md` gains the focus ring and these rules.
+  - done when: `crates/ui-kit/tests/accessibility.rs` (the gallery headless, AccessKit on): no
+    interactive node without a name; every slider has its value and range; a checkbox's state
+    follows a click; Tab moves the focus through the gallery in order and Space activates the
+    focused button; the focus ring passes the contrast test; setting `ui_kit::text` changes the
+    date picker's month names; gallery fingerprints change only by the focus ring.
+- ⬜ **M15.15 `image` (reserved decision 2): video frames**
+  - after: M15.1, M15.2
+  - files: `crates/image/src/formats/video/frames.rs`, `crates/image/src/formats/video/frames/**`, `crates/image/tests/video_frames.rs`, `docs/formats.md`
+  - scope: what reserved decision 2's answer builds (M15.1 records it and fits this block):
+    decoding a video's frames, by a pure-Rust decoder for the codecs the answer names (after
+    `cargo xtask deps`) or by the bridge to an optional external program the user installed
+    (`security.md` §5.11: found where the user says, an argument vector with fixed arguments, a
+    timeout, its output read under §4.2's limits, never a shell); the poster frame (the first frame
+    whose mean luminance clears a small threshold within the first 10 s, else the first frame),
+    the frame at a time, the next and the previous frame, scaled at decode where the decoder can,
+    upright by the container's rotation, and the sound as samples for M15.27; a codec it cannot
+    decode answers "This video can't be played" with the codec's name; memory bounded by the
+    frame size; `formats.md`'s Video row says what landed. A worker who finds the answer missing
+    from *Reserved decisions* runs `tasks block` with the question.
+  - done when: `crates/image/tests/video_frames.rs` (clips made by the test, or public-domain clips
+    from the corpus job; never committed media): a clip that starts black gives its first lit frame
+    as poster; the frame at 1.5 s of a 2 s clip is the expected one within one frame; stepping
+    forward then back returns the same frames; a turned clip comes out upright; an unsupported
+    codec, a truncated stream and (for an external program) a missing program, a hang and a flood
+    of output are refused with their reasons without a panic.
+- ⬜ **M15.16 `engine`: videos in the session**
+  - after: M15.4, M15.11
+  - files: `crates/engine/src/cmd/video.rs`, `crates/engine/src/video.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/tests/videos.rs`
+  - scope: needed under any answer: `video.inspect {id}` (the facts, whether Dalica can play it, the
+    trim); `photo.inspect` and `library.query` carry the kind and duration; every path that cannot
+    take a video answers by kind and count, never by failing on a decode: Export skips and counts
+    videos (until M15.28), the slideshow leaves them out and counts them (until M15.27), Batch
+    Edit, Copy and Paste All Edits, effects, Crop and Save refuse a video with the reason, a
+    collage's clips refuse one with a notice (until M15.28), the face scan skips them (until
+    M15.20), the viewer lists them with the video tile; a video's thumbnail is the video tile until
+    M15.20 (never the "!" of a decode error); a path found mishandling a listed video is fixed here
+    after asking the lead for its file (`AGENTS.md` §7).
+  - done when: `crates/engine/tests/videos.rs`, in a library of two photos and a clip:
+    `video.inspect` reports the facts; an export of the section writes two files and counts one
+    video; the slideshow plays two and counts one; Batch Edit, an effect, Crop and Save on the clip
+    are refused with the reason and nothing is written; the face scan never decodes it; the owner
+    thread made no `fs` call; `panic_hunt` green.
+- ⬜ **M15.17 `engine`: Locate on Disk, Open With, the external editor and the system clipboard**
+  - after: M15.4, M8.10
+  - files: `crates/engine/src/cmd/os.rs`, `crates/engine/src/os.rs`, `crates/engine/tests/os.rs`
+  - scope: `organizing.md` §9 and `security.md` §5.11 through M15.4's `Os`: `photo.locate {id}`
+    and `folder.locate {id}` (the file or folder selected in the system's file manager; an offline
+    folder disabled with its reason; an album's photo located in its folder);
+    `photo.openWithList {id}` (the handlers, Dalica itself left out); `photo.openWith {id,
+    handler}`; `photo.openExternal {ids}` (`files.externalEditor`, else the system's editor; more
+    than 20 files asks first); `photo.copyToSystem {ids, picture?}` (the files; with `picture` and
+    one photo, its picture with its edits through the one output pipeline at its size, at most
+    8 192 px on the long side, on a worker); `photo.copyPath {ids}` (one path per line); the
+    launching commands refused over automation with `forbidden` (`security.md` §6.6) and the copy
+    commands answering `unavailable` in a headless session; a missing file answers with its reason
+    before the OS is asked; a video handled as its file.
+  - done when: `crates/engine/tests/os.rs` (the recording `Os`): each command hands the right paths
+    and handler, in order; over automation the launching commands are refused and nothing is
+    recorded; a photo with a crop and an effect copies a picture of its edited size; Copy Path of
+    three photos gives three lines; a missing file answers its reason; each command's contract and
+    graceful failures; the owner thread made no `fs` call; `panic_hunt` green.
+- ⬜ **M15.18 `dalica` + `engine`: one Dalica: files handed to the running one**
+  - after: M15.12, M11.12, M11.17
+  - files: `apps/dalica/src/instance.rs`, `apps/dalica/src/instance/**`, `apps/dalica/src/main.rs`, `apps/dalica/src/viewer.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/ui/src/panels/viewer.rs`, `apps/dalica/tests/instance.rs`, `docs/viewing.md`
+  - scope: `viewing.md` §3.4 with the maintainer's answer at M11.R, ported from PhotoCraft
+    `apps/photocraft/src/single_instance.rs` at 5b087699: the first Dalica of a user takes an OS
+    lock on `instance.lock` in the settings folder, listens on 127.0.0.1 only and writes its port
+    and a fresh 256-bit token to `instance.json` (`0600`, through `fs`); a later `dalica --view
+    FILE` (or a launch with files from Open With) that finds the lock taken sends its paths with the
+    token (≤ 64 paths, each ≤ 4 KiB, one request, a timeout, the token compared in constant time)
+    and exits once the first says it took them; otherwise it keeps trying the lock and, when its
+    time runs out, starts on its own as today (a file is never acknowledged and dropped); the
+    running Dalica brings its window forward and opens the viewer on the first file (borderless,
+    full screen, as `--view`), and Esc returns the window to where it was instead of quitting
+    (`Session::close_viewer` knows the viewer was handed in); M11.12's read-only viewer stays for a
+    library another user's Dalica holds; on macOS the open-documents events (Finder's Open With, a
+    file dropped on the Dock icon) open the viewer the same way; a portable copy and a settings
+    folder from the environment skip the hand-off; `viewing.md` §3.4 records it, and the PR the
+    channel's limits for `security.md` (M15.36).
+  - done when: `apps/dalica/tests/instance.rs`: two processes started at once with one settings
+    folder end as one, the second's file open in the first's viewer and the second exited 0; a
+    wrong token, an oversized request and 65 paths are refused and nothing opens; a first Dalica
+    that hangs makes the second start on its own after its time; Esc after a hand-off leaves the
+    library window where it was; the viewer's existing engine and `ui` tests stay green.
+- ⬜ **M15.19 `engine` + `ui`: cameras in the Import room**
+  - after: M15.4, M15.5, M15.9, M11.8, M11.20
+  - files: `crates/engine/src/cmd/camera.rs`, `crates/engine/src/camera.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/import/worker.rs`, `crates/engine/tests/import_camera.rs`, `crates/ui/src/panels/import/source.rs`, `crates/ui/tests/import_camera.rs`, `docs/organizing.md`
+  - scope: `organizing.md` §3: cameras and phones in Import from (name and storage) beside cards and
+    drives, listed as they connect; a camera's pictures (and videos, with the type on) listed
+    through M15.9 on the import worker, the device's thumbnails filling the import tray first;
+    duplicates found as M11.7 finds them, reading an object when the check needs its bytes; copies
+    through `dalica-fs`: each object read in chunks into a new temporary file, `fsync`, checked by
+    reading the copy back against the digest of what was received, named and dated as an import
+    from a card (the object's capture date as the file's time), never replacing a file; "Delete
+    copied files from the card" for a camera: DeleteObject for each object that import copied and
+    checked, only while the device still reports its size and date, never over automation; a
+    camera unplugged mid-import stops after the current file with what was copied kept and the
+    reason shown; what each OS lets Dalica reach (M15.9's measurements) in `organizing.md` §3, and
+    the PR the PTP limits for `security.md` (M15.36).
+  - done when: `crates/engine/tests/import_camera.rs` (M15.9's in-memory responder): a camera's 40
+    pictures import with their bytes and times; a second import skips them as duplicates; removal
+    deletes exactly those 40 handles after the question; an unplug at picture 12 keeps 11 and says
+    why; `crates/ui/tests/import_camera.rs` (headless, by id): the camera shows in Import from with
+    its name and its pictures fill the tray; the owner thread made no `fs` call.
+- ⬜ **M15.20 `thumbs` + `engine` (reserved decision 2): poster frames**
+  - after: M15.15, M15.16, M5.16
+  - files: `crates/thumbs/src/video.rs`, `crates/thumbs/src/ladder.rs`, `crates/thumbs/tests/video.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/preview.rs`, `crates/engine/src/preview/jobs.rs`, `crates/engine/src/faces_scan.rs`, `crates/engine/tests/video_posters.rs`
+  - scope: what the answer builds (M15.1 fits this block): a video's thumbnails and its edit-view
+    preview made from its poster frame (M15.15) on the thumbnail workers, below photos in priority,
+    cached as a photo's and made again when the file changes, the video tile kept while it is made
+    and for a video Dalica cannot play; the slideshow, the viewer and a collage get the poster where
+    they show a still; the face scan reads the poster frame (faces in videos, M13's *Out*); never a
+    decode on the UI thread.
+  - done when: `crates/thumbs/tests/video.rs`: a clip's thumbnail is its first lit frame at every
+    ladder size and is cached; an unplayable clip keeps the video tile with no error badge;
+    `crates/engine/tests/video_posters.rs`: a folder of 20 photos and 5 clips fills every thumbnail,
+    photos first; the face scan finds a face drawn on a clip's poster frame; the owner thread made
+    no `fs` call.
+- ⬜ **M15.21 `ui`: video cells, and a video in the edit view**
+  - after: M15.5, M15.6, M15.16
+  - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/tests/video_tiles.rs`, `crates/ui/tests/fingerprints/video-*.json`, `docs/ui-layout.md`
+  - scope: needed under any answer: `ui-layout.md` §5's video cells (the sprocket edge and the
+    duration pill from `badges.rs`, fed by the facts; `LIB-LT-VIDEO`) in the light table and the
+    filmstrip; the Videos filter showing them; double-click and Enter open a video in the edit view
+    with its poster (once M15.20 makes it) or the video tile, fitted, and for one Dalica cannot
+    play "This video can't be played" with [Open With ▸] (running `photo.openWith`, live with
+    M15.22); the edit panel shows the video tab (rotate live, the rest greyed until M15.26) instead
+    of tabs 1–5, and the tools, effects and Save are greyed for a video with the reason;
+    `ui-layout.md` records it.
+  - done when: `crates/ui/tests/video_tiles.rs` (headless, by id): a folder with a clip shows its
+    cell with the sprocket edge and its duration; the Videos filter leaves only it; Enter opens it
+    with the video tab and the tools greyed; at 900 × 600 the tab fits; fingerprints of a video
+    cell and of the edit view on an unplayable clip at 1400 × 900.
+- ⬜ **M15.22 `ui`: Locate on Disk, Open With, the external editor and the clipboard in the window**
+  - after: M15.5, M15.12, M15.17
+  - files: `crates/ui/src/commands/os.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/panels/viewer/bar.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/os_menus.rs`, `docs/organizing.md`, `docs/menus-and-shortcuts.md`
+  - scope: `organizing.md` §9 and `menus-and-shortcuts.md` §1: the photo and tray menus' Open in
+    External Editor (Ctrl+Shift+O), Open With ▸ (the handlers with their icons, asked when the
+    submenu opens, "Loading…" until then, "No other applications" when none) and Locate on Disk
+    (Ctrl+Enter); the folder menu's Locate on Disk and a folder header's icon (`ui-layout.md` §5);
+    the export notice's Show Folder (`creating.md` §2); the viewer's ⋯ Open With ▸ and Show in File
+    Manager; Copy Path; Edit ▸ Copy also putting the files (and one photo's picture) on the system
+    clipboard, Cut and Paste unchanged inside Dalica; Options ▸ General's External editor row
+    ([System default ▾] or a program chosen with [Browse…] through the picker); each "Arrives with
+    OS integration" reason removed where the feature landed and kept, with the OS's reason, where an
+    OS cannot do it; `organizing.md` and `menus-and-shortcuts.md` record what landed.
+  - done when: `crates/ui/tests/os_menus.rs` (headless, by id, the recording `Os`): each menu row
+    and the folder icon run their command with the right ids; Open With ▸ lists the fake's handlers
+    and choosing one records it; Ctrl+C in the library records the files on the system clipboard
+    and still pastes inside Dalica; Browse… sets `files.externalEditor`; an OS answering "not
+    available" greys the row with its reason; at 900 × 600 the submenu stays inside the window.
+- ⬜ **M15.23 `ui` + `dalica`: photos dragged out to other applications**
+  - after: M15.12, M15.17, M15.18, M9.23
+  - files: `crates/ui/src/drag.rs`, `crates/ui/src/drag/**`, `apps/dalica/src/drag_out.rs`, `apps/dalica/src/drag_out/**`, `apps/dalica/src/main.rs`, `crates/ui/tests/drag_out.rs`
+  - scope: `FILE-DRAGOUT` and `ui-layout.md` §5: a drag of photos (thumbnails, tray minis, the
+    filmstrip) that leaves the window becomes the OS's drag of their files (a copy; the source is
+    never deleted: a target that moves the file is seen as any outside move), with the drag pill as
+    its image, behind a `DragOut` service the app implements (as `Picker`) on Windows, macOS and
+    Linux (X11 and Wayland), each by a pure-Rust way; where an OS has none without `unsafe` or a C
+    library, the task blocks with the question (`AGENTS.md` §4) and that OS keeps the clipboard
+    path; the files on disk are what leaves (unsaved edits stay in Dalica, and the drag pill says
+    "Unsaved edits stay in Dalica" when one has them); a drag that comes back in stays an inside
+    drag.
+  - done when: `crates/ui/tests/drag_out.rs` (headless, a recording `DragOut`): a drag of three
+    thumbnails out through the window's edge hands their three paths once and no inside drop
+    target fires; a drag released inside stays an inside drop; a photo with unsaved edits shows the
+    note; the PR names the targets tried on each OS where it landed (a file manager, a mail draft,
+    an editor).
+- ⬜ **M15.24 `engine` + `ui` + `dalica` + packages: Dalica as the default viewer**
+  - after: M15.12, M15.17, M15.18, M11.17
+  - files: `crates/engine/src/cmd/os.rs`, `crates/engine/src/os.rs`, `crates/engine/tests/default_viewer.rs`, `apps/dalica/src/os/default_viewer.rs`, `apps/dalica/tests/default_viewer.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/default_viewer.rs`, `crates/ui/src/dialogs/first_run.rs`, `crates/ui/tests/default_viewer.rs`, `packaging/linux/org.dalica.Dalica.desktop`, `packaging/windows/dalica.wxs`, `packaging/macos/Info.plist.in`, `docs/viewing.md`, `docs/releasing.md`
+  - scope: `viewing.md` §3.3 and `menus-and-shortcuts.md` §5 Photo Viewer: `viewer.fileTypes` (each
+    type Dalica reads, with its current default handler's name, through `Os`) and
+    `viewer.setDefault {types}`; the File Types tab of Options ▸ Photo Viewer and of the viewer's
+    Settings… live: "Use Dalica as the default viewer for these file types:" with a checkbox per
+    type showing its handler ("JPEG (Image Viewer)"), [Current] [Select All] [Select None], or
+    "Don't use Dalica as a viewer"; offered once after the first run (`dialog:defaultViewer`,
+    opt-in per type, nothing chosen by default); per OS: Linux writes the chosen types' defaults
+    into the user's `mimeapps.list` through `fs`, merged (other sections, keys and comments kept; a
+    damaged file kept aside), and "Don't use" puts back the handlers it replaced; Windows registers
+    Dalica's per-user ProgIDs and Capabilities and opens Settings ▸ Default apps (only the user may
+    choose there), saying so; macOS sets the role handler where a safe binding passes `cargo xtask
+    deps`, else opens System Settings and says so; the packages declare the types (the desktop
+    entry's `MimeType`, the MSI's capabilities and Open with entries, `Info.plist`'s document types
+    as Viewer; HEIC and AVIF left out while release builds cannot show them); `viewing.md` §3.3 and
+    `releasing.md` record it.
+  - done when: `crates/engine/tests/default_viewer.rs` (the recording `Os`): the types list with
+    their handlers and setting three records three; `apps/dalica/tests/default_viewer.rs`: a
+    `mimeapps.list` with other sections, comments and an unknown key keeps them after Dalica is
+    chosen for JPEG and PNG and after "Don't use" puts the old handlers back;
+    `crates/ui/tests/default_viewer.rs` (headless, by id): the tab shows the fake's handlers, Select
+    All then OK records every type, and the question after the first run appears once; the desktop
+    entry validates and the packaging lint's WiX and plist checks pass.
+- ⬜ **M15.25 `edit` + `engine` + `create` (reserved decision 2): playback, trim, Save Frame as Picture and Export Clip**
+  - after: M15.15, M15.16, M8.10
+  - files: `crates/edit/src/ops/video.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/video_ops.rs`, `crates/engine/src/video.rs`, `crates/engine/src/cmd/video.rs`, `crates/engine/src/video_output.rs`, `crates/engine/src/cmd/video_output.rs`, `crates/engine/tests/video_play.rs`, `crates/create/src/video.rs`, `crates/create/tests/video_output.rs`, `docs/editing.md`, `docs/creating.md`
+  - scope: what the answer builds (M15.1 fits this block): `trim(start,end)` in the recipe
+    (milliseconds, start before end within the clip; a video-only operation in the catalogue; one
+    step of the video's history; rotation as for photos); `video.open`, `.play`, `.pause`, `.seek
+    {ms}`, `.step {frames}`, `.setStart`, `.setEnd`, `.volume`: frames decoded ahead on a worker so
+    the edit view never waits, the sound clock (M15.4's `Sound`) driving playback, frames dropped
+    rather than late when decoding falls behind, the trim respected; `video.saveFrame` (the frame
+    shown, upright, a JPEG at quality 92 through the one output pipeline into `Pictures/Dalica/Video
+    Frames` marked as the Video Frames project, named `<stem> <hh-mm-ss>.jpg` through
+    `core::names::sanitize`, never replacing, entering the library dated the clip's date plus the
+    frame's time); `video.exportClip {path?}` (the trimmed part, as the answer allows: copied
+    without re-encoding from the key frame at or before the start where the container allows it,
+    the real cut said in the reply; never replacing; over automation only inside the write roots);
+    `editing.md` §11 and `creating.md` record it. A worker who finds the answer missing runs `tasks
+    block` with the question.
+  - done when: `crates/edit/tests/video_ops.rs`: `trim` parses and prints, and refuses `start ≥ end`
+    and negative values; `crates/engine/tests/video_play.rs` (the silent `Sound`): playing 1 s of
+    its clock shows the frames due within one frame; a trim survives a restart; Save Frame at 1.5 s
+    writes a JPEG of the frame's size into Video Frames, listed in the Projects group;
+    `crates/create/tests/video_output.rs`: Export Clip of 0.5–1.5 s writes a file M15.2 probes at
+    about 1 s; the owner thread made no `fs` call; `panic_hunt` green.
+- ⬜ **M15.26 `ui` (reserved decision 2): the video player in the edit view**
+  - after: M15.21, M15.25
+  - files: `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/commands/video.rs`, `crates/ui/tests/video_player.rs`, `crates/ui/tests/fingerprints/video-player-*.json`
+  - scope: `editing.md` §11 and `viewing.md` §4, as the answer builds them: the control bar under the
+    video (play and pause, the scrubber with its readout, volume, the trim ruler with Set Start and
+    Set End, Full Screen) from M15.6's widgets; the video tab (Save Frame as Picture, Export Clip
+    with the save picker, rotate); `/` and Space play and pause, `,` and `.` step a frame and, held,
+    rewind or fast-forward; frames drawn from the engine's decoded frames (never a decode on the UI
+    thread); what the answer leaves out greyed with its reason.
+  - done when: `crates/ui/tests/video_player.rs` (headless, by id, the silent `Sound`): Space plays
+    and the readout follows the clock; `.` steps one frame; dragging the start handle and Set End
+    trim and the readout says "(trimmed to …)"; Save Frame adds a photo to Video Frames; the frame
+    time while playing stays within the edit view's budget; at 900 × 600 the bar fits; fingerprints
+    of the bar playing and trimmed at 1400 × 900.
+- ⬜ **M15.27 `engine` + `ui` + `dalica` (reserved decision 2): videos and music in the slideshow**
+  - after: M15.25, M11.21
+  - files: `crates/engine/src/sound.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow_sound.rs`, `apps/dalica/src/sound.rs`, `apps/dalica/src/main.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/slideshow_video.rs`, `docs/viewing.md`, `docs/menus-and-shortcuts.md`
+  - scope: `viewing.md` §1.1 and §1.5, as the answer builds them (M15.1 fits this block; the
+    maintainer's answer at M11.R ties music to video sound): the audio output in the app behind
+    M15.4's `Sound` (a pure-Rust crate after `cargo xtask deps`, or what the answer allows; with
+    none the rows stay greyed with their reason); a video in a slideshow plays to its end (its trim
+    respected) before the show moves on, muted unless Play video sound; Play music: every MP3, OGG,
+    FLAC and WAV of the music folder (a folder's own Music in Folder Properties wins) in name order,
+    looping, decoded on a worker, faded out when the show ends; Options ▸ Slideshow's Sound group
+    and Folder Properties' Music live ("Arrives with sound support" removed); `viewing.md` and
+    `menus-and-shortcuts.md` §5 record it.
+  - done when: `crates/engine/tests/slideshow_sound.rs` (the silent `Sound` recording samples): a
+    show of a photo, a 2 s clip and a photo holds the clip 2 s; video sound off records silence
+    and on records the clip's sound; the music folder's three files play in name order and loop; a
+    damaged music file is skipped with its reason; `crates/ui/tests/slideshow_video.rs`
+    (headless): the Sound rows are live and the clip's frames show in the show.
+- ⬜ **M15.28 `create` + `engine` + `ui` (reserved decision 2): videos in Export and in collages**
+  - after: M15.20, M14.17, M8.16
+  - files: `crates/create/src/export.rs`, `crates/create/src/export/plan.rs`, `crates/create/tests/export_video.rs`, `crates/engine/src/cmd/export.rs`, `crates/engine/src/collage.rs`, `crates/engine/tests/collage_video.rs`, `crates/ui/src/dialogs/export.rs`, `crates/ui/tests/export_video.rs`, `docs/creating.md`
+  - scope: `creating.md` §2 and §3, as the answer builds them: Export's "Export videos as: (•)
+    First frame ( ) Full video (no resizing)" live (disabled without videos): the poster frame
+    (M15.20) exported as a JPEG like a photo, or the file copied as it is under the export's
+    numbered name, never replacing; a collage's clips take a video as its poster frame;
+    `creating.md` records it.
+  - done when: `crates/create/tests/export_video.rs`: an export of two photos and a clip as first
+    frame writes three JPEGs, as full video two JPEGs and the clip byte for byte;
+    `crates/engine/tests/collage_video.rs`: a collage with a clip places its poster and the render
+    shows it; `crates/ui/tests/export_video.rs` (headless): the row is live with a video held and
+    disabled without.
+- ⬜ **M15.29 `ui`: the window's AccessKit tree, keyboard-only use and scaling**
+  - after: M15.14, M15.21, M15.22
+  - files: `crates/ui/src/a11y.rs`, `crates/ui/src/a11y/**`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/panels/menubar.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/folders/model.rs`, `crates/ui/tests/accessibility.rs`, `crates/ui/tests/keyboard_only.rs`, `crates/ui/tests/scaling.rs`, `docs/ui-layout.md`, `docs/design-system.md`
+  - scope: `SYS-A11Y`, with LightCraft's audit ported (`crates/ui-egui/tests/accessibility.rs` at
+    4f0b110b): the window's AccessKit tree: the regions as named landmarks (tree, light table,
+    side pane, edit view, rooms); the light table's visible cells as list items (file name, star,
+    caption, a video's duration, selected) inside their sections (named groups); the tree's rows
+    (level, expanded, count); the edit and collage canvases and the map as named images with their
+    state; dialogs as dialogs with their titles; built only for what is on screen (never work
+    proportional to the library); keyboard-only: F10 and Alt open the menu bar and the arrows walk
+    it, Tab and Shift+Tab move through the regions and through each dialog's controls in reading
+    order, the focus always shown, every command reachable by its key or a menu; UI scale and font
+    size: at UI scale 1.5 with the large font the main window at 1400 × 900, the edit view and
+    every dialog keep their controls inside the window and their labels unclipped (an ellipsized
+    label keeps its full text in AccessKit); `ui-layout.md` and `design-system.md` record it.
+  - done when: `crates/ui/tests/accessibility.rs` (headless, AccessKit on): in the library, the
+    edit view (a photo and a clip), the slideshow, the viewer, the Import and Collage rooms and
+    every dialog no interactive node lacks a name and every slider has its value and range; at
+    100 000 photos the tree holds only the visible cells; `crates/ui/tests/keyboard_only.rs`: every
+    command with a menu row or a key is reached without a pointer, and Tab cycles every dialog's
+    controls; `crates/ui/tests/scaling.rs`: at scale 1.5 and the large font nothing in those views
+    is clipped at 1400 × 900.
+- ⬜ **M15.30 `mcp` (reserved decision 2): videos over MCP, and the workflow W17**
+  - after: M15.25, M14.21
+  - files: `crates/mcp/tests/workflows/w17_video.rs`, `crates/mcp/tests/workflows/main.rs`, `crates/mcp/src/headless.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
+  - scope: `mcp.md` §9: W17 (**video**: `scan_folder` on a folder of two photos and a clip →
+    `photo_info` shows the clip's kind, duration and date → `cmd_video_inspect` → with decoding,
+    `cmd_edit_recipe_set` with `trim(500,1500)`, `cmd_video_save_frame` at 1 s → a JPEG in the
+    Video Frames project → `cmd_export_run` with first frames writes three JPEGs; descoped, the
+    steps up to `cmd_video_inspect` and the export's count, as M15.1 fits it); headless mode
+    playing with the silent `Sound`; the floor in `xtask/src/stats.rs` raised to the seventeen
+    workflows now required; `mcp.md`'s table and status line; row `SYS-MCP`.
+  - done when: `cargo test -p dalica-mcp` runs W17 green; `cargo xtask stats` prints 17 / 17
+    passing and `stats --check` fails below that.
+- ⬜ **M15.31 `ui`: every string of the main window through the catalogs**
+  - after: M15.7, M15.29
+  - files: `crates/ui/src/panels/menubar.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/activity.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/**`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/properties.rs`, `crates/ui/src/panels/properties/**`, `crates/ui/src/panels/tags.rs`, `crates/ui/src/panels/tags/**`, `crates/ui/src/panels/people_pane.rs`, `crates/ui/src/panels/people_pane/**`, `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/**`, `crates/ui/src/panels/faces.rs`, `crates/ui/src/panels/faces/**`, `crates/ui/src/notices.rs`, `crates/ui/src/titlebar.rs`, `crates/ui/src/tray.rs`, `apps/dalica/src/native_menu.rs`, `crates/ui/tests/i18n_window.rs`
+  - scope: `localization.md` → Writing translatable code, over the main window: every
+    user-facing literal in `tl!` or `tln!` (counts as plurals, values as named placeholders, never
+    a sentence built from pieces); the menu bar's, the macOS menu's and the context menus' labels
+    looked up by command id and English label; tooltips, the status line and the notices; dates,
+    numbers and sizes through `i18n::format`; a long label ellipsizes or wraps, never clips.
+  - done when: `crates/ui/tests/i18n_window.rs` (headless, the pseudo-locale): in the library with
+    the tree, a folder and an album, the tray, every side pane and a notice, every text the frame
+    draws is bracketed except user data (names, captions, tags, paths); so are the menu bar and each
+    menu; at 1400 × 900 and 900 × 600 no label clips; `cargo xtask i18n` passes.
+- ⬜ **M15.32 `ui`: every string of the dialogs through the catalogs**
+  - after: M15.7, M15.22, M15.24, M15.27, M15.28
+  - files: `crates/ui/src/dialogs/**`, `crates/ui/src/credits.rs`, `crates/ui/tests/i18n_dialogs.rs`
+  - scope: the same over every dialog: titles, labels, buttons, hints and questions; the Options
+    dialog's rows and hints looked up by key and English text; the About window's texts
+    (contributors' names are user data); the Keyboard Shortcuts editor's command labels by id; Help
+    ▸ Release Notes line by line.
+  - done when: `crates/ui/tests/i18n_dialogs.rs` (headless, the pseudo-locale): each dialog opened by
+    id, and every tab of Options, draws only bracketed text outside user data; no label clips at
+    1400 × 900 and 900 × 600; `cargo xtask i18n` passes.
+- ⬜ **M15.33 `ui`: every string of the edit view, the rooms, the slideshow and the viewer through the catalogs**
+  - after: M15.7, M15.18, M15.19, M15.26, M15.27
+  - files: `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/**`, `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/**`, `crates/ui/src/panels/collage.rs`, `crates/ui/src/panels/collage/**`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/**`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/panels/peek.rs`, `crates/ui/tests/i18n_views.rs`
+  - scope: the same over the edit view (its panel, tabs, tools, effect tiles and panels, the video
+    player), the Import and Collage rooms and their tab strip, the slideshow and its bar, the
+    viewer and the quick preview; effect names and parameter labels from the catalogue looked up
+    by their English text.
+  - done when: `crates/ui/tests/i18n_views.rs` (headless, the pseudo-locale): in the edit view on
+    each tab, both rooms, the slideshow with its bar and the viewer, every text drawn is bracketed
+    except user data; no label clips at 1400 × 900 and 900 × 600; `cargo xtask i18n` passes.
+- ⬜ **M15.34 `image` + `engine` + `ui` + `xtask`: M15's budgets: videos, cameras, AccessKit and translations**
+  - after: M15.19, M15.20, M15.26, M15.29
+  - files: `crates/image/benches/video.rs`, `crates/engine/benches/video.rs`, `crates/engine/benches/import_camera.rs`, `crates/ui/benches/a11y.rs`, `crates/ui/benches/i18n.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`
+    and the release-budgets job, each documented in §8 and §13 with its machine: `video_probe`
+    (probing 1 000 containers); `video_play` (a clip's poster and its thumbnails, a frame step,
+    and the playing frame time, as M15.1 fitted the decoding); `camera_import` (300 objects from
+    the in-memory responder, files per second); `a11y_frame` (the library's frame at 100 000 photos
+    with AccessKit on against off); `i18n_frame` (the same frame in the pseudo-locale against
+    English); budgets at 1.5 × their first measurement, the playing frame within 16 ms at p95 and
+    the AccessKit and translation overheads within 1 ms at p95 whatever the first numbers; a missed
+    budget is fixed in this task (the module asked of the lead; before and after numbers in the PR)
+    or blocks with its numbers, never loosened.
+  - done when: `cargo xtask bench video_probe`, `video_play`, `camera_import`, `a11y_frame` and
+    `i18n_frame` print their numbers (in the PR); `cargo xtask budgets` passes with them and
+    `--plant-ms` makes each fail.
+- ⬜ **M15.35 `ui` + docs: catalogs for the first languages**
+  - after: M15.1, M15.8, M15.31, M15.32, M15.33
+  - files: `crates/ui/src/i18n/*.tsv`, `crates/ui/src/i18n/LICENSE-translations.txt`, `crates/ui/src/i18n/languages.rs`, `crates/ui/tests/i18n_languages.rs`, `crates/ui/tests/fingerprints/i18n-*.json`, `xtask/src/ci.rs`, `docs/localization.md`, `docs/localization-*.md`, `ATTRIBUTION.md`
+  - scope: the languages the maintainer chose at M14.R (M15.1 names them here): one catalog each,
+    written from the meaning of Dalica's English text (`localization.md` → Clean-room translations;
+    machine-assisted drafts marked for the fluent reviewer the check-in asks for), registered in
+    `LANGUAGES` with code, endonym, script and plural rule, `complete_menus: true` once it covers
+    every enforced key; a style guide `docs/localization-<code>.md` each (terminology, conventions,
+    coverage with the revision checked); `LICENSE-translations.txt` and the `ATTRIBUTION.md` row; a
+    CJK language checked for glyphs with `CRAFT_FONTS_DIR`; `cargo xtask i18n` joined to `cargo
+    xtask ci`; `localization.md`'s status and its languages.
+  - done when: `cargo xtask i18n` passes inside `cargo xtask ci` with every chosen language
+    complete for menus; `crates/ui/tests/i18n_languages.rs`: each language's plurals for 0, 1, 2, 5
+    and 21 read right; the library, the edit view and the Options dialog in each language have no
+    clipped label at 1400 × 900 and 900 × 600 and (with the fonts) no missing glyph; a fingerprint
+    per language of the library at 1400 × 900.
+- ⬜ **M15.36 `docs`: the 1.0 parity and security audit**
+  - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34
+  - files: `docs/parity.md`, `docs/product.md`, `docs/security.md`
+  - scope: `process.md` §5 for 1.0: every row re-measured (its cited tests run, its evidence checked
+    against the code), ✅ only with that evidence, a wrong ✅ downgraded with a note; the P0 and P1
+    rows ✅ or 🟡 "awaiting the M15.R check by hand" for what only a person can check (the screen
+    reader, input methods, the signed packages, a real camera, drag out on each OS); each 🟡 or ⬜
+    left with its reason and, where it is not a check by hand, a fix task from the lead that this
+    task waits for; `product.md`'s scope as shipped; `security.md`'s M15 status lines from what the
+    tasks' PRs and READMEs record (§4.2's video and PTP rows, the instance channel, §5.11, §7.1's
+    `video_probe` and `ptp` targets, §10's signing), each marked built with its task.
+  - done when: `cargo xtask parity` passes and the summary is regenerated; the PR lists every row
+    changed with its evidence and every `security.md` line with its task.
+- ⬜ **M15.37 `accept M15`**
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36
+  - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
+  - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
+    channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
+    durations, the Videos filter, Export and the slideshow counting or taking videos as the answer
+    built; with decoding, posters, play, a frame step, a trim surviving a restart, Save Frame as
+    Picture and a clip played to its end in a slideshow; each chosen language switched without a
+    restart, translated and unclipped at 1400 × 900 and 900 × 600, the pseudo-locale's sweep; the
+    AccessKit audit and the keyboard-only walk; Locate on Disk, Open With, Open in External Editor
+    and the clipboard through the recording `Os`, refused over automation where they must be; a
+    second `dalica --view` handing its file over; a camera (the in-memory responder) imported; the
+    release budgets with `DALICA_ACCEPT_RELEASE=1` (inside `cargo xtask ci --full` a smaller debug
+    run checks the paths and prints its times); whole-window fingerprints of the library with video
+    cells, the player and the library in each chosen language; the checks by hand in `m15.md`, per
+    OS (a screen reader on each OS walking the library and a dialog, an input method typing a
+    caption, Locate on Disk, Open With, the external editor, a paste of copied photos in a file
+    manager, a drag out, Dalica chosen as the default viewer and a photo opened from the file
+    manager, a real camera or phone imported, the signed packages installed without a warning).
+  - done when: `cargo xtask accept M15` passes everything in M15's *Done when*.
+- ⬜ **M15.38 Lead: task blocks for M16**
+  - after: M15.1
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M16 block from M16's outline rows (Themes, with PhotoCraft's
+    `crates/ui-egui/src/theme.rs` named for the port; Colour search; any row the maintainer added)
+    and the spec, with waves and the `M16.R` review (owner: maintainer); whether M16.R is a release
+    and its number is asked at M15.R (`releasing.md`: releases after 1.0 are planned then), never
+    guessed; a block that can port Craft-app code names the source files in its scope
+    (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
+    M16 tasks as planned.
+- ⬜ **M15.R Release 1.0 gate**
+  - after: M15.37
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: a release gate (Release 1.0): the lead runs `/milestone-review M15.R` to prepare it, with
+    the version set to 1.0.0 and its `whats-new.md` section on the review branch, the release
+    checklist (the signing secrets in the `release` environment, a signed MSI and a notarized DMG
+    installed without a warning, `SHA256SUMS.txt`) and the sign-off question, and after the merge
+    cuts and publishes 1.0.0 (`releasing.md`); the check-in page (open a folder with clips, play,
+    step and trim one, Save Frame as Picture, play a slideshow with a clip and music; switch to each
+    chosen language and back; walk the library and a dialog with a screen reader and with the
+    keyboard alone, at UI scale 1.5; Locate on Disk, Open With, Open in External Editor, Copy and
+    paste photos into a file manager, drag photos into another application, choose Dalica as the
+    default viewer and open a photo from the file manager while Dalica runs; import from a camera
+    or phone; install the signed packages on each OS; written as steps for the maintainer to try);
+    the questions: the planning decisions above that change behaviour (TSV catalogs; engine
+    messages with values left in English; Ctrl+C also filling the system clipboard; a drag out gives
+    the files on disk; one Dalica per user and Esc returning to the library; Dalica sets a default
+    viewer only where the OS allows; what each OS lets Dalica reach on a camera), the fluent review
+    of each catalog, whether M16.R is a release and its number, anything the reserved decisions left
+    open, the look of the video cells, the player and each language (approved with their
+    fingerprints); *Where we stand* (the full honest assessment for 1.0) and the `status.md` numbers
+    (the probe and poster times, the playing frame, camera import speed, the AccessKit and
+    translation overheads, each language's coverage, the workflow pass rate, parity) on a
+    `review/M15.R` branch, a pull request open. Only the maintainer merges that pull request and
+    closes this issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap; "(2)" marks a task that
+waits on reserved decision 2 through M15.1):
+
+```text
+wave 1   M15.1 lead: M14.R's answers  ‖  M15.2 video probe  ‖  M15.3 model: videos
+         ‖  M15.4 engine modules + Os + Sound  ‖  M15.5 ui state + stubs  ‖  M15.6 ui-kit video + icons
+         ‖  M15.7 i18n core  ‖  M15.8 fallback faces  ‖  M15.9 PTP reader  ‖  M15.10 Windows signing
+         (once M14.R is closed)
+wave 2   M15.11 videos on scan  ‖  M15.12 platform services  ‖  M15.13 macOS signing
+         ‖  M15.14 ui-kit AccessKit  ‖  M15.15 video frames (2)  ‖  M15.17 OS commands
+         ‖  M15.19 camera import
+wave 3   M15.16 videos in the session  ‖  M15.18 one Dalica  ‖  M15.22 OS integration in the window
+wave 4   M15.20 poster frames (2)  ‖  M15.21 video cells  ‖  M15.23 drag out  ‖  M15.24 default viewer
+         ‖  M15.25 playback, trim, Save Frame (2)
+wave 5   M15.26 the player (2)  ‖  M15.27 slideshow sound (2)  ‖  M15.28 Export + collage videos (2)
+         ‖  M15.29 AccessKit window + keyboard  ‖  M15.30 W17 (2)
+wave 6   M15.31 strings: window  ‖  M15.32 strings: dialogs  ‖  M15.33 strings: views
+         ‖  M15.34 M15 budgets
+wave 7   M15.35 catalogs (first languages)  ‖  M15.36 1.0 parity + security audit
+wave 8   M15.37 accept M15 → M15.R          (M15.38 lead: M16 blocks, any time after M15.1)
+```
 
 ### M16 — Post-1.0 enhancements (outline)
 
