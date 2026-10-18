@@ -21,6 +21,61 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.7.0 — October 2026
+
+Dalica now has effects: 27 of them on the edit view's three effect tabs, each with a live preview
+on your photo. Effects are steps of a photo's history like any other edit, so they undo, survive a
+restart and never touch the original until you save.
+
+### Effects
+
+- Open a photo (Ctrl+3) and click the edit panel's third, fourth or fifth tab. Each tab shows a grid
+  of tiles that preview every effect on the photo you are editing; the grid fills in the background
+  and never makes you wait.
+- Sepia, Black and White, Warmify and Invert Colors apply with one click (their tiles carry a
+  "1-click" badge); Ctrl+Shift+B is Black and White. Every effect is one step of the photo's
+  history, named after it, so Ctrl+Z takes it back.
+- The other effects open a panel under the tiles: sliders with their label above, checkboxes,
+  colour swatches with a picker and an eyedropper that takes a colour from the photo, Fade, Reset,
+  Apply and Cancel. The photo previews the change live; Cancel records nothing.
+- Tab 3: Sharpen, Sepia, Black and White, Warmify, Film Grain, Tint, Saturation, Soft Focus, Glow,
+  Filtered B&W, Focal B&W and Graduated Tint.
+- Tab 4: Infrared Film, Plastic Lens, HDR Look, Widescreen Film, Dream Glow, Invert Colors and
+  Duo-Tone.
+- Tab 5: Boost, Soften, Vignette, Pixelate, Focal Zoom, Border, Drop Shadow and Museum Matte.
+- Soft Focus, Focal B&W, Graduated Tint and Focal Zoom put a crosshair on the photo: drag its centre
+  (or nudge it with the arrow keys), and Graduated Tint's handle sets the angle. It lands where you
+  put it on a rotated or cropped photo too.
+- Soften softens only where you paint: Paint and Erase in its panel, the brush circle on the photo,
+  + and − to resize the brush.
+- Border, Widescreen Film, Drop Shadow and Museum Matte make the picture larger (or wider). The
+  thumbnail, the status bar, Save and Export all use the new size; the photo's own pixels inside the
+  frame are unchanged.
+- Picture ▸ Batch Edit's Sepia, Sharpen, Warmify, Film Grain and Black and White now work: one step
+  over all the photos in the tray, undone with one Ctrl+Z.
+
+### Viewing
+
+- The slideshow prepares the next photo off screen, so a large photo no longer makes the change
+  stutter.
+- In the edit view, the caption bar's captions button now shows when captions are on.
+
+### Agents
+
+- The effects are edit operations like the others: `list_edit_ops` lists all 27, `apply_edit`
+  stacks them and `render_photo` returns the framed picture at its grown size.
+
+### Not in this release yet
+
+- Some effects are slow on large photos: a final preview of Focal Zoom, HDR Look, Soften, Boost,
+  Glow and a few others can take from a tenth of a second to a few seconds on a 24 MP photo. A
+  quicker draft shows first. They get faster in the next release.
+- Slideshow music, and videos in slideshows (they are skipped); both come with sound support.
+- Importing from cameras and phones connected by cable; use a card reader or the phone's storage
+  as a drive.
+- `dalica --view` while Dalica is already open opens a read-only viewer; handing the picture to
+  the open Dalica, making Dalica your default viewer and Open With come later.
+
 ## 0.6.0 — October 2026
 
 Dalica now imports photos from cards and drives, compares two photos or two versions side by side,
