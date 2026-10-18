@@ -7124,7 +7124,7 @@ a maintainer decision mid-run.
   - done when: the bench's upload frame is at most 8 ms p95 on the same two-core setup (before and
     after in the PR); the next photo's texture is still ready before its change starts and the
     30-change test with a 1.5 s planted decode reports 0 waits; `cargo xtask ci`.
-- ⬜ **M12.25 `ui` + docs: M11's small follow-ups**
+- ✅ **M12.25 `ui` + docs: M11's small follow-ups**
   - after: M11.R, M12.2
   - files: `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/control/**`, `crates/ui/tests/captions.rs`, `crates/fs/README.md`, `crates/ui-kit/README.md`, `crates/engine/README.md`, `docs/control-protocol.md`
   - scope: a fix task from M11.R: the follow-ups M11's tasks left outside their files. The edit view's caption-bar captions

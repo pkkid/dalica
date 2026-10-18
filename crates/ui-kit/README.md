@@ -8,7 +8,8 @@
     `tree_range`, `side_pane_large`; the edit panel's `edit_tabs`, `edit_tab`, `tool_tile`),
     `FontSize`, `UiScale`, `HISTOGRAM`, `HISTOGRAM_FILL_ALPHA` and `histogram_fill` (overlapping
     channels added, M7.5), `contrast` and `over` (WCAG contrast, translucent plates blended as
-    painted).
+    painted). Among the tokens, `crosshair` and `crosshair_outer` paint an effect's crosshair on
+    the photo and its dark outline (M12.4).
   - `fonts`: Inter, installed in code (`install`, `definitions`, `regular`, `semibold`,
     `SEMIBOLD_FAMILY`).
   - `icons`: `Icon` (+ `Icon::ALL`, `name`, `from_name`), `paint`, `paint_activity` (the activity
@@ -17,7 +18,11 @@
     `name`, `from_name`: the tabs, the Basic Fixes tools and the edit panel's buttons, M7.6) and
     `paint_edit`; Save's and Export's glyphs `OutputIcon` (`Save`, a disk, and `Project`, a
     briefcase for the tree's project rows; + `OutputIcon::ALL`, `name`, `from_name`, M8.5) and
-    `paint_output`.
+    `paint_output`; the slideshow's and the viewer's `ViewingIcon` + `paint_viewing`, the albums'
+    `AlbumIcon` + `paint_album`, the Options dialog's `OptionsIcon` + `paint_options`, and the
+    effect panels' `EffectIcon` (`Brush` and `Eraser` for Soften, `Crosshair`, `OneClick` for the
+    "1-click" badge; + `EffectIcon::ALL`, `name`, `from_name`, M12.4) + `paint_effect`; `Glyph`
+    (any of these sets) + `paint_glyph`.
   - `input` (M7.5, the edit canvas's pointer input, ported from PhotoCraft): `wheel` (`Wheel`,
     `read` for one frame's wheel input: a notch zooms ×`NOTCH` around the pointer, a trackpad
     pans, a pinch zooms; `configure`, `fold_legacy_pinch` / `legacy_pinch_to_zoom` for Windows'
@@ -34,6 +39,10 @@
     as a tooltip, + / − nudges: + `tuning_nudged`, `TUNING_NUDGE`, M7.5), `zoom_slider`; the edit
     panel's `tabs` (+ `Tab`, `TabItem`, `TabsOut`, `fit_tabs` / `TabFit`, `tabs_overflow_id`,
     `TAB_MIN_WIDTH`, `TAB_OVERFLOW_WIDTH`: icon tabs that shrink, then overflow into a menu, M7.5),
+    a dialog's `text_tabs` (+ `TextTab`, `TextTabsOut`, `text_tabs_height`, `tab_page`), the
+    rooms' `room_tabs` (+ `RoomTab`, `ShownRoomTab`, `RoomTabsOut`, `room_tab_close_id`,
+    `ROOM_TAB_MIN_WIDTH`, `ROOM_TAB_PAD`, `ROOM_TAB_CLOSE`: icon and label tabs with a close ×,
+    M11),
     `tool_button` (+ `tool_button_width`, `TOOL_BUTTON_H`: the Basic Fixes grid, M7.5) and
     `histogram` (+ `paint_histogram`, `histogram_curves`, `histogram_mesh`, `MAX_BINS`,
     `HISTOGRAM_HEADROOM`, M7.5); `date_field` / `time_field` (+ `PickedDate`, `PickedTime`,
@@ -50,7 +59,23 @@
     leading characters stay whole), `toast_galley` (wrapped to `TOAST_LINES`, then cut short in
     the middle), `elide_middle`, `toast_text_width`), `empty_state`, `tooltip_now`; thumbnail marks `badges` (+ `Badges`,
     `Badge`, `Video`, `BadgeRects`, `duration_text`), `badge_row`, `star_badge`, `photo_shadow`,
-    `failed_mark`.
+    `failed_mark`, `excluded_mark`. The slideshow's and the viewer's overlay (M11): `overlay_bar`
+    (+ `overlay_bar_rect`, `overlay_button`, `OverlayFade`: a translucent bar of light-on-dark
+    buttons fading over `OVERLAY_FADE_SECS` on the caller's clock), `stepper` (+ `StepperOut`,
+    `stepped`, `stepper_ids`: `[−] 3 seconds [+]`) and `caption_plate` (+ `caption_galley`,
+    `CaptionPlateOut`: the show's caption on a rounded plate, two lines then "…"). The effect
+    panels (M12.4): `effect_tile` and `effect_grid` (+ `EffectTile`, `EffectGridOut`,
+    `effect_grid_size`, `effect_tile_id`: a tab's live previews, three to a row, at most four
+    rows), `effect_slider` (the tuning slider with its label above, on a `SliderScale`: `Linear`
+    or `Log`; + `scale_fraction`, `scale_value`, `scale_nudged`), the colour `swatch` and its picker
+    popup (+ `SwatchOut` with `eyedropper` to arm the eyedropper, `open_swatch`, `close_swatch`,
+    `swatch_open`, `swatch_popup_rect`, `field_color`, `hue_color` …: a saturation / value field,
+    a hue strip and a hex field) and `crosshair` (+ `Crosshair`, `CrosshairOut`,
+    `crosshair_handle_id`, `handle_angle`: a draggable centre, an optional radius circle and
+    second handle, in coordinates normalised to the photo shown). Also: `age_slider`,
+    `filter_banner`, `checkbox_row`, `group_header`, `list_row` (+ `list_columns`, `list_text`),
+    `key_cell` (the shortcut editor's), and the drag pill (`drag_pill`, `drop_target`,
+    `insertion_marker`).
   - `registry`: `register`, `widgets`, `find`, `unregistered` (+ `Unregistered`), `is_valid_id`,
     `WidgetInfo`, `Role`.
   - `raster`: `Rasterizer`, `Image`, `RasterError`, `MAX_SIDE`, `MAX_PIXELS`; and at the root

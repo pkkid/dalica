@@ -121,6 +121,8 @@ fn step(call: &Call<'_>, i: usize, value: &Value) -> Result<Step, Error> {
 fn next(mut b: Batch, host: &mut dyn Host) -> Outcome {
     let Some(step) = b.steps.pop_front() else { return finish(b) };
     let outcome = guard(|| dispatch(&mut b, host, step));
+    // Each step checks the Import room's destination anew before its input plays.
+    let outcome = super::vet::before_input(host, b.control.config(), outcome);
     chain(host, outcome, Box::new(move |host, reply| record(b, host, reply)))
 }
 

@@ -33,8 +33,8 @@
 //! command run through `engine.execute` or `ui.menu.invoke`, asks [`refuse`] before it runs a
 //! command whose danger depends on who asks: a command of `automation::NEVER_AUTOMATED` (removing
 //! imported files from a card) is refused, and `import.run`'s destination must lie in a write root
-//! or a watched folder (`security.md` §5.7). The person's own clicks, outside any request, are not
-//! marked.
+//! or a watched folder, with its links resolved off the UI thread before the request's input plays
+//! ([`vet`]; `security.md` §5.7). The person's own clicks, outside any request, are not marked.
 
 mod batch;
 mod dialog;
@@ -47,6 +47,7 @@ mod menu;
 mod paths;
 mod picker;
 mod screenshot;
+mod vet;
 mod view;
 
 #[cfg(test)]
@@ -485,7 +486,9 @@ impl Connection {
     /// as driven by automation until the request's reply ([`automated`]).
     pub fn handle(&mut self, control: &Control, host: &mut dyn Host, req: &Request) -> Outcome {
         let running = Running::new(&control.config);
+        vet::forget();
         let outcome = self.dispatch(control, host, req);
+        let outcome = vet::before_input(host, &control.config, outcome);
         hold(outcome, &control.config, running)
     }
 
@@ -587,9 +590,10 @@ pub fn automated() -> Option<Arc<Config>> {
 /// What the app asks before it runs command `id` with `params` on behalf of whoever is driving it:
 /// nothing while no control request runs on this thread (the person's own clicks); otherwise a
 /// command automation never runs (`automation::never_automated`) is refused, and `import.run`'s
-/// `destination` must lie inside a write root or a watched folder (`watched`), compared as written
-/// (no disk access: this runs on the UI thread; `engine.execute` resolves the path before the
-/// command reaches the app).
+/// `destination` must lie inside a write root or a watched folder (`watched`): compared as written
+/// first, then with its links resolved, from the check made off the UI thread before the request's
+/// input played or its command ran ([`vet`]; no disk access here, this runs on the UI thread). A
+/// destination that check did not see is refused.
 pub fn refuse(id: &str, params: &Value, watched: &[PathBuf]) -> Result<(), CmdError> {
     let Some(config) = automated() else { return Ok(()) };
     dalica_engine::automation::never_automated(id).map_err(|r| CmdError::Disabled(r.message))?;
@@ -603,6 +607,16 @@ pub fn refuse(id: &str, params: &Value, watched: &[PathBuf]) -> Result<(), CmdEr
                 "{} is outside every automation write root (--automation-write-root; default: the temporary folder) and every watched folder",
                 dest.display()
             )));
+        }
+        match vet::verdict(&dest, watched) {
+            Some(Ok(())) => {}
+            Some(Err(why)) => return Err(CmdError::Disabled(why)),
+            None => {
+                return Err(CmdError::Disabled(format!(
+                    "{} was not checked with its links resolved before this request ran (the destination changed while it played); send it again",
+                    dest.display()
+                )));
+            }
         }
     }
     Ok(())
