@@ -7314,7 +7314,7 @@ a maintainer decision mid-run.
     lighter than that (the shadow visibly offset, not a halo), and the far corners are the
     background; the `mats-drop-shadow` fingerprint re-blessed after looking at its diff images
     (the why in the commit body, images on the PR); `cargo xtask ci`.
-- ⬜ **M12.22 `accept M12`**
+- ✅ **M12.22 `accept M12`**
   - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27, M12.28, M12.29, M12.30, M12.31, M12.32
   - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
   - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
@@ -7329,7 +7329,11 @@ a maintainer decision mid-run.
     panel; the manual checks in `m12.md` (every effect on a few real photos at Fit and 1:1, the
     colour picker and the eyedropper, the crosshair dragged with a mouse and a touchpad, Soften
     painted, a framed photo saved and opened in another application).
-  - done when: `cargo xtask accept M12` passes everything in M12's *Done when*.
+  - done when: `cargo xtask accept M12` passes everything in M12's *Done when*. Amended at M12.R
+    (the maintainer): "the M12 budgets" are those M12.21 landed (every effect's 24 MP Save and the
+    empty recipe, the effect tabs' tile grids, the slideshow's upload frame); a slider's per-effect
+    16 ms draft and 100 ms final are M13's speed tasks, printed and not judged; the two checks by
+    hand moved to M13.R.
 - ✅ **M12.23 Lead: task blocks for M14**
   - after: M11.25
   - owner: lead
