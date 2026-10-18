@@ -12,6 +12,14 @@
 //!   coordinate is in the stored frame, so applying them last gives the picture "geometry first"
 //!   describes. Legacy and unknown operations, known operations without a module (the effects
 //!   until M12) and parameters a module refuses are skipped and kept in the recipe.
+//! - **Frames** (M12.13, [`Reframe`], `render/reframe.rs`): an effect that changes the picture's
+//!   size (Widescreen Film, Border; Drop Shadow and Museum Matte from M12.14) puts the picture as it
+//!   stands at its place among the effects on a canvas of its own size and paints it; the effects
+//!   after it work on the canvas. [`Geometry`] knows every frame, so the output's size, the
+//!   displayed size and the point maps include them: an effect's stored-frame centre lands on the
+//!   photo where the frames before it put it, a later crop still crops the photo and the rotations
+//!   and flips turn the framed picture. A region render maps its window back through each frame.
+//!   A frame whose canvas would pass the limits at the source's resolution is skipped and kept.
 //! - **Resampling:** an output pixel that maps onto exactly one source pixel (the identity, the
 //!   EXIF orientations, the rotations and flips at full size) is copied; otherwise each output
 //!   pixel averages bilinear taps over its footprint, after a box reduction of the source by the
@@ -29,12 +37,18 @@
 //!   buffers are reserved fallibly.
 
 use dalica_image::{Orientation, Rgba8};
+use std::sync::Arc;
+
 use rayon::prelude::*;
 
 use crate::frame::Point;
 use crate::ops::orient::dihedral_to_input;
 use crate::ops::{self, Adjust, Affine, Band, Pass, Prepare, Reach, Typed, View, Warp};
 use crate::{Dihedral, Error, Recipe, Result};
+
+mod reframe;
+
+pub use reframe::{Layout, Placed, Reframe, pixels};
 
 /// The most pixels one render produces or works on (1 GiB of RGBA).
 pub const MAX_PIXELS: u64 = 1 << 28;
@@ -91,9 +105,10 @@ pub struct Region {
 }
 
 /// The geometric stage of a recipe for one source: the stored frame (the source after its EXIF
-/// orientation), the straighten and the crop in it, and the recipe's rotations and flips. It maps
-/// normalised points between the stored frame and the output (for retouch strokes and effect
-/// centres, and for the tools' clicks).
+/// orientation), the straighten and the crop in it, the frames that change the picture's size
+/// (Widescreen Film, Border, …; [`Reframe`]) where they stand among the effects, and the recipe's
+/// rotations and flips. It maps normalised points between the stored frame and the output (for
+/// retouch strokes and effect centres, and for the tools' clicks), and gives the output's size.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
     exif: Dihedral,
@@ -106,11 +121,49 @@ pub struct Geometry {
     /// From the warped picture's pixel coordinates to the stored frame's.
     to_stored: Affine,
     orientation: Dihedral,
+    /// The frames within the limits, in the order applied.
+    frames: Arc<[Frame]>,
+    /// How many of `frames` the sizes and the point maps include: all of them, but in the geometry
+    /// an effect standing before a frame is prepared with.
+    shown: usize,
+    /// The scale the point maps lay the frames out at, in whole pixels (1: the source's
+    /// resolution; a render's own scale for the geometry its effects are prepared with).
+    at_scale: f64,
+}
+
+/// One frame of a [`Geometry`]: the `nth` size-changing entry of the recipe's effects (counting
+/// those past the limits, which are skipped) and its parameters.
+#[derive(Clone, Debug, PartialEq)]
+struct Frame {
+    nth: usize,
+    op: Typed,
+}
+
+/// The picture's size at each frame of one render: the photo (after the geometry), then each
+/// frame's input and layout in order.
+struct Stages {
+    photo: (u32, u32),
+    frames: Vec<((u32, u32), Layout)>,
+}
+
+impl Stages {
+    /// The picture's size after `stage` frames.
+    fn size(&self, stage: usize) -> (u32, u32) {
+        match stage.checked_sub(1) {
+            None => self.photo,
+            Some(k) => self.frames.get(k).map_or(self.photo, |(_, l)| l.size),
+        }
+    }
+
+    fn last(&self) -> (u32, u32) {
+        self.size(self.frames.len())
+    }
 }
 
 impl Geometry {
     /// The geometry of `recipe` on a source of `width × height` stored pixels with EXIF orientation
-    /// `exif`. A warp whose module gives no usable size or map is skipped.
+    /// `exif`. A warp whose module gives no usable size or map is skipped, and so is a frame whose
+    /// canvas would pass [`MAX_EDGE`] or [`MAX_PIXELS`] at the source's resolution.
     pub fn new(recipe: &Recipe, exif: Orientation, width: u32, height: u32) -> Geometry {
         let exif = Dihedral::from_exif(exif);
         let (sw, sh) = exif.display_size(width, height);
@@ -134,6 +187,9 @@ impl Geometry {
             warped: stored,
             to_stored: Affine::IDENTITY,
             orientation: recipe.orientation(),
+            frames: Arc::new([]),
+            shown: 0,
+            at_scale: 1.0,
         };
         if let Some(s) = straighten
             && g.push_warp(&s)
@@ -145,6 +201,19 @@ impl Geometry {
         {
             g.crop = Some(c);
         }
+        // The frames, laid out at the source's resolution: one past the limits is skipped.
+        let mut frames = Vec::new();
+        let mut size = g.photo_pixels(1.0).ok();
+        for (nth, t) in frame_ops(recipe).enumerate() {
+            let Some(input) = size else { break };
+            let layout = reframe_of(&t).and_then(|f| f.layout(input.0, input.1));
+            if let Some(l) = layout.filter(|l| within_limits(l.size)) {
+                frames.push(Frame { nth, op: t });
+                size = Some(l.size);
+            }
+        }
+        g.shown = frames.len();
+        g.frames = frames.into();
         g
     }
 
@@ -162,9 +231,29 @@ impl Geometry {
         usable
     }
 
-    /// The size after straighten and crop, before the rotations and flips, in stored-frame pixels.
+    /// The size after straighten, crop and the frames, before the rotations and flips, at the
+    /// source's resolution (stored-frame pixels; whole pixels once a frame is in).
     pub fn size(&self) -> (f64, f64) {
+        if self.shown == 0 {
+            return self.warped;
+        }
+        match self.stages(1.0) {
+            Ok(s) => {
+                let (w, h) = s.last();
+                (f64::from(w), f64::from(h))
+            }
+            Err(_) => self.warped,
+        }
+    }
+
+    /// The photo's size after straighten and crop, before any frame, in stored-frame pixels.
+    pub fn photo_size(&self) -> (f64, f64) {
         self.warped
+    }
+
+    /// How many frames (effects that change the picture's size) the geometry includes.
+    pub fn frames(&self) -> usize {
+        self.shown
     }
 
     /// The recipe's rotations and flips.
@@ -172,8 +261,9 @@ impl Geometry {
         self.orientation
     }
 
-    /// The output size at `scale` before the rotations and flips (each side at most [`MAX_EDGE`]).
-    pub fn output_size(&self, scale: f64) -> Result<(u32, u32)> {
+    /// The photo after straighten and crop at `scale`, in whole output pixels (each side at least
+    /// 1 and at most [`MAX_EDGE`]).
+    fn photo_pixels(&self, scale: f64) -> Result<(u32, u32)> {
         let side = |v: f64| -> Result<u32> {
             let px = (v * scale).round().max(1.0);
             if !px.is_finite() || px > f64::from(MAX_EDGE) {
@@ -181,8 +271,31 @@ impl Geometry {
             }
             Ok(px as u32)
         };
-        // Only the window a render works on is allocated, and checked against `MAX_PIXELS`.
         Ok((side(self.warped.0)?, side(self.warped.1)?))
+    }
+
+    /// The picture's size at each shown frame at `scale`.
+    fn stages(&self, scale: f64) -> Result<Stages> {
+        let photo = self.photo_pixels(scale)?;
+        let mut frames = Vec::new();
+        let mut size = photo;
+        for f in self.frames.iter().take(self.shown) {
+            let too_large = || Error::TooLarge { width: u64::from(size.0), height: u64::from(size.1) };
+            let layout = reframe_of(&f.op).and_then(|r| r.layout(size.0, size.1)).ok_or_else(too_large)?;
+            let (w, h) = layout.size;
+            if w == 0 || h == 0 || w > MAX_EDGE || h > MAX_EDGE {
+                return Err(Error::TooLarge { width: u64::from(w), height: u64::from(h) });
+            }
+            frames.push((size, layout));
+            size = layout.size;
+        }
+        Ok(Stages { photo, frames })
+    }
+
+    /// The output size at `scale` before the rotations and flips (each side at most [`MAX_EDGE`]).
+    pub fn output_size(&self, scale: f64) -> Result<(u32, u32)> {
+        // Only the window a render works on is allocated, and checked against `MAX_PIXELS`.
+        Ok(self.stages(scale)?.last())
     }
 
     /// The displayed size at `scale`.
@@ -192,17 +305,57 @@ impl Geometry {
     }
 
     /// Where the normalised stored-frame point `p` lands in the output before the rotations and
-    /// flips, normalised.
+    /// flips, normalised (on the photo where the frames put it).
     pub fn stored_to_output(&self, p: Point) -> Option<Point> {
         let (x, y) = self.to_stored.inverse()?.apply(p.x * self.stored.0, p.y * self.stored.1);
-        finite(Point::new(x / self.warped.0, y / self.warped.1))
+        self.photo_to_output(finite(Point::new(x / self.warped.0, y / self.warped.1))?)
     }
 
     /// The normalised stored-frame point under the normalised output point `p` (before the
-    /// rotations and flips).
+    /// rotations and flips); a point on a frame gives a point outside the photo.
     pub fn output_to_stored(&self, p: Point) -> Option<Point> {
+        let p = self.output_to_photo(p)?;
         let (x, y) = self.to_stored.apply(p.x * self.warped.0, p.y * self.warped.1);
         finite(Point::new(x / self.stored.0, y / self.stored.1))
+    }
+
+    /// Where the photo (after straighten and crop) lies in the output before the rotations and
+    /// flips, normalised: the whole output until a frame is in, a part of it inside a Border, and
+    /// past its edges where Widescreen Film crops it.
+    pub fn photo_area(&self) -> Option<crate::Rect> {
+        let a = self.photo_to_output(Point::new(0.0, 0.0))?;
+        let b = self.photo_to_output(Point::new(1.0, 1.0))?;
+        Some(crate::Rect::new(a.x, a.y, b.x, b.y))
+    }
+
+    /// A normalised point of the photo (after straighten and crop) through the shown frames.
+    fn photo_to_output(&self, p: Point) -> Option<Point> {
+        if self.shown == 0 {
+            return Some(p);
+        }
+        let stages = self.stages(self.at_scale).ok()?;
+        let mut q = p;
+        for ((iw, ih), l) in &stages.frames {
+            let x = (q.x * f64::from(*iw) + l.at.0 as f64) / f64::from(l.size.0);
+            let y = (q.y * f64::from(*ih) + l.at.1 as f64) / f64::from(l.size.1);
+            q = Point::new(x, y);
+        }
+        finite(q)
+    }
+
+    /// A normalised output point back through the shown frames onto the photo.
+    fn output_to_photo(&self, p: Point) -> Option<Point> {
+        if self.shown == 0 {
+            return Some(p);
+        }
+        let stages = self.stages(self.at_scale).ok()?;
+        let mut q = p;
+        for ((iw, ih), l) in stages.frames.iter().rev() {
+            let x = (q.x * f64::from(l.size.0) - l.at.0 as f64) / f64::from(*iw);
+            let y = (q.y * f64::from(l.size.1) - l.at.1 as f64) / f64::from(*ih);
+            q = Point::new(x, y);
+        }
+        finite(q)
     }
 
     /// Where the normalised stored-frame point `p` shows on the displayed picture.
@@ -215,9 +368,16 @@ impl Geometry {
         self.output_to_stored(p.transform(self.orientation.inverse()))
     }
 
+    /// The same geometry with only its first `frames` frames, its point maps laid out at `scale`:
+    /// what an effect standing before the next frame is prepared with.
+    fn staged(&self, frames: usize, scale: f64) -> Geometry {
+        Geometry { shown: frames.min(self.frames.len()), at_scale: scale, ..self.clone() }
+    }
+
     /// The scale a target asks for.
     fn scale_for(&self, target: Target) -> Result<f64> {
-        let (dw, dh) = if self.orientation.swaps() { (self.warped.1, self.warped.0) } else { self.warped };
+        let size = self.size();
+        let (dw, dh) = if self.orientation.swaps() { (size.1, size.0) } else { size };
         let scale = match target {
             Target::Full => 1.0,
             Target::Scale(s) => s,
@@ -225,19 +385,43 @@ impl Geometry {
                 if width == 0 || height == 0 {
                     return Err(Error::BadTarget("an empty box to fit"));
                 }
-                (f64::from(width) / dw).min(f64::from(height) / dh).min(1.0)
+                let mut s = (f64::from(width) / dw).min(f64::from(height) / dh).min(1.0);
+                // A frame's bands are whole pixels at every scale, so a framed picture can come out
+                // a pixel larger than its share: shrink until it fits.
+                for _ in 0..8 {
+                    if self.shown == 0 || check_scale(s).is_err() {
+                        break;
+                    }
+                    let (w, h) = self.display_size(s)?;
+                    if w <= width && h <= height {
+                        break;
+                    }
+                    s *= (f64::from(width) / f64::from(w)).min(f64::from(height) / f64::from(h)) * (1.0 - 1e-6);
+                }
+                s
             }
         };
         check_scale(scale)?;
         Ok(scale)
     }
 
-    /// The map from output pixel coordinates at `scale` (before the rotations and flips) to the
-    /// source's stored pixels.
+    /// The map from output pixel coordinates at `scale` (before the frames and the rotations and
+    /// flips) to the source's stored pixels.
     fn output_to_raw(&self, scale_x: f64, scale_y: f64) -> Affine {
         let to_raw = dihedral_to_input(self.exif, f64::from(self.raw.0), f64::from(self.raw.1));
         to_raw.then_after(self.to_stored).then_after(Affine::scale(1.0 / scale_x, 1.0 / scale_y))
     }
+}
+
+/// The recipe's size-changing entries that render, in the order applied.
+fn frame_ops(recipe: &Recipe) -> impl Iterator<Item = Typed> + '_ {
+    recipe.pipeline().filter_map(|op| op.typed()?.ok()).filter(|t| reframe_of(t).is_some())
+}
+
+/// Whether a canvas of `size` is within [`MAX_EDGE`] and [`MAX_PIXELS`].
+fn within_limits(size: (u32, u32)) -> bool {
+    let (w, h) = size;
+    w >= 1 && h >= 1 && w <= MAX_EDGE && h <= MAX_EDGE && u64::from(w) * u64::from(h) <= MAX_PIXELS
 }
 
 fn finite(p: Point) -> Option<Point> {
@@ -294,7 +478,7 @@ pub fn render_region(source: Source<'_>, recipe: &Recipe, region: Region) -> Res
     let (ax, ay) = back.map_pixel(region.x, region.y, dw, dh);
     let (bx, by) = back.map_pixel(x1, y1, dw, dh);
     let win = Win { x0: ax.min(bx), y0: ay.min(by), w: ax.abs_diff(bx) + 1, h: ay.abs_diff(by) + 1 };
-    let out = plan.render_stored(plan.adjust.len(), region.scale, (fw, fh), win, false)?;
+    let out = plan.render_stored(plan.steps.len(), region.scale, win, false)?;
     orientation.apply(out)
 }
 
@@ -328,13 +512,34 @@ impl Win {
         let y1 = self.y0.saturating_add(self.h).saturating_add(margin).min(full.1);
         Win { x0, y0, w: x1.saturating_sub(x0), h: y1.saturating_sub(y0) }
     }
+
+    /// The window `self` of a frame's canvas back on the frame's `input` (the part of it the input
+    /// covers), in the input's pixels; `None` when the input lands nowhere in it.
+    fn back_through(self, layout: Layout, input: (u32, u32)) -> Option<Win> {
+        let x0 = (i64::from(self.x0) - layout.at.0).max(0);
+        let y0 = (i64::from(self.y0) - layout.at.1).max(0);
+        let x1 = (i64::from(self.x0) + i64::from(self.w) - layout.at.0).min(i64::from(input.0));
+        let y1 = (i64::from(self.y0) + i64::from(self.h) - layout.at.1).min(i64::from(input.1));
+        if x0 >= x1 || y0 >= y1 {
+            return None;
+        }
+        let px = |v: i64| u32::try_from(v).ok();
+        Some(Win { x0: px(x0)?, y0: px(y0)?, w: px(x1 - x0)?, h: px(y1 - y0)? })
+    }
 }
 
 /// A recipe's render for one source: the geometry and the other operations, typed, in order.
 struct Plan<'a> {
     source: Source<'a>,
     geometry: Geometry,
-    adjust: Vec<Typed>,
+    steps: Vec<Step>,
+}
+
+/// One step of the effects stage: an operation run over the picture, or a frame that puts the
+/// picture on a canvas of its own size (the `k`th of the geometry's frames).
+enum Step {
+    Adjust(Typed),
+    Frame(usize),
 }
 
 /// One operation of the adjust stage, prepared or still to be prepared on the picture at its place.
@@ -343,11 +548,32 @@ enum Slot<'t> {
     OnProxy(&'t Typed),
 }
 
+/// The operations between two frames (or before the first, or after the last): they run on the
+/// picture of one size, the picture after `stage` frames. A segment after a frame starts with the
+/// frame's own pass.
+struct Segment<'t> {
+    stage: usize,
+    slots: Vec<Slot<'t>>,
+}
+
 impl<'a> Plan<'a> {
     fn new(source: Source<'a>, recipe: &Recipe) -> Plan<'a> {
         let geometry = Geometry::new(recipe, source.orientation, source.pixels.width, source.pixels.height);
-        let adjust = recipe.pipeline().filter_map(|op| op.typed()?.ok()).filter(|t| analyses(t).is_some()).collect();
-        Plan { source, geometry, adjust }
+        let mut steps = Vec::new();
+        let (mut nth, mut next) = (0, 0);
+        for t in recipe.pipeline().filter_map(|op| op.typed()?.ok()).filter(|t| analyses(t).is_some()) {
+            if reframe_of(&t).is_none() {
+                steps.push(Step::Adjust(t));
+                continue;
+            }
+            // A frame past the limits is skipped (and kept in the recipe).
+            if geometry.frames.get(next).is_some_and(|f| f.nth == nth) {
+                steps.push(Step::Frame(next));
+                next += 1;
+            }
+            nth += 1;
+        }
+        Plan { source, geometry, steps }
     }
 
     /// The proxy scale of the analysing operations.
@@ -356,51 +582,147 @@ impl<'a> Plan<'a> {
         (f64::from(crate::analysis::PROXY_EDGE) / long).min(1.0)
     }
 
-    /// The picture after the geometry and the first `n` adjust operations, at `scale`, cut to
-    /// `win`, before the rotations and flips. In a proxy render (`proxy`, always the whole picture
-    /// at the proxy scale) an analysing operation analyses the picture as it stands.
-    fn render_stored(&self, n: usize, scale: f64, full: (u32, u32), win: Win, proxy: bool) -> Result<Rgba8> {
-        let ctx = || Prepare { width: full.0, height: full.1, scale, proxy: None, geometry: &self.geometry };
-        let mut slots = Vec::new();
-        for t in self.adjust.iter().take(n) {
-            let wants_proxy = analyses(t).unwrap_or(false);
-            if wants_proxy && proxy {
-                slots.push(Slot::OnProxy(t));
-            } else if wants_proxy {
-                // The picture at this operation's place, at the analysis size.
-                let pscale = self.proxy_scale();
-                let pfull = self.geometry.output_size(pscale)?;
-                let img = self.render_stored(slots.len(), pscale, pfull, Win { x0: 0, y0: 0, w: pfull.0, h: pfull.1 }, true)?;
-                slots.push(Slot::Ready(prepare(t, &Prepare { proxy: Some(&img), ..ctx() })));
-            } else {
-                slots.push(Slot::Ready(prepare(t, &ctx())));
+    /// The picture after the geometry and the first `n` steps, at `scale`, cut to `win` (in the
+    /// picture of that stage, before the rotations and flips). In a proxy render (`proxy`, always
+    /// the whole picture at the proxy scale) an analysing operation analyses the picture as it
+    /// stands.
+    fn render_stored(&self, n: usize, scale: f64, win: Win, proxy: bool) -> Result<Rgba8> {
+        let stages = self.geometry.stages(scale)?;
+        // The geometry each stage's operations are prepared with: the frames before them.
+        let geos: Vec<Geometry> = (0..=stages.frames.len()).map(|k| self.geometry.staged(k, scale)).collect();
+        let geo = |stage: usize| geos.get(stage).unwrap_or(&self.geometry);
+        let mut segs = vec![Segment { stage: 0, slots: Vec::new() }];
+        for (i, step) in self.steps.iter().take(n).enumerate() {
+            let stage = segs.last().map_or(0, |s| s.stage);
+            match step {
+                Step::Adjust(t) => {
+                    let full = stages.size(stage);
+                    let ctx = Prepare { width: full.0, height: full.1, scale, proxy: None, geometry: geo(stage) };
+                    let wants_proxy = analyses(t).unwrap_or(false);
+                    let slot = if wants_proxy && proxy {
+                        Slot::OnProxy(t)
+                    } else if wants_proxy {
+                        // The picture at this operation's place, at the analysis size.
+                        let pscale = self.proxy_scale();
+                        let pfull = self.geometry.stages(pscale)?.size(stage);
+                        let img = self.render_stored(i, pscale, Win { x0: 0, y0: 0, w: pfull.0, h: pfull.1 }, true)?;
+                        Slot::Ready(prepare(t, &Prepare { proxy: Some(&img), ..ctx }))
+                    } else {
+                        Slot::Ready(prepare(t, &ctx))
+                    };
+                    if let Some(seg) = segs.last_mut() {
+                        seg.slots.push(slot);
+                    }
+                }
+                Step::Frame(k) => {
+                    let stage = k.saturating_add(1);
+                    let Some(&(input, layout)) = stages.frames.get(*k) else { continue };
+                    let ctx = Prepare { width: layout.size.0, height: layout.size.1, scale, proxy: None, geometry: geo(stage) };
+                    let placed = Placed { ctx: &ctx, input, layout };
+                    let pass = self.geometry.frames.get(*k).and_then(|f| reframe_of(&f.op)).and_then(|f| f.prepare(&placed));
+                    segs.push(Segment { stage, slots: vec![Slot::Ready(pass)] });
+                }
             }
         }
-        // How far the operations read beyond the window.
-        let mut margin: u32 = 0;
-        for slot in &slots {
-            margin = match slot {
-                Slot::Ready(Some(pass)) => match pass.reach() {
-                    Reach::Pixel => margin,
-                    Reach::Pixels(r) => margin.saturating_add(r),
-                    Reach::Whole => u32::MAX,
-                },
-                Slot::Ready(None) => margin,
-                Slot::OnProxy(_) => u32::MAX,
+        // From the last segment back: the window each one works on (with the margin its operations
+        // read) and the part of the frame's input that lands in it.
+        let mut grown: Vec<Option<Win>> = vec![None; segs.len()];
+        let mut need = Some(win);
+        for (j, seg) in segs.iter().enumerate().rev() {
+            let Some(w) = need else { break };
+            let g = w.grown(margin(&seg.slots), stages.size(seg.stage));
+            if g.pixels() > MAX_PIXELS {
+                return Err(Error::TooLarge { width: u64::from(g.w), height: u64::from(g.h) });
+            }
+            if let Some(slot) = grown.get_mut(j) {
+                *slot = Some(g);
+            }
+            need = match seg.stage.checked_sub(1).and_then(|k| stages.frames.get(k)) {
+                Some(&(input, layout)) => g.back_through(layout, input),
+                None => None,
             };
         }
-        let grown = win.grown(margin, full);
-        if grown.pixels() > MAX_PIXELS {
-            return Err(Error::TooLarge { width: u64::from(grown.w), height: u64::from(grown.h) });
+        // Then forward: the geometric stage, each segment's operations, each frame's canvas.
+        let mut picture: Option<(Rgba8, Win)> = None;
+        for (seg, g) in segs.into_iter().zip(grown) {
+            let Some(g) = g else { continue };
+            let full = stages.size(seg.stage);
+            let mut buf = match seg.stage.checked_sub(1).and_then(|k| stages.frames.get(k)) {
+                Some(&(input, layout)) => place(picture.take(), input, layout, g)?,
+                None => {
+                    // The output's own scale on each axis (its sides are whole pixels).
+                    let (ww, wh) = self.geometry.warped;
+                    let map = self.geometry.output_to_raw(f64::from(full.0) / ww, f64::from(full.1) / wh);
+                    resample(self.source.pixels, map, g)?
+                }
+            };
+            let geometry = geo(seg.stage);
+            run_slots(&mut buf, g, full, seg.slots, |t, img| {
+                prepare(t, &Prepare { width: full.0, height: full.1, scale, proxy: Some(img), geometry })
+            })?;
+            picture = Some((buf, g));
         }
-        // The geometric stage; the output's own scale on each axis (its sides are whole pixels).
-        let (ww, wh) = self.geometry.warped;
-        let map = self.geometry.output_to_raw(f64::from(full.0) / ww, f64::from(full.1) / wh);
-        let mut buf = resample(self.source.pixels, map, grown)?;
-        run_slots(&mut buf, grown, full, slots, |t, img| {
-            prepare(t, &Prepare { width: full.0, height: full.1, scale, proxy: Some(img), geometry: &self.geometry })
-        })?;
-        cut(buf, grown, win)
+        let (buf, from) = picture.ok_or(Error::BadTarget("nothing to render"))?;
+        cut(buf, from, win)
+    }
+}
+
+/// How far a segment's operations read beyond their window.
+fn margin(slots: &[Slot<'_>]) -> u32 {
+    slots.iter().fold(0u32, |margin, slot| match slot {
+        Slot::Ready(Some(pass)) => match pass.reach() {
+            Reach::Pixel => margin,
+            Reach::Pixels(r) => margin.saturating_add(r),
+            Reach::Whole => u32::MAX,
+        },
+        Slot::Ready(None) => margin,
+        Slot::OnProxy(_) => u32::MAX,
+    })
+}
+
+/// The window `win` of a frame's canvas with the frame's input placed on it: the input's pixels
+/// where it lands (from `picture`, the input rendered over a window that holds every one of them
+/// the canvas window shows), opaque black elsewhere, for the frame's pass to paint.
+fn place(picture: Option<(Rgba8, Win)>, input: (u32, u32), layout: Layout, win: Win) -> Result<Rgba8> {
+    let mut data = alloc(win.pixels())?;
+    let row = win.w as usize * 4;
+    data.resize(row * win.h as usize, 0);
+    for px in data.as_chunks_mut::<4>().0 {
+        px[3] = 255;
+    }
+    let Some((src, from)) = picture else { return Ok(Rgba8 { width: win.w, height: win.h, data }) };
+    // The canvas columns the input covers, cut to the window and to the rendered input.
+    let lo = (i64::from(from.x0) + layout.at.0).max(i64::from(win.x0)).max(layout.at.0);
+    let hi = (i64::from(from.x0) + i64::from(from.w) + layout.at.0).min(i64::from(win.x0) + i64::from(win.w)).min(layout.at.0 + i64::from(input.0));
+    if lo >= hi {
+        return Ok(Rgba8 { width: win.w, height: win.h, data });
+    }
+    let src_row = from.w as usize * 4;
+    let len = (hi - lo) as usize * 4;
+    let dst_x = (lo - i64::from(win.x0)) as usize * 4;
+    let src_x = (lo - layout.at.0 - i64::from(from.x0)) as usize * 4;
+    for (j, line) in data.chunks_mut(row).enumerate() {
+        let y = i64::from(win.y0) + j as i64;
+        let iy = y - layout.at.1;
+        if iy < i64::from(from.y0) || iy >= i64::from(from.y0) + i64::from(from.h) || iy >= i64::from(input.1) || iy < 0 {
+            continue;
+        }
+        let at = (iy - i64::from(from.y0)) as usize * src_row + src_x;
+        if let (Some(dst), Some(s)) = (line.get_mut(dst_x..dst_x + len), src.data.get(at..at + len)) {
+            dst.copy_from_slice(s);
+        }
+    }
+    Ok(Rgba8 { width: win.w, height: win.h, data })
+}
+
+/// The frame kind of a typed operation: the effects that change the picture's size
+/// ([`Reframe`]). Drop Shadow and Museum Matte join here when their renderers land (M12.14),
+/// leaving the `Adjust` dispatch below.
+fn reframe_of(t: &Typed) -> Option<&dyn Reframe> {
+    match t {
+        Typed::Widescreen(o) => Some(o),
+        Typed::Border(o) => Some(o),
+        _ => None,
     }
 }
 
@@ -433,7 +755,8 @@ fn analyses(t: &Typed) -> Option<bool> {
         Typed::Infrared(o) => of(o),
         Typed::PlasticLens(o) => of(o),
         Typed::Hdr(o) => of(o),
-        Typed::Widescreen(o) => of(o),
+        // The frames run through `reframe_of`, not here.
+        Typed::Widescreen(_) => Some(false),
         Typed::DreamGlow(o) => of(o),
         Typed::Invert(o) => of(o),
         Typed::Duotone(o) => of(o),
@@ -442,7 +765,7 @@ fn analyses(t: &Typed) -> Option<bool> {
         Typed::Vignette(o) => of(o),
         Typed::Pixelate(o) => of(o),
         Typed::FocalZoom(o) => of(o),
-        Typed::Border(o) => of(o),
+        Typed::Border(_) => Some(false),
         Typed::DropShadow(o) => of(o),
         Typed::MuseumMatte(o) => of(o),
     }
@@ -473,7 +796,7 @@ fn prepare(t: &Typed, ctx: &Prepare<'_>) -> Option<Box<dyn Pass>> {
         Typed::Infrared(o) => o.prepare(ctx),
         Typed::PlasticLens(o) => o.prepare(ctx),
         Typed::Hdr(o) => o.prepare(ctx),
-        Typed::Widescreen(o) => o.prepare(ctx),
+        Typed::Widescreen(_) => None,
         Typed::DreamGlow(o) => o.prepare(ctx),
         Typed::Invert(o) => o.prepare(ctx),
         Typed::Duotone(o) => o.prepare(ctx),
@@ -482,7 +805,7 @@ fn prepare(t: &Typed, ctx: &Prepare<'_>) -> Option<Box<dyn Pass>> {
         Typed::Vignette(o) => o.prepare(ctx),
         Typed::Pixelate(o) => o.prepare(ctx),
         Typed::FocalZoom(o) => o.prepare(ctx),
-        Typed::Border(o) => o.prepare(ctx),
+        Typed::Border(_) => None,
         Typed::DropShadow(o) => o.prepare(ctx),
         Typed::MuseumMatte(o) => o.prepare(ctx),
     }

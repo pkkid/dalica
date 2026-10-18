@@ -313,6 +313,21 @@ rotations and flips (the *displayed frame*). **Built (M7.1: `dalica-edit` `frame
 - Rendering does the crop and the straighten in the stored frame, then the recipe's rotations and
   flips, wherever they stand in the recipe (the same picture as turning first and cropping with the
   converted rectangle).
+- **Frames** (M12.13): the effects that change the picture's size (Widescreen Film, Border, Drop
+  Shadow, Museum Matte) put the picture as it stands at their place among the effects on a canvas
+  of their own size, in whole pixels; the effects after one work on its canvas. Nothing stored
+  changes: points and rectangles stay in the stored frame. To draw or read one, the stored point is
+  mapped through the crop and straighten onto the photo, then through each frame before the
+  operation that uses it to where the frame put the photo (its offset on the canvas, divided by
+  the canvas's size), then by the rotations and flips; a click on a frame maps to a point outside
+  the photo's 0..1, where no effect's point can be put. A later crop or straighten still applies
+  to the photo (geometry first) and the frames keep their bands around it; a rotation or flip
+  turns the framed picture. Sizes relative to "the shorter side" stay relative to the stored photo's for the
+  effects (a frame does not change a Vignette's or a retouch stroke's scale); a frame's own bands
+  are relative to the shorter side of the picture it frames. Every reader of a size (thumbnails,
+  the edit view, Save, Export, `render_photo`) takes it from the recipe's geometry
+  (`dalica-edit` `Geometry`: `size`, `output_size`, `display_size`, `photo_area`); a frame whose
+  canvas would pass the render limits at the source's resolution is skipped and kept.
 - Save (§6) writes the rotations and flips into the pixels and clears the recipe, so the photo's
   stored frame becomes the displayed one: Save maps the rectangles and points it keeps (face
   rectangles) into the new frame with the same functions, and Undo Save maps them back.

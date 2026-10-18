@@ -6982,7 +6982,7 @@ a maintainer decision mid-run.
     Focal Zoom leaves its circle unchanged and blurs along the radius more than across it; Fade 100
     gives the input; a zoomed region equals that window of the whole render; each effect renders
     the same at two sizes after a downscale.
-- ⬜ **M12.13 `edit`: effects that change the picture's size: the renderer, Widescreen Film and Border**
+- ✅ **M12.13 `edit`: effects that change the picture's size: the renderer, Widescreen Film and Border**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/canvas.rs`, `crates/edit/src/render.rs`, `crates/edit/src/render/**`, `crates/edit/tests/canvas.rs`, `crates/edit/tests/fingerprints/canvas-*.json`, `docs/data-model.md`
   - scope: the decisions above: a third kind of operation beside `Warp` and `Adjust`, run at its
