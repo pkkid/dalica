@@ -56,6 +56,13 @@
 //!   "Remove the imported files from the card?" ([`remove_from_card`]) and the photo viewer's
 //!   Settings ([`viewer_settings`]); and Options gains its Slideshow and Photo Viewer tabs.
 //!
+//! - **M13's dialogs** (stubs: their titles, buttons and drafts are final, their bodies show the
+//!   draft as text and their default buttons say what they wait for, until M13.21–M13.27 make them
+//!   act): New Person and "Ignore these faces?" of the Unnamed grid ([`new_person`]), the person
+//!   menu's Rename…, Merge Into and Delete Person ([`people`]), the face model dialog
+//!   ([`face_model`], its draft the view state's `faceModel`) and the geotag confirmations
+//!   ([`geotag_confirm`]); and Options gains its Network and People tabs.
+//!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
 //! and `act` (what a button other than Cancel does). A new kind adds its [`DialogKind`] variant,
@@ -76,13 +83,17 @@ pub mod custom_ratio;
 pub mod delete;
 pub mod export;
 pub mod export_progress;
+pub mod face_model;
 pub mod first_run;
 pub mod folder_manager;
 pub mod folder_properties;
+pub mod geotag_confirm;
 pub mod keep_version;
 pub mod move_confirm;
 pub mod new_folder;
+pub mod new_person;
 pub mod options;
+pub mod people;
 pub mod quick_tags;
 pub mod release_notes;
 pub mod remove_from_album;
@@ -193,6 +204,10 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::UndoAllEdits => undo_all::look(app, d),
         DialogKind::RemoveFromCard => remove_from_card::look(app, d),
         DialogKind::ViewerSettings => viewer_settings::look(app, d),
+        DialogKind::NewPerson | DialogKind::IgnoreFaces => new_person::look(app, d),
+        DialogKind::RenamePerson | DialogKind::MergePeople | DialogKind::DeletePerson => people::look(app, d),
+        DialogKind::FaceModel => face_model::look(app, d),
+        DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::look(app, d),
     }
 }
 
@@ -230,6 +245,10 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::UndoAllEdits => undo_all::body(app, ui, d),
         DialogKind::RemoveFromCard => remove_from_card::body(app, ui, d),
         DialogKind::ViewerSettings => viewer_settings::body(app, ui, d),
+        DialogKind::NewPerson | DialogKind::IgnoreFaces => new_person::body(app, ui, d),
+        DialogKind::RenamePerson | DialogKind::MergePeople | DialogKind::DeletePerson => people::body(app, ui, d),
+        DialogKind::FaceModel => face_model::body(app, ui, d),
+        DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::body(app, ui, d),
     }
 }
 
@@ -267,6 +286,10 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::UndoAllEdits => undo_all::act(app, d, action),
         DialogKind::RemoveFromCard => remove_from_card::act(app, d, action),
         DialogKind::ViewerSettings => viewer_settings::act(app, d, action),
+        DialogKind::NewPerson | DialogKind::IgnoreFaces => new_person::act(app, d, action),
+        DialogKind::RenamePerson | DialogKind::MergePeople | DialogKind::DeletePerson => people::act(app, d, action),
+        DialogKind::FaceModel => face_model::act(app, d, action),
+        DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::act(app, d, action),
     }
 }
 
@@ -348,6 +371,7 @@ fn close(app: &mut App, kind: DialogKind) -> Option<Dialog> {
         DialogKind::DeletePhotos => state.delete_photos = None,
         DialogKind::DeleteFolder => state.delete_folder = None,
         DialogKind::Options => state.options = None,
+        DialogKind::FaceModel => state.face_model = None,
         _ => {}
     }
     let dialogs = &mut state.dialogs;

@@ -2,8 +2,8 @@
 //! 280 wide (large: min(30 % W, 392)), pushing the light table. The frame: a 30-high header with
 //! « at the left (`button:pane.widen`: toggles the large width), the pane's title centred in
 //! SemiBold, × at the right (`button:pane.close`), then the pane body (`pane:<name>`): the
-//! Properties pane ([`super::properties`]) and the Tags pane ([`super::tags`]); People and Places
-//! stay empty until their milestone. When the window narrows so far that the light table would drop below 480
+//! Properties pane ([`super::properties`]), the Tags pane ([`super::tags`]), the People pane
+//! ([`super::people_pane`]) and the Places pane ([`super::places`]). When the window narrows so far that the light table would drop below 480
 //! the pane gives up its large width, then closes itself.
 
 use dalica_ui_kit::fonts;
@@ -101,7 +101,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         t.text_label,
     );
 
-    // The body: each pane draws its own (People and Places are empty until their milestone).
+    // The body: each pane draws its own.
     let body = Rect::from_min_max(pos2(rect.min.x, header.max.y), rect.max);
     widgets::register(&ctx, &format!("pane:{id}"), Role::Other, name, Target::Painted { rect: body, clip: rect }, false);
     if body.is_positive() {
@@ -110,7 +110,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         match pane {
             Pane::Properties => super::properties::show(app, &mut inner),
             Pane::Tags => super::tags::show(app, &mut inner),
-            Pane::People | Pane::Places => {}
+            Pane::People => super::people_pane::show(app, &mut inner),
+            Pane::Places => super::places::show(app, &mut inner),
         }
     }
 

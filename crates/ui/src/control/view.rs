@@ -31,6 +31,8 @@ pub const REGIONS: &[&str] = &[
     "filmstrip",
     "captionBar",
     "room",
+    "people",
+    "places",
 ];
 
 /// `ui.screenshot {region: "<name>"}`: the region's widget (`region:<name>`) to crop to;
@@ -97,10 +99,15 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     let mut merged = state_json(call)?;
     if let Some(obj) = merged.as_object_mut() {
         for (key, value) in changes {
-            // `edit`, `export`, `options` and `import` merge field by field (`{"edit": {"zoom": 2}}`
-            // keeps the photo and the tab); every other field is replaced whole.
+            // `edit`, `export`, `options`, `import` and M13's `unnamed`, `people`, `peoplePane` and
+            // `places` merge field by field (`{"edit": {"zoom": 2}}` keeps the photo and the tab);
+            // every other field is replaced whole.
             match (key.as_str(), value, obj.get_mut(&key)) {
-                ("edit" | "export" | "options" | "import", Value::Object(fields), Some(Value::Object(current))) => current.extend(fields),
+                (
+                    "edit" | "export" | "options" | "import" | "unnamed" | "people" | "peoplePane" | "places",
+                    Value::Object(fields),
+                    Some(Value::Object(current)),
+                ) => current.extend(fields),
                 (_, value, _) => {
                     obj.insert(key, value);
                 }
@@ -125,6 +132,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     new.check_m9().map_err(|e| call.bad(e))?;
     new.check_m10().map_err(|e| call.bad(e))?;
     new.check_m11().map_err(|e| call.bad(e))?;
+    new.check_m13().map_err(|e| call.bad(e))?;
     let tray = &new.tray;
     if tray.held.len() > MAX_IDS || tray.selected.len() > MAX_IDS || new.collapsed_folders.len() > MAX_IDS {
         return Err(Error::new(Code::Limit, format!("`tray.held`, `tray.selected` and `collapsedFolders` take at most {MAX_IDS} ids each")));
@@ -164,6 +172,9 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
         .chain(new.m11_photos())
         .find(|id| !library.is_some_and(|l| l.photo(**id).is_some()))
     {
+        return Err(Error::new(Code::NotFound, format!("no photo {id}")));
+    }
+    if let Some(id) = new.m13_photos().find(|id| !library.is_some_and(|l| l.photo(*id).is_some())) {
         return Err(Error::new(Code::NotFound, format!("no photo {id}")));
     }
     // The commands the shortcut editor's draft names must be ones the keymap knows.

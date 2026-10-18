@@ -40,22 +40,40 @@ pub fn ui_keys() -> Vec<(&'static str, DefaultKeys)> {
 /// The command a press of `key` runs in the library, given what the keymap binds it to: Delete
 /// and Ctrl+Delete are routed by section ([`delete_route`]); every other key runs its binding.
 pub fn route(app: &App, key: &Key, bound: Option<String>) -> Option<String> {
-    delete_route(app, key, bound.as_deref()).map(str::to_string).or(bound)
+    if let Some(routed) = delete_route(app, key, bound.as_deref()) {
+        return Some(routed.to_string());
+    }
+    // The Unnamed grid shows no photos: Delete there never deletes the selected photos.
+    let text = key.to_string();
+    let deletes = (text == "Delete" || text == "Ctrl+Delete") && bound.as_deref().is_none_or(|b| b == "photo.delete" || b == "album.remove");
+    if deletes && app.state().unnamed.open {
+        return None;
+    }
+    bound
 }
 
 /// What Delete and Ctrl+Delete run (`menus-and-shortcuts.md` §2.2), unless the user bound them to
 /// another command: Delete in an album section is Remove from Album (`album.remove`), elsewhere
-/// Delete from Disk (`photo.delete`); Ctrl+Delete is always Delete from Disk. `None` for other
-/// keys and for a Delete key the user gave another command.
+/// Delete from Disk (`photo.delete`); Ctrl+Delete is always Delete from Disk. While the Unnamed
+/// grid shows with faces selected, Delete ignores them (`faces.ignoreSelected`, `organizing.md`
+/// §6.2) and Ctrl+Delete does nothing. `None` for other keys and for a Delete key the user gave
+/// another command.
 pub fn delete_route(app: &App, key: &Key, bound: Option<&str>) -> Option<&'static str> {
     let text = key.to_string();
     let (plain, ctrl) = (text == "Delete", text == "Ctrl+Delete");
     if !(plain || ctrl) || bound.is_some_and(|b| b != "photo.delete" && b != "album.remove") {
         return None;
     }
+    let unnamed = &app.state().unnamed;
+    if unnamed.open {
+        return (plain && !unnamed.selection.is_empty()).then_some(FACES_DELETE);
+    }
     let in_album = app.state().selection.section.is_some_and(crate::state::Section::is_album);
     Some(if plain && in_album { "album.remove" } else { "photo.delete" })
 }
+
+/// What Delete runs in the Unnamed grid with faces selected.
+pub const FACES_DELETE: &str = "faces.ignoreSelected";
 
 /// What Delete runs while the library tree has the focus (`tree_focused`): Folder ▸ Delete…
 /// (`folder.delete`) when the tree's selected row is a library folder (the selection is not in an
@@ -140,7 +158,7 @@ pub fn targets(app: &App, id: &str) -> Vec<dalica_core::PhotoId> {
 /// ([`targets`]); Remove from Album passes the album of the selected section too, and Delete from
 /// Disk its photos whether or not the engine has registered it yet (the question counts them).
 pub fn params_for(app: &App, id: &str) -> Value {
-    if let Some(p) = crate::commands::batch::params_for(app, id) {
+    if let Some(p) = crate::commands::batch::params_for(app, id).or_else(|| crate::commands::places::params_for(app, id)) {
         return p;
     }
     let takes_ids = app.session().and_then(|s| s.spec(id)).is_some_and(|spec| spec.params.contains("\"ids\""));
@@ -423,6 +441,24 @@ mod tests {
         ctx.end_pass().textures_delta.clear();
         let captured: Vec<String> = app.state().options.as_ref().unwrap().shortcuts.captured.iter().map(Key::to_string).collect();
         assert_eq!(captured, ["Ctrl+C", "Ctrl+X", "Ctrl+V"]);
+    }
+
+    /// In the Unnamed grid Delete ignores the faces selected and never deletes photos.
+    #[test]
+    fn delete_in_the_unnamed_grid_ignores_faces_and_never_deletes_photos() {
+        let (_dir, s, ids) = crate::app::tests::session_with_photos(2);
+        let mut app = App::new(Some(s));
+        app.run("select.set", &json!({ "ids": [ids[0]] })).unwrap();
+        let delete = Key::parse("Delete").unwrap();
+        let ctrl = Key::parse("Ctrl+Delete").unwrap();
+        assert_eq!(route(&app, &delete, Some("photo.delete".into())).as_deref(), Some("photo.delete"));
+        app.state_mut().unnamed.open = true;
+        assert_eq!(route(&app, &delete, Some("photo.delete".into())), None, "no face selected");
+        assert_eq!(route(&app, &ctrl, Some("photo.delete".into())), None);
+        app.state_mut().unnamed.selection = vec![crate::state::FaceRef { photo: ids[0], index: 0 }];
+        assert_eq!(route(&app, &delete, Some("photo.delete".into())).as_deref(), Some(FACES_DELETE));
+        assert_eq!(route(&app, &ctrl, Some("photo.delete".into())), None);
+        assert_eq!(route(&app, &delete, Some("photo.star.toggle".into())).as_deref(), Some("photo.star.toggle"), "a key the user rebound");
     }
 
     /// Ctrl+− reaches the keymap and runs the edit view's `edit.zoom.out` once (×1/1.25).

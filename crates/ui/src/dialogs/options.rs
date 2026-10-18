@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! Options
-//! [General] [File Types] [Slideshow] [Photo Viewer] [Export] [Keyboard Shortcuts]
+//! [General] [File Types] [Slideshow] [Network] [People] [Photo Viewer] [Export] [Keyboard Shortcuts]
 //! ┌──────────────────────────────────────────────────┐
 //! │ the tab's body                                   │
 //! └──────────────────────────────────────────────────┘
@@ -16,8 +16,9 @@
 //!
 //! This module is the frame: the tabs (`tab:options.<tab>`), the body's fixed height (the dialog is
 //! 720 × 540 points at 100 %, never larger than the window), the error line and the buttons. Each
-//! tab's body is a module of its own ([`general`], [`file_types`], [`slideshow`], [`viewer`],
-//! [`export`], [`shortcuts`]), so the tasks that draw them never share a file.
+//! tab's body is a module of its own ([`general`], [`file_types`], [`slideshow`], [`network`],
+//! [`people`], [`viewer`], [`export`], [`shortcuts`]), so the tasks that draw them never share a
+//! file.
 //!
 //! - **Apply** (`button:dialog.apply`, enabled while the draft changes something) sends the changed
 //!   values in one `options.set {values}` and the shortcut editor's changes
@@ -30,6 +31,8 @@
 pub mod export;
 pub mod file_types;
 pub mod general;
+pub mod network;
+pub mod people;
 pub mod shortcuts;
 pub mod slideshow;
 pub mod viewer;
@@ -57,10 +60,12 @@ const SCREEN_MARGIN: f32 = 32.0;
 const MIN_CONTENT_H: f32 = 120.0;
 
 /// The tabs: their state value, widget id and label.
-pub const TABS: [(OptionsTab, &str, &str); 6] = [
+pub const TABS: [(OptionsTab, &str, &str); 8] = [
     (OptionsTab::General, "tab:options.general", "General"),
     (OptionsTab::FileTypes, "tab:options.fileTypes", "File Types"),
     (OptionsTab::Slideshow, "tab:options.slideshow", "Slideshow"),
+    (OptionsTab::Network, "tab:options.network", "Network"),
+    (OptionsTab::People, "tab:options.people", "People"),
     (OptionsTab::Viewer, "tab:options.viewer", "Photo Viewer"),
     (OptionsTab::Export, "tab:options.export", "Export"),
     (OptionsTab::Shortcuts, "tab:options.shortcuts", "Keyboard Shortcuts"),
@@ -125,6 +130,8 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
             OptionsTab::General => general::body(app, ui),
             OptionsTab::FileTypes => file_types::body(app, ui),
             OptionsTab::Slideshow => slideshow::body(app, ui),
+            OptionsTab::Network => network::body(app, ui),
+            OptionsTab::People => people::body(app, ui),
             OptionsTab::Viewer => viewer::body(app, ui),
             OptionsTab::Export => export::body(app, ui),
             OptionsTab::Shortcuts => shortcuts::body(app, ui),

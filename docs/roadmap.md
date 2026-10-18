@@ -7657,7 +7657,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     `crates/engine/tests/options_catalogue.rs` covers the People and Network tabs, every option
     once, each default equal to its accessor's; every existing engine test and `panic_hunt` pass
     unchanged.
-- ⬜ **M13.4 `ui`: M13's view state, UI commands and the stubs**
+- ✅ **M13.4 `ui`: M13's view state, UI commands and the stubs**
   - after: M12.2, M12.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/drag.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/people.rs`, `crates/ui/src/commands/faces.rs`, `crates/ui/src/commands/people_pane.rs`, `crates/ui/src/commands/suggestions.rs`, `crates/ui/src/commands/face_model.rs`, `crates/ui/src/commands/places.rs`, `crates/ui/src/commands/map.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/faces.rs`, `crates/ui/src/panels/faces/**`, `crates/ui/src/panels/people_pane.rs`, `crates/ui/src/panels/people_pane/**`, `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/**`, `crates/ui/src/panels/edit/faces.rs`, `crates/ui/src/panels/light_table/suggestions.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/new_person.rs`, `crates/ui/src/dialogs/people.rs`, `crates/ui/src/dialogs/face_model.rs`, `crates/ui/src/dialogs/geotag_confirm.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/people.rs`, `crates/ui/src/dialogs/options/network.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M13 field of `UiState` in one go: the Unnamed view (expanded groups, ignored

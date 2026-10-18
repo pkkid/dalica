@@ -9,16 +9,24 @@
 //! the photo viewer ([`viewer`]); compare is the edit view's (`edit::compare`). A slideshow and the
 //! viewer fill the window; a room in front replaces the library's content under the tab strip;
 //! the quick preview covers whatever is shown.
+//!
+//! M13's surfaces, stubs until the tasks that draw them: the Unnamed grid ([`faces`], in the light
+//! table's region while `unnamed.open`), the People pane ([`people_pane`]) and the Places pane
+//! ([`places`]) in the side pane, the face boxes on the edit view's photo (`edit::faces`) and a
+//! person section's suggestion strip (`light_table::suggestions`).
 
 pub mod activity;
 pub mod bottom;
 pub mod edit;
+pub mod faces;
 pub mod folders;
 pub mod import;
 pub mod layout;
 pub mod light_table;
 pub mod menubar;
 pub mod peek;
+pub mod people_pane;
+pub mod places;
 pub mod properties;
 pub mod rooms;
 pub mod search_banner;
@@ -188,8 +196,13 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     if let Some(rect) = l.banner {
         region(ui, "banner", rect, t.filter_banner, |ui| search_banner::show(app, ui));
     }
-    // The light table and its scroll bar, side by side.
-    region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| light_table::show(p, app, ui, l.light_table, l.scrollbar));
+    // The light table and its scroll bar, side by side; the Unnamed grid in their place while it
+    // is open.
+    if app.state().unnamed.open {
+        region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| faces::show(app, ui));
+    } else {
+        region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| light_table::show(p, app, ui, l.light_table, l.scrollbar));
+    }
     if let Some(rect) = l.side_pane {
         region(ui, "sidePane", rect, t.chrome, |ui| side_pane::show(app, ui));
     }

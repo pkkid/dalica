@@ -35,6 +35,15 @@
 //! - M12's areas, stubs until the tasks that fill them: [`effects`] (the one-click effects,
 //!   `edit.effect.apply` and `edit.bw`, M12.15) and [`effect_session`] (the effect panels'
 //!   session behind `edit.tool.open {tool: "effect", name}`, M12.16).
+//! - M13's areas, stubs until the tasks that fill them, so those tasks never share a file:
+//!   [`faces`] (the Unnamed grid and the face menu, M13.21), [`people`] (the People group, the
+//!   person sections and the person menu, M13.25), [`people_pane`] (the People pane, M13.24),
+//!   [`suggestions`] (M13.30), [`face_model`] (the face model dialog, M13.27), [`places`] (the
+//!   Places pane and Tools ▸ Geotag, M13.22) and [`map`] (the map's zoom, pan, search and tiles,
+//!   M13.28). Their ids are the UI's own, never an engine command's (`faces.ignore`,
+//!   `faces.confirm` and `map.allow` stay the engine's): a UI command of the same id would hide the
+//!   engine's from `engine.execute`. The person menu's rows and Clear Location… are openers of the
+//!   engine's `people.rename`, `people.merge`, `people.delete` and `geo.clear`.
 //!
 //! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
 //! (`photo.rename {ids, name}`, `photo.moveToNewFolder`, `folder.move`) opens its dialog in the UI,
@@ -64,13 +73,19 @@ pub mod edit_view;
 pub mod effect_session;
 pub mod effects;
 pub mod export;
+pub mod face_model;
+pub mod faces;
 pub mod files;
 pub mod folder_ops;
 pub mod help;
 pub mod import;
 pub mod info;
+pub mod map;
 pub mod options;
 pub mod peek;
+pub mod people;
+pub mod people_pane;
+pub mod places;
 pub mod rename;
 pub mod rooms;
 pub mod save;
@@ -79,6 +94,7 @@ pub mod scroll;
 pub mod search;
 pub mod select;
 pub mod slideshow;
+pub mod suggestions;
 pub mod tools;
 pub mod tray;
 pub mod view;
@@ -139,6 +155,13 @@ const AREAS: &[&[UiCommand]] = &[
     compare::COMMANDS,
     batch::COMMANDS,
     viewer::COMMANDS,
+    faces::COMMANDS,
+    people::COMMANDS,
+    people_pane::COMMANDS,
+    suggestions::COMMANDS,
+    face_model::COMMANDS,
+    places::COMMANDS,
+    map::COMMANDS,
 ];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it
@@ -161,6 +184,13 @@ const CHECKS: &[&[(&str, Check)]] = &[
     slideshow::CHECKS,
     compare::CHECKS,
     viewer::CHECKS,
+    faces::CHECKS,
+    people::CHECKS,
+    people_pane::CHECKS,
+    suggestions::CHECKS,
+    face_model::CHECKS,
+    places::CHECKS,
+    map::CHECKS,
 ];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
@@ -194,7 +224,17 @@ pub struct Opener {
 }
 
 /// Every opener.
-pub const OPENERS: &[Opener] = &[rename::RENAME, files::MOVE_TO_NEW_FOLDER, folder_ops::MOVE, search::SAVE_RESULTS, batch::UNDO_ALL];
+pub const OPENERS: &[Opener] = &[
+    rename::RENAME,
+    files::MOVE_TO_NEW_FOLDER,
+    folder_ops::MOVE,
+    search::SAVE_RESULTS,
+    batch::UNDO_ALL,
+    people::RENAME,
+    people::MERGE,
+    people::DELETE,
+    places::CLEAR,
+];
 
 /// The opener of `id`, if it has one.
 pub fn opener(id: &str) -> Option<&'static Opener> {
@@ -294,11 +334,10 @@ mod tests {
         for o in OPENERS {
             assert!(!UI_COMMANDS.iter().any(|c| c.id == o.id), "{} is a UI command too", o.id);
             assert!(crate::menus::DIALOGS.iter().any(|(c, d)| *c == o.id && *d == o.dialog), "{} names its dialog in menus::DIALOGS", o.id);
-            assert!(
-                crate::menu_catalog::MENU_BAR.iter().any(|m| crate::menu_catalog::items(m.entries).iter().any(|i| i.id == o.id)),
-                "{} has a menu item",
-                o.id
-            );
+            // A row of the bar, or of a context menu whose rows are not the bar's (the person menu).
+            let menus = crate::menu_catalog::MENU_BAR.iter().map(|m| m.entries).chain([crate::menu_catalog::PERSON]);
+            let listed = menus.into_iter().any(|e| crate::menu_catalog::items(e).iter().any(|i| i.id == o.id));
+            assert!(listed || crate::menu_catalog::DYNAMIC_COMMANDS.contains(&o.id), "{} has a menu item", o.id);
         }
         assert_eq!(opener("photo.rename").map(|o| o.dialog), Some("renameFiles"));
         assert!(opener("photo.star.toggle").is_none());
