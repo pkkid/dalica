@@ -7704,7 +7704,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     each new icon stays in its grid at 12, 16, 20 and 28 px in rest, hover and disabled colours;
     gallery and icon fingerprints; `widget_ids`, contrast, `cargo xtask assets` and `cargo xtask
     names` pass.
-- ⬜ **M13.6 `faces`: the pure-Rust ONNX interpreter and its limits**
+- ✅ **M13.6 `faces`: the pure-Rust ONNX interpreter and its limits**
   - after: M12.R
   - files: `crates/faces/src/graph.rs`, `crates/faces/src/graph/**`, `crates/faces/src/net.rs`, `crates/faces/src/net/**`, `crates/faces/src/onnx.rs`, `crates/faces/src/runtime.rs`, `crates/faces/src/limits.rs`, `crates/faces/src/synthetic.rs`, `crates/faces/tests/inference.rs`, `crates/faces/fuzz/**`, `crates/faces/README.md`, `.github/workflows/fuzz.yml`, `docs/security.md`, `NOTICE`
   - scope: `faces.md` §2: a bounded reader of small ONNX files (nodes, attributes, float32 weights;

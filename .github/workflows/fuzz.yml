@@ -1,9 +1,10 @@
-# Fuzzing `dalica-image` and `dalica-meta` (docs/security.md §7): every target of `crates/image/fuzz`
-# and `crates/meta/fuzz` (separate cargo-fuzz workspaces on nightly Rust). Like every test run on
-# GitHub, it runs only at a milestone review (the pull request of a `review/M<n>.R` branch: every
-# target built and run for 60 s) and when dispatched by hand (`seconds` per target); a task's pull
-# request runs nothing (docs/development.md §3). `dalica-meta` reads through `dalica-image`'s IFD
-# walker, so both jobs always run together.
+# Fuzzing `dalica-image`, `dalica-meta` and `dalica-faces` (docs/security.md §7): every target of
+# `crates/image/fuzz`, `crates/meta/fuzz` and `crates/faces/fuzz` (separate cargo-fuzz workspaces on
+# nightly Rust). Like every test run on GitHub, it runs only at a milestone review (the pull request
+# of a `review/M<n>.R` branch: every target built and run for 60 s) and when dispatched by hand
+# (`seconds` per target); a task's pull request runs nothing (docs/development.md §3).
+# `dalica-meta` reads through `dalica-image`'s IFD walker, so those jobs always run together;
+# `dalica-faces` (the face models' reader and interpreter) has its own job.
 # Actions are pinned to full commit hashes (docs/security.md §8.5).
 name: Fuzz
 
@@ -102,4 +103,42 @@ jobs:
         with:
           name: fuzz-artifacts-meta
           path: crates/meta/fuzz/artifacts
+          if-no-files-found: ignore
+
+  faces:
+    name: fuzz dalica-faces
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: crates/faces/fuzz
+      - name: Install cargo-fuzz
+        run: cargo +nightly install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+      - name: Build every target
+        working-directory: crates/faces/fuzz
+        run: cargo +nightly fuzz build
+      - name: Run every target
+        working-directory: crates/faces/fuzz
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '60' }}
+        run: |
+          for target in $(cargo +nightly fuzz list); do
+            echo "::group::$target"
+            cargo +nightly fuzz run "$target" -- -max_total_time="$SECONDS_PER_TARGET" -rss_limit_mb=2048
+            echo "::endgroup::"
+          done
+      - name: Keep crash inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-faces
+          path: crates/faces/fuzz/artifacts
           if-no-files-found: ignore

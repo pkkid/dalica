@@ -12,6 +12,10 @@ publish = false
 autotests = false
 
 [dependencies]
+# Safe matrix views over `matrixmultiply`'s single-threaded GEMM (no BLAS, no threads of its own).
+ndarray.workspace = true
+matrixmultiply.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
