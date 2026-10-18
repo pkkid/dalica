@@ -10,9 +10,9 @@
 //! |---|---|
 //! | `scan_folder` | `folders.set` (Scan Once) or `folders.add` (Scan Always), waiting for the scan job; then `jobs.list` (the job's result) and `library.inspect` (the folders under the path, their counts and problems) |
 //! | `query_photos` | `library.query` (the search grammar and its filters), then `photo.inspect` and the `library.inspect` rows of the folders involved for each photo's fields |
-//! | `photo_info` | `photo.inspect`, `photo.metadata` (asked again until the file has been read), `photo.history.state`, the photo's `library.inspect` row and `tray.state` |
+//! | `photo_info` | `photo.inspect`, `photo.metadata` (asked again until the file has been read), `photo.history.state`, `places.list` (its geotag), `faces.list` (its faces), the photo's `library.inspect` row and `tray.state` |
 //! | `select_photos` | `tray.select` |
-//! | `set_metadata` | `engine.group` of `photo.star.set`, `photo.caption.set`, `photo.tags.add` / `.remove`, `photo.hide` / `.unhide`, `photo.dates.set`: one undo step |
+//! | `set_metadata` | `engine.group` of `photo.star.set`, `photo.caption.set`, `photo.tags.add` / `.remove`, `photo.hide` / `.unhide`, `photo.geo.set`, `photo.dates.set`: one undo step |
 //! | `create_album` | `album.create` (the tray's photos by default, from `tray.state`) |
 //! | `jobs_list`, `jobs_cancel` | `jobs.list`, `jobs.cancel` |
 //!
@@ -20,6 +20,11 @@
 //! `video: false`, `geotagged: false`, `taken_after`, `taken_before`) and a `sort` other than the
 //! light table's order are applied here to the fields the engine reported for every match (at most
 //! [`MAX_MATCHES`]); without them only the page is looked up.
+//!
+//! **People data** (`mcp.md` §5, `faces.md` §7): `photo_info`'s faces come from `faces.list`
+//! through the backend, which withholds names and rectangles without `--automation-allow-people`
+//! (`Policy::people_reply`); this module adds none of its own. `query_photos {query:
+//! "person:<name>"}` is the search box's grammar, answered by the engine.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -73,7 +78,7 @@ pub(crate) fn tools() -> Vec<Tool> {
         Tool {
             name: "query_photos",
             title: "Query photos",
-            description: "Photos matching the light table's search and filters, without entering search mode. `query` uses the search box's grammar: words (all must match, as prefixes), `-word` (not), `tag:word`, `camera:word`. `tags` adds `tag:` terms (each word of each tag). Filters: `section` (folder:<id>, album:<id>, album:starred, album:recent), `starred`, `has_caption`, `edited` (unsaved edits), `hidden`, `video`, `geotagged`, `taken_after` / `taken_before` (YYYY, YYYY-MM, YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS, both inclusive, on the effective date). `sort` date | name | size | modified | manual (the light table's order, the default), `reverse`. Paged by `offset` and `limit` (100, at most 1000). Answers {total, offset, photos: [{id, path, name, section, star, caption, tags, date, width, height, edited, hidden, video}]}. Changes nothing.".into(),
+            description: "Photos matching the light table's search and filters, without entering search mode. `query` uses the search box's grammar: words (all must match, as prefixes), `-word` (not), `tag:word`, `camera:word`. `tags` adds `tag:` terms (each word of each tag). Filters: `section` (folder:<id>, album:<id>, album:starred, album:recent), `starred`, `has_caption`, `edited` (unsaved edits), `hidden`, `video`, `geotagged`, `taken_after` / `taken_before` (YYYY, YYYY-MM, YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS, both inclusive, on the effective date). `sort` date | name | size | modified | manual (the light table's order, the default), `reverse`. Paged by `offset` and `limit` (100, at most 1000). `person:name` finds the photos of a person (names and nicknames, as prefixes). Answers {total, offset, photos: [{id, path, name, section, star, caption, tags, date, width, height, edited, hidden, video, geo, geotag}]} (geo: whether it is geotagged; geotag: [latitude, longitude] or null). Changes nothing.".into(),
             input: object(
                 json!({
                     "query": {"type": "string", "description": "Search text (the search box's grammar)"},
@@ -104,7 +109,7 @@ pub(crate) fn tools() -> Vec<Tool> {
         Tool {
             name: "photo_info",
             title: "Photo info",
-            description: "Everything Dalica knows about one photo: path, name, section, file size, dimensions (the file's and as displayed), dates (taken, set by the user, the file's, file modified, digitized), the EXIF summary, star, caption, tags, rotation, the recipe (string and list, and the redo list), albums, geotag, hidden, held in the Photo Tray, whether an originals backup is present, unsaved edits, video. Changes nothing.".into(),
+            description: "Everything Dalica knows about one photo: path, name, section, file size, dimensions (the file's and as displayed), dates (taken, set by the user, the file's, file modified, digitized), the EXIF summary, star, caption, tags, rotation, the recipe (string and list, and the redo list), albums, geotag ([latitude, longitude] or null: the location set in Dalica, else the file's GPS) and geo (whether it has one), faces ([{id, person, name, rect, displayed, ignored}]: names and rectangles only when the server was started with --automation-allow-people; without it names are null and rectangles left out), hidden, held in the Photo Tray, whether an originals backup is present, unsaved edits, video. Changes nothing.".into(),
             input: object(json!({ "id": {"type": "integer", "description": "Photo id"} }), &["id"]),
             output: Some(json!({"type": "object", "properties": {
                 "id": {"type": "integer"}, "path": {"type": "string"}, "recipe": {"type": "object"},
@@ -136,7 +141,7 @@ pub(crate) fn tools() -> Vec<Tool> {
         Tool {
             name: "set_metadata",
             title: "Set metadata",
-            description: "Change organizer data of photos as one undo step (one Edit ▸ Undo restores all of it): `star`, `caption` (\"\" clears it), `tags_add`, `tags_remove`, `hidden`, `date` (YYYY-MM-DDTHH:MM:SS, the date taken). Written to the sidecars and, per the Options, into the files' metadata. `geo` is not available until Places (M13). Answers {ids, changed, results}.".into(),
+            description: "Change organizer data of photos as one undo step (one Edit ▸ Undo restores all of it): `star`, `caption` (\"\" clears it), `tags_add`, `tags_remove`, `hidden`, `geo` ([latitude, longitude] in degrees gives the photos that location; null removes their location, as Clear Location does), `date` (YYYY-MM-DDTHH:MM:SS, the date taken). Written to the sidecars and, per the Options (Write captions, tags and places), into the files' metadata: a location as EXIF GPS. Moving the location of more than 20 photos that already have one, or removing it from more than 5, asks first: `needs_confirm` until `confirm: true`. Answers {ids, changed, results}.".into(),
             input: object(
                 json!({
                     "ids": {"type": "array", "items": {"type": "integer"}, "description": IDS},
@@ -145,8 +150,9 @@ pub(crate) fn tools() -> Vec<Tool> {
                     "tags_add": {"type": "array", "items": {"type": "string"}},
                     "tags_remove": {"type": "array", "items": {"type": "string"}},
                     "hidden": {"type": "boolean"},
-                    "geo": {"type": ["array", "null"], "items": {"type": "number"}, "description": "[latitude, longitude] or null (not available until M13)"},
+                    "geo": {"type": ["array", "null"], "items": {"type": "number"}, "description": "[latitude, longitude] in degrees, or null to remove the location"},
                     "date": {"type": "string", "description": "Date taken, YYYY-MM-DDTHH:MM:SS"},
+                    "confirm": {"type": "boolean", "description": "Go ahead where Dalica asks first (moving the location of more than 20 geotagged photos, removing it from more than 5)"},
                 }),
                 &[],
             ),
@@ -413,7 +419,7 @@ fn photo_summary(info: &Value, row: Option<&Value>) -> Value {
         "section": info.get("folder").and_then(Value::as_u64).map(|f| format!("folder:{f}")),
         "star": info["star"], "caption": info["caption"], "tags": info["tags"], "date": info["effectiveDate"],
         "width": info["width"], "height": info["height"], "edited": edited, "hidden": info["hidden"], "video": from_row("video"),
-        "geo": from_row("geo"),
+        "geo": from_row("geo"), "geotag": from_row("place"),
     })
 }
 
@@ -621,6 +627,13 @@ fn photo_info(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) ->
         Value::Null
     };
     let unsaved = row.and_then(|r| r.get("edited")).cloned().unwrap_or_else(|| json!(!edits.is_empty()));
+    // The geotag Dalica uses (the user's, else the file's GPS), whether or not the view shows the
+    // photo; and its faces, whose names and rectangles the backend withholds without the people
+    // permission. An app that has no such command yet answers null.
+    let places = exec(b, progress, "places.list", json!({ "ids": [id] }))?;
+    let geotag = places.pointer("/photos/0/geo").cloned().unwrap_or(Value::Null);
+    let faces =
+        exec(b, progress, "faces.list", json!({ "ids": [id], "ignored": true })).ok().and_then(|f| f.get("faces").cloned()).unwrap_or(Value::Null);
     Ok(json!({
         "id": id,
         "path": info["path"],
@@ -640,8 +653,9 @@ fn photo_info(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) ->
         "rotation": from_row("rotate"),
         "recipe": { "string": edits.join("|"), "list": edits, "redo": history["redo"] },
         "albums": info["albums"],
-        "geotag": metadata.pointer("/file/place").cloned().unwrap_or(Value::Null),
-        "geo": from_row("geo"),
+        "geo": !geotag.is_null(),
+        "geotag": geotag,
+        "faces": faces,
         "hidden": info["hidden"],
         "held": held,
         "originals": originals,
@@ -655,9 +669,6 @@ fn photo_info(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) ->
 // set_metadata, create_album
 
 fn set_metadata(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) -> Result<Value, ToolError> {
-    if args.get("geo").is_some() {
-        return Err(ToolError::new("unsupported", "`geo` is not available until Places (M13)"));
-    }
     let ids = ids_or_tray(b, args, progress)?;
     if ids.is_empty() {
         return Err(ToolError::new("disabled", "Select some photos first, or pass `ids`."));
@@ -687,17 +698,32 @@ fn set_metadata(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) 
         }
         changed.push("hidden");
     }
+    // `geo: null` removes the location: present and null is not absent here.
+    if let Some(geo) = args.get("geo") {
+        let mut params = json!({ "ids": ids, "geo": geo });
+        if let Some(confirm) = arg(args, "confirm") {
+            params["confirm"] = confirm.clone();
+        }
+        steps.push(json!({ "command": "photo.geo.set", "params": params }));
+        changed.push("geo");
+    }
     if let Some(date) = arg(args, "date") {
         steps.push(json!({ "command": "photo.dates.set", "params": { "ids": ids, "set": date } }));
         changed.push("date");
     }
     if changed.is_empty() {
-        return Err(bad("nothing to change: give star, caption, tags_add, tags_remove, hidden or date"));
+        return Err(bad("nothing to change: give star, caption, tags_add, tags_remove, hidden, geo or date"));
     }
     let results = if steps.is_empty() {
         Vec::new()
     } else {
-        let r = b.call("engine.group", json!({ "steps": steps, "label": "Set Metadata" }), progress)?;
+        let r = b.call("engine.group", json!({ "steps": steps, "label": "Set Metadata" }), progress).map_err(|e| {
+            if e.code != "needs_confirm" {
+                return e;
+            }
+            // The question is the location's: set_metadata's own `confirm` answers it.
+            ToolError { message: "this change asks first (`prompt` holds the question): give set_metadata \"confirm\": true to go ahead".into(), ..e }
+        })?;
         r.get("results").and_then(Value::as_array).cloned().unwrap_or_default()
     };
     Ok(json!({ "ids": ids, "changed": changed, "results": results }))

@@ -23,3 +23,5 @@ mod w09_hidden_photos;
 mod w10_import_duplicates;
 mod w11_effects_stack;
 mod w12_destructive_asks;
+mod w13_geotags;
+mod w14_people;

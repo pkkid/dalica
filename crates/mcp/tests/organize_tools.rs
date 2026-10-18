@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 
+use dalica_engine::automation::Policy;
 use dalica_mcp::{Headless, Source};
 use serde_json::{Value, json};
 
@@ -167,6 +168,8 @@ fn photo_info_lists_every_field() {
     for k in [
         "id",
         "path",
+        "geo",
+        "faces",
         "name",
         "section",
         "fileSize",
@@ -228,7 +231,7 @@ fn select_photos_refuses_an_unknown_id_and_changes_nothing() {
 }
 
 /// `set_metadata` with star, caption and tags is one undo step that one `cmd_edit_undo` restores; without
-/// `ids` it acts on the tray; `geo` names Places; nothing to change and an empty tray fail.
+/// `ids` it acts on the tray; nothing to change and an empty tray fail.
 #[test]
 fn set_metadata_is_one_undo_step() {
     let dir = tempfile::tempdir().unwrap();
@@ -252,8 +255,6 @@ fn set_metadata_is_one_undo_step() {
     let tray = ok(&c.call(11, "set_metadata", json!({ "hidden": true, "tags_remove": ["none"] }))).clone();
     assert_eq!(tray["ids"], json!([3]));
     assert_eq!(ok(&c.call(12, "photo_info", json!({ "id": 3 })))["hidden"], true);
-    assert_eq!(code(&c.call(13, "set_metadata", json!({ "ids": [1], "geo": [38.7, -9.1] }))), "unsupported");
-    assert_eq!(code(&c.call(14, "set_metadata", json!({ "ids": [1], "geo": null }))), "unsupported");
     assert_eq!(code(&c.call(15, "set_metadata", json!({ "ids": [1] }))), "bad_params");
     assert_eq!(code(&c.call(16, "set_metadata", json!({ "ids": [1, 99], "star": true }))), "not_found");
     assert_eq!(fields(&mut c, 17, 1).0, json!(false), "a failed group changes nothing");
@@ -280,4 +281,95 @@ fn create_album_from_the_tray() {
     refused(&mut c, 7, "create_album", json!({ "ids": [1] }));
     refused(&mut c, 8, "create_album", json!({ "name": "X", "date": "2026-01-01" }));
     c.close();
+}
+
+/// `set_metadata {geo}` sets and (with `null`) removes the location in the same undo step as the
+/// other fields; `photo_info` and `query_photos` carry the geotag; removing it from more than five
+/// photos is `needs_confirm`, changing nothing, until `confirm: true`; a point off the globe fails.
+#[test]
+fn set_metadata_sets_and_clears_the_location() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = Client::photos(dir.path(), 7, 120, 80);
+    initialize(&mut c);
+    let geotag = |c: &mut Client, id: u64, photo: u64| ok(&c.call(id, "photo_info", json!({ "id": photo })))["geotag"].clone();
+    let set = ok(&c.call(2, "set_metadata", json!({ "ids": [1, 2], "geo": [38.7, -9.1], "star": true }))).clone();
+    assert_eq!(set["changed"], json!(["star", "geo"]), "{set}");
+    assert_eq!(geotag(&mut c, 3, 1), json!([38.7, -9.1]));
+    assert_eq!(ok(&c.call(4, "photo_info", json!({ "id": 1 })))["geo"], true);
+    assert_eq!(geotag(&mut c, 5, 3), Value::Null);
+    let found = ok(&c.call(6, "query_photos", json!({ "geotagged": true }))).clone();
+    assert_eq!((ids(&found), &found["photos"][0]["geotag"]), (vec![1, 2], &json!([38.7, -9.1])), "{found}");
+    ok(&c.call(7, "cmd_edit_undo", json!({})));
+    let info = ok(&c.call(8, "photo_info", json!({ "id": 2 }))).clone();
+    assert_eq!((&info["geotag"], &info["star"]), (&Value::Null, &json!(false)), "one undo takes back the star and the place");
+
+    let all = json!([1, 2, 3, 4, 5, 6, 7]);
+    ok(&c.call(9, "set_metadata", json!({ "ids": all, "geo": [41.15, -8.61] })));
+    let asked = c.call(10, "set_metadata", json!({ "ids": all, "geo": null }));
+    assert_eq!(code(&asked), "needs_confirm", "{asked}");
+    assert!(asked["structuredContent"]["prompt"]["text"].is_string(), "the question: {asked}");
+    assert_eq!(geotag(&mut c, 11, 7), json!([41.15, -8.61]), "nothing changed");
+    ok(&c.call(12, "set_metadata", json!({ "ids": all, "geo": null, "confirm": true })));
+    assert_eq!(geotag(&mut c, 13, 7), Value::Null);
+    assert!(ids(ok(&c.call(14, "query_photos", json!({ "geotagged": true })))).is_empty());
+    assert_eq!(code(&c.call(15, "set_metadata", json!({ "ids": [1], "geo": [91.0, 0.0] }))), "bad_params");
+    assert_eq!(code(&c.call(16, "set_metadata", json!({ "ids": [1], "geo": "Lisbon" }))), "bad_params");
+    c.close();
+}
+
+/// A server over 3 procedural photos (ids 1–3) with or without `--automation-allow-people`.
+fn people_client(dir: &std::path::Path, allow: bool) -> Client {
+    let folder = dir.join("Photos");
+    std::fs::create_dir_all(&folder).unwrap();
+    for i in 0..3u64 {
+        let scene = dalica_scenes::Scene::new(i, 120, 80);
+        std::fs::write(folder.join(format!("IMG_{:04}.jpg", i + 1)), dalica_scenes::jpeg(&scene, 90, None).unwrap()).unwrap();
+    }
+    let mut c = Client::start(move || {
+        let mut policy = Policy::default();
+        policy.set_allow_people(allow);
+        let mut h = Headless::open_with(Source::Empty, &[folder], policy, false).unwrap();
+        h.session_mut().wait_idle();
+        Box::new(h)
+    });
+    initialize(&mut c);
+    c
+}
+
+/// People data over MCP (`mcp.md` §5): without `--automation-allow-people` every reply that
+/// carries it (`faces.add`, `faces.list`, `people.list`, through `command_run`, a `cmd_*` tool or a
+/// `command_batch` step, and `photo_info`'s faces) has names `null` and no face rectangles, ids
+/// and counts kept, and a person's section suggests no export folder named after them; with it
+/// they pass.
+#[test]
+fn people_data_is_withheld_without_the_permission() {
+    for allow in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut c = people_client(dir.path(), allow);
+        let added = ok(&c.call(2, "cmd_faces_add", json!({ "id": 1, "rect": [0.2, 0.2, 0.5, 0.6] }))).clone();
+        assert_eq!((added["face"].as_str(), added.get("rect").is_some()), (Some("1.0"), allow), "{added}");
+        let named =
+            ok(&c.call(3, "command_run", json!({ "id": "faces.name", "params": { "faces": ["1.0"], "name": "Ana", "create": true } }))).clone();
+        let person = named["person"].as_str().unwrap().to_string();
+        let name = if allow { json!("Ana") } else { Value::Null };
+
+        let people = ok(&c.call(4, "cmd_people_list", json!({}))).clone();
+        assert_eq!((&people["people"][0]["name"], &people["people"][0]["count"]), (&name, &json!(1)), "{people}");
+        let faces = ok(&c.call(5, "command_run", json!({ "id": "faces.list", "params": { "ids": [1] } }))).clone();
+        let face = &faces["faces"][0];
+        assert_eq!(
+            (&face["name"], &face["person"], face.get("rect").is_some(), face.get("displayed").is_some()),
+            (&name, &json!(person), allow, allow)
+        );
+        let batch = ok(&c.call(6, "command_batch", json!({ "steps": [{ "id": "people.list" }] }))).clone();
+        assert_eq!(batch["results"][0]["result"]["people"][0]["name"], name, "{batch}");
+        let info = ok(&c.call(7, "photo_info", json!({ "id": 1 }))).clone();
+        assert_eq!((&info["faces"][0]["name"], info["faces"][0].get("rect").is_some()), (&name, allow), "{info}");
+        assert_eq!(ok(&c.call(8, "photo_info", json!({ "id": 2 })))["faces"], json!([]));
+
+        let defaults = ok(&c.call(9, "cmd_export_defaults", json!({ "section": format!("person:{person}") }))).clone();
+        let folder = if allow { json!("Ana") } else { defaults["fallbackName"].clone() };
+        assert_eq!(defaults["folderName"], folder, "{defaults}");
+        c.close();
+    }
 }

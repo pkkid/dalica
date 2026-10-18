@@ -19,6 +19,13 @@
 //!   command that starts jobs waits for them (unless `wait: false`), reporting their photos done
 //!   through the call's [`Progress`] and cancelling them, before their next photo, when it says
 //!   so; the reply is then the job's final entry with its result.
+//! - **People data** (`mcp.md` §5, `faces.md` §7): every command reply, of `engine.execute` and of
+//!   each `engine.group` step, goes through [`Policy::people_reply`]: without
+//!   `--automation-allow-people` the names and nicknames of `faces.list`, `faces.add` and
+//!   `people.list` read `null` and face rectangles are left out (ids and counts kept), and face
+//!   descriptors never leave, whatever was granted. The one other reply that would name a person,
+//!   `export.defaults` of a person's section (`folderName`, the person's name), suggests the
+//!   dialog's fallback name (`Export <date>`) instead, so the `export` tool's folder carries no name.
 //! - **`engine.commands`**, **`jobs.list`**, **`jobs.wait`**, **`jobs.cancel`** as in
 //!   `control-protocol.md` §6.2 and §6.13; the `ui.*` methods need the app (connect mode).
 //! - Three methods of MCP's own for the helpers of `mcp.md` §4.2: **`engine.group {steps,
@@ -230,7 +237,7 @@ impl Headless {
         let before: HashSet<JobId> = self.session.jobs().iter().map(|e| e.job).collect();
         let result = self.session.execute(id, &params);
         self.session.poll();
-        let value = result.map_err(|e| command_error(e, &spec, &params))?;
+        let value = self.people_reply(id, &params, result.map_err(|e| command_error(e, &spec, &params))?);
         if !wait {
             return Ok(value);
         }
@@ -249,6 +256,24 @@ impl Headless {
             Some(entry) => Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
             None => Ok(value),
         }
+    }
+
+    /// The reply of command `id` (run with `params`) as automation may see it: through
+    /// [`Policy::people_reply`], and without the people permission `export.defaults` of a person's
+    /// section suggests the fallback folder name rather than the person's name.
+    fn people_reply(&self, id: &str, params: &Value, reply: Value) -> Value {
+        let policy = self.roots.policy();
+        let mut reply = policy.people_reply(id, reply);
+        let person = params.get("section").and_then(Value::as_str).is_some_and(|s| s.starts_with("person:"));
+        if id == "export.defaults"
+            && person
+            && !policy.allow_people()
+            && let Some(o) = reply.as_object_mut()
+        {
+            let fallback = o.get("fallbackName").cloned().unwrap_or(Value::Null);
+            o.insert("folderName".into(), fallback);
+        }
+        reply
     }
 
     /// The control channel's checks before command `id` runs with `params` (`control-protocol.md`
@@ -301,16 +326,20 @@ impl Headless {
             ));
         }
         let mut prepared: Vec<(&'static str, Value)> = Vec::with_capacity(steps.len());
+        let mut specs = Vec::with_capacity(steps.len());
         for (n, step) in steps.iter().enumerate() {
             let at = |e: ToolError| ToolError { message: format!("step {}: {}", n.saturating_add(1), e.message), ..e };
             let s = fields(step, &["command", "params"], "a step of engine.group").map_err(at)?;
             let Some(id) = s.get("command").and_then(Value::as_str) else { return Err(at(bad("`command` must name the command"))) };
             let (spec, params) = self.prepare(id, s.get("params")).map_err(at)?;
             prepared.push((spec.id, params));
+            specs.push(spec);
         }
         let result = self.session.execute_group(&prepared, label);
         self.session.poll();
-        Ok(json!({ "results": result? }))
+        let results = result.map_err(|e| group_error(e, &specs, &prepared))?;
+        let results: Vec<Value> = prepared.iter().zip(results).map(|((id, params), r)| self.people_reply(id, params, r)).collect();
+        Ok(json!({ "results": results }))
     }
 
     /// `tray.select {ids, section?, mode?, hold?}`: the selection set to, added to or taken from
@@ -588,6 +617,21 @@ fn needs_confirm(spec: &CommandSpec, question: &str) -> ToolError {
     }
 }
 
+/// A group's error as [`command_error`] reports a command's: a step that asks first and was not
+/// given `"confirm": true` (`photo.geo.set` moving or removing many locations) is `needs_confirm`
+/// with its question.
+fn group_error(e: CmdError, specs: &[CommandSpec], steps: &[(&'static str, Value)]) -> ToolError {
+    let asking = specs.iter().zip(steps).find(|(spec, (id, params))| {
+        matches!(&e, CmdError::Disabled(m) if m.contains(&format!("({id})")))
+            && spec.params.contains("\"confirm\"")
+            && params.get("confirm") != Some(&Value::Bool(true))
+    });
+    match asking {
+        Some((spec, (_, params))) => command_error(e, spec, params),
+        None => e.into(),
+    }
+}
+
 /// A command's error as the control channel reports it: an engine refusal that asks for
 /// `"confirm": true` (Delete, Remove from Album, Move…) is `needs_confirm` with its question.
 fn command_error(e: CmdError, spec: &CommandSpec, params: &Value) -> ToolError {
@@ -692,5 +736,28 @@ mod tests {
         assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": [] }))), "limit");
         assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": steps, "label": "Anything" }))), "bad_params");
         assert_eq!(code(call(&mut h, "tray.state", json!({ "x": 1 }))), "bad_params");
+    }
+
+    /// A face drawn as an `engine.group` step answers without its rectangle when the people
+    /// permission was not given, and with it when it was; a group step that asks first (removing
+    /// the location of more than five photos) is `needs_confirm` with its question.
+    #[test]
+    fn group_steps_withhold_people_data_and_ask_first() {
+        for allow in [false, true] {
+            let mut policy = Policy::default();
+            policy.set_allow_people(allow);
+            let mut h = Headless::open_with(Source::Demo, &[], policy, false).unwrap();
+            let steps = json!([{ "command": "faces.add", "params": { "id": 1, "rect": [0.1, 0.1, 0.3, 0.4] } }]);
+            let r = h.call("engine.group", json!({ "steps": steps }), &mut NoProgress).unwrap();
+            assert_eq!((r["results"][0]["face"].as_str(), r["results"][0].get("rect").is_some()), (Some("1.0"), allow), "{r}");
+        }
+        let mut h = Headless::open(Source::Demo, &[]).unwrap();
+        let ids = json!([1, 2, 3, 4, 5, 6]);
+        h.call("engine.group", json!({ "steps": [{ "command": "photo.geo.set", "params": { "ids": ids, "geo": [38.7, -9.1] } }] }), &mut NoProgress)
+            .unwrap();
+        let clear = json!({ "steps": [{ "command": "photo.geo.set", "params": { "ids": ids, "geo": null } }] });
+        let asked = h.call("engine.group", clear, &mut NoProgress).unwrap_err();
+        assert!(asked.code == "needs_confirm" && asked.prompt.is_some(), "{asked:?}");
+        assert!(h.session().library().is_geotagged(PhotoId::new(6)), "nothing changed");
     }
 }

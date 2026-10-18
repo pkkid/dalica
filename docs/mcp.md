@@ -3,7 +3,7 @@
 Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mcp.md` (revision
 59684266); MIT OR Apache-2.0.
 
-> **Status: In progress (M12).** Built (M10.4): the server's core in `crates/mcp` (the framing,
+> **Status: In progress (M13).** Built (M10.4): the server's core in `crates/mcp` (the framing,
 > `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
 > `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7); one tool
@@ -15,7 +15,10 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > W03, W08 and W09 (M10.18); W01, the smoke run of W02 and W03 through the spawned binary
 > (M10.20); W04, W05, W06 and W12 (M10.19); `apply_edit` as Batch Edit, one undo step for all its
 > photos, with W07 and W10 and the workflow floor at the eleven workflows M11 requires (M11.22);
-> W11, the effects stacked (Sepia, Vignette, Border), and the floor at all twelve workflows (M12.20).
+> W11, the effects stacked (Sepia, Vignette, Border), and the floor at all twelve workflows (M12.20);
+> `set_metadata {geo}` live, `photo_info` with the geotag and the faces, people data withheld
+> without `--automation-allow-people` on every reply that carries it, W13 (geotags) and W14
+> (people), and the floor at all fourteen workflows (M13.29).
 
 `dalica-cli mcp` exposes Dalica to AI agents through the
 [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0 over stdio
@@ -153,10 +156,10 @@ plus held photos), as the bottom-bar buttons do.
 | Tool | Arguments | Does |
 |---|---|---|
 | `scan_folder` | `path`, `mode?` (`always` \| `once`, default `once` headless, `always` in the app), `wait?` (true) | Add a folder to the watched folders (Folder Manager) and scan it; returns `{folder, section, photos, videos, skipped, problems}`. Progress notifications per batch of files (§6). The path must be inside a read root. |
-| `query_photos` | `query?`, `section?`, `starred?`, `tags?`, `has_caption?`, `edited?`, `hidden?`, `video?`, `geotagged?`, `taken_after?`, `taken_before?`, `sort?` (`date` \| `name` \| `size` \| `modified` \| `manual`), `reverse?`, `offset?`, `limit?` (100, ≤ 1000) | Photos matching the light-table search (`query` uses the search syntax of `organizing.md` §8.1: words, `"phrases"`, `-word`, `tag:`, `camera:`) and the filters. Returns `{total, photos: [{id, path, name, section, star, caption, tags, date, width, height, edited, hidden, video}]}`. Changes nothing (it does not enter search mode). |
-| `photo_info` | `id` | Everything Dalica knows about one photo: path, file size, dimensions, dates, EXIF summary, star, caption, tags, rotation, recipe (string and list), albums, geotag, hidden, held, originals backup present, unsaved edits. Faces only with `--automation-allow-people`. |
+| `query_photos` | `query?`, `section?`, `starred?`, `tags?`, `has_caption?`, `edited?`, `hidden?`, `video?`, `geotagged?`, `taken_after?`, `taken_before?`, `sort?` (`date` \| `name` \| `size` \| `modified` \| `manual`), `reverse?`, `offset?`, `limit?` (100, ≤ 1000) | Photos matching the light-table search (`query` uses the search syntax of `organizing.md` §8.1: words, `"phrases"`, `-word`, `tag:`, `camera:`) and the filters; `person:name` finds a person's photos (names and nicknames, as prefixes). Returns `{total, photos: [{id, path, name, section, star, caption, tags, date, width, height, edited, hidden, video, geo, geotag}]}`. Changes nothing (it does not enter search mode). |
+| `photo_info` | `id` | Everything Dalica knows about one photo: path, file size, dimensions, dates, EXIF summary, star, caption, tags, rotation, recipe (string and list), albums, geotag (`[lat, lon]` or `null`: the location set in Dalica, else the file's GPS) and `geo` (whether it has one), faces, hidden, held, originals backup present, unsaved edits. Faces' names and rectangles only with `--automation-allow-people` (§5). |
 | `select_photos` | `ids`, `section?`, `mode?` (`replace` \| `add` \| `remove`), `hold?` | Set the light-table selection (one section at a time, `ui-layout.md` §5.4) and optionally hold it in the tray. An unknown id is an error and leaves the selection unchanged. |
-| `set_metadata` | `ids?`, `star?`, `caption?`, `tags_add?`, `tags_remove?`, `hidden?`, `geo?` (`[lat, lon]` or `null`), `date?` | Change organizer data in **one undo step**; written to sidecars and (per the Options) into file metadata (`data-model.md` §5). |
+| `set_metadata` | `ids?`, `star?`, `caption?`, `tags_add?`, `tags_remove?`, `hidden?`, `geo?` (`[lat, lon]` or `null`), `date?`, `confirm?` | Change organizer data in **one undo step**; written to sidecars and (per the Options) into file metadata (`data-model.md` §5). `geo` is `photo.geo.set`: `null` removes the location, as Clear Location does; moving the location of more than 20 geotagged photos, or removing it from more than 5, answers `needs_confirm` until `confirm: true`. |
 | `create_album` | `name`, `ids?`, `description?` | New album with these photos (default: the tray); returns `{album, section}`. |
 | `list_edit_ops` | `op?` | Every edit operation: name, label, parameters with ranges and defaults, whether it changes the canvas size, its milestone and whether it is available yet (the tables of `editing.md` and `data-model.md` §3.1). |
 | `get_recipe` | `id` | `{recipe: "crop(…)\|autofix()\|sepia()", ops: [{op, params}], redo: […], saved}` |
@@ -173,9 +176,11 @@ light table shows them (`library.inspect`), `skipped` being the files its scan c
 and `video` / `geotagged: true` to `library.query`, and applies the other filters and `sort` to the
 fields of every match (at most 10 000; more is `limit`, asking to narrow the query). `photo_info`
 answers `{id, path, name, section, fileSize, dimensions, dates, exif, star, caption, tags,
-rotation, recipe: {string, list, redo}, albums, geotag, geo, hidden, held, originals,
+rotation, recipe: {string, list, redo}, albums, geotag, geo, faces, hidden, held, originals,
 unsavedEdits, video}`; `originals` is `null` while the photo has unsaved edits (no query says it
-then). `set_metadata` with `geo` (even `null`) answers `unsupported` until Places (M13). In
+then); `geotag` comes from `places.list` and `faces` from `faces.list` (M13.29). `set_metadata`
+with `geo` adds a `photo.geo.set` step to its group (M13.29; a step that asks first is
+`needs_confirm` with its question, headless as through `engine.execute`). In
 headless mode the backend adds three methods for them: `engine.group {steps, label?}` (several
 library commands as one undo step), `tray.select {ids, section?, mode?, hold?}` and `tray.state`;
 connect mode maps them onto the app (a grouped execute, `select.set` then `tray.hold`,
@@ -250,14 +255,23 @@ with one addition: **client roots**.
   root; destructive ones need `confirm: true`.
 - Effects outside Dalica (`control-protocol.md` §5.6) are refused without
   `--automation-allow-external`; people names and face regions are withheld without
-  `--automation-allow-people`; face descriptors are never returned.
+  `--automation-allow-people`; face descriptors are never returned. Headless, every reply of
+  `engine.execute` and of each `engine.group` step goes through the engine's
+  `Policy::people_reply` (`faces.list`, `faces.add`, `people.list`: names and nicknames `null`,
+  `rect` and `displayed` left out, ids and counts kept), so every tool that runs a command
+  (`command_run`, `command_batch`, `cmd_*`, `photo_info`'s faces) answers the same; and
+  `export.defaults` of a person's section suggests its fallback name (`Export <date>`), not the
+  person's, so the `export` tool's default folder names nobody. The commands themselves run as
+  asked (naming a face works without the permission; its reply carries ids only).
 - `--read-only` overrides all of this: nothing is written at all. Commands that write files
   (saves, exports, file operations) answer `read_only`; every other change stays in memory. The
   refusal lives in the engine's session, not in the tools (`security.md` §6.6).
 - The latest `roots/list` answer replaces the client's roots, so a removed root stops granting at
   once; an error answer drops them all; only local `file://` URIs (no host, or `localhost`) count.
 - **Connect mode** uses the policy of the desktop process (its flags); the MCP process's own root
-  flags are ignored there, as in PhotoCraft.
+  flags are ignored there, as in PhotoCraft. People data is the exception: the app withholds it
+  by its policy, and the MCP process withholds it again (`Connect::allow_people`, from its own
+  `--automation-allow-people`), so names reach the client only when both were started with it.
 
 Results that leave the machine: an MCP client may send tool results (photos rendered by
 `render_photo`, captions, paths) to a remote model. That is the user's choice when they connect a
@@ -364,6 +378,8 @@ Initial workflows (each becomes required in the milestone shown):
 | W10 | **Import with duplicates**: import a card-like folder twice → second import skips duplicates and reports them; destination naming as configured | M11 |
 | W11 | **Effects stack**: `apply_edit` sepia then vignette then border → recipe order kept → `render_photo` size grows for Border → render fingerprint within tolerance (`architecture.md` §11); `list_edit_ops` lists the 27 effects, each `available` when its module renders | M12 |
 | W12 | **Destructive commands ask**: `cmd_photo_delete` without `confirm` → `needs_confirm`, file still there → with `confirm` → file in the OS trash (a test trash directory), sidecar section kept in the undo record | M9 |
+| W13 | **Geotags**: `set_metadata {geo}` on 3 photos of 5 (one undo step) → GPS in each of their files read back, none in the others → `photo_info` and `query_photos {geotagged: true}` report them → `set_metadata {geo: null}` → GPS gone from the files → one `cmd_edit_undo` restores it in the library and the files | M13 |
+| W14 | **People**, with `--automation-allow-people` and Store people names in photos on: faces planted in 5 photos (the folder's sidecar) → 4 named Ana by one `cmd_faces_name` → `query_photos {query: "person:Ana"}` returns those 4 → the MWG regions named Ana in their files, none in the others → a session without the permission reads names `null` and no rectangles (`cmd_people_list`, `cmd_faces_list`, `photo_info`), counts kept, and a person's export folder not named after them | M13 |
 
 New user-visible features add a workflow when they add a user task; a bug report that reproduces as
 a workflow lands with it (it fails before the fix).
