@@ -1017,7 +1017,11 @@ not a redesign (the provider is one line of `http/wire.rs`).
 
 `Cargo.lock` lists `ring` as an optional dependency of `rustls-webpki` that no enabled feature
 turns on; it is never built (`cargo tree -i ring` prints nothing, and `cargo xtask deps` checks the
-resolved graph, §8.1). `rustls-rustcrypto` also brings an older `rustls-webpki` (0.102) for its
+resolved graph, §8.1). `cargo metadata` still lists it under `rustls-webpki`, named by the weak
+feature `alloc = ["ring?/alloc"]`; since M13.20 (when the engine began to link `dalica-fetch`) the
+gate counts an optional dependency only when the parent's resolved features turn it on (`ring`,
+`dep:ring`, `ring/…`, through any chain), and a test keeps it agreeing with `cargo tree -i ring`
+on every target. `rustls-rustcrypto` also brings an older `rustls-webpki` (0.102) for its
 signature-algorithm types; the certificate chain is checked by rustls's own `rustls-webpki` 0.103.
 
 Whatever the stack: certificate validation is never disabled (there is no setting or API to turn

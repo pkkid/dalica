@@ -4,7 +4,9 @@
 //!   [`ALLOWED_LICENCES`]; any other licence (`MPL-2.0`, `CDLA-Permissive-2.0`) and crates without an
 //!   SPDX licence only through [`LICENCE_EXCEPTIONS`], one reviewed row per crate.
 //! - Product graph (what `dalica` and `dalica-cli` link, normal and build edges, resolved separately
-//!   for Linux, Windows and macOS): no [`BANNED`] crate, no crate whose build script depends on a C
+//!   for Linux, Windows and macOS; an optional dependency only when the parent's resolved features
+//!   turn it on, since `cargo metadata` also lists one named only by a weak `x?/f` feature, which
+//!   `cargo tree` and the build leave out): no [`BANNED`] crate, no crate whose build script depends on a C
 //!   toolchain crate ([`C_BUILD`]), and `*-sys` crates only from [`SYS_ALLOW`].
 //! - Sources: crates.io, local paths, and git only from the Craft-app repositories at a full hash.
 //! - Duplicate versions are printed as warnings.
@@ -12,7 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::metadata::{Metadata, Package};
+use crate::metadata::{DepKind, Metadata, Package};
 
 /// SPDX ids allowed for dependencies (`security.md` §8.3).
 pub const ALLOWED_LICENCES: &[&str] = &[
@@ -212,10 +214,34 @@ pub fn check_licences_and_sources(meta: &Metadata) -> Vec<Violation> {
     out
 }
 
-/// Ids of the packages linked into the product (normal and build edges from [`PRODUCT_ROOTS`]).
+/// Whether `parent`, resolved with `features`, builds its dependency on the package `dep`: a
+/// declaration of it that is not optional, or an optional one that an enabled feature turns on
+/// (the feature named like it, or one listing `dep:x`, `x` or `x/f`; a weak `x?/f` does not).
+/// Exact, never looser: with no declaration to read, or a feature merely named like it, the
+/// dependency counts as built. `cargo metadata` resolves features across the chain, so a chain of
+/// features (`default` → `std` → `dep:x`) is in `features` already.
+fn builds(parent: &Package, features: &[String], dep: &str) -> bool {
+    let declared: Vec<&crate::metadata::Dependency> = parent.dependencies.iter().filter(|d| d.name == dep && d.kind() != DepKind::Dev).collect();
+    if declared.is_empty() || declared.iter().any(|d| !d.optional) {
+        return true;
+    }
+    declared.iter().any(|d| {
+        let used = d.rename.as_deref().unwrap_or(&d.name);
+        features.iter().any(|f| {
+            f == used
+                || parent.features.get(f).is_some_and(|items| {
+                    items.iter().any(|i| i.strip_prefix("dep:").unwrap_or(i) == used || i.split_once('/').is_some_and(|(x, _)| x == used))
+                })
+        })
+    })
+}
+
+/// Ids of the packages linked into the product (normal and build edges from [`PRODUCT_ROOTS`],
+/// optional ones only when their parent turns them on: [`builds`]).
 pub fn product_graph(meta: &Metadata) -> BTreeSet<String> {
     let Some(resolve) = &meta.resolve else { return BTreeSet::new() };
     let nodes: BTreeMap<&str, &crate::metadata::Node> = resolve.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let by_id: BTreeMap<&str, &Package> = meta.packages.iter().map(|p| (p.id.as_str(), p)).collect();
     let mut seen = BTreeSet::new();
     let mut stack: Vec<String> =
         meta.workspace_packages().into_iter().filter(|p| PRODUCT_ROOTS.contains(&p.name.as_str())).map(|p| p.id.clone()).collect();
@@ -224,9 +250,14 @@ pub fn product_graph(meta: &Metadata) -> BTreeSet<String> {
             continue;
         }
         let Some(node) = nodes.get(id.as_str()) else { continue };
+        let parent = by_id.get(id.as_str());
         for dep in &node.deps {
             let linked = dep.dep_kinds.is_empty() || dep.dep_kinds.iter().any(|k| k.kind.as_deref() != Some("dev"));
-            if linked {
+            let built = match (parent, by_id.get(dep.pkg.as_str())) {
+                (Some(parent), Some(d)) => builds(parent, &node.features, &d.name),
+                _ => true,
+            };
+            if linked && built {
                 stack.push(dep.pkg.clone());
             }
         }
@@ -442,6 +473,73 @@ mod tests {
             &[("dalica", "ring", Some("dev")), ("xtask", "helper", None), ("helper", "cmake", Some("build"))],
         );
         assert!(check(&m).is_empty(), "{:?}", check(&m));
+    }
+
+    /// `webpki` (on the product's path) declaring `ring` with `decl`, its features table `table`,
+    /// resolved with `features`: the banned crates the product check reports.
+    fn optional_ring(decl: Value, table: Value, features: &[&str]) -> Vec<String> {
+        let mut webpki = pkg("webpki", Some("ISC"), Some(IO));
+        webpki["dependencies"] = json!([decl]);
+        webpki["features"] = table;
+        let mut m = meta(vec![webpki, pkg("ring", Some("ISC"), Some(IO))], &[("dalica", "webpki", None), ("webpki", "ring", None)]);
+        for node in m.resolve.iter_mut().flat_map(|r| r.nodes.iter_mut()) {
+            if node.id.starts_with("webpki") {
+                node.features = features.iter().map(|f| f.to_string()).collect();
+            }
+        }
+        names(&check(&m))
+    }
+
+    /// An optional banned dependency is reported when the parent's resolved features turn it on
+    /// (the feature named like it, `dep:ring`, `ring/f`, a chain of features, a rename), and not
+    /// when only a weak `ring?/f` names it (what `cargo metadata` lists and the build leaves out).
+    /// A dependency that is not optional is reported whatever the features.
+    #[test]
+    fn an_optional_banned_dependency_counts_only_when_a_feature_turns_it_on() {
+        let ring = || vec!["ring 1.0.0".to_string()];
+        let optional = json!({"name": "ring", "optional": true});
+        let table = json!({
+            "default": ["std"], "std": ["alloc"], "alloc": ["ring?/alloc"],
+            "ring": ["dep:ring"], "tls": ["ring/alloc"], "chain": ["crypto"], "crypto": ["dep:ring"], "named": ["ring"]
+        });
+        // Weak only: not built (rustls-webpki's `alloc = ["ring?/alloc"]`).
+        assert!(optional_ring(optional.clone(), table.clone(), &["default", "std", "alloc"]).is_empty());
+        assert!(optional_ring(optional.clone(), table.clone(), &[]).is_empty());
+        // Turned on: reported.
+        for features in [&["ring"][..], &["tls"], &["chain", "crypto"], &["named", "ring"], &["default", "std", "alloc", "crypto"]] {
+            assert_eq!(optional_ring(optional.clone(), table.clone(), features), ring(), "{features:?}");
+        }
+        // The implicit feature of an optional dependency without `dep:` anywhere.
+        assert_eq!(optional_ring(optional.clone(), json!({}), &["ring"]), ring());
+        // Renamed: its features name it by the rename.
+        let renamed = json!({"name": "ring", "rename": "fast_ring", "optional": true});
+        assert_eq!(optional_ring(renamed.clone(), json!({"fast": ["dep:fast_ring"]}), &["fast"]), ring());
+        assert!(optional_ring(renamed, json!({"fast": ["fast_ring?/std"]}), &["fast"]).is_empty());
+        // Not optional, or not declared at all (nothing to read): always reported.
+        assert_eq!(optional_ring(json!({"name": "ring"}), json!({}), &[]), ring());
+        assert_eq!(optional_ring(json!({"name": "other"}), json!({}), &[]), ring());
+        // A dev-only declaration says nothing about the normal edge.
+        assert_eq!(optional_ring(json!({"name": "ring", "kind": "dev", "optional": true}), json!({}), &[]), ring());
+    }
+
+    /// On the real workspace, for every target, the product graph has `ring` exactly when
+    /// `cargo tree -i ring` (normal and build edges from the apps) prints it.
+    #[test]
+    fn the_product_graph_agrees_with_cargo_tree_about_ring() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        for target in TARGETS {
+            let meta = Metadata::load_for_target(root, target).unwrap();
+            let graph = product_graph(&meta);
+            let in_graph = meta.packages.iter().any(|p| p.name == "ring" && graph.contains(&p.id));
+            let out = std::process::Command::new(&cargo)
+                .current_dir(root)
+                .args(["tree", "-i", "ring", "-e", "normal,build", "--target", target, "-p", "dalica", "-p", "dalica-cli"])
+                .output()
+                .unwrap();
+            let printed = String::from_utf8_lossy(&out.stdout).lines().any(|l| l.starts_with("ring v"));
+            assert_eq!(in_graph, printed, "{target}: product graph {in_graph}, cargo tree {printed}");
+        }
     }
 
     #[test]

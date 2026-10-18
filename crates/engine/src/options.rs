@@ -14,10 +14,10 @@
 //! the photo viewer's file types until the OS integration, the network log until it exists) is
 //! listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
 //! once its feature reads it, so `options.set` refuses it until then and its value is its default.
-//! So are the options that wait on a reserved decision: the map rows and the proxy of the Network
-//! tab, until the map tile provider and the network stack are chosen (their reasons are
-//! [`crate::map_tiles::TILES_UNAVAILABLE`] and [`crate::map_tiles::PROXY_UNAVAILABLE`], which the
-//! task that builds map tiles clears). The People tab's face model (its status, Download…, Remove
+//! The map rows and the proxy of the Network tab waited on reserved decisions 4 and 9 until M13.20
+//! (their reasons, [`crate::map_tiles::TILES_UNAVAILABLE`] and
+//! [`crate::map_tiles::PROXY_UNAVAILABLE`], are now `None`: OpenStreetMap's tiles and Nominatim,
+//! off until allowed, both addresses editable). The People tab's face model (its status, Download…, Remove
 //! and Use) is the face model dialog's, through `faces.models.*`, not a row here; the model in use
 //! is `people.model` ([`crate::settings::PeopleSettings::model`]).
 //!
