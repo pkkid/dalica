@@ -96,10 +96,18 @@ fn every_operation_the_parser_knows_is_listed_once_in_its_order() {
         let inner = inner.unwrap_or_else(|| panic!("{}: syntax {:?}", op.name, op.syntax));
         let written: Vec<&str> = inner.trim_end_matches(";…").split([',', ';']).filter(|s| !s.is_empty() && *s != "…").collect();
         assert_eq!(written, names, "{}", op.name);
-        // What renders is what M6 and M7 brought; the effects (M12) render once their modules do,
-        // and trimming (M15) is kept and skipped. Every operation but trimming has a module that
-        // reads its parameters, with every default and range settled.
-        assert_eq!(op.renders(), ["M6", "M7"].contains(&op.milestone), "{}", op.name);
+        // What renders is what M6 and M7 brought, and each effect (M12) once its module renders
+        // (`VERSION` 1 or more; 0 is a stub); trimming (M15) is kept and skipped. Every operation
+        // but trimming has a module that reads its parameters, with every default and range
+        // settled.
+        let live = ops::version(op.name).is_some_and(|v| v > 0);
+        let renders = match op.milestone {
+            "M6" | "M7" => true,
+            "M12" => live,
+            _ => false,
+        };
+        assert_eq!(op.renders(), renders, "{}", op.name);
+        assert_eq!(live, renders, "{}: renders exactly when its module's version is 1 or more", op.name);
         assert_eq!(op.typed(), op.milestone != "M15", "{}", op.name);
         if op.typed() {
             assert!(op.default_entry().is_some(), "{}: a typed operation has every default settled", op.name);
@@ -227,17 +235,26 @@ fn defaults_print_back_and_render_the_same_every_time() {
     assert_eq!(rendered, catalog().iter().filter(|op| op.renders()).count(), "every rendered operation has a default entry");
 }
 
-/// Until their renderers land (M12.6–M12.14) the 27 effects are stubs: a recipe holding every one
-/// of them, twice, renders exactly as the same recipe without them.
+/// Until its renderer lands (M12.6–M12.14) an effect is a stub (`VERSION` 0): a recipe holding
+/// every stub, twice, renders exactly as the same recipe without them; every effect that renders
+/// changes the picture at its defaults, among the same operations.
 #[test]
-fn a_recipe_with_every_effect_renders_as_the_recipe_without_them() {
+fn a_recipe_with_every_stub_effect_renders_as_the_recipe_without_them() {
     let img = scene(5, 40, 30);
     let around = ["crop(0.1,0.1,0.9,0.9)", "autofix()", "tuning(0.2,0.1,0.05,-0.3,none)", "rotate(90)"];
-    let all: Vec<String> = catalog().iter().filter(|op| op.effect.is_some()).filter_map(OpInfo::default_entry).collect();
-    assert_eq!(all.len(), 27);
+    let effects: Vec<&OpInfo> = catalog().iter().filter(|op| op.effect.is_some()).collect();
+    assert_eq!(effects.len(), 27);
+    let entry = |op: &OpInfo| op.default_entry().unwrap_or_else(|| panic!("{}: a default entry", op.name));
+    let (live, stubs): (Vec<&OpInfo>, Vec<&OpInfo>) = effects.into_iter().partition(|op| op.renders());
+    let stubs: Vec<String> = stubs.into_iter().map(entry).collect();
     let mut with: Vec<&str> = vec![around[0], around[1]];
-    with.extend(all.iter().map(String::as_str));
+    with.extend(stubs.iter().map(String::as_str));
     with.extend(&around[2..]);
-    with.extend(all.iter().map(String::as_str));
-    assert_eq!(run(&img, &with), run(&img, &around));
+    with.extend(stubs.iter().map(String::as_str));
+    let plain = run(&img, &around);
+    assert_eq!(run(&img, &with), plain);
+    for op in live {
+        let e = entry(op);
+        assert_ne!(run(&img, &[around[0], around[1], &e, around[2], around[3]]), plain, "{e} renders");
+    }
 }

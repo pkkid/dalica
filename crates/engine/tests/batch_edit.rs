@@ -4,13 +4,14 @@
 //! Paste on five photos replaces their recipes and keeps an unknown operation of the copied
 //! recipe; Paste with `history` is a step of that photo's history and not of the library; Undo All
 //! Edits asks, empties the unsaved recipes, undo brings them back and a saved photo's file is
-//! untouched; Sepia answers `disabled` with its reason; inside a group the change is the group's;
+//! untouched; an operation this build cannot render (a stub effect, trimming) answers `disabled`
+//! with its reason and an effect that renders applies; inside a group the change is the group's;
 //! each command's contract and graceful failures.
 
 use std::time::Duration;
 
 use dalica_core::PhotoId;
-use dalica_engine::cmd::batch::{ARRIVES_WITH_EFFECTS, NO_EDITS, NO_EDITS_TO_COPY, NOTHING_COPIED};
+use dalica_engine::cmd::batch::{ARRIVES_WITH_EFFECTS, ARRIVES_WITH_VIDEO, NO_EDITS, NO_EDITS_TO_COPY, NOTHING_COPIED};
 use dalica_engine::{CmdError, Session};
 use dalica_library::Recipe;
 use serde_json::{Value, json};
@@ -235,13 +236,29 @@ fn undo_all_with_history_is_one_step_of_the_photos_history() {
 }
 
 #[test]
-fn sepia_is_disabled_with_its_reason() {
+fn an_operation_this_build_cannot_render_is_disabled_with_its_reason() {
     let (_lib, _disk, _folder, mut s, ids) = lisbon(&photos(1), None);
-    let p = json!({ "ids": [ids[0]], "op": "sepia" });
-    assert_eq!(s.execute("edit.apply", &p), Err(CmdError::Disabled(ARRIVES_WITH_EFFECTS.into())));
-    assert_eq!(s.execute("edit.apply", &json!({ "ids": [ids[0]], "op": "sepia()" })), Err(CmdError::Disabled(ARRIVES_WITH_EFFECTS.into())));
-    assert!(edits(&s, ids[0]).is_empty());
-    assert_eq!(s.undo_stack().len(), 0);
+    // Trimming (M15) never renders on a photo in this build.
+    for op in ["trim", "trim(0,1)"] {
+        assert_eq!(s.execute("edit.apply", &json!({ "ids": [ids[0]], "op": op })), Err(CmdError::Disabled(ARRIVES_WITH_VIDEO.into())), "{op}");
+    }
+    // Each effect is greyed with its reason while its module is a stub, and applies once it renders.
+    let mut applied = 0;
+    for row in dalica_edit::catalog::catalog().iter().filter(|op| op.effect.is_some()) {
+        let entry = row.default_entry().unwrap();
+        for op in [row.name.to_string(), entry.clone()] {
+            let r = s.execute("edit.apply", &json!({ "ids": [ids[0]], "op": op }));
+            if row.renders() {
+                assert_eq!(r.unwrap()["operation"], json!(entry), "{op}");
+                applied += 1;
+                assert_eq!(edits(&s, ids[0]).last(), Some(&entry), "{op}");
+            } else {
+                assert_eq!(r, Err(CmdError::Disabled(ARRIVES_WITH_EFFECTS.into())), "{op}");
+                assert_eq!(edits(&s, ids[0]).len(), applied, "{op}: nothing applied");
+            }
+        }
+    }
+    assert_eq!(s.undo_stack().len(), applied, "one step per applied effect, none for a refused one");
 }
 
 #[test]

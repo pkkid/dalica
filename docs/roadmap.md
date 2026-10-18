@@ -6880,7 +6880,7 @@ a maintainer decision mid-run.
     cancelled by opening another photo and remade after an edit; the owner thread made no `fs`
     call; `photo.effect.pick` answers a planted patch's colour on a turned photo; each command's
     contract and graceful failures; `panic_hunt` green.
-- ⬜ **M12.6 `edit`: Sepia, B&W, Warmify, Tint, Saturation and Filtered B&W**
+- ✅ **M12.6 `edit`: Sepia, B&W, Warmify, Tint, Saturation and Filtered B&W**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/colour.rs`, `crates/edit/tests/colour_effects.rs`, `crates/edit/tests/fingerprints/colour-*.json`
   - scope: `editing.md` §8.2's six colour effects as pixel passes (`Reach::Pixel`, fused with

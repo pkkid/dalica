@@ -6,6 +6,7 @@ mod common;
 
 mod auto;
 mod catalog;
+mod colour_effects;
 mod crop;
 mod frame;
 mod fx;
