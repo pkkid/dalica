@@ -1,11 +1,12 @@
-//! What a search asks for ([`Query`]: the text, the filter buttons and the age slider), what it
-//! shows ([`Scope`]: hidden and small pictures, the light table's sections), and the matcher: the
-//! rule for one photo, which the index answers for all photos at once. [`Extract::matching`] runs
-//! the rule photo by photo, as the reference the index is tested against.
+//! What a search asks for ([`Query`]: the text, the filter buttons and the age slider; [`People`]:
+//! the People pane's exact filter and whether people's names take part), what it shows ([`Scope`]:
+//! hidden and small pictures, the light table's sections), and the matcher: the rule for one photo,
+//! which the index answers for all photos at once. [`Extract::matching`] runs the rule photo by
+//! photo, as the reference the index is tested against.
 
 use std::collections::{BTreeSet, HashMap};
 
-use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
+use dalica_core::{DateTime, FolderId, PersonId, PhotoId, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use super::extract::{AlbumDoc, Extract, FolderDoc, PersonDoc, PhotoDoc};
@@ -66,6 +67,38 @@ impl Query {
     /// Search mode (and its banner) is on while it does.
     pub fn is_active(&self) -> bool {
         !self.text.trim().is_empty() || self.filters.any() || self.age.is_some()
+    }
+}
+
+/// The most people [`People::people`] names.
+pub const MAX_PEOPLE: usize = 1024;
+
+/// What a search asks of people beyond the search box's words (`organizing.md` §6.4, `faces.md`
+/// §7), kept apart from [`Query`] so a query of the box alone stays as it was written:
+///
+/// - `people`: the People pane's exact filter, by id: only the photos holding a face of every one
+///   of them (at most [`MAX_PEOPLE`]; an id no person has matches nothing). Selecting Ana never
+///   finds Anabel's photos, as a `person:` prefix would.
+/// - `withhold_names`: people's names and nicknames take no part in the match (automation without
+///   the people permission): `person:` matches nothing and stays `unavailable`, plain words skip
+///   names and nicknames; everything else matches as before, so a reply never tells a guessed name
+///   from an unknown one. Ids are not names: `people` still filters.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct People {
+    pub people: Vec<PersonId>,
+    pub withhold_names: bool,
+}
+
+impl People {
+    /// Whether the people filter is on (search mode is on while it is).
+    pub fn is_active(&self) -> bool {
+        !self.people.is_empty()
+    }
+
+    /// Whether a photo holding the faces of `on` passes the people filter.
+    pub(crate) fn passes(&self, on: &[PersonId]) -> bool {
+        self.people.iter().all(|p| on.contains(p))
     }
 }
 
@@ -186,6 +219,12 @@ impl Extract {
     /// The photos `query` matches under `scope`, by id, worked out photo by photo with
     /// [`text_matches`]: the reference for the index (and enough for a handful of photos).
     pub fn matching(&self, query: &Query, scope: &Scope) -> Vec<PhotoId> {
+        self.matching_with(query, &People::default(), scope)
+    }
+
+    /// [`Extract::matching`] with what the search asks of people ([`People`]): the people filter,
+    /// and without names the matcher sees no person on any photo.
+    pub fn matching_with(&self, query: &Query, who: &People, scope: &Scope) -> Vec<PhotoId> {
         let parsed = Parsed::new(&query.text);
         let cutoff = query.age.as_ref().and_then(Age::cutoff);
         let folders: HashMap<FolderId, &FolderDoc> = self.folders.iter().map(|f| (f.id, f)).collect();
@@ -197,9 +236,11 @@ impl Extract {
             .filter(|p| {
                 let folder = folders.get(&p.folder).copied();
                 let in_albums: Vec<&AlbumDoc> = p.albums.iter().filter_map(|a| albums.get(a).copied()).collect();
-                let with: Vec<&PersonDoc> = p.people.iter().filter_map(|id| people.get(id).copied()).collect();
+                let with: Vec<&PersonDoc> =
+                    if who.withhold_names { Vec::new() } else { p.people.iter().filter_map(|id| people.get(id).copied()).collect() };
                 scope.shows(p, folder.is_some_and(|f| f.hidden))
                     && passes(p, &query.filters, query.age.as_ref(), cutoff)
+                    && who.passes(&p.people)
                     && text_matches(&parsed, p, folder, &in_albums, &with)
             })
             .map(|p| p.id)

@@ -29,6 +29,14 @@
 //!   owner waits for the answer; [`Session::wait_search`] waits for the pending query the same way
 //!   (the CLI, tests).
 //!
+//! - **People** (`organizing.md` §6.4, `faces.md` §7): beside the text, filters and age the query
+//!   holds the People pane's exact filter (`people`, by id: the photos holding a face of every
+//!   one of them) and whether people's names are withheld from the match (`withhold_names`, set by
+//!   an automation surface without the people permission: [`crate::automation::Policy`]). The
+//!   switch belongs to one `search.set`: each call sets it from its own params (left out: names
+//!   match), so a window's own search always matches names, while the automation's search, run
+//!   again as the library changes, keeps them out.
+//!
 //! Find Duplicates (M9.16, `duplicates.rs`) shows its groups through the same state in mode
 //! [`SearchMode::Duplicates`].
 
@@ -41,8 +49,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
-use dalica_core::{PhotoId, Timestamp};
-use dalica_library::search::{Age, Filters, MAX_SUGGESTIONS, Query, Scope, SearchIndex, SectionCount, Suggestion, Update};
+use dalica_core::{PersonId, PhotoId, Timestamp};
+use dalica_library::search::{Age, Filters, MAX_SUGGESTIONS, People, Query, Scope, SearchIndex, SectionCount, Suggestion, Update};
 use dalica_library::{AlbumTree, FolderSort, Library, Op, SectionFilter, Tree, TreeMode, TreeOptions};
 use serde_json::{Value, json};
 
@@ -144,6 +152,10 @@ pub struct SearchState {
     pub filters: Filters,
     /// The age slider: photos up to this many days old; `None` means everything.
     pub age_days: Option<u32>,
+    /// The People pane's filter: only the photos holding a face of every one of them.
+    pub people: Vec<PersonId>,
+    /// People's names and nicknames take no part in this search (set per `search.set`).
+    pub withhold_names: bool,
     /// `None` while not searching.
     pub mode: Option<SearchMode>,
     /// Rises with every change of the query; a result of an older one is dropped.
@@ -179,12 +191,24 @@ impl SearchState {
         Query { text: self.text.clone(), filters: self.filters, age: self.age_days.map(|days| Age { days, now }) }
     }
 
+    /// What the current search asks of people.
+    fn who(&self) -> People {
+        People { people: self.people.clone(), withhold_names: self.withhold_names }
+    }
+
+    /// Whether the current query asks for anything (search mode is on while it does).
+    fn asks(&self, now: Timestamp) -> bool {
+        self.query(now).is_active() || self.who().is_active()
+    }
+
     /// Enters mode [`SearchMode::Duplicates`] showing `result` (Find Duplicates, `duplicates.rs`):
     /// the text, filters and age are cleared and the generation rises, as for a new query.
     pub(crate) fn enter_duplicates(&mut self, mut result: SearchResult) {
         self.text.clear();
         self.filters = Filters::default();
         self.age_days = None;
+        self.people.clear();
+        self.withhold_names = false;
         self.mode = Some(SearchMode::Duplicates);
         self.due = None;
         self.generation = self.generation.wrapping_add(1);
@@ -235,6 +259,7 @@ impl Counters {
 #[derive(Clone, Debug)]
 struct Ask {
     query: Query,
+    who: People,
     roots: Vec<PathBuf>,
     options: TreeOptions,
     /// Suggestions for the text's last word too.
@@ -315,7 +340,7 @@ impl Replica {
     fn answer(&mut self, generation: u64, ask: &Ask) -> SearchResult {
         let start = Instant::now();
         let scope = self.scope(&ask.roots, &ask.options);
-        let found = self.index.search(&ask.query, &scope);
+        let found = self.index.search_with(&ask.query, &ask.who, &scope);
         let seconds = start.elapsed().as_secs_f64();
         let suggestions = if ask.suggest { self.index.suggest(&ask.query.text, &scope, MAX_SUGGESTIONS) } else { Vec::new() };
         SearchResult {
@@ -459,7 +484,7 @@ impl Session {
     }
 
     /// `library.inspect` → `search` (`control-protocol.md` §6.4): whether search mode is on and
-    /// which, the query (`age` in days, 0 for every age), and the banner's numbers once a result
+    /// which, the query (`age` in days, 0 for every age; `people` the People pane's filter), and the banner's numbers once a result
     /// came (`matches` is `null` until then and outside search mode), with the sections that keep a
     /// match by their ids (`album:search`, `folder:12`). In duplicates mode, `groups` lists Find
     /// Duplicates' groups and `banner` is its text (both `null` otherwise; `duplicates.rs`).
@@ -473,6 +498,7 @@ impl Session {
             "text": s.text,
             "filters": s.filters,
             "age": s.age_days.unwrap_or(0),
+            "people": s.people,
             "matches": r.map(SearchResult::count),
             "folders": r.map_or(0, |r| r.folders),
             "bytes": r.map_or(0, |r| r.bytes),
@@ -487,11 +513,19 @@ impl Session {
         })
     }
 
-    /// Sets the query (`search.set`): `text` and `age_days` when given, `filters` always. A change
-    /// starts the debounce again; a query asking for nothing leaves search mode. Returns whether
-    /// anything changed.
-    pub(crate) fn set_search(&mut self, text: Option<String>, filters: Filters, age_days: Option<Option<u32>>) -> bool {
-        let before = (self.search.text.clone(), self.search.filters, self.search.age_days, self.search.mode);
+    /// Sets the query (`search.set`): `text`, `age_days` and `people` when given, `filters` and
+    /// `withhold_names` always. A change starts the debounce again; a query asking for nothing
+    /// leaves search mode. Returns whether anything changed.
+    pub(crate) fn set_search(
+        &mut self,
+        text: Option<String>,
+        filters: Filters,
+        age_days: Option<Option<u32>>,
+        people: Option<Vec<PersonId>>,
+        withhold_names: bool,
+    ) -> bool {
+        let s = &self.search;
+        let before = (s.text.clone(), s.filters, s.age_days, s.people.clone(), s.withhold_names, s.mode);
         if let Some(text) = text {
             self.search.text = text;
         }
@@ -499,17 +533,23 @@ impl Session {
         if let Some(age) = age_days {
             self.search.age_days = age.filter(|d| *d > 0);
         }
+        if let Some(people) = people {
+            self.search.people = people;
+        }
+        self.search.withhold_names = withhold_names;
         if self.search.mode == Some(SearchMode::Duplicates) {
-            if (&self.search.text, self.search.filters, self.search.age_days) == (&before.0, before.1, before.2) {
+            let s = &self.search;
+            if (&s.text, s.filters, s.age_days, &s.people, s.withhold_names) == (&before.0, before.1, before.2, &before.3, before.4) {
                 // An unchanged query keeps Find Duplicates' groups on show.
                 return false;
             }
             // Leaving them: their groups are no search's result.
             self.search.result = None;
         }
-        let active = self.search.query(self.clock.now()).is_active();
+        let active = self.search.asks(self.clock.now());
         self.search.mode = active.then_some(SearchMode::Search);
-        let after = (self.search.text.clone(), self.search.filters, self.search.age_days, self.search.mode);
+        let s = &self.search;
+        let after = (s.text.clone(), s.filters, s.age_days, s.people.clone(), s.withhold_names, s.mode);
         if before == after {
             return false;
         }
@@ -529,6 +569,8 @@ impl Session {
         self.search.text.clear();
         self.search.filters = Filters::default();
         self.search.age_days = None;
+        self.search.people.clear();
+        self.search.withhold_names = false;
         self.search.mode = None;
         self.search.result = None;
         self.search.due = None;
@@ -622,15 +664,16 @@ impl Session {
         if let Some(r) = self.search.fresh() {
             return Ok(Some(r.photos().to_vec()));
         }
-        let query = self.search.query(self.clock.now());
-        Ok(Some(self.ask_search(query)?.photos().to_vec()))
+        let (query, who) = (self.search.query(self.clock.now()), self.search.who());
+        Ok(Some(self.ask_search_with(query, who)?.photos().to_vec()))
     }
 
-    /// Runs `query` on the worker and waits for the answer (search mode is left as it is).
-    pub(crate) fn ask_search(&mut self, query: Query) -> Result<SearchResult, CmdError> {
+    /// Runs `query`, with what it asks of people, on the worker and waits for the answer (search
+    /// mode is left as it is).
+    pub(crate) fn ask_search_with(&mut self, query: Query, who: People) -> Result<SearchResult, CmdError> {
         let (roots, options) = (self.roots().to_vec(), self.search_tree_options());
         let (reply, answer) = mpsc::channel();
-        self.ask_worker(Request::Answer { ask: Ask { query, roots, options, suggest: false }, reply })?;
+        self.ask_worker(Request::Answer { ask: Ask { query, who, roots, options, suggest: false }, reply })?;
         answer.recv().map_err(|_| self.search_worker_stopped())
     }
 
@@ -710,6 +753,7 @@ impl Session {
         }
         let ask = Ask {
             query: self.search.query(self.clock.now()),
+            who: self.search.who(),
             roots: self.roots().to_vec(),
             options: self.search_tree_options(),
             suggest: !self.search.text.trim().is_empty(),

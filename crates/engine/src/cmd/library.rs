@@ -3,19 +3,23 @@
 //! - `library.query` lists photos in light-table order, paged: all of them, a folder's, a
 //!   section's (`folder:12`, `album:starred`, `album:recent`, `album:<id>`, and `album:search`, the
 //!   search mode's matches), and those a search finds (`text` in the search box's grammar, the
-//!   filter buttons, the age), asked of the search worker (`search.rs`); the lists combine. Hidden
+//!   filter buttons, the age, `people` by id: the photos holding a face of every one), asked of the
+//!   search worker (`search.rs`); the lists combine. `withholdNames` leaves people's names and
+//!   nicknames out of the match (automation without the people permission sets it:
+//!   `automation::NAME_SEARCHES`). Hidden
 //!   photos and the photos of hidden folders are left out unless the view shows hidden pictures.
 //! - `library.rebuild` rebuilds the index from the watched folders, in the background.
 
 use std::collections::HashSet;
 
+use dalica_core::PersonId;
 use dalica_core::{FolderId, PhotoId};
-use dalica_library::search::{Age, Filters, Query as SearchQuery};
+use dalica_library::search::{Age, Filters, People, Query as SearchQuery};
 use dalica_library::{AlbumRef, Section, section_photos};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::cmd::search::{FilterParams, check_text};
+use crate::cmd::search::{FilterParams, check_people, check_text};
 use crate::error::CmdError;
 use crate::registry::{CommandSpec, Effect, History, always, params};
 use crate::session::Session;
@@ -27,7 +31,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Query Library",
             menu: "",
             keys: &[],
-            params: r#"{"folder"?:FolderId, "section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>", "text"?:string (the search box's grammar), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days (0: every age), "starred"?:bool, "offset"?:int=0, "limit"?:int=1000 (max 10000)}: photos in light-table order (a section's in its own order), every condition given applying, and the total; with text, filters or age also truncated and unavailable"#,
+            params: r#"{"folder"?:FolderId, "section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>", "text"?:string (the search box's grammar), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days (0: every age), "people"?:[PersonId] (photos holding a face of every one; at most 1024), "withholdNames"?:bool (default false: people's names and nicknames take no part in text, person: matches nothing and is unavailable; automation without --automation-allow-people always sends true), "starred"?:bool, "offset"?:int=0, "limit"?:int=1000 (max 10000)}: photos in light-table order (a section's in its own order), every condition given applying, and the total; with text, filters, age or people also truncated and unavailable"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -51,13 +55,17 @@ pub fn specs() -> Vec<CommandSpec> {
 const MAX_LIMIT: usize = 10_000;
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Query {
     folder: Option<FolderId>,
     section: Option<String>,
     text: Option<String>,
     filters: Option<FilterParams>,
     age: Option<u32>,
+    #[serde(default)]
+    people: Vec<PersonId>,
+    #[serde(default)]
+    withhold_names: bool,
     starred: Option<bool>,
     #[serde(default)]
     offset: usize,
@@ -100,6 +108,8 @@ fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         filters: q.filters.unwrap_or_default().over(Filters::default()),
         age: q.age.filter(|d| *d > 0).map(|days| Age { days, now: s.clock().now() }),
     };
+    let who = People { people: check_people(s, q.people)?, withhold_names: q.withhold_names };
+    let asks = search.is_active() || who.is_active();
     let section = match &q.section {
         Some(text) => Some(section_ids(s, text)?),
         None => None,
@@ -107,8 +117,8 @@ fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let mut found = None;
     let mut ids: Vec<PhotoId> = match section {
         Some(ids) => ids,
-        None if search.is_active() => {
-            let r = s.ask_search(search.clone())?;
+        None if asks => {
+            let r = s.ask_search_with(search.clone(), who.clone())?;
             let ids = r.photos().to_vec();
             found = Some(r);
             ids
@@ -131,8 +141,8 @@ fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
                 .collect()
         }
     };
-    if search.is_active() && found.is_none() {
-        let r = s.ask_search(search)?;
+    if asks && found.is_none() {
+        let r = s.ask_search_with(search, who)?;
         let matched: HashSet<PhotoId> = r.photos().iter().copied().collect();
         ids.retain(|id| matched.contains(id));
         found = Some(r);

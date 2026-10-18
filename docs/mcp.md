@@ -156,7 +156,7 @@ plus held photos), as the bottom-bar buttons do.
 | Tool | Arguments | Does |
 |---|---|---|
 | `scan_folder` | `path`, `mode?` (`always` \| `once`, default `once` headless, `always` in the app), `wait?` (true) | Add a folder to the watched folders (Folder Manager) and scan it; returns `{folder, section, photos, videos, skipped, problems}`. Progress notifications per batch of files (§6). The path must be inside a read root. |
-| `query_photos` | `query?`, `section?`, `starred?`, `tags?`, `has_caption?`, `edited?`, `hidden?`, `video?`, `geotagged?`, `taken_after?`, `taken_before?`, `sort?` (`date` \| `name` \| `size` \| `modified` \| `manual`), `reverse?`, `offset?`, `limit?` (100, ≤ 1000) | Photos matching the light-table search (`query` uses the search syntax of `organizing.md` §8.1: words, `"phrases"`, `-word`, `tag:`, `camera:`) and the filters; `person:name` finds a person's photos (names and nicknames, as prefixes). Returns `{total, photos: [{id, path, name, section, star, caption, tags, date, width, height, edited, hidden, video, geo, geotag}]}`. Changes nothing (it does not enter search mode). |
+| `query_photos` | `query?`, `section?`, `starred?`, `tags?`, `has_caption?`, `edited?`, `hidden?`, `video?`, `geotagged?`, `taken_after?`, `taken_before?`, `sort?` (`date` \| `name` \| `size` \| `modified` \| `manual`), `reverse?`, `offset?`, `limit?` (100, ≤ 1000) | Photos matching the light-table search (`query` uses the search syntax of `organizing.md` §8.1: words, `"phrases"`, `-word`, `tag:`, `camera:`) and the filters; `person:name` finds a person's photos (names and nicknames, as prefixes) only with `--automation-allow-people`: without it the search leaves names out of the match (§5). Returns `{total, photos: [{id, path, name, section, star, caption, tags, date, width, height, edited, hidden, video, geo, geotag}]}`. Changes nothing (it does not enter search mode). |
 | `photo_info` | `id` | Everything Dalica knows about one photo: path, file size, dimensions, dates, EXIF summary, star, caption, tags, rotation, recipe (string and list), albums, geotag (`[lat, lon]` or `null`: the location set in Dalica, else the file's GPS) and `geo` (whether it has one), faces, hidden, held, originals backup present, unsaved edits. Faces' names and rectangles only with `--automation-allow-people` (§5). |
 | `select_photos` | `ids`, `section?`, `mode?` (`replace` \| `add` \| `remove`), `hold?` | Set the light-table selection (one section at a time, `ui-layout.md` §5.4) and optionally hold it in the tray. An unknown id is an error and leaves the selection unchanged. |
 | `set_metadata` | `ids?`, `star?`, `caption?`, `tags_add?`, `tags_remove?`, `hidden?`, `geo?` (`[lat, lon]` or `null`), `date?`, `confirm?` | Change organizer data in **one undo step**; written to sidecars and (per the Options) into file metadata (`data-model.md` §5). `geo` is `photo.geo.set`: `null` removes the location, as Clear Location does; moving the location of more than 20 geotagged photos, or removing it from more than 5, answers `needs_confirm` until `confirm: true`. |
@@ -262,7 +262,12 @@ with one addition: **client roots**.
   (`command_run`, `command_batch`, `cmd_*`, `photo_info`'s faces) answers the same; and
   `export.defaults` of a person's section suggests its fallback name (`Export <date>`), not the
   person's, so the `export` tool's default folder names nobody. The commands themselves run as
-  asked (naming a face works without the permission; its reply carries ids only).
+  asked (naming a face works without the permission; its reply carries ids only), but for the
+  searches: `library.query`, `search.set` and `slideshow.list` run with `"withholdNames": true`
+  (`Policy::people_params`, `control-protocol.md` §6.4), so `query_photos {query: "person:Ana"}`
+  and the plain word `Ana` find nothing by her name (`person` unavailable), while everything else
+  matches as before and the filter by person id still holds: no reply tells a guessed name from
+  an unknown one.
 - `--read-only` overrides all of this: nothing is written at all. Commands that write files
   (saves, exports, file operations) answer `read_only`; every other change stays in memory. The
   refusal lives in the engine's session, not in the tools (`security.md` §6.6).
@@ -270,8 +275,9 @@ with one addition: **client roots**.
   once; an error answer drops them all; only local `file://` URIs (no host, or `localhost`) count.
 - **Connect mode** uses the policy of the desktop process (its flags); the MCP process's own root
   flags are ignored there, as in PhotoCraft. People data is the exception: the app withholds it
-  by its policy, and the MCP process withholds it again (`Connect::allow_people`, from its own
-  `--automation-allow-people`), so names reach the client only when both were started with it.
+  by its policy, and the MCP process withholds it again (`Connect::allow_people`, from
+  `dalica-cli mcp --connect --automation-allow-people`), so names reach the client only when both
+  were started with it; without its own flag it also sends searches with names withheld.
 
 Results that leave the machine: an MCP client may send tool results (photos rendered by
 `render_photo`, captions, paths) to a remote model. That is the user's choice when they connect a

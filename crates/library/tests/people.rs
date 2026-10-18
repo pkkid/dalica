@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use dalica_core::{DateTime, FolderId, PersonId, PhotoId, Rect01, Timestamp};
-use dalica_library::search::{Extract, Filters, Query, Scope, SearchIndex, Update};
+use dalica_library::search::{Extract, Filters, People, Query, Scope, SearchIndex, Update};
 use dalica_library::{
     Error, Face, FaceKey, FacePerson, FaceRef, Folder, Library, MAX_FACES, Op, PeopleSort, Person, Photo, clean_person_name, person_id_from,
 };
@@ -255,6 +255,46 @@ fn person_search_and_the_faces_filter() {
     assert_eq!(search(&lib, &faces), [A, B, D], "C has an ignored face only");
     let r = SearchIndex::from_library(&lib).search(&Query { text: "person:ana".into(), ..faces }, &Scope::default());
     assert!(r.unavailable.is_empty(), "{:?}", r.unavailable);
+}
+
+fn search_with(lib: &Library, query: &Query, who: &People) -> (Vec<PhotoId>, Vec<&'static str>) {
+    let r = SearchIndex::from_library(lib).search_with(query, who, &Scope::default());
+    let mut found = r.ids;
+    found.sort();
+    assert_eq!(found, Extract::from_library(lib).matching_with(query, who, &Scope::default()), "index and matcher disagree on {query:?} {who:?}");
+    (found, r.unavailable)
+}
+
+/// The People pane's exact filter: `people: [Ana]` finds the photos holding Ana's face and not
+/// Anabel's (whose name `person:ana` also starts), two people the photos holding both, an id no
+/// person has nothing; it combines with the words. Without names (`withhold_names`) `person:`
+/// matches nothing and stays unavailable, plain words skip names and nicknames, everything else
+/// matches as before, and the filter by id still holds.
+#[test]
+fn the_people_filter_is_exact_and_withheld_names_match_nothing() {
+    let mut lib = fixture();
+    let anabel = PersonId::parse("p0c0c").unwrap();
+    lib.apply(Op::AddPerson { id: anabel.clone(), person: Person::named("Anabel") }).unwrap();
+    lib.apply(Op::SetFaces { faces: vec![(C, vec![named(0.2, &anabel)])] }).unwrap();
+    assert_eq!(search(&lib, &Query::text("person:ana")), [A, B, C], "a name prefix finds Anabel too");
+    let only = |people: Vec<PersonId>| People { people, ..People::default() };
+    let all = Query::default();
+    assert_eq!(search_with(&lib, &all, &only(vec![ana()])).0, [A, B], "Ana's, not Anabel's");
+    assert_eq!(search_with(&lib, &all, &only(vec![anabel.clone()])).0, [C]);
+    assert_eq!(search_with(&lib, &all, &only(vec![ana(), rui()])).0, [B], "both on one photo");
+    assert_eq!(search_with(&lib, &all, &only(vec![PersonId::parse("p0d0d").unwrap()])).0, Vec::<PhotoId>::new());
+    assert_eq!(search_with(&lib, &Query::text("lisbon"), &only(vec![rui()])).0, [B], "with the words");
+    assert_eq!(search_with(&lib, &Query::text("porto"), &only(vec![ana()])).0, Vec::<PhotoId>::new());
+    assert_eq!(search_with(&lib, &Query::text("-person:rui"), &only(vec![ana()])).0, [A]);
+
+    let withheld = People { withhold_names: true, ..People::default() };
+    assert_eq!(search_with(&lib, &Query::text("person:ana"), &withheld), (vec![], vec!["person"]));
+    assert_eq!(search_with(&lib, &Query::text("rui"), &withheld).0, Vec::<PhotoId>::new(), "plain words skip names");
+    assert_eq!(search_with(&lib, &Query::text("nita"), &withheld).0, Vec::<PhotoId>::new(), "and nicknames");
+    assert_eq!(search_with(&lib, &Query::text("-person:rui"), &withheld).0, [A, B, C, D], "a negated name takes nothing out");
+    assert_eq!(search_with(&lib, &Query::text("b.jpg"), &withheld), (vec![B], vec![]), "everything else as before");
+    assert_eq!(search_with(&lib, &all, &People { people: vec![ana()], withhold_names: true }).0, [A, B], "ids are not names");
+    assert_eq!(search_with(&lib, &Query::text("person:ana"), &People::default()).1, Vec::<&str>::new());
 }
 
 /// An index kept up to date op by op (and inverse by inverse) equals one built from scratch.

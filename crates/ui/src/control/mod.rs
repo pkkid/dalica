@@ -343,6 +343,9 @@ pub struct Config {
     pub write_roots: Vec<PathBuf>,
     /// `--automation-allow-external`.
     pub allow_external: bool,
+    /// `--automation-allow-people`: people's names and face rectangles reach control clients, and
+    /// their searches match names (§6.4).
+    pub allow_people: bool,
     /// `--demo` / `--demo-fresh`: adding folders needs no read root.
     pub demo: bool,
 }

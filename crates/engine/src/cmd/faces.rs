@@ -9,9 +9,12 @@
 //!   not one is `bad_params`; a photo or a place the library does not have is `not_found`.
 //! - **Rectangles** are stored in the stored frame (`data-model.md` §3.3: after the EXIF
 //!   orientation, before the recipe's rotations and flips). `faces.list` gives each face's `rect`
-//!   in that frame and `displayed`, the same rectangle as the photo shows turned by its recipe;
-//!   `faces.add` takes either (`rect` stored, `displayed` as drawn on the photo shown) and stores
-//!   the stored one, so a box drawn on a photo turned 90° lands on the same face after a restart.
+//!   in that frame and `displayed`, the same face on the photo as shown ([`Shown`]: through the
+//!   recipe's whole geometry, its straighten, crop, rotations and flips, normalised to the photo
+//!   as shown, frames left out; past 0..1 where the crop cuts the face); `faces.add` takes either
+//!   (`rect` stored, `displayed` as drawn on the photo shown) and stores the stored one, so a box
+//!   drawn on a photo turned, straightened or cropped lands on the same face after a restart.
+//!   [`Shown`] is the one mapping: the edit view's face boxes and Add a Person Manually use it.
 //! - **Naming** (`faces.name`): a person by id, or a name: a name another person holds, ignoring
 //!   case, assigns to that person; an unknown name asks New Person first (`disabled` with
 //!   [`NEEDS_PERSON`]) unless `create` is true, which makes the person (with `nickname`) and names
@@ -25,8 +28,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasher;
 
 use dalica_core::{PersonId, PhotoId, Rect01};
-use dalica_edit::Dihedral;
 use dalica_edit::frame::Rect as FrameRect;
+use dalica_edit::{Dihedral, Geometry, Point, Recipe, Rect as Area};
 use dalica_library::{Face, FacePerson, FaceRef, Library, MAX_FACES, Op, Person, clean_person_name};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -56,7 +59,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "List Faces",
             menu: "",
             keys: &[],
-            params: r#"{"person"?:PersonId | "unnamed"?:true | "ids"?:[PhotoId] (at most one; none: every face), "ignored"?:bool (also the ignored faces; default false), "offset"?:int=0, "limit"?:int=1000 (at most 10000)}: faces in photo order, then their order on the photo: {faces:[{id:"<PhotoId>.<n>", photo, index, rect:[x0,y0,x1,y1] (stored frame), displayed:[x0,y0,x1,y1] (as the photo shows, turned by its recipe), person:PersonId|null, name:string|null, ignored, group:int|null (an unnamed face's group of similar faces, its place in faces.index's groups, largest first; null until the face scan grouped it)}], total, offset, limit}. Over automation without --automation-allow-people names are null and rectangles left out"#,
+            params: r#"{"person"?:PersonId | "unnamed"?:true | "ids"?:[PhotoId] (at most one; none: every face), "ignored"?:bool (also the ignored faces; default false), "offset"?:int=0, "limit"?:int=1000 (at most 10000)}: faces in photo order, then their order on the photo: {faces:[{id:"<PhotoId>.<n>", photo, index, rect:[x0,y0,x1,y1] (stored frame), displayed:[x0,y0,x1,y1] (on the photo as shown: normalised to it after its straighten, crop, rotations and flips, frames left out; past 0..1 where the crop cuts the face), person:PersonId|null, name:string|null, ignored, group:int|null (an unnamed face's group of similar faces, its place in faces.index's groups, largest first; null until the face scan grouped it)}], total, offset, limit}. Over automation without --automation-allow-people names are null and rectangles left out"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -111,7 +114,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Add a Person Manually",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId, "rect"?:[x0,y0,x1,y1] (stored frame) | "displayed"?:[x0,y0,x1,y1] (as drawn on the photo shown, turned by its recipe) (exactly one; normalised 0..1, not empty), "person"?:PersonId}: a face drawn by hand, unnamed or that person's (at most 256 per photo; the same rectangle twice is refused). Replies {face:"<PhotoId>.<n>", rect (stored frame)}"#,
+            params: r#"{"id":PhotoId, "rect"?:[x0,y0,x1,y1] (stored frame) | "displayed"?:[x0,y0,x1,y1] (as drawn on the photo shown: normalised to it after its straighten, crop, rotations and flips, frames left out) (exactly one; normalised 0..1, not empty), "person"?:PersonId}: a face drawn by hand, unnamed or that person's (at most 256 per photo; the same rectangle twice is refused). Replies {face:"<PhotoId>.<n>", rect (stored frame)}"#,
             effect: Effect::Library,
             history: History::Library,
             enabled: always,
@@ -216,20 +219,146 @@ pub(crate) fn turn_of(lib: &Library, id: PhotoId) -> Dihedral {
     dalica_edit::Recipe::parse(&lib.info(id).edits).map(|r| r.orientation()).unwrap_or(Dihedral::IDENTITY)
 }
 
-/// `r` as the photo shows it, turned by `turn`.
-pub(crate) fn displayed(r: &Rect01, turn: Dihedral) -> [f64; 4] {
-    let d = FrameRect::new(r.x0(), r.y0(), r.x1(), r.y1()).to_display(turn);
-    [d.x0, d.y0, d.x1, d.y1].map(|v| (v * 1e6).round() / 1e6)
+/// `v` to 12 decimals: far below a pixel, and a rectangle that maps back and forth reads as it
+/// was.
+fn tidy(v: f64) -> f64 {
+    (v * 1e12).round() / 1e12
 }
 
-/// A face as `faces.list` gives it.
-pub(crate) fn face_json(lib: &Library, r: FaceRef, face: &Face, turn: Dihedral) -> Value {
+/// A photo as the edit view shows it, for its faces (`organizing.md` §6.4): the recipe's
+/// [`Geometry`] (straighten, crop, frames, rotations and flips) and where the photo lies on the
+/// displayed picture. The one mapping of face rectangles between the stored frame and the photo as
+/// shown (normalised to the photo after its straighten, crop, rotations and flips; its frames left
+/// out): `faces.list`'s `displayed`, `faces.add {displayed}`, and the window's face boxes and Add
+/// a Person Manually.
+///
+/// A rectangle maps by its centre, through the geometry, and its size, kept on the face: scaled
+/// as the straighten scales the picture, its sides swapped by a quarter turn, and set square to
+/// the picture as shown again (a straightened face's box is not grown to hold the turned box's
+/// corners). So a rectangle maps there and back to itself, and a crop or a turn alone moves its
+/// corners exactly.
+#[derive(Clone, Debug)]
+pub struct Shown {
+    g: Geometry,
+    /// Where the photo lies on the displayed picture, normalised (frames around it).
+    area: Area,
+    /// The stored frame's pixels.
+    stored: (f64, f64),
+    /// The photo's pixels as shown (after straighten, crop, rotations and flips).
+    shown: (f64, f64),
+    /// Whether the rotations and flips swap the sides.
+    swap: bool,
+    /// Shown pixels per stored pixel (the straighten's scale; 1 without one).
+    scale: f64,
+}
+
+impl Shown {
+    /// Photo `id` as its recipe in the library shows it; `None` for a photo the library lacks or
+    /// one without a size.
+    pub fn of(lib: &Library, id: PhotoId) -> Option<Shown> {
+        let p = lib.photo(id)?;
+        Shown::new(&lib.info(id).edits, p.width, p.height)
+    }
+
+    /// A photo of `width × height` stored pixels as recipe `edits` shows it (the window's own
+    /// recipe of a variant); `None` without a size or when the geometry maps nothing.
+    pub fn new(edits: &[String], width: u32, height: u32) -> Option<Shown> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let recipe = Recipe::parse(edits).unwrap_or_default();
+        let g = Geometry::new(&recipe, dalica_image::Orientation::default(), width, height);
+        let area = g.photo_area()?.to_display(g.orientation());
+        let finite = [area.x0, area.y0, area.x1, area.y1].iter().all(|v| v.is_finite());
+        if !(finite && area.x1 - area.x0 > 1e-9 && area.y1 - area.y0 > 1e-9) {
+            return None;
+        }
+        let (a, _) = g.orientation().display_size(1, 2);
+        let swap = a == 2;
+        let (w, h) = g.photo_size();
+        let mut shown = Shown { g, area, stored: (f64::from(width), f64::from(height)), shown: if swap { (h, w) } else { (w, h) }, swap, scale: 1.0 };
+        // The scale of the stored pixels on the photo as shown: the map is affine, so its
+        // determinant, measured across the middle of the photo, holds everywhere.
+        let at = |x: f64, y: f64| shown.shown_point([x, y]);
+        let (l, r, t, b) = (at(0.25, 0.5)?, at(0.75, 0.5)?, at(0.5, 0.25)?, at(0.5, 0.75)?);
+        let (sw, sh) = shown.shown;
+        let (ws, hs) = shown.stored;
+        let dx = [(r[0] - l[0]) * sw / (0.5 * ws), (r[1] - l[1]) * sh / (0.5 * ws)];
+        let dy = [(b[0] - t[0]) * sw / (0.5 * hs), (b[1] - t[1]) * sh / (0.5 * hs)];
+        let scale = (dx[0] * dy[1] - dx[1] * dy[0]).abs().sqrt();
+        if !(scale.is_finite() && scale > 1e-9 && sw > 0.0 && sh > 0.0) {
+            return None;
+        }
+        shown.scale = scale;
+        Some(shown)
+    }
+
+    /// Where the photo lies on the displayed picture (frames around it), normalised
+    /// `[x0, y0, x1, y1]`.
+    pub fn area(&self) -> [f64; 4] {
+        [self.area.x0, self.area.y0, self.area.x1, self.area.y1]
+    }
+
+    /// Where the stored point `p` shows, normalised to the photo as shown; outside 0..1 where a
+    /// crop leaves it out.
+    fn shown_point(&self, p: [f64; 2]) -> Option<[f64; 2]> {
+        let d = self.g.to_display(Point::new(p[0], p[1]))?;
+        let a = &self.area;
+        let s = [(d.x - a.x0) / (a.x1 - a.x0), (d.y - a.y0) / (a.y1 - a.y0)];
+        s.iter().all(|v| v.is_finite()).then_some(s)
+    }
+
+    /// The stored point under `s` (normalised to the photo as shown).
+    fn stored_point(&self, s: [f64; 2]) -> Option<[f64; 2]> {
+        let a = &self.area;
+        let p = self.g.to_stored(Point::new(a.x0 + s[0] * (a.x1 - a.x0), a.y0 + s[1] * (a.y1 - a.y0)))?;
+        [p.x, p.y].iter().all(|v| v.is_finite()).then_some([p.x, p.y])
+    }
+
+    /// The stored rectangle `r` on the photo as shown, normalised to it (`[x0, y0, x1, y1]`;
+    /// past 0..1 where a crop cuts it).
+    pub fn shown_rect(&self, r: &Rect01) -> Option<[f64; 4]> {
+        let c = self.shown_point([(r.x0() + r.x1()) / 2.0, (r.y0() + r.y1()) / 2.0])?;
+        let (w, h) = ((r.x1() - r.x0()) * self.stored.0 * self.scale, (r.y1() - r.y0()) * self.stored.1 * self.scale);
+        let (w, h) = if self.swap { (h, w) } else { (w, h) };
+        let (hw, hh) = (w / self.shown.0 / 2.0, h / self.shown.1 / 2.0);
+        let out = [c[0] - hw, c[1] - hh, c[0] + hw, c[1] + hh].map(tidy);
+        out.iter().all(|v| v.is_finite()).then_some(out)
+    }
+
+    /// The stored rectangle under `s` (`[x0, y0, x1, y1]` normalised to the photo as shown, in
+    /// any order), brought onto the photo; `None` when it is empty there or `s` is not finite.
+    pub fn stored_rect(&self, s: [f64; 4]) -> Option<Rect01> {
+        if !s.iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        let c = self.stored_point([(s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0])?;
+        let (w, h) = ((s[2] - s[0]).abs() * self.shown.0 / self.scale, (s[3] - s[1]).abs() * self.shown.1 / self.scale);
+        let (w, h) = if self.swap { (h, w) } else { (w, h) };
+        let (hw, hh) = (w / self.stored.0 / 2.0, h / self.stored.1 / 2.0);
+        let b = [c[0] - hw, c[1] - hh, c[0] + hw, c[1] + hh].map(|v| tidy(v).clamp(0.0, 1.0));
+        if !b.iter().all(|v| v.is_finite()) || b[2] - b[0] <= 0.0 || b[3] - b[1] <= 0.0 {
+            return None;
+        }
+        Rect01::new(b[0], b[1], b[2], b[3]).ok()
+    }
+}
+
+/// `r` as the photo shows it when no geometry maps it (a photo without a size): turned by `turn`.
+fn turned(r: &Rect01, turn: Dihedral) -> [f64; 4] {
+    let d = FrameRect::new(r.x0(), r.y0(), r.x1(), r.y1()).to_display(turn);
+    [d.x0, d.y0, d.x1, d.y1].map(tidy)
+}
+
+/// A face as `faces.list` gives it, `displayed` through `shown` (else the recipe's turn).
+pub(crate) fn face_json(lib: &Library, r: FaceRef, face: &Face, shown: Option<&Shown>) -> Value {
     let (person, name) = match &face.person {
         FacePerson::Person(id) => (json!(id), json!(lib.person(id).map(|p| p.name.as_str()))),
         _ => (Value::Null, Value::Null),
     };
+    let displayed = shown.and_then(|s| s.shown_rect(&face.rect)).unwrap_or_else(|| turned(&face.rect, turn_of(lib, r.photo)));
     json!({
-        "id": face_id(r), "photo": r.photo, "index": r.index, "rect": face.rect, "displayed": displayed(&face.rect, turn),
+        "id": face_id(r), "photo": r.photo, "index": r.index, "rect": face.rect, "displayed": displayed,
         "person": person, "name": name, "ignored": face.person == FacePerson::Ignored, "group": Value::Null,
     })
 }
@@ -291,15 +420,15 @@ fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         }
         all(&mut photos.into_iter())
     };
-    let mut turns: HashMap<PhotoId, Dihedral> = HashMap::new();
+    let mut shown: HashMap<PhotoId, Option<Shown>> = HashMap::new();
     let page: Vec<Value> = refs
         .iter()
         .skip(offset)
         .take(limit)
         .filter_map(|r| {
             let face = lib.face(*r)?;
-            let turn = *turns.entry(r.photo).or_insert_with(|| turn_of(lib, r.photo));
-            let mut v = face_json(lib, *r, face, turn);
+            let at = shown.entry(r.photo).or_insert_with(|| Shown::of(lib, r.photo));
+            let mut v = face_json(lib, *r, face, at.as_ref());
             v["group"] = json!(s.faces_index().group_of(r.photo, &face.rect));
             Some(v)
         })
@@ -419,8 +548,16 @@ fn add(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
             if !d.iter().all(|v| v.is_finite()) {
                 return Err(CmdError::BadParams("displayed must be four finite numbers".into()));
             }
-            let s = FrameRect::new(d[0], d[1], d[2], d[3]).ordered().to_stored(turn_of(lib, p.id));
-            [s.x0, s.y0, s.x1, s.y1]
+            match Shown::of(lib, p.id) {
+                Some(shown) => {
+                    let r = shown.stored_rect(d).ok_or_else(|| CmdError::BadParams("displayed: the rectangle does not lie on the photo".into()))?;
+                    [r.x0(), r.y0(), r.x1(), r.y1()]
+                }
+                None => {
+                    let s = FrameRect::new(d[0], d[1], d[2], d[3]).ordered().to_stored(turn_of(lib, p.id));
+                    [s.x0, s.y0, s.x1, s.y1]
+                }
+            }
         }
         _ => return Err(CmdError::BadParams("give rect or displayed, exactly one".into())),
     };

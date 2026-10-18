@@ -45,6 +45,7 @@ with a token from a private token file (docs/control-protocol.md). Control optio
   --automation-read-root DIR     a folder automation may read from (repeatable)
   --automation-write-root DIR    a folder automation may write new files into (repeatable)
   --automation-allow-external    allow commands with effects outside Dalica
+  --automation-allow-people      let people's names and face rectangles reach automation, and its searches match names
   --headless                     no window: the app runs on the CPU renderer and answers only the control channel";
 
 /// What `--version` prints: the version with its commit and build date (`releasing.md`).
@@ -144,6 +145,11 @@ fn parse(args: &[OsString]) -> Result<Launch, String> {
             "--automation-allow-external" => {
                 flags.allow_external = true;
                 needs_control = Some("--automation-allow-external");
+                continue;
+            }
+            "--automation-allow-people" => {
+                flags.allow_people = true;
+                needs_control = Some("--automation-allow-people");
                 continue;
             }
             "--headless" => {
@@ -410,6 +416,7 @@ mod tests {
             read_roots: vec![PathBuf::from("/r1"), PathBuf::from("/r2")],
             write_roots: vec![PathBuf::from("/w")],
             allow_external: true,
+            allow_people: true,
         };
         let args = [
             "--automation-read-root",
@@ -424,6 +431,7 @@ mod tests {
             "--automation-write-root",
             "/w",
             "--automation-allow-external",
+            "--automation-allow-people",
             "--headless",
         ];
         assert_eq!(parsed(&args), with(full, true));
@@ -438,12 +446,25 @@ mod tests {
             &["--automation-read-root", "/r"],
             &["--automation-write-root", "/w"],
             &["--automation-allow-external"],
+            &["--automation-allow-people"],
+            &["--automation-allow-people", "--demo"],
             &["--control", "--control-token-file"],
             &["--control", "--automation-read-root"],
         ] {
             assert!(parsed(bad).is_err(), "{bad:?}");
         }
         assert!(parsed(&["--headless"]).unwrap_err().contains("needs --control"));
+        assert_eq!(parsed(&["--automation-allow-people"]).unwrap_err(), "--automation-allow-people needs --control");
+        let people = parsed(&["--control", "--automation-allow-people"]);
+        assert_eq!(
+            people,
+            Ok(Launch::Open(Options {
+                choice: Choice::Default,
+                control: Some(control::Flags { allow_people: true, ..flags(None) }),
+                headless: false,
+                view: None
+            }))
+        );
     }
 
     #[test]

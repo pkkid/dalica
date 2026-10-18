@@ -7,7 +7,8 @@
 //! - naming an unnamed face from the pane is one undo step (a new name asks New Person);
 //! - hovering a face in the pane highlights its box on the photo, and back;
 //! - a box drawn by hand on a photo turned 90° and named lands where it was drawn after a restart;
-//! - two people selected in the pane filter the light table, and Show All clears it;
+//! - two people selected in the pane filter the light table, and Show All clears it; selecting Ana
+//!   shows Ana's photos and not Anabel's (an exact filter by id, M13.48), the search field as typed;
 //! - at 900 × 600 the pane fits; fingerprints of the pane and of the face boxes (with and without
 //!   the box drawn by hand) at 1400 × 900 (`tests/fingerprints/people-pane-*.json`,
 //!   `edit-faces-*.json`; `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`).
@@ -366,4 +367,36 @@ fn two_people_selected_filter_the_light_table_and_show_all_clears_it() {
     assert!(t.d.state().people_pane.selected.is_empty() && t.d.state().search.text.is_empty());
     assert!(!has(&t, "banner:search"));
     assert!((0..4).all(|n| has(&t, &thumb(n, &t))), "every photo again");
+}
+
+/// Selecting Ana in the pane filters by her id, not by a name prefix: Anabel's photo stays out, the
+/// search field keeps what was typed (the filter combines with it), and the engine's search holds
+/// the filter.
+#[test]
+fn selecting_ana_shows_only_anas_photos_not_anabels() {
+    let mut t = setup();
+    run(&mut t, "view.groupCollapse", json!({ "group": "people", "collapsed": true }));
+    let anabel = {
+        let s = t.d.app_mut().session_mut().unwrap();
+        let face = s.execute("faces.add", &json!({ "id": t.photos[3], "rect": [0.3, 0.3, 0.45, 0.6] })).unwrap()["face"].clone();
+        s.execute("faces.name", &json!({ "faces": [face], "name": "Anabel", "create": true })).unwrap()["person"].clone()
+    };
+    settle(&mut t);
+    t.d.app_mut().state_mut().search.text = "P".into();
+    settle(&mut t);
+    let ana = json!([t.ana]);
+    run(&mut t, "people.filter", json!({ "people": ana }));
+    let thumb = |n: usize, t: &T| format!("thumb:{}", t.photos[n]);
+    let shown: Vec<bool> = (0..4).map(|n| has(&t, &thumb(n, &t))).collect();
+    assert_eq!(shown, [true, true, false, false], "Ana's photos, not Anabel's");
+    assert_eq!(t.d.state().search.text, "P", "the field as typed");
+    assert_eq!(widget(&t.d, "banner:search").label, "Showing photos with Ana");
+    let engine = t.d.app().session().unwrap().search_inspect();
+    assert_eq!((engine["text"].clone(), engine["people"].clone()), (json!("P"), ana));
+    run(&mut t, "people.filter", json!({ "people": [anabel] }));
+    let shown: Vec<bool> = (0..4).map(|n| has(&t, &thumb(n, &t))).collect();
+    assert_eq!(shown, [false, false, false, true]);
+    run(&mut t, "people.filter", json!({ "people": [] }));
+    assert!((0..4).all(|n| has(&t, &thumb(n, &t))), "the field's own search: every photo");
+    assert_eq!(t.d.state().search.text, "P");
 }

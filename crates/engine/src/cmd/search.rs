@@ -1,8 +1,13 @@
 //! Search commands (`organizing.md` §8, `ui-layout.md` §9), run on the search worker
 //! (`search.rs`):
 //!
-//! - `search.set {text?, filters?, age?}` sets the search field's text, the filter buttons and the
-//!   age slider (in days); what is left out stays as it was (each filter too). No undo step. The
+//! - `search.set {text?, filters?, age?, people?, withholdNames?}` sets the search field's text,
+//!   the filter buttons, the age slider (in days) and the People pane's exact filter (person ids:
+//!   the photos holding a face of every one; an unknown id is `not_found`); what is left out stays
+//!   as it was (each filter too). `withholdNames` is per call: people's names and nicknames take
+//!   no part in this search (`person:` matches nothing and is `unavailable`, plain words skip
+//!   them); left out, names match. An automation surface without the people permission sets it on
+//!   every call (`automation::NAME_SEARCHES`). No undo step. The
 //!   query runs once the debounce has passed ([`crate::search::DEBOUNCE`] on the session clock),
 //!   on the worker; the reply is `library.inspect` → `search` at once (`pending` until the result
 //!   is applied by `poll`). A query asking for nothing leaves search mode.
@@ -12,7 +17,8 @@
 //! - `search.saveAsAlbum {name}` (Tools ▸ Experimental ▸ Save Search Results…): a user album of the
 //!   matches in light-table order, one undo step.
 
-use dalica_library::search::{Filters, Suggestion};
+use dalica_core::PersonId;
+use dalica_library::search::{Filters, MAX_PEOPLE, Suggestion};
 use dalica_library::{AlbumInfo, Op, clean_album_name};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
@@ -29,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Search",
             menu: "",
             keys: &[],
-            params: r#"{"text"?:string (at most 16 KiB; the grammar reads 1 KiB), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days|0|null (0 or null: every age)}: what is left out stays; runs the search after the debounce, on the worker, without an undo step. Replies library.inspect's search: {active, mode, text, filters, age, matches, folders, bytes, seconds, sections, unavailable, truncated, pending, generation} and changed"#,
+            params: r#"{"text"?:string (at most 16 KiB; the grammar reads 1 KiB), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days|0|null (0 or null: every age), "people"?:[PersonId] (the People pane's filter: photos holding a face of every one; at most 1024; [] clears it), "withholdNames"?:bool (this call only, default false: people's names and nicknames take no part, person: matches nothing and is unavailable; automation without --automation-allow-people always sends true)}: what is left out stays (but withholdNames); runs the search after the debounce, on the worker, without an undo step. Replies library.inspect's search: {active, mode, text, filters, age, people, matches, folders, bytes, seconds, sections, unavailable, truncated, pending, generation} and changed"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -40,7 +46,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Show All",
             menu: "",
             keys: &[],
-            params: "{}: leave search mode (no text, filters or age); replies library.inspect's search",
+            params: "{}: leave search mode (no text, filters, age or people); replies library.inspect's search",
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -113,22 +119,40 @@ pub(crate) fn check_text(text: &str) -> Result<(), CmdError> {
     Ok(())
 }
 
+/// The People pane's filter as a command gives it: at most [`MAX_PEOPLE`], each a person the
+/// library has (`not_found` names the first it lacks), each kept once in the order first given.
+pub(crate) fn check_people(s: &Session, mut people: Vec<PersonId>) -> Result<Vec<PersonId>, CmdError> {
+    if people.len() > MAX_PEOPLE {
+        return Err(CmdError::Limit(format!("`people` names at most {MAX_PEOPLE} people")));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(people.len());
+    people.retain(|p| seen.insert(p.clone()));
+    if let Some(unknown) = people.iter().find(|p| s.library().person(p).is_none()) {
+        return Err(CmdError::NotFound(format!("no person {unknown}")));
+    }
+    Ok(people)
+}
+
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct SetParams {
     text: Option<String>,
     filters: Option<FilterParams>,
     #[serde(default, deserialize_with = "present")]
     age: Option<Option<u32>>,
+    people: Option<Vec<PersonId>>,
+    #[serde(default)]
+    withhold_names: bool,
 }
 
 fn set(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let SetParams { text, filters, age } = params(p)?;
+    let SetParams { text, filters, age, people, withhold_names } = params(p)?;
     if let Some(text) = &text {
         check_text(text)?;
     }
+    let people = people.map(|p| check_people(s, p)).transpose()?;
     let filters = filters.unwrap_or_default().over(s.search_state().filters);
-    let changed = s.set_search(text, filters, age);
+    let changed = s.set_search(text, filters, age, people, withhold_names);
     let mut reply = s.search_inspect();
     reply["changed"] = json!(changed);
     Ok(reply)

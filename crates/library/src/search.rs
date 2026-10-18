@@ -28,4 +28,4 @@ mod matcher;
 pub use extract::{AlbumDoc, Extract, FolderDoc, PersonDoc, PhotoDoc, Update};
 pub use grammar::{Atom, Field, MAX_QUERY, MAX_TERM, MAX_WORDS, Parsed, terms};
 pub use index::{MAX_SUGGESTIONS, SearchIndex, SearchResult, SectionCount, Suggestion, SuggestionKind};
-pub use matcher::{Age, Filters, Query, Scope, text_matches};
+pub use matcher::{Age, Filters, MAX_PEOPLE, People, Query, Scope, text_matches};

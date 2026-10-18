@@ -215,6 +215,9 @@ fn checked(
             Some(other) => return Err(bad_params(method, format!("`confirm` must be true or false, not {other}"))),
         }
     }
+    // Without the people permission a search runs with names left out of its match (§6.4).
+    let policy = people_policy(config);
+    policy.people_params(&id, &mut cmd_params);
     let cmd_params = Value::Object(cmd_params);
     if let Some((_, param)) = READ_PATHS.iter().find(|(c, _)| *c == id)
         && let Some(path) = cmd_params.get(*param).and_then(Value::as_str).map(PathBuf::from)
@@ -224,10 +227,18 @@ fn checked(
         let watched = host.app().session().map(|s| s.roots().to_vec()).unwrap_or_default();
         return Ok(Outcome::Work(Box::new(move || match paths::check_read(&path, &config.read_roots, &watched, config.demo) {
             Err(e) => Next::Reply(Err(e)),
-            Ok(_) => Next::Resume(Box::new(move |host| run_command(host, &id, &cmd_params, wait))),
+            Ok(_) => Next::Resume(Box::new(move |host| run_command(host, &policy, &id, &cmd_params, wait))),
         })));
     }
-    Ok(run_command(host, &id, &cmd_params, wait))
+    Ok(run_command(host, &policy, &id, &cmd_params, wait))
+}
+
+/// What the app's `--automation-allow-people` grants its control clients (§6.4), as the engine's
+/// policy says it: their replies and their searches.
+fn people_policy(config: &Config) -> Policy {
+    let mut policy = Policy::default();
+    policy.set_allow_people(config.allow_people);
+    policy
 }
 
 /// The newest job listed now (0 when none).
@@ -236,13 +247,13 @@ fn newest_job(host: &dyn Host) -> JobId {
 }
 
 /// Runs the command, then lets one frame run so widgets show its effect (and the session has
-/// registered the jobs it started). A command that started a job then waits for it (§5.3).
-fn run_command(host: &mut dyn Host, id: &str, params: &Value, wait: Wait) -> Outcome {
+/// registered the jobs it started). A command that started a job then waits for it (§5.3). Its
+/// reply goes through `policy` (§6.4): without `--automation-allow-people` people's names and face
+/// rectangles are withheld.
+fn run_command(host: &mut dyn Host, policy: &Policy, id: &str, params: &Value, wait: Wait) -> Outcome {
     let before = newest_job(host);
     let scan = SCANS.contains(&id);
-    // People data is withheld from control clients (`control-protocol.md` §6.4): the app has no
-    // `--automation-allow-people` yet, so every client is one without the people permission.
-    let result = host.app_mut().run(id, params).map(|value| Policy::default().people_reply(id, value));
+    let result = host.app_mut().run(id, params).map(|value| policy.people_reply(id, value));
     Outcome::Play(
         Input::Frames(1),
         Box::new(move |host, _| match result {
