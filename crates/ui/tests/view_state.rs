@@ -1147,8 +1147,9 @@ fn bad_m13_values_are_refused_and_change_nothing() {
     }
 }
 
-/// `pane.people` opens the stub pane and `pane.places` the Places pane, which registers its region;
-/// `unnamed.open` shows the Unnamed grid in the light table's place, and its header's toggles act.
+/// `pane.people` opens the People pane and `pane.places` the Places pane, each registering its
+/// region (M13.24, M13.22); `unnamed.open` shows the Unnamed grid in the light table's place, and
+/// its header's toggles act.
 #[test]
 fn the_people_and_places_panes_and_the_unnamed_grid_open_as_stubs() {
     let mut t = setup();
@@ -1158,15 +1159,12 @@ fn the_people_and_places_panes_and_the_unnamed_grid_open_as_stubs() {
         assert!(rect_of(&t, pane).is_some_and(|r| r[2] > 0.0 && r[3] > 0.0), "{pane}");
         assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty(), "{pane}");
         let widgets = ok(&mut t, "ui.widgets", json!({ "region": region }));
+        // Each pane registers its body as its region.
+        assert_eq!(rect_of(&t, &format!("region:{region}")), rect_of(&t, pane), "{region}");
+        assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"][region], json!(rect_of(&t, pane)), "{region}");
         if region == "places" {
-            // The Places pane registers its region (M13.22): the map is in it.
-            assert_eq!(rect_of(&t, "region:places"), rect_of(&t, pane));
+            // The map is in it (M13.22).
             assert!(widgets.as_array().unwrap().iter().any(|w| w["id"] == "map:places"), "{widgets}");
-        } else {
-            // The region's name is known; the pane registers it once it is drawn (M13.24).
-            assert!(!dalica_ui::panels::people_pane::STUB.is_empty());
-            assert_eq!(widgets, json!([]), "{region}");
-            assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"][region], Value::Null, "{region}");
         }
     }
     ok(&mut t, "engine.execute", json!({ "command": "pane.places" }));

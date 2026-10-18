@@ -491,7 +491,10 @@ fn a_narrowing_window_shrinks_the_tree_then_the_large_pane_then_closes_the_pane(
     d.click("toggle:pane.people").unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(d.state().pane, Some(Pane::People), "opened on purpose in a narrow window: it stays");
-    assert_regions(&d, &expected(900.0, 600.0, 200.0, 280.0), "900×600, People opened on purpose");
+    // The People pane's body is a region of its own (M13.24): the side pane under its 30-high header.
+    let mut want = expected(900.0, 600.0, 200.0, 280.0);
+    want.push(("people", [620.0, 102.0, 280.0, 600.0 - 32.0 - 40.0 - 20.0 - 96.0 - 30.0]));
+    assert_regions(&d, &want, "900×600, People opened on purpose");
     assert_controls(&d, 900.0, 600.0, Some("people"), "900×600, People opened on purpose");
 }
 

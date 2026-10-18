@@ -61,6 +61,7 @@ mod offline_folders;
 mod options_dialog;
 mod options_tabs;
 mod peek;
+mod people_pane;
 mod photo_menu;
 mod places_pane;
 mod properties_pane;

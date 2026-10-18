@@ -8071,7 +8071,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     both, without faces the result is as before; `crates/create/tests/slideshow.rs`: Pan and Zoom's
     end frame is centred nearer the face than the centre; `crates/engine/tests/crop_commands.rs`
     and `slideshow.rs`: a photo with a named face passes it on; rows `PPL-CROP`, `VIEW-SLIDESHOW`.
-- ⬜ **M13.24 `ui`: the People pane, face boxes in the edit view and Add a Person Manually**
+- ✅ **M13.24 `ui`: the People pane, face boxes in the edit view and Add a Person Manually**
   - after: M13.4, M13.5, M13.15
   - files: `crates/ui/src/panels/people_pane.rs`, `crates/ui/src/panels/people_pane/**`, `crates/ui/src/panels/edit/faces.rs`, `crates/ui/src/commands/people_pane.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/tests/people_pane.rs`, `crates/ui/tests/fingerprints/people-pane-*.json`, `crates/ui/tests/fingerprints/edit-faces-*.json`
   - scope: `organizing.md` §6.4: the pane (People pane switcher segment and View ▸ People):
