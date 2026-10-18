@@ -7246,7 +7246,7 @@ a maintainer decision mid-run.
     Museum Matte's outer mat) on all four sides of the picture inside the box, with `gray 38` only
     in the bars around it; a Widescreen Film tile shows its black bars at top and bottom; a tile of
     an effect that keeps the shape (Sepia) is the same pixels as before; `cargo xtask ci`.
-- ⬜ **M12.30 `ui-kit`: an effect tile's label fits its tile**
+- ✅ **M12.30 `ui-kit`: an effect tile's label fits its tile**
   - after: M12.4, M12.15
   - files: `crates/ui-kit/src/widgets/effect_tile.rs`, `crates/ui-kit/tests/effect_widgets.rs`, `crates/ui-kit/tests/fingerprints/effect-widgets*.json`, `crates/ui/tests/fingerprints/edit-effects-tab4-1400x900.json`, `docs/design-system.md`
   - scope: a fix task from the M12.R review screenshots. "Widescreen Film" is cut to

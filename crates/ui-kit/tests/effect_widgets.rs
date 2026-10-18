@@ -3,7 +3,8 @@
 //! - effect tiles: a 3 × 4 grid fits the 280-wide edit panel at both window sizes, each tile
 //!   86 × 69 and registered `effect:<name>`; a tile without a preview paints `gray 38`, one with a
 //!   preview shows it; the "1-click" badge shows only when asked; a click reports its tile, a
-//!   disabled tile takes none;
+//!   disabled tile takes none; a label too wide at SemiBold 11 ("Widescreen Film") steps down to fit
+//!   whole inside its tile, one that fits keeps 11, and one too long even at 9 pt is cut with "…";
 //! - the effect slider: the logarithmic mapping round-trips its range (and the linear one too), a
 //!   click halfway along a log track gives the range's geometric middle, + moves 2 % of the track,
 //!   and the label is centred above;
@@ -24,9 +25,9 @@
 use crate::common::{Canvas, check};
 use dalica_core::color::{hsv_to_rgb, rgb_to_hsv, rgb_to_u8};
 use dalica_ui_kit::widgets::{
-    Crosshair, CrosshairOut, EFFECT_GRID_COLUMNS, EffectTile, SliderScale, SliderSpec, SwatchOut, crosshair, crosshair_handle_id, effect_grid,
-    effect_slider, effect_tile_id, field_color, field_point, handle_angle, hue_at, hue_color, hue_point, open_swatch, scale_fraction, scale_nudged,
-    scale_value, swatch, swatch_open, swatch_popup_rect, swatch_popup_size,
+    Crosshair, CrosshairOut, EFFECT_GRID_COLUMNS, EFFECT_LABEL_MIN, EffectTile, SliderScale, SliderSpec, SwatchOut, crosshair, crosshair_handle_id,
+    effect_grid, effect_slider, effect_tile_id, effect_tile_label, field_color, field_point, handle_angle, hue_at, hue_color, hue_point, open_swatch,
+    scale_fraction, scale_nudged, scale_value, swatch, swatch_open, swatch_popup_rect, swatch_popup_size,
 };
 use dalica_ui_kit::{Image, Tokens, WidgetInfo, registry};
 use egui::{
@@ -296,6 +297,34 @@ fn a_click_picks_its_tile_and_a_disabled_tile_takes_none() {
     rig.click(&effect_tile_id("film_grain"));
     assert_eq!(rig.state.clicked, [7]);
     assert!(!rig.find(&effect_tile_id("film_grain")).unwrap().enabled);
+}
+
+#[test]
+fn a_label_too_wide_at_11_pt_steps_down_to_fit_its_tile_and_only_then_is_cut() {
+    let t = Tokens::default();
+    let ctx = Context::default();
+    t.apply(&ctx);
+    let mut out = Vec::new();
+    let mut frame = ctx.run_ui(dalica_ui_kit::raw_input(400, 300, 1.0), |ui| {
+        for label in ["Widescreen Film", "Drop Shadow", "A Very Long Effect Name Indeed"] {
+            let g = effect_tile_label(ui.painter(), &t, label, t.text_label);
+            let size = g.job.sections.first().map_or(0.0, |s| s.format.font_id.size);
+            out.push((g.elided, g.text().to_owned(), g.size().x, size));
+        }
+    });
+    frame.textures_delta.clear();
+    let room = t.metrics.effect_tile.x - 2.0;
+    let [(elided, text, width, size), (d_elided, _, _, d_size), (l_elided, l_text, l_width, l_size)] = out.as_slice() else {
+        panic!("three labels: {out:?}");
+    };
+    assert!(!elided && !text.contains('…') && text == "Widescreen Film", "Widescreen Film is whole: {text:?}");
+    assert!(*width <= room, "Widescreen Film fits its tile: {width} > {room}");
+    assert!(*size < t.small && *size >= EFFECT_LABEL_MIN && (size * 2.0).fract() == 0.0, "stepped by half points: {size}");
+    assert!(!d_elided && *d_size == t.small, "Drop Shadow keeps SemiBold 11: {d_size}");
+    assert!(
+        *l_elided && *l_size == EFFECT_LABEL_MIN && *l_width <= room,
+        "too long even at 9 pt: cut at 9 within the tile: {l_text:?} {l_size} {l_width}"
+    );
 }
 
 // ---- The effect slider ----
