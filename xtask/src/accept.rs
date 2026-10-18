@@ -268,7 +268,7 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 12,
         name: "effects",
-        what: "effects: each of the 27 effects at its defaults on a 24 MP photo rendered as Save renders it, median within 1.5 × its first measurement, and an empty recipe's final on the 2560 × 1600 screen (p95) and Save (median) within theirs; a slider's drafts and finals are printed (their 16 and 100 ms are M13's speed tasks)",
+        what: "effects: each of the 27 effects at its defaults: a slider's draft and final on the 2560 × 1600 screen (p95) within 1.5 × their measurement and never above 16 and 100 ms (M13.43), and a 24 MP photo rendered as Save renders it (median) within 1.5 × its first measurement; an empty recipe's final on the screen (p95) and Save (median) within theirs",
         cargo: &["bench", "-p", "dalica-edit", "--bench", "effects", "--", "--json"],
         judge: crate::bench::judge_effects,
         relative: None,
@@ -1426,8 +1426,8 @@ mod tests {
         };
         assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
         // 8 ms planted per frame: every frame budget misses, the search queries' (a few ms), the
-        // scan's (8 ms per photo), Batch Edit's, the slideshow's and the effects' empty recipe (a few
-        // ms), the face scan's frame and the people and places views' (a few ms); a first screenful
+        // scan's (8 ms per photo), Batch Edit's, the slideshow's, the effects' empty recipe and drafts
+        // (a few ms), the face scan's frame and the people and places views' (a few ms); a first screenful
         // well inside its second does not, nor the save and export medians well inside theirs, nor
         // a cold start of three frames, nor the import (8 s more over 1 000 files is inside its
         // 1.5 ×), nor the tile grids (a few hundred ms), nor face inference (tens of ms).
@@ -1444,7 +1444,9 @@ mod tests {
                 && e.contains("M10 scan throughput")
                 && e.contains("M11 batch edit: auto fix 1000")
                 && e.contains("M11 slideshow: transition frame")
-                && e.contains("M12 effects: 1 of 29 missed: no effect final"),
+                && e.contains("M12 effects: ")
+                && e.contains("of 83 missed: no effect final")
+                && e.contains("sharpen draft: p95"),
             "{e}"
         );
         // 15 ms planted misses the import too: its first screenful and, per file, its copy rate.

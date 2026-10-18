@@ -8413,7 +8413,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     `cargo xtask bench effects` before and after for B&W, Glow, Soften, HDR Look and Widescreen
     Film on `taskset -c 0,1` shows every final at least 15 ms faster at p95 and no effect's draft
     or final slower (both tables in the PR); `cargo xtask ci`.
-- ⬜ **M13.43 `edit` + `xtask`: every effect's draft and final become budgets**
+- ✅ **M13.43 `edit` + `xtask`: every effect's draft and final become budgets**
   - after: M13.35, M13.36, M13.37, M13.38, M13.39, M13.40, M13.41, M13.42, M13.47
   - files: `crates/edit/benches/effects.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `docs/development.md`
   - scope: `development.md` §8: M12.21 printed the effects' drafts and finals without judging
