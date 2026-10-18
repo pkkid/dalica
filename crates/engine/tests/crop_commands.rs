@@ -2,8 +2,8 @@
 //! library: a crop and a straighten are one step each of the photo's history; crop, then tune,
 //! then crop again keeps the tuning and undo brings the first crop back; the custom ratios are
 //! added, listed and removed across restarts, and the last ratio is remembered; the suggestion job
-//! answers three rectangles in the stored frame without the owner thread touching `fs`; every
-//! command's contract and graceful failures.
+//! answers three rectangles in the stored frame without the owner thread touching `fs`, the first
+//! holding a named face on a turned photo; every command's contract and graceful failures.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -182,7 +182,7 @@ fn rects(v: &Value) -> Vec<[f64; 4]> {
     assert_eq!(list.len(), 3);
     list.iter()
         .map(|s| {
-            assert!(["subject", "horizon", "centred"].contains(&s["reason"].as_str().unwrap()));
+            assert!(["faces", "subject", "horizon", "centred"].contains(&s["reason"].as_str().unwrap()));
             let r: Vec<f64> = s["rect"].as_array().unwrap().iter().map(|n| n.as_f64().unwrap()).collect();
             [r[0], r[1], r[2], r[3]]
         })
@@ -226,6 +226,29 @@ fn suggestions_on_a_turned_photo_come_back_in_the_stored_frame() {
     // A straighten is part of what the tool shows.
     s.execute("photo.straighten.apply", &json!({ "id": id, "degrees": 5 })).unwrap();
     assert_eq!(rects(&suggestions(&mut s, id, json!("1:1"))).len(), 3);
+}
+
+#[test]
+fn a_named_face_on_a_turned_photo_is_held_by_the_first_suggestion() {
+    let (_lib, _d, _f, mut s, ids) = setup(1, 300, 200);
+    let id = ids[0];
+    s.execute("photo.history.apply", &json!({ "id": id, "op": "rotate(90)" })).unwrap();
+    let ana = s.execute("people.create", &json!({ "name": "Ana" })).unwrap()["person"].clone();
+    // In the stored frame (300 × 200): near the right edge, so on the turned photo (200 × 300 as
+    // shown) it is near the bottom.
+    let face = [0.78, 0.35, 0.92, 0.6];
+    s.execute("faces.add", &json!({ "id": id, "rect": face, "person": ana })).unwrap();
+    let v = suggestions(&mut s, id, json!("1:1"));
+    assert_eq!(v["suggestions"][0]["reason"], json!("faces"), "{v}");
+    let [x, y, w, h] = rects(&v)[0];
+    let inside = face[0] >= x - 1e-6 && face[1] >= y - 1e-6 && face[2] <= x + w + 1e-6 && face[3] <= y + h + 1e-6;
+    assert!(inside, "[{x}, {y}, {w}, {h}] (stored frame) cuts the face {face:?}");
+    // Square as shown is square in the stored frame too.
+    assert!(((w * 300.0) / (h * 200.0) - 1.0).abs() < 0.01);
+    // An ignored face is not held.
+    s.execute("faces.ignore", &json!({ "faces": [format!("{id}.0")] })).unwrap();
+    let v = suggestions(&mut s, id, json!("1:1"));
+    assert!(v["suggestions"].as_array().unwrap().iter().all(|x| x["reason"] != json!("faces")), "{v}");
 }
 
 #[test]

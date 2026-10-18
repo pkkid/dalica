@@ -7,7 +7,9 @@
 //!   box's grammar, its matches in light-table order) or as given (`ids`: the tray, its order kept,
 //!   duplicates dropped); hidden photos only while the view shows hidden pictures; videos left out
 //!   and counted (Dalica does not play them yet); and the place to start from: `start`'s place
-//!   when it is in the list, else the first.
+//!   when it is in the list, else the first. For each photo with a face that shows (after its crop)
+//!   it gives the face Pan and Zoom moves toward ([`focus_of`]): the largest named face, else the
+//!   largest unnamed one (ignored faces never), and its centre on the picture shown.
 //! - [`Slideshow`]: the show the UI plays, M11.4's [`Show`] on the session's clock over that list,
 //!   with the previews it needs made ahead through the preview's two panes at the display's size:
 //!   the photo shown in one pane; the next photo opened in the other as soon as no change is under
@@ -16,19 +18,26 @@
 //!   preview is made during the whole display time of the one before it, and a transition never
 //!   waits on the disk. A photo that has left the library is skipped when the show reaches it, and
 //!   the one after it is the one made ready. [`Slideshow::stats`] counts the changes and those
-//!   whose incoming photo was not ready when they began.
+//!   whose incoming photo was not ready when they began. Each [`Frame`] carries the Pan and Zoom
+//!   focus of the photo shown and of the outgoing one ([`focus_of`], worked out again only when the
+//!   library changes).
 
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
 use dalica_core::PhotoId;
-use dalica_create::slideshow::{self as create, Show, View};
+use dalica_create::slideshow::{self as create, FaceBox, Point, Show, View};
+use dalica_edit::{Geometry, Recipe};
+use dalica_image::Orientation;
+use dalica_library::FaceRef;
 use dalica_library::search::{Filters, Query as SearchQuery};
 use dalica_library::{AlbumRef, Section, section_photos};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::cmd::crop::shown_rect;
+use crate::cmd::faces::face_id;
 use crate::cmd::search::check_text;
 use crate::error::CmdError;
 use crate::preview::PANES;
@@ -42,7 +51,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Slideshow Photos",
         menu: "",
         keys: &[],
-        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out}; hidden photos only while the view shows hidden pictures"#,
+        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out, focus: {"<PhotoId>": {face:"<PhotoId>.<n>", point:[x, y]}} (for each photo with a face that shows: the face Pan and Zoom moves toward, the largest named one else the largest, and its centre normalised to the picture shown)}; hidden photos only while the view shows hidden pictures"#,
         effect: Effect::Query,
         history: History::None,
         enabled: has_target,
@@ -147,7 +156,42 @@ fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let ListParams { section, ids, search, start } = params(p)?;
     let list = playlist(s, section.as_deref(), ids.as_deref(), search.as_deref())?;
     let start = start.and_then(|id| list.photos.iter().position(|p| *p == id)).unwrap_or(0);
-    Ok(json!({ "photos": list.photos, "start": start, "videos": list.videos }))
+    let mut focus = serde_json::Map::new();
+    for id in &list.photos {
+        if let Some((face, point)) = focus_of(s, *id) {
+            // Six decimals, as every normalised value Dalica answers.
+            let n = |v: f32| (f64::from(v) * 1e6).round() / 1e6;
+            focus.insert(id.to_string(), json!({ "face": face_id(face), "point": [n(point.x), n(point.y)] }));
+        }
+    }
+    Ok(json!({ "photos": list.photos, "start": start, "videos": list.videos, "focus": focus }))
+}
+
+/// The face Pan and Zoom moves photo `id` toward and its centre, normalised to the picture shown
+/// (the photo's recipe applied: crop, straighten, frames and turns): the largest named face that
+/// shows, else the largest unnamed one; ignored faces never count. `None` for a photo without such
+/// a face (Pan and Zoom then moves toward its centre) or whose size the library does not know.
+pub fn focus_of(s: &Session, id: PhotoId) -> Option<(FaceRef, Point)> {
+    let lib = s.library();
+    let faces = lib.faces(id);
+    if !faces.iter().any(|f| f.counts()) {
+        return None;
+    }
+    let photo = lib.photo(id).filter(|p| p.width > 0 && p.height > 0)?;
+    let recipe = Recipe::parse(&lib.info(id).edits).unwrap_or_default();
+    let geometry = Geometry::new(&recipe, Orientation::default(), photo.width, photo.height);
+    let mut boxes = Vec::with_capacity(faces.len());
+    let mut places = Vec::with_capacity(faces.len());
+    for (index, face) in faces.iter().enumerate().filter(|(_, f)| f.counts()) {
+        if let Some(r) = shown_rect(&geometry, face.rect) {
+            let rect = create::Rect::new(r.x0 as f32, r.y0 as f32, (r.x1 - r.x0) as f32, (r.y1 - r.y0) as f32);
+            boxes.push(FaceBox { rect, named: face.person.person().is_some() });
+            places.push(index);
+        }
+    }
+    let chosen = create::focus_face(&boxes)?;
+    let index = places.get(chosen).copied()?;
+    Some((FaceRef { photo: id, index }, create::face_focus(&boxes)))
 }
 
 // --- The show and its previews --------------------------------------------------------------------
@@ -178,6 +222,11 @@ pub struct Frame {
     /// Whether the shown photo's screen-size preview is in its pane (else the UI draws the best
     /// thumbnail it has meanwhile).
     pub ready: bool,
+    /// The point Pan and Zoom moves the photo shown toward, normalised to it ([`focus_of`]; the
+    /// centre without a face): the [`create::Slide`]'s `focus`.
+    pub focus: Point,
+    /// The same for the outgoing photo (the centre when there is none).
+    pub outgoing_focus: Point,
 }
 
 /// Counts of the show's changes.
@@ -209,7 +258,13 @@ pub struct Slideshow {
     /// What was prefetched last.
     prefetched: Vec<PhotoId>,
     stats: ShowStats,
+    /// The Pan and Zoom focus of the photos drawn lately, with the library revision it was worked
+    /// out at (at most [`FOCUS_KEPT`]).
+    focus: Vec<(PhotoId, u64, Point)>,
 }
+
+/// How many photos' Pan and Zoom focus a show keeps: the photo shown, the outgoing one, and room.
+const FOCUS_KEPT: usize = 4;
 
 impl std::fmt::Debug for Slideshow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -238,6 +293,7 @@ impl Slideshow {
             last_index: None,
             prefetched: Vec::new(),
             stats: ShowStats::default(),
+            focus: Vec::new(),
         };
         me.tick(s);
         me
@@ -406,6 +462,24 @@ impl Slideshow {
             }
         }
         let ready = self.current.is_some_and(|(id, pane)| self.ready_in(s, pane, id));
-        Frame { view, photo: self.current, outgoing: self.outgoing, ready }
+        let focus = self.current.map_or(Point::CENTRE, |(id, _)| self.focus(s, id));
+        let outgoing_focus = self.outgoing.map_or(Point::CENTRE, |(id, _)| self.focus(s, id));
+        Frame { view, photo: self.current, outgoing: self.outgoing, ready, focus, outgoing_focus }
+    }
+
+    /// Photo `id`'s Pan and Zoom focus ([`focus_of`]), worked out again only when the library has
+    /// changed since.
+    fn focus(&mut self, s: &Session, id: PhotoId) -> Point {
+        let revision = s.library().revision();
+        if let Some((_, _, p)) = self.focus.iter().find(|(f, r, _)| *f == id && *r == revision) {
+            return *p;
+        }
+        let point = focus_of(s, id).map_or(Point::CENTRE, |(_, p)| p);
+        self.focus.retain(|(f, r, _)| *f != id && *r == revision);
+        if self.focus.len() >= FOCUS_KEPT {
+            self.focus.remove(0);
+        }
+        self.focus.push((id, revision, point));
+        point
     }
 }

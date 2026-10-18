@@ -8059,7 +8059,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     selects them; typed coordinates move the pin; Copy and Paste Location work from the menu; the
     badge shows on a photo tagged in Dalica; at 900 × 600 the pane fits; fingerprints of the pane
     with markers and with a bubble at 1400 × 900.
-- ⬜ **M13.23 `edit` + `create` + `engine`: faces in the crop suggestions and the slideshow's Pan and Zoom**
+- ✅ **M13.23 `edit` + `create` + `engine`: faces in the crop suggestions and the slideshow's Pan and Zoom**
   - after: M13.15
   - files: `crates/edit/src/suggest.rs`, `crates/edit/tests/suggest.rs`, `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`, `crates/create/src/slideshow.rs`, `crates/create/src/slideshow/**`, `crates/create/tests/slideshow.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow.rs`, `docs/editing.md`, `docs/viewing.md`
   - scope: `editing.md` §6.1 and `viewing.md` §1.3: `edit::suggest` takes the photo's face

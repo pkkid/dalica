@@ -1,6 +1,7 @@
 //! Slideshow sequencing and transition geometry (M11.4, `viewing.md` §1): a virtual clock drives
 //! shows through play, pause, a mouse move, the end and Loop; the transitions' frames, Pan and
-//! Zoom, the fit and the caption plate are property-tested over sizes and progress.
+//! Zoom, the fit and the caption plate are property-tested over sizes and progress; Pan and Zoom
+//! moves toward the largest named face, else the largest face, else the centre (M13.23).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,7 +9,9 @@ use std::time::Duration;
 use dalica_core::{Timestamp, VirtualClock};
 use dalica_create::slideshow::geometry::{CAPTION_BOTTOM, CAPTION_MAX_WIDTH, MAX_UPSCALE};
 use dalica_create::slideshow::transition::{PAN_ZOOM_MAX, PAN_ZOOM_MIN, pan_zoom};
-use dalica_create::slideshow::{Point, Rect, Settings, Show, Size, Slide, State, Transition, caption_plate, fit, frame};
+use dalica_create::slideshow::{
+    FaceBox, Point, Rect, Settings, Show, Size, Slide, State, Transition, caption_plate, face_focus, fit, focus_face, frame, pan_zoom_amount,
+};
 use proptest::prelude::*;
 
 use crate::common::cases;
@@ -253,6 +256,46 @@ fn every_transition_keeps_both_photos_until_its_very_end() {
                     check_layer(sc, layer);
                 }
             }
+        }
+    }
+}
+
+/// The part of the photo a Pan and Zoom frame shows, by its centre in the photo (normalised).
+fn shown_centre(slide: &Slide, screen: Size) -> (f32, f32) {
+    let layer = frame(Transition::PanAndZoom, screen, 1.0, None, slide, 1.0).incoming.expect("the photo shows");
+    let c = layer.clip.rect.centre();
+    ((c.x - layer.rect.x) / layer.rect.width, (c.y - layer.rect.y) / layer.rect.height)
+}
+
+#[test]
+fn pan_and_zooms_end_frame_is_centred_nearer_the_largest_named_face_than_the_centre() {
+    let named = FaceBox { rect: Rect::new(0.7, 0.15, 0.1, 0.15), named: true };
+    let larger = FaceBox { rect: Rect::new(0.1, 0.55, 0.2, 0.25), named: false };
+    let smaller_named = FaceBox { rect: Rect::new(0.45, 0.6, 0.05, 0.08), named: true };
+    // The largest named face, else the largest face, else the centre; faces off the photo count for
+    // nothing.
+    assert_eq!(focus_face(&[larger, smaller_named, named]), Some(2));
+    assert_eq!(focus_face(&[larger, FaceBox { named: false, ..named }]), Some(0));
+    let off = FaceBox { rect: Rect::new(2.0, f32::NAN, 0.5, 0.5), named: true };
+    assert_eq!((focus_face(&[]), focus_face(&[off])), (None, None));
+    assert_eq!(face_focus(&[off]), Point::CENTRE);
+    let focus = face_focus(&[larger, named]);
+    assert!((focus.x - 0.75).abs() < 1e-6 && (focus.y - 0.225).abs() < 1e-6, "{focus:?}");
+
+    let face = (0.75f32, 0.225f32);
+    let from_face = |(u, v): (f32, f32)| (u - face.0).hypot(v - face.1);
+    let start = from_face((0.5, 0.5));
+    for (size, screen) in
+        [((4000, 3000), Size::new(1600.0, 900.0)), ((3000, 4000), Size::new(1920.0, 1080.0)), ((1200, 800), Size::new(800.0, 600.0))]
+    {
+        for index in 0..6 {
+            let slide = Slide { focus, zoom: pan_zoom_amount(index), motion: 1.0, ..Slide::new(size) };
+            let end = shown_centre(&slide, screen);
+            // Each photo grows by 5 % or more about the face: its view moves at least 1/21 of the way.
+            assert!(from_face(end) < start * (1.0 - 0.047), "{size:?} #{index}: the end frame is centred at {end:?}");
+            // Without a face it closes in on the centre.
+            let centred = shown_centre(&Slide { focus: face_focus(&[]), ..slide }, screen);
+            assert!((centred.0 - 0.5).abs() < 1e-4 && (centred.1 - 0.5).abs() < 1e-4, "{centred:?}");
         }
     }
 }

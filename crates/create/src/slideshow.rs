@@ -1,12 +1,13 @@
 //! Slideshow sequencing (`viewing.md` §1, M11.4): the show's state machine on a [`Clock`], and
-//! (in [`transition`] and [`geometry`]) where its photos are drawn. Pure: no I/O, no egui; the
-//! engine owns a [`Show`] and the UI only paints what [`Show::tick`] and [`transition::frame`]
-//! answer.
+//! (in [`transition`] and [`geometry`]) where its photos are drawn, and (in [`faces`]) the face
+//! Pan and Zoom moves toward. Pure: no I/O, no egui; the engine owns a [`Show`] and the UI only
+//! paints what [`Show::tick`] and [`transition::frame`] answer.
 //!
 //! The timing: a photo's display time starts the moment its change begins, so with a 3 s display
 //! time and Dissolve a photo fades in over 0.8 s and stays alone for the other 2.2 s. Pausing
 //! freezes the display time (and Pan and Zoom's motion) but lets a change already under way finish.
 
+pub mod faces;
 pub mod geometry;
 pub mod transition;
 
@@ -15,6 +16,7 @@ use std::time::Duration;
 
 use dalica_core::{Clock, Timestamp};
 
+pub use faces::{FaceBox, face_focus, focus_face};
 pub use geometry::{Point, Rect, Size, caption_plate, caption_wrap_width, fit};
 pub use transition::{Frame, Layer, Slide, TRANSITION_TIME, Transition, frame, pan_zoom_amount};
 
