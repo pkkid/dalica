@@ -7002,7 +7002,7 @@ a maintainer decision mid-run.
     rotation after a Border turns the framed picture; the photo's centre maps to the frame's photo
     area and back; a region at 1:1 equals that window of the whole render; 1 000 Borders stay
     within the limits without a panic; every existing `render` test passes unchanged.
-- ⬜ **M12.14 `edit`: Drop Shadow and Museum Matte**
+- ✅ **M12.14 `edit`: Drop Shadow and Museum Matte**
   - after: M12.13
   - files: `crates/edit/src/ops/mats.rs`, `crates/edit/tests/mats.rs`, `crates/edit/tests/fingerprints/mats-*.json`
   - scope: `editing.md` §8.4 on M12.13's size-changing kind: Drop Shadow (the photo over a

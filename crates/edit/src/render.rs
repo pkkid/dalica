@@ -716,12 +716,13 @@ fn place(picture: Option<(Rgba8, Win)>, input: (u32, u32), layout: Layout, win: 
 }
 
 /// The frame kind of a typed operation: the effects that change the picture's size
-/// ([`Reframe`]). Drop Shadow and Museum Matte join here when their renderers land (M12.14),
-/// leaving the `Adjust` dispatch below.
+/// ([`Reframe`]), which the `Adjust` dispatch below leaves out.
 fn reframe_of(t: &Typed) -> Option<&dyn Reframe> {
     match t {
         Typed::Widescreen(o) => Some(o),
         Typed::Border(o) => Some(o),
+        Typed::DropShadow(o) => Some(o),
+        Typed::MuseumMatte(o) => Some(o),
         _ => None,
     }
 }
@@ -766,8 +767,7 @@ fn analyses(t: &Typed) -> Option<bool> {
         Typed::Pixelate(o) => of(o),
         Typed::FocalZoom(o) => of(o),
         Typed::Border(_) => Some(false),
-        Typed::DropShadow(o) => of(o),
-        Typed::MuseumMatte(o) => of(o),
+        Typed::DropShadow(_) | Typed::MuseumMatte(_) => Some(false),
     }
 }
 
@@ -806,8 +806,7 @@ fn prepare(t: &Typed, ctx: &Prepare<'_>) -> Option<Box<dyn Pass>> {
         Typed::Pixelate(o) => o.prepare(ctx),
         Typed::FocalZoom(o) => o.prepare(ctx),
         Typed::Border(_) => None,
-        Typed::DropShadow(o) => o.prepare(ctx),
-        Typed::MuseumMatte(o) => o.prepare(ctx),
+        Typed::DropShadow(_) | Typed::MuseumMatte(_) => None,
     }
 }
 

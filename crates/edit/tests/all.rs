@@ -14,6 +14,7 @@ mod focal_effects;
 mod frame;
 mod fx;
 mod geometry;
+mod mats;
 mod recipe;
 mod remap_effects;
 mod render;
