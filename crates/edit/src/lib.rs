@@ -32,6 +32,7 @@ pub mod analysis;
 pub mod catalog;
 pub mod crop_geom;
 pub mod frame;
+pub mod fx;
 pub mod geometry;
 pub mod guides;
 pub mod ops;

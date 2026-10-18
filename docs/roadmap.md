@@ -6814,7 +6814,7 @@ a maintainer decision mid-run.
     `ui.set` (bad values are `bad_params`, nothing changes); `edit.tool.open {tool: "effect",
     name: "sharpen"}` opens the stub panel and Esc closes it; Ctrl+Shift+B does nothing in the
     library; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay green.
-- ⬜ **M12.3 `edit`: the effects' primitives: blurs, seeded noise, masks, brush dabs, blends and Fade**
+- ✅ **M12.3 `edit`: the effects' primitives: blurs, seeded noise, masks, brush dabs, blends and Fade**
   - after: M11.R
   - files: `crates/edit/src/fx.rs`, `crates/edit/src/fx/**`, `crates/edit/tests/fx.rs`
   - scope: what several effects share, on the renderer's bands (`ops::Band`, `View`, `Reach`), so

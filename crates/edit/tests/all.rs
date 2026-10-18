@@ -8,6 +8,7 @@ mod auto;
 mod catalog;
 mod crop;
 mod frame;
+mod fx;
 mod geometry;
 mod recipe;
 mod render;
