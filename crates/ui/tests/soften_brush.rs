@@ -203,16 +203,23 @@ fn the_brush_over_a_painted_stroke_and_the_panels_rows_match_their_fingerprints(
     shot(&t.d, "soften-brush-window");
     let area = widget(&t.d, "canvas:edit").rect;
     check_rect(&t.d, &format!("soften-brush-canvas-{}x{}", LARGE.0, LARGE.1), area);
-    let (paint, size) = (widget(&t.d, "button:effect.paint").rect, widget(&t.d, "slider:soften.brush").rect);
+    // The panel from its title to its buttons: the rows sit between the sliders and the buttons.
+    let [softness, paint, size, apply] =
+        ["slider:effect.softness", "button:effect.paint", "slider:soften.brush", "button:panel.apply"].map(|id| widget(&t.d, id).rect);
+    assert!(softness[1] < paint[1] && paint[1] + paint[3] <= size[1] && size[1] + size[3] <= apply[1], "{paint:?} {size:?} {apply:?}");
     let panel = widget(&t.d, "region:editPanel").rect;
-    let rows = [panel[0], paint[1] - 4.0, panel[2], size[1] + size[3] - paint[1] + 8.0];
-    check_rect(&t.d, &format!("soften-brush-panel-{}x{}", LARGE.0, LARGE.1), rows);
+    // From under the tab strip (its title row) to just below the buttons, across the panel.
+    let top = panel[1] + 36.0;
+    check_rect(&t.d, &format!("soften-brush-panel-{}x{}", LARGE.0, LARGE.1), [panel[0], top, panel[2], apply[1] + apply[3] + 4.0 - top]);
 
-    // At 900 × 600 Paint and Erase stay inside the panel.
+    // At 900 × 600 the controls scroll: Brush size is reached by scrolling them, and the rows stay
+    // inside the panel.
     t.d.resize(SMALL.0, SMALL.1);
     t.d.settle(FRAMES).unwrap();
+    t.d.scroll(Some("slider:effect.softness"), egui::vec2(0.0, -400.0)).unwrap();
+    t.d.settle(FRAMES).unwrap();
     let panel = widget(&t.d, "region:editPanel").rect;
-    for id in ["button:effect.paint", "button:effect.erase"] {
+    for id in ["button:effect.paint", "button:effect.erase", "slider:soften.brush"] {
         let r = widget(&t.d, id).rect;
         assert!(r[0] >= panel[0] && r[0] + r[2] <= panel[0] + panel[2] && r[1] >= panel[1] && r[1] + r[3] <= panel[1] + panel[3], "{id}: {r:?}");
     }

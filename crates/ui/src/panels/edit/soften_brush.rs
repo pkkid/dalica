@@ -1,18 +1,20 @@
 //! Soften's brush and eraser (`editing.md` §8.4): while Soften's panel is open, the Paint and
-//! Erase buttons and the brush size in the panel, and on the photo the brush circle under the
+//! Erase buttons and the brush size in the panel ([`rows`], the panel's extra rows under its
+//! sliders, scrolling with them in a short panel), and on the photo the brush circle under the
 //! pointer, a drag adding a stroke ([`crate::state::EffectDraft::strokes`], Paint or Erase as
 //! [`crate::state::EffectDraft::erase`] says, at most [`MAX_STROKES`]). Run after the canvas
 //! (`panels/edit.rs`), so the photo's part works with the edit panel hidden too.
 //!
 //! ```text
-//! Soften                  [🖌 Paint][⌫ Erase]   (the title row: the mode buttons)
+//! Soften
 //!               Softness
 //! ○─────────────────────────────
 //!                 Fade
 //! ○─────────────────────────────
-//! [Reset]                [Apply] [Cancel]
-//! Brush size                         64 px      (when the panel has room under its buttons)
+//! [ 🖌 Paint    ] [ ⌫ Erase     ]               (Paint │ Erase)
+//! Brush size                         32 px
 //! ───────○──────────────────────
+//! [Reset]                [Apply] [Cancel]
 //! ```
 //!
 //! - **Strokes.** A press on the photo starts a stroke at the brush's radius and mode; the drag
@@ -52,7 +54,7 @@ use dalica_edit::{Dihedral, Geometry, Point, Recipe};
 use dalica_image::Orientation;
 use dalica_library::tags::MAX_OPERATION;
 use dalica_ui_kit::icons::{EffectIcon, paint_effect};
-use dalica_ui_kit::registry::{self, Role};
+use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, SliderSpec, Target};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::epaint::{Mesh, Vertex};
@@ -62,8 +64,7 @@ use egui::{
 };
 
 use super::canvas::{self, View};
-use super::effect_panel::layout::{GAP, TITLE_H};
-use super::panel;
+use super::effect_panel::controls::ROW_GAP;
 use crate::app::App;
 use crate::commands::{edit_view, effect_session, tools};
 use crate::state::{EffectDraft, MAX_STROKE_POINTS, MAX_STROKES, SOFTEN_BRUSH_DEFAULT, SOFTEN_BRUSH_MAX, SOFTEN_BRUSH_MIN, SoftenStroke, ToolKind};
@@ -96,8 +97,7 @@ const STROKE_BYTES: usize = 16;
 pub const MASK_EDGE: f64 = 256.0;
 /// The wash's opacity where the mask is full.
 const WASH: f32 = 0.35;
-/// The mode buttons' width and the gap between them.
-const MODE_W: f32 = 72.0;
+/// The gap between the mode buttons.
 const MODE_GAP: f32 = 6.0;
 
 /// A stroke being drawn: the photo, the stroke's index in the draft.
@@ -259,7 +259,7 @@ fn painted(d: &EffectDraft) -> bool {
     d.strokes.iter().any(|s| !s.erase && !s.points.is_empty())
 }
 
-/// The photo area's part of an open Soften panel, and the panel's brush rows.
+/// The photo area's part of an open Soften panel.
 pub fn on_canvas(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let Some((photo, d)) = soften_draft(app) else {
@@ -274,9 +274,6 @@ pub fn on_canvas(app: &mut App, ui: &mut Ui) {
         app.state_mut().edit.effect = Some(fixed);
     }
     keys(app, &ctx);
-    if app.state().edit.panel_visible {
-        panel_rows(app, ui, photo);
-    }
     strokes(app, &ctx, photo);
     overlay(app, ui, photo);
 }
@@ -304,42 +301,33 @@ fn keys(app: &mut App, ctx: &egui::Context) {
     set_brush(app, d.brush * BRUSH_STEP.powi(steps.clamp(-10, 10)));
 }
 
-/// The panel's brush rows over the edit panel's content: Paint and Erase on the title row's right,
-/// Brush size under the panel's buttons when there is room before Undo / Redo.
-fn panel_rows(app: &mut App, ui: &mut Ui, photo: PhotoId) {
-    let ctx = ui.ctx().clone();
-    let Some(region) = registry::find(&ctx, "region:editPanel") else { return };
-    let [x, y, w, h] = region.rect;
-    let content = panel::parts(Rect::from_min_size(pos2(x, y), vec2(w, h))).content;
-    if !content.is_positive() {
-        return;
-    }
-    let t: Tokens = *app.tokens();
-    let Some((_, d)) = soften_draft(app) else { return };
-    let mut child = ui.new_child(UiBuilder::new().id_salt("soften.brush.panel").max_rect(content));
-    child.set_clip_rect(content);
+/// The height of Soften's rows in its panel ([`rows`]).
+pub fn rows_height(t: &Tokens) -> f32 {
+    t.metrics.button_h + ROW_GAP + t.metrics.slider_row_h
+}
 
-    // Paint │ Erase, right-aligned on the title row.
-    let bh = t.metrics.button_h;
-    let row_y = content.min.y + (TITLE_H - bh) / 2.0;
-    let erase_r = Rect::from_min_size(pos2(content.max.x - MODE_W, row_y), vec2(MODE_W, bh));
-    let paint_r = Rect::from_min_size(pos2(erase_r.min.x - MODE_GAP - MODE_W, row_y), vec2(MODE_W, bh));
-    let paint = mode_button(&mut child, &t, PAINT_ID, "Paint", EffectIcon::Brush, paint_r, !d.erase, true, PAINT_TIP);
-    let erase = mode_button(&mut child, &t, ERASE_ID, "Erase", EffectIcon::Eraser, erase_r, d.erase, painted(&d), ERASE_TIP);
+/// Soften's rows in its parameter panel, under its sliders (the panel's extra rows,
+/// [`super::effect_panel::extra_rows`]): Paint │ Erase, then Brush size in pixels of the stored
+/// photo across the brush.
+pub fn rows(app: &mut App, ui: &mut Ui) {
+    let Some((photo, d)) = soften_draft(app) else { return };
+    let t: Tokens = *app.tokens();
+    let w = ui.available_width().max(1.0);
+
+    let (_, row) = ui.allocate_space(vec2(w, t.metrics.button_h));
+    let half = ((row.width() - MODE_GAP) / 2.0).max(0.0).floor();
+    let paint_r = Rect::from_min_size(row.min, vec2(half, row.height()));
+    let erase_r = Rect::from_min_size(pos2(row.max.x - half, row.min.y), vec2(half, row.height()));
+    let paint = mode_button(ui, &t, PAINT_ID, "Paint", EffectIcon::Brush, paint_r, !d.erase, true, PAINT_TIP);
+    let erase = mode_button(ui, &t, ERASE_ID, "Erase", EffectIcon::Eraser, erase_r, d.erase, painted(&d), ERASE_TIP);
     if paint.clicked() {
         set_mode(app, false);
     } else if erase.clicked() {
         set_mode(app, true);
     }
 
-    // Brush size, in pixels of the stored photo across the brush.
-    let Some(apply) = registry::find(&ctx, "button:panel.apply") else { return };
-    let top = apply.rect[1] + apply.rect[3] + 2.0 * GAP;
-    let bottom = registry::find(&ctx, "button:edit.undo").map_or(content.max.y, |u| u.rect[1] - GAP).min(content.max.y);
-    let slider = Rect::from_min_size(pos2(content.min.x, top), vec2(content.width(), t.metrics.slider_row_h));
-    if slider.max.y.is_nan() || slider.max.y > bottom {
-        return;
-    }
+    ui.add_space(ROW_GAP);
+    let (_, slider) = ui.allocate_space(vec2(w, t.metrics.slider_row_h));
     let short = dims(app, photo).map_or(1000.0, |(w, h)| f64::from(w.min(h)));
     let px = |r: f32| (2.0 * f64::from(r) * short).round().max(1.0);
     let spec = SliderSpec {
@@ -352,8 +340,8 @@ fn panel_rows(app: &mut App, ui: &mut Ui, photo: PhotoId) {
         decimals: 0,
         unit: " px",
     };
-    let mut row = child.new_child(UiBuilder::new().id_salt("soften.brush.size").max_rect(slider));
-    let out = widgets::slider(&mut row, &t, &spec, px(d.brush));
+    let mut child = ui.new_child(UiBuilder::new().id_salt("soften.brush.size").max_rect(slider));
+    let out = widgets::slider(&mut child, &t, &spec, px(d.brush));
     if let Some(v) = out.value {
         set_brush(app, (v / (2.0 * short)) as f32);
     }
