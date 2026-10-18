@@ -7138,8 +7138,22 @@ a maintainer decision mid-run.
   - done when: a test shows the toggle's look changes with the setting; a control test shows a
     destination reached through a link outside the write roots refused over automation; the docs
     read as built; `cargo xtask ci`.
+- ⬜ **M12.26 `engine` + `xtask`: the two budgets the M11.R review missed on GitHub**
+  - after: M11.R
+  - files: `crates/engine/benches/search.rs`, `crates/engine/benches/import.rs`, `crates/engine/src/search.rs`, `crates/engine/src/search/**`, `crates/engine/src/import.rs`, `crates/engine/src/import/**`, `crates/scan/src/import.rs`, `crates/scan/src/import/**`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `docs/development.md`
+  - scope: a fix task from M11.R (the maintainer merged the review with these two open). On the review
+    PR's Budgets job (run 39090240306), on a runner slower than usual (cold start 340 ms against 236 ms the run
+    before): M9's lone `-word` search took 5.57 ms, 1.36 × v0.5.0's 4.09 ms measured in the same job (limit 1.3 ×),
+    and M11's import listing took 346 ms against its absolute 320 ms (245 ms on the previous run, 209 ms on the
+    lead's machine). Find out whether each is a regression or runner noise: measure both at v0.5.0 and on main
+    several times on the Budgets job and locally (median of five). A regression is fixed in its module with
+    before/after numbers. If it is noise, the budget is never loosened here: the task blocks with its numbers and
+    the options (a relative budget for the import listing like save and search, more samples, or a different
+    limit) for the maintainer at M12.R.
+  - done when: both budgets pass on two consecutive Budgets runs on GitHub, or the task is blocked with the
+    measurements and options; before/after numbers in the PR; `cargo xtask ci`.
 - ⬜ **M12.22 `accept M12`**
-  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25
+  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26
   - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
   - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: each tab's grid filling with previews; each of the 27
