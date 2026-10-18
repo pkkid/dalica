@@ -98,7 +98,12 @@
 //!   (`people_definitions`). **A file's GPS** (M13.14): a new photo whose sidecar has no word on
 //!   its place takes its file's GPS as its geotag in the same op; a known photo's place follows its
 //!   file through the diff's sync op (`dalica_scan::meta`), never over a location the user
-//!   removed, all with no undo step.
+//!   removed, all with no undo step. **A file's face regions** (M13.19, `xmp-interop.md` §6): a new
+//!   photo whose sidecar has no faces takes the MWG faces its file holds in the same op, each name
+//!   matched to a person ignoring case, else a new person (`AddPerson` first); a known photo whose
+//!   file changed takes the faces of its file that overlap none of its own (new from another
+//!   application) in the op that updates it (`with_file_faces`): with no undo step, never written
+//!   back.
 //!
 //! Seams: [`crate::watching`] starts the periodic verification through
 //! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
@@ -113,9 +118,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
-use dalica_library::{AlbumInfo, Geo, Library, Op};
+use dalica_library::{AlbumInfo, Face, FacePerson, Geo, Library, MAX_FACES, Op, clean_person_name};
 use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Known, Plan, Progress, ReadMetadata, Scan, Summary};
 use dalica_store::albums::{AlbumsRead, AlbumsReading};
+use dalica_store::metawrite::{FaceRegion, new_faces};
 use dalica_store::people::{PeopleRead, PeopleReading};
 use dalica_store::rebuild::{Defined, People};
 use serde::Serialize;
@@ -1466,7 +1472,8 @@ fn with_sidecar(
     people: Option<&PeopleReading>,
 ) -> Option<Op> {
     let with = with_albums(lib, op, folder, albums, skip);
-    with_people(lib, with.as_ref().unwrap_or(op), folder, people).or(with)
+    let with = with_people(lib, with.as_ref().unwrap_or(op), folder, people).or(with);
+    with_file_faces(lib, with.as_ref().unwrap_or(op), folder).or(with)
 }
 
 /// `op`, one of the ops a scan applies for `folder`, with what the folder's sidecar says about the
@@ -1517,7 +1524,11 @@ fn with_people(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&Peopl
                     people.push(add);
                 }
             }
-            let (list, _) = who.faces(found.faces.clone());
+            // The sidecar's faces first; without any, the faces the file holds (M13.19).
+            let list = match (found.faces.is_empty(), &found.file) {
+                (true, Some(file)) => file_faces(lib, &[], file.faces(), &mut who, &mut people),
+                _ => who.faces(found.faces.clone()).0,
+            };
             if !list.is_empty() {
                 faces.push((p.id, list));
             }
@@ -1549,6 +1560,85 @@ fn with_people(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&Peopl
             Op::Batch { ops }
         }
     })
+}
+
+/// `op`, one of the ops a scan applies for `folder`, with the faces the files of the known photos
+/// it updates hold and the model does not (M13.19, `xmp-interop.md` §6): a photo the model knows
+/// whose file changed is read again, and each face of its file that overlaps none of the photo's
+/// faces ([`new_faces`]) is appended to them, its person found or created as [`file_faces`] does,
+/// in the op that takes the file's new size and time (`UpdatePhotos`), with no undo step and never
+/// written back. `None` when no file brings a new face.
+fn with_file_faces(lib: &Library, op: &Op, folder: &FoundFolder) -> Option<Op> {
+    let children: &[Op] = match op {
+        Op::Batch { ops } => ops,
+        other => std::slice::from_ref(other),
+    };
+    let id = lib.folder_by_path(&folder.path)?;
+    let mut who = People::new(lib);
+    for o in children {
+        if let Op::AddPerson { id, person } = o {
+            who.assume(id, &person.name);
+        }
+    }
+    let (mut people, mut faces) = (Vec::new(), Vec::new());
+    for o in children {
+        let Op::UpdatePhotos { photos } = o else { continue };
+        for p in photos.iter().filter(|p| p.folder == id && lib.photo(p.id).is_some()) {
+            let found = folder.photos.binary_search_by(|f| f.name.as_str().cmp(&p.name)).ok().and_then(|i| folder.photos.get(i));
+            let Some(file) = found.and_then(|f| f.file.as_ref()).filter(|f| !f.faces().is_empty()) else { continue };
+            let own = lib.faces(p.id);
+            let new = file_faces(lib, own, file.faces(), &mut who, &mut people);
+            if !new.is_empty() {
+                faces.push((p.id, own.iter().cloned().chain(new).collect()));
+            }
+        }
+    }
+    if faces.is_empty() {
+        return None;
+    }
+    people.push(Op::SetFaces { faces });
+    Some(match op.clone() {
+        Op::Batch { ops: mut all } => {
+            all.append(&mut people);
+            Op::Batch { ops: all }
+        }
+        other => {
+            people.insert(0, other);
+            Op::Batch { ops: people }
+        }
+    })
+}
+
+/// The faces of a file (`file`, its MWG face regions) that overlap none of `existing` (a photo's
+/// faces in the model; [`new_faces`]), as the model takes them, at most as many as keep the photo
+/// within [`MAX_FACES`]: a face without a name is unnamed; a name is the person who holds it,
+/// ignoring case (in `lib`, or added by the ops decided so far, `who`), else a new person, whose
+/// `AddPerson` is pushed onto `people`.
+pub(crate) fn file_faces(lib: &Library, existing: &[Face], file: &[FaceRegion], who: &mut People, people: &mut Vec<Op>) -> Vec<Face> {
+    let known: Vec<_> = existing.iter().map(|f| f.rect).collect();
+    let room = MAX_FACES.saturating_sub(existing.len());
+    new_faces(file, &known)
+        .into_iter()
+        .take(room)
+        .map(|f| {
+            let person = f.name.as_deref().and_then(clean_person_name).and_then(|name| person_named(lib, who, name, people));
+            Face::new(f.rect, person.map_or(FacePerson::Unnamed, FacePerson::Person))
+        })
+        .collect()
+}
+
+/// The person called `name` (ignoring case) in `lib` or among the people `who` adds, else a new
+/// one (its `AddPerson` pushed onto `people`); `None` only when no new id can be drawn.
+fn person_named(lib: &Library, who: &mut People, name: String, people: &mut Vec<Op>) -> Option<dalica_core::PersonId> {
+    let id = (0..dalica_library::MAX_PERSON_ID_DRAWS).find_map(|_| lib.new_person_id(crate::search::random_bits).ok().filter(|id| !who.knows(id)))?;
+    match who.define(lib, &id, name, String::new(), false) {
+        Defined::Op(op) => {
+            people.push(op);
+            Some(id)
+        }
+        Defined::Is(holder) => Some(holder),
+        Defined::Kept | Defined::NameTaken(_) => None,
+    }
 }
 
 /// The ops that give `lib` what `people.json` (`defs`) says once a rebuild found every folder

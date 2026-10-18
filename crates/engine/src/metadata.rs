@@ -1,5 +1,5 @@
-//! The metadata write-back (`data-model.md` §5, `xmp-interop.md` §1–§5): captions, tags, stars,
-//! places and dates the user changes reach the photo files themselves.
+//! The metadata write-back (`data-model.md` §5, `xmp-interop.md` §1–§6): captions, tags, stars,
+//! places, dates and people names the user changes reach the photo files themselves.
 //!
 //! - **The hook.** After every op the session applies, [`Session::metadata_applied`] is told the
 //!   owned values (caption, tags, star, the effective date, the model's word on the place) of the
@@ -38,6 +38,18 @@
 //! folder first (moved elsewhere, or trashed) has its write dropped and reported as a
 //! [`MetadataEvent`], and the library keeps the value.
 //!
+//! **People names** (M13.19, `xmp-interop.md` §6) are the field [`Field::People`]: the photo's
+//! named faces, as MWG face regions. Naming, renaming, merging, deleting a person, moving or removing
+//! a face (undo and redo included) changes it on every photo concerned; with Store people names in
+//! photos on, each such change queues a write of the photo's named faces (unnamed and ignored faces
+//! never, the file's other regions kept), with every face rectangle Dalica knew on the photo before
+//! and after the change. Turning the option on writes nothing by itself. Write People Names to
+//! Photos… (`faces.writeXmp`, `cmd/face_regions.rs`) queues the same write for a selection whatever
+//! the option says ([`Session::queue_people_writes`]). The library keeps no last-synced hash of
+//! people, so a file holding a face no rectangle of Dalica's overlaps (added by another application
+//! since the photo was read) is not written over: the writer hands its faces back, they come in
+//! (`scanning.rs`'s `file_faces`, no undo step), and the write is made again.
+//!
 //! [`Session::pending_metadata_writes`] counts the photos still to write (`library.inspect` →
 //! `pendingWrites.metadata`); [`Session::flush_metadata`] writes them all now (the CLI, tests). When
 //! the session closes, the worker writes what is still queued before it stops.
@@ -60,10 +72,12 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use dalica_core::{Clock, DateTime, FolderId, PhotoId, Timestamp};
+use dalica_core::{Clock, DateTime, FolderId, PhotoId, Rect01, Timestamp};
 use dalica_library::sync::Field as SyncField;
-use dalica_library::{Geo, Library, Op, Photo};
-use dalica_store::metawrite::{self, FieldOutcome, FileResult, MetaWriteQueue, Request, Status, Values};
+use dalica_library::{Face, Geo, Library, Op, Photo};
+use dalica_store::metawrite::{
+    self, FaceRegion, FieldOutcome, FileResult, MetaWriteQueue, NamedFace, NamedFaces, PeopleWrite, Request, Status, Values,
+};
 use dalica_store::writer::RootCheck;
 use serde_json::{Value, json};
 
@@ -105,28 +119,36 @@ pub enum Field {
     Star,
     Place,
     Date,
+    /// The photo's named faces, as MWG face regions (M13.19).
+    People,
 }
 
 impl Field {
-    pub const ALL: [Field; 5] = [Field::Caption, Field::Tags, Field::Star, Field::Place, Field::Date];
+    pub const ALL: [Field; 6] = [Field::Caption, Field::Tags, Field::Star, Field::Place, Field::Date, Field::People];
 
     const fn bit(self) -> u8 {
         1 << self as u8
     }
 
-    /// The field's name in messages ("caption", "tags", "star", "place", "date taken").
+    /// The field's name in messages ("caption", "tags", "star", "place", "date taken", "people
+    /// names").
     pub fn name(self) -> &'static str {
-        self.sync().name()
+        match self.sync() {
+            Some(f) => f.name(),
+            None => "people names",
+        }
     }
 
-    /// The field as the write queue and `dalica_library::sync` name it.
-    fn sync(self) -> SyncField {
+    /// The field as the write queue and `dalica_library::sync` name it; the people names are a
+    /// request of their own ([`PeopleWrite`]), with no last-synced hash.
+    fn sync(self) -> Option<SyncField> {
         match self {
-            Field::Caption => SyncField::Caption,
-            Field::Tags => SyncField::Tags,
-            Field::Star => SyncField::Rating,
-            Field::Place => SyncField::Place,
-            Field::Date => SyncField::Date,
+            Field::Caption => Some(SyncField::Caption),
+            Field::Tags => Some(SyncField::Tags),
+            Field::Star => Some(SyncField::Rating),
+            Field::Place => Some(SyncField::Place),
+            Field::Date => Some(SyncField::Date),
+            Field::People => None,
         }
     }
 
@@ -140,12 +162,14 @@ impl Field {
         }
     }
 
-    /// Whether `w` lets this field be written into files.
-    fn allowed(self, w: &MetadataWrites) -> bool {
+    /// Whether `w` (and `people`, Store people names in photos) lets this field be written into
+    /// files.
+    fn allowed(self, w: &MetadataWrites, people: bool) -> bool {
         match self {
             Field::Caption | Field::Tags | Field::Place => w.captions_tags_places,
             Field::Star => w.stars_as_ratings,
             Field::Date => w.dates,
+            Field::People => people,
         }
     }
 }
@@ -156,7 +180,7 @@ pub struct Fields(u8);
 
 impl Fields {
     pub const NONE: Fields = Fields(0);
-    pub const ALL: Fields = Fields(0b1_1111);
+    pub const ALL: Fields = Fields(0b11_1111);
 
     pub fn of(fields: &[Field]) -> Fields {
         Fields(fields.iter().fold(0, |b, f| b | f.bit()))
@@ -182,6 +206,25 @@ impl Fields {
     /// The set of `fields`, as the write queue names them.
     fn of_sync(fields: &BTreeSet<SyncField>) -> Fields {
         Fields(fields.iter().fold(0, |b, f| b | Field::of_sync(*f).bit()))
+    }
+
+    /// The fields `request` writes, its people names included.
+    fn of_request(request: &Request) -> Fields {
+        let mut f = Fields::of_sync(&request.fields);
+        if request.people.is_some() {
+            f.insert(Field::People);
+        }
+        f
+    }
+
+    /// The fields of the set the write queue names (all but the people names).
+    fn sync(self) -> BTreeSet<SyncField> {
+        self.iter().filter_map(Field::sync).collect()
+    }
+
+    /// The fields of the set `keep` keeps.
+    fn filter(self, keep: impl Fn(Field) -> bool) -> Fields {
+        Fields::of(&self.iter().filter(|f| keep(*f)).collect::<Vec<_>>())
     }
 
     /// The fields in the set, in [`Field::ALL`] order.
@@ -289,6 +332,9 @@ struct Writer {
     /// The fields each photo of `queued` was sent with, so a write the worker hands back for a
     /// damaged folder is held with them.
     queued_fields: HashMap<PhotoId, Fields>,
+    /// The photos of `queued` whose people names are written whatever the option says (Write People
+    /// Names to Photos…), so a write handed back for a damaged folder keeps that.
+    queued_always: HashSet<PhotoId>,
     /// The photos of `queued` whose last write waits for their volume (or their folder) to come
     /// back: the worker tries them again on its own, so they do not keep the session busy
     /// ([`Session::metadata_writes_busy`]). Always a subset of `queued`.
@@ -316,6 +362,8 @@ struct HeldWrite {
     folder: PathBuf,
     path: PathBuf,
     fields: Fields,
+    /// Its people names are written whatever the option says (Write People Names to Photos…).
+    always: bool,
 }
 
 /// The job writing now, and what it did so far.
@@ -349,7 +397,7 @@ impl Running {
         };
         *slot = slot.saturating_add(1);
         self.done = self.done.saturating_add(1);
-        if r.imports().next().is_some() {
+        if r.imports().next().is_some() || r.people == Some(FieldOutcome::Imported) {
             self.imported = self.imported.saturating_add(1);
         }
         if r.fields.iter().any(|(_, o)| matches!(o, FieldOutcome::Conflict { .. })) {
@@ -479,7 +527,7 @@ struct Wrote {
 }
 
 /// The owned values of a photo the hook compares before and after an op.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Owned {
     star: bool,
     caption: String,
@@ -489,12 +537,24 @@ pub(crate) struct Owned {
     /// The model's word on the place (M13.14): a point, the location removed, or none (the file's
     /// GPS counts).
     geo: Option<Geo>,
+    /// The photo's faces (M13.19): their rectangles are what a people write knows was there.
+    faces: Vec<Face>,
+    /// The named faces with their people's names, in face order: the people names.
+    named: Vec<NamedFace>,
 }
 
 /// `p`'s owned values in `library`.
 pub(crate) fn owned(library: &Library, p: &Photo) -> Owned {
     let info = library.info(p.id);
-    Owned { star: p.star, caption: info.caption.clone(), tags: info.tags.clone(), date: info.date.or(p.date), geo: library.geo(p.id) }
+    let faces = library.faces(p.id).to_vec();
+    let named = named_faces(library, &faces);
+    Owned { star: p.star, caption: info.caption.clone(), tags: info.tags.clone(), date: info.date.or(p.date), geo: library.geo(p.id), faces, named }
+}
+
+/// The named faces of `faces` with their people's names (a face naming a person `library` does not
+/// have is left out).
+fn named_faces(library: &Library, faces: &[Face]) -> Vec<NamedFace> {
+    faces.iter().filter_map(|f| Some(NamedFace { name: library.person(f.person.person()?)?.name.clone(), rect: f.rect })).collect()
 }
 
 /// The place the write queue takes for the model's word `geo`: a point's degrees; none for a
@@ -522,6 +582,9 @@ fn differ(a: &Owned, b: &Owned) -> Fields {
     if a.geo != b.geo {
         f.insert(Field::Place);
     }
+    if a.named != b.named {
+        f.insert(Field::People);
+    }
     f
 }
 
@@ -545,6 +608,11 @@ pub(crate) fn candidates(library: &Library, op: &Op) -> Vec<PhotoId> {
             Op::SetDates { dates } => out.extend(dates.iter().map(|(id, _)| *id)),
             Op::SetPhotoInfo { photos } => out.extend(photos.iter().map(|(id, _)| *id)),
             Op::SetGeo { geo } => out.extend(geo.iter().map(|(id, _)| *id)),
+            // The people names: faces set, a person renamed, merged away or deleted.
+            Op::SetFaces { faces } => out.extend(faces.iter().map(|(id, _)| *id)),
+            Op::RenamePerson { id, .. } | Op::MergePeople { from: id, .. } | Op::DeletePerson { id } => {
+                out.extend(library.person_photos(id).iter().copied());
+            }
             Op::Batch { ops } => stack.extend(ops),
             // Folders and photos entering or leaving the library, hidden flags, recipes, folder
             // info and derived data own no metadata field.
@@ -564,14 +632,15 @@ pub(crate) fn snapshot(library: &Library, ids: &[PhotoId]) -> Vec<(PhotoId, Owne
     ids.iter().filter_map(|id| library.photo(*id).map(|p| (*id, owned(library, p)))).collect()
 }
 
-/// The write queue's options for the settings' `w`.
-fn queue_options(w: &MetadataWrites) -> metawrite::Options {
+/// The write queue's options for the settings' `w` and `people` (Store people names in photos).
+fn queue_options(w: &MetadataWrites, people: bool) -> metawrite::Options {
     metawrite::Options {
         captions_tags_places: w.captions_tags_places,
         stars_as_ratings: w.stars_as_ratings,
         dates: w.dates,
         raw_xmp_sidecars: w.raw_xmp_sidecars,
         update_modification_time: w.update_modification_time,
+        people_names: people,
         ..metawrite::Options::default()
     }
 }
@@ -617,27 +686,49 @@ impl Session {
     /// damaged folder is held instead (`before`: the photos' values before the change, when known).
     fn queue_metadata_writes(&mut self, photos: &[(PhotoId, Fields)], before: &HashMap<PhotoId, Owned>) {
         let options = self.settings().metadata_writes();
-        let wanted: Vec<(PhotoId, BTreeSet<SyncField>)> = photos
+        let people = self.settings().people().store_names_in_photos;
+        let wanted: Vec<(PhotoId, Fields)> = photos.iter().map(|(id, f)| (*id, f.filter(|f| f.allowed(&options, people)))).collect();
+        self.send_metadata_writes(wanted, before, false);
+    }
+
+    /// Queues a write of the people names of `ids` (the photos the library has, with faces) whatever
+    /// Store people names in photos says: Write People Names to Photos… (`faces.writeXmp`). One in a
+    /// damaged folder is held, as every write there is. Returns how many photos were queued or held.
+    pub(crate) fn queue_people_writes(&mut self, ids: &[PhotoId]) -> usize {
+        let wanted: Vec<(PhotoId, Fields)> = ids
             .iter()
-            .map(|(id, f)| (*id, f.iter().filter(|f| f.allowed(&options)).map(Field::sync).collect::<BTreeSet<_>>()))
-            .filter(|(_, f)| !f.is_empty())
+            .filter(|id| !self.library.faces(**id).is_empty())
+            .map(|id| (*id, Fields::of(&[Field::People])))
+            .collect::<BTreeMap<_, _>>()
+            .into_iter()
             .collect();
+        let n = wanted.len();
+        self.send_metadata_writes(wanted, &HashMap::new(), true);
+        n
+    }
+
+    /// Sends the writes of `wanted` (each photo's fields to write) to the writer; one of a photo in
+    /// a damaged folder is held instead. `always`: the people names are written whatever their
+    /// option says.
+    fn send_metadata_writes(&mut self, wanted: Vec<(PhotoId, Fields)>, before: &HashMap<PhotoId, Owned>, always: bool) {
+        let wanted: Vec<(PhotoId, Fields)> = wanted.into_iter().filter(|(_, f)| !f.is_empty()).collect();
         // Nothing in a damaged folder is written until the user chooses (M10.57).
         let (held, wanted): (Vec<_>, Vec<_>) = wanted.into_iter().partition(|(id, _)| self.in_damaged_folder(*id));
         for (id, fields) in held {
-            self.hold_for_damage(id, &fields, before.get(&id));
+            self.hold_for_damage(id, fields, before.get(&id), always);
         }
         if wanted.is_empty() {
             return;
         }
         let raws = self.raw_names(wanted.iter().map(|(id, _)| *id));
-        let requests: Vec<(Request, Version)> = wanted.into_iter().filter_map(|(id, fields)| self.write_request(id, fields, &raws)).collect();
+        let requests: Vec<(Request, Version)> =
+            wanted.into_iter().filter_map(|(id, fields)| self.write_request(id, fields, &raws, before.get(&id), always)).collect();
         if requests.is_empty() {
             return;
         }
         if !self.start_metadata_writer() {
             for (r, _) in &requests {
-                let fields = r.fields.iter().map(|f| Field::of_sync(*f)).collect();
+                let fields = Fields::of_request(r).iter().collect();
                 self.metadata_event(
                     r.photo,
                     r.path.clone(),
@@ -654,7 +745,10 @@ impl Session {
         for (r, _) in &requests {
             w.queued.insert(r.photo, seq);
             let sent = w.queued_fields.entry(r.photo).or_default();
-            *sent = sent.union(Fields::of_sync(&r.fields));
+            *sent = sent.union(Fields::of_request(r));
+            if r.people.as_ref().is_some_and(|p| p.always) {
+                w.queued_always.insert(r.photo);
+            }
             // A new request ends a wait, as on the worker's side.
             w.waiting.remove(&r.photo);
         }
@@ -673,20 +767,20 @@ impl Session {
     /// Holds a write of `fields` of photo `id`, whose folder is damaged, and marks those fields
     /// unwritten in its last-synced hashes: a field with no hash takes the hash of the value it had
     /// before the change (`before`), the value the file holds. The mark is journaled, so the write
-    /// is found again after a restart ([`Session::release_held_writes`]).
-    fn hold_for_damage(&mut self, id: PhotoId, fields: &BTreeSet<SyncField>, before: Option<&Owned>) {
+    /// is found again after a restart ([`Session::release_held_writes`]); the people names have no
+    /// hash, so a held write of them lasts only as long as the session.
+    fn hold_for_damage(&mut self, id: PhotoId, fields: Fields, before: Option<&Owned>, always: bool) {
         let Some(p) = self.library.photo(id) else { return };
         let Some(folder) = self.library.folder(p.folder) else { return };
         let (folder, path) = (folder.path.clone(), folder.path.join(&p.name));
-        let held = HeldWrite { folder, path, fields: Fields::of_sync(fields) };
         let w = &mut self.metadata.writer;
-        let fields_before = w.in_damaged.get(&id).map_or(Fields::NONE, |h| h.fields);
-        w.in_damaged.insert(id, HeldWrite { fields: held.fields.union(fields_before), ..held });
+        let (fields_before, always_before) = w.in_damaged.get(&id).map_or((Fields::NONE, false), |h| (h.fields, h.always));
+        w.in_damaged.insert(id, HeldWrite { folder, path, fields: fields.union(fields_before), always: always || always_before });
         let Some(old) = before else { return };
         let was = values_of(old);
         let mut synced = self.library.synced(id).copied().unwrap_or_default();
         let mut marked = false;
-        for f in fields {
+        for f in &fields.sync() {
             if synced.get(*f).is_none() {
                 synced.set(*f, Some(was.hash(*f)));
                 marked = true;
@@ -706,7 +800,9 @@ impl Session {
         let mut out = Fields::NONE;
         let place = self.library.geo(id).is_some().then_some(Field::Place);
         for f in [Field::Caption, Field::Tags, Field::Star, Field::Date].into_iter().chain(place) {
-            if synced.get(f.sync()).is_some_and(|h| h != ours.hash(f.sync())) {
+            if let Some(sf) = f.sync()
+                && synced.get(sf).is_some_and(|h| h != ours.hash(sf))
+            {
                 out.insert(f);
             }
         }
@@ -730,9 +826,14 @@ impl Session {
     fn release_held_writes(&mut self, lifted: &[PathBuf]) {
         let ids: Vec<PhotoId> = self.metadata.writer.in_damaged.iter().filter(|(_, h)| lifted.contains(&h.folder)).map(|(id, _)| *id).collect();
         let mut send: BTreeMap<PhotoId, Fields> = BTreeMap::new();
+        // Write People Names to Photos…'s writes, sent whatever the option says.
+        let mut always: Vec<(PhotoId, Fields)> = Vec::new();
         for id in ids {
             let Some(held) = self.metadata.writer.in_damaged.remove(&id) else { continue };
             let here = self.library.photo(id).and_then(|p| self.library.folder(p.folder)).is_some_and(|f| f.path == held.folder);
+            if here && held.always && held.fields.contains(Field::People) {
+                always.push((id, Fields::of(&[Field::People])));
+            }
             if here {
                 send.insert(id, held.fields);
                 continue;
@@ -753,6 +854,9 @@ impl Session {
         if !send.is_empty() {
             let photos: Vec<(PhotoId, Fields)> = send.into_iter().collect();
             self.queue_metadata_writes(&photos, &HashMap::new());
+        }
+        if !always.is_empty() {
+            self.send_metadata_writes(always, &HashMap::new(), true);
         }
     }
 
@@ -782,27 +886,53 @@ impl Session {
     /// the model knows it. The place is left out when the model has no word on it while the file
     /// held GPS when last read (a library indexed before geotags were read into the model, its
     /// file not read again yet): Dalica does not know that GPS, so it leaves it in the file rather
-    /// than remove it. `None` when nothing is left to write.
+    /// than remove it. The people names ([`Session::people_write`]) know the faces of `before` too.
+    /// `None` when nothing is left to write.
     fn write_request(
         &self,
         id: PhotoId,
-        mut fields: BTreeSet<SyncField>,
+        fields: Fields,
         raws: &HashMap<(FolderId, String), Vec<String>>,
+        before: Option<&Owned>,
+        always: bool,
     ) -> Option<(Request, Version)> {
         let p = self.library.photo(id)?;
+        let mut sync = fields.sync();
         if self.library.geo(id).is_none() && self.library.facts(id).geotagged {
-            fields.remove(&SyncField::Place);
+            sync.remove(&SyncField::Place);
         }
-        if fields.is_empty() {
+        let people = fields.contains(Field::People).then(|| self.people_write(p, before, always));
+        if sync.is_empty() && people.is_none() {
             return None;
         }
         let folder = self.library.folder(p.folder)?;
         let values = self.model_values(p);
         let raws =
             raws.get(&(p.folder, stem_key(&p.name))).map(|names| names.iter().filter(|n| **n != p.name).cloned().collect()).unwrap_or_default();
-        let request =
-            Request { photo: id, path: folder.path.join(&p.name), fields, values, synced: self.library.synced(id).copied(), first_scan: false, raws };
+        let request = Request {
+            photo: id,
+            path: folder.path.join(&p.name),
+            fields: sync,
+            values,
+            synced: self.library.synced(id).copied(),
+            first_scan: false,
+            raws,
+            people,
+        };
         Some((request, (p.size, p.mtime)))
+    }
+
+    /// Photo `p`'s people names to write: its named faces now, its upright size, and every face
+    /// rectangle Dalica knows on it, now and in `before` (its values before the change written).
+    fn people_write(&self, p: &Photo, before: Option<&Owned>, always: bool) -> PeopleWrite {
+        let faces = self.library.faces(p.id);
+        let mut known: Vec<Rect01> = faces.iter().map(|f| f.rect).collect();
+        for f in before.map(|b| b.faces.as_slice()).unwrap_or_default() {
+            if !known.contains(&f.rect) {
+                known.push(f.rect);
+            }
+        }
+        PeopleWrite { faces: NamedFaces { width: p.width, height: p.height, faces: named_faces(&self.library, faces) }, known, always }
     }
 
     /// Starts the writer thread if it is not running, with the options, held roots and root checks
@@ -817,7 +947,7 @@ impl Session {
         let spawned = std::thread::Builder::new().name("dalica-metadata-writes".into()).spawn(move || work(worker_rx, worker_tx, clock));
         match spawned {
             Ok(thread) => {
-                let options = queue_options(&self.settings().metadata_writes());
+                let options = queue_options(&self.settings().metadata_writes(), self.settings().people().store_names_in_photos);
                 let damaged: Vec<PathBuf> = self.damaged.keys().cloned().collect();
                 let w = &mut self.metadata.writer;
                 w.worker = Some(Worker { tx: Some(tx), rx, thread: Some(thread) });
@@ -861,7 +991,7 @@ impl Session {
         if self.metadata.writer.worker.is_none() {
             return 0;
         }
-        let options = queue_options(&self.settings().metadata_writes());
+        let options = queue_options(&self.settings().metadata_writes(), self.settings().people().store_names_in_photos);
         let w = &mut self.metadata.writer;
         if w.options.as_ref() != Some(&options) {
             w.send(ToWorker::Options(options.clone()));
@@ -897,10 +1027,11 @@ impl Session {
             FromWorker::Held { photo, path, seen } => {
                 let w = &mut self.metadata.writer;
                 let fields = w.queued_fields.get(&photo).copied().unwrap_or_default();
+                let queued_always = w.queued_always.contains(&photo);
                 w.done_with(photo, seen);
                 if let Some(folder) = path.parent().map(PathBuf::from) {
-                    let fields = fields.union(w.in_damaged.get(&photo).map_or(Fields::NONE, |h| h.fields));
-                    w.in_damaged.insert(photo, HeldWrite { folder, path, fields });
+                    let (held, always) = w.in_damaged.get(&photo).map_or((Fields::NONE, false), |h| (h.fields, h.always));
+                    w.in_damaged.insert(photo, HeldWrite { folder, path, fields: fields.union(held), always: always || queued_always });
                 }
             }
             FromWorker::Panicked { photo, path, seen } => {
@@ -985,11 +1116,17 @@ impl Session {
         if !conflicts.is_empty() {
             self.note_changed_elsewhere(id, Fields::of(&conflicts));
         }
+        if let (Some(FieldOutcome::Imported), Some(faces)) = (&result.people, &result.faces) {
+            self.import_file_faces(id, &result.path, faces, result.people_always);
+        }
+        let people = result.people.as_ref().map(|o| (Field::People, o));
         let failed: Vec<(Field, &str)> = result
             .fields
             .iter()
+            .map(|(f, o)| (Field::of_sync(*f), o))
+            .chain(people)
             .filter_map(|(f, o)| match o {
-                FieldOutcome::Failed(why) => Some((Field::of_sync(*f), why.as_str())),
+                FieldOutcome::Failed(why) => Some((f, why.as_str())),
                 _ => None,
             })
             .collect();
@@ -1048,6 +1185,38 @@ impl Session {
         match self.apply(op) {
             Ok(inverse) => self.undo.push(Step { label: IMPORT_LABEL, op: inverse, modes: None }),
             Err(e) => log::warn!("values photo {id}'s file holds could not be imported: {e}"),
+        }
+    }
+
+    /// Photo `id`'s file (at `path`) holds faces (`file`) none of Dalica's overlaps: added by
+    /// another application, so the people write was not made over them. They come in as the files'
+    /// change (no undo step, never written back; each name a person found ignoring case or created,
+    /// as a scan brings them), and the people write is queued again, now knowing them (`always`:
+    /// whatever the option says, as the first was). Faces the photo has no room for leave the write
+    /// unmade, reported as a failure.
+    fn import_file_faces(&mut self, id: PhotoId, path: &std::path::Path, file: &[FaceRegion], always: bool) {
+        if self.library.photo(id).is_none() {
+            return;
+        }
+        let own = self.library.faces(id).to_vec();
+        let mut who = dalica_store::rebuild::People::new(&self.library);
+        let mut ops = Vec::new();
+        let new = crate::scanning::file_faces(&self.library, &own, file, &mut who, &mut ops);
+        let missing = metawrite::new_faces(file, &own.iter().chain(&new).map(|f| f.rect).collect::<Vec<_>>()).len();
+        if !new.is_empty() {
+            ops.push(Op::SetFaces { faces: vec![(id, own.into_iter().chain(new).collect())] });
+            if let Err(e) = self.apply(Op::Batch { ops }) {
+                log::warn!("the faces photo {id}'s file holds could not be brought in: {e}");
+                return;
+            }
+        }
+        if missing > 0 {
+            let reason = "the file holds more faces than Dalica keeps for a photo, so its people names were not written over them".to_string();
+            self.metadata_event(id, path.to_path_buf(), vec![Field::People], reason);
+            return;
+        }
+        if always || self.settings().people().store_names_in_photos {
+            self.send_metadata_writes(vec![(id, Fields::of(&[Field::People]))], &HashMap::new(), always);
         }
     }
 
@@ -1158,6 +1327,7 @@ impl Writer {
         if self.queued.get(&photo).is_some_and(|s| *s <= seen) {
             self.queued.remove(&photo);
             self.queued_fields.remove(&photo);
+            self.queued_always.remove(&photo);
             self.waiting.remove(&photo);
         }
     }
@@ -1516,8 +1686,9 @@ mod tests {
         a.date = DateTime::from_unix_secs(0);
         assert_eq!(differ(&a, &b), Fields::of(&[Field::Star, Field::Caption, Field::Tags, Field::Date]));
         for f in Field::ALL {
-            assert_eq!(Field::of_sync(f.sync()), f);
+            assert_eq!(f.sync().map(Field::of_sync), (f != Field::People).then_some(f));
         }
+        assert_eq!(Field::People.name(), "people names");
     }
 
     #[test]
@@ -1621,15 +1792,19 @@ mod tests {
         assert!(maybe_raw("IMG_0001.CR3") && maybe_raw("a.nef") && maybe_raw("x.DNG"));
         assert!(!maybe_raw("IMG_0001.JPG") && !maybe_raw("a.tiff") && !maybe_raw("noext") && !maybe_raw(".hidden"));
         assert_eq!(stem_key("IMG_0001.CR3"), "img_0001");
-        let o = queue_options(&MetadataWrites {
-            captions_tags_places: false,
-            stars_as_ratings: true,
-            update_modification_time: true,
-            raw_xmp_sidecars: true,
-            dates: false,
-        });
-        assert!(!o.captions_tags_places && o.stars_as_ratings && o.update_modification_time && o.raw_xmp_sidecars && !o.dates);
+        let o = queue_options(
+            &MetadataWrites {
+                captions_tags_places: false,
+                stars_as_ratings: true,
+                update_modification_time: true,
+                raw_xmp_sidecars: true,
+                dates: false,
+            },
+            true,
+        );
+        assert!(!o.captions_tags_places && o.stars_as_ratings && o.update_modification_time && o.raw_xmp_sidecars && !o.dates && o.people_names);
         let off = MetadataWrites::default();
-        assert!(Field::Caption.allowed(&off) && Field::Date.allowed(&off) && !Field::Star.allowed(&off));
+        assert!(Field::Caption.allowed(&off, false) && Field::Date.allowed(&off, false) && !Field::Star.allowed(&off, false));
+        assert!(!Field::People.allowed(&off, false) && Field::People.allowed(&off, true));
     }
 }
