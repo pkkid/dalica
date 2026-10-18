@@ -56,7 +56,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "List Faces",
             menu: "",
             keys: &[],
-            params: r#"{"person"?:PersonId | "unnamed"?:true | "ids"?:[PhotoId] (at most one; none: every face), "ignored"?:bool (also the ignored faces; default false), "offset"?:int=0, "limit"?:int=1000 (at most 10000)}: faces in photo order, then their order on the photo: {faces:[{id:"<PhotoId>.<n>", photo, index, rect:[x0,y0,x1,y1] (stored frame), displayed:[x0,y0,x1,y1] (as the photo shows, turned by its recipe), person:PersonId|null, name:string|null, ignored, group:null (the group of similar unnamed faces once the face index has one)}], total, offset, limit}. Over automation without --automation-allow-people names are null and rectangles left out"#,
+            params: r#"{"person"?:PersonId | "unnamed"?:true | "ids"?:[PhotoId] (at most one; none: every face), "ignored"?:bool (also the ignored faces; default false), "offset"?:int=0, "limit"?:int=1000 (at most 10000)}: faces in photo order, then their order on the photo: {faces:[{id:"<PhotoId>.<n>", photo, index, rect:[x0,y0,x1,y1] (stored frame), displayed:[x0,y0,x1,y1] (as the photo shows, turned by its recipe), person:PersonId|null, name:string|null, ignored, group:int|null (an unnamed face's group of similar faces, its place in faces.index's groups, largest first; null until the face scan grouped it)}], total, offset, limit}. Over automation without --automation-allow-people names are null and rectangles left out"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -299,7 +299,9 @@ fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         .filter_map(|r| {
             let face = lib.face(*r)?;
             let turn = *turns.entry(r.photo).or_insert_with(|| turn_of(lib, r.photo));
-            Some(face_json(lib, *r, face, turn))
+            let mut v = face_json(lib, *r, face, turn);
+            v["group"] = json!(s.faces_index().group_of(r.photo, &face.rect));
+            Some(v)
         })
         .collect();
     Ok(json!({ "faces": page, "total": refs.len(), "offset": offset, "limit": limit }))

@@ -930,6 +930,7 @@ dependencies = [
  "dalica-create",
  "dalica-edit",
  "dalica-engine",
+ "dalica-faces",
  "dalica-fs",
  "dalica-image",
  "dalica-library",

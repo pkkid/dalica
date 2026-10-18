@@ -106,6 +106,11 @@ pub fn open(source: Source, view: Option<&crate::viewer::Launch>, report: &dyn F
             Err(e) => return Err(e.to_string()),
         },
     };
+    // Face models installed from a file are scanned (`faces.md` §3–§4).
+    let opened = opened.map(|mut s| {
+        s.set_face_models_dir(dalica_engine::faces_scan::default_models_dir());
+        s
+    });
     match view {
         Some(view) => view.attach(opened, clock),
         None => opened.map_err(|e| e.to_string()),
