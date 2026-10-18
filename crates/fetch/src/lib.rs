@@ -27,6 +27,8 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod http;
+pub mod proxy;
 pub mod spec;
 pub mod transport;
 
@@ -39,6 +41,8 @@ use dalica_fs::PackFile;
 use dalica_fs::transfer::{self, Outcome};
 use sha2::{Digest, Sha256};
 
+pub use http::HttpsTransport;
+pub use proxy::{Proxy, ProxyError};
 pub use spec::{FileSpec, MAX_CAP, SpecError, Url};
 pub use transport::{Body, HEADER_NAMES, Limits, MemoryTransport, Reply, Request, Seen, Served, Transport, TransportError, USER_AGENT};
 

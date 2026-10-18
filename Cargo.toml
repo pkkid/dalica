@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask", "tests/acceptance"]
 # cargo-fuzz workspaces: nightly-only, outside the product graph (security.md §7.1).
-exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz"]
+exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz", "crates/fetch/fuzz"]
 
 [workspace.package]
 version = "0.7.0"
@@ -93,6 +93,14 @@ md5 = { version = "0.8.1", default-features = false }
 # The SHA-256 a download is pinned to (dalica-fetch, M13.8; as LightCraft): RustCrypto, pure Rust,
 # no `asm` feature (MIT OR Apache-2.0).
 sha2 = { version = "0.10.9", default-features = false, features = ["std"] }
+# The HTTPS transport (dalica-fetch, M13.13; reserved decision 9, decided 2026-10-18; as LightCraft):
+# rustls without its default `aws-lc-rs` provider, over the RustCrypto provider (pure Rust, no
+# `ring`), with Mozilla's root certificates compiled in (security.md §8.2). rustls and
+# rustls-rustcrypto: MIT OR Apache-2.0 (rustls also ISC); webpki-roots: CDLA-Permissive-2.0, a
+# reviewed licence exception (xtask/src/deps.rs).
+rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12"] }
+rustls-rustcrypto = "0.0.2-alpha"
+webpki-roots = "1"
 notify = "8"
 trash = "5.2"
 # The local time of a freedesktop trash record (`DeletionDate`) that dalica-fs writes itself for a
