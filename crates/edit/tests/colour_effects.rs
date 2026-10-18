@@ -90,6 +90,17 @@ fn each_effect_matches_its_fingerprint_at_two_sizes_and_in_a_region() {
     }
 }
 
+/// A large photo rendered whole with Warmify and with Saturation matches its fingerprint
+/// (`colour-warmify-large`, `colour-saturation-large`, blessed from the M12 per-pixel maths): the
+/// 3-D tables the passes read since M13.38 give the same picture at full resolution.
+#[test]
+fn warmify_and_saturation_match_their_large_fingerprints() {
+    let img = blobs(13, 1200, 800);
+    for (case, entry) in [("colour-warmify-large", "warmify()"), ("colour-saturation-large", "saturation(0.16)")] {
+        check_fingerprint(case, &render(Source::upright(&img), &recipe(&[entry]), Target::Full).unwrap(), 0.5);
+    }
+}
+
 #[test]
 fn bw_and_filtered_bw_are_grey_and_bw_is_the_rec601_luma() {
     let sources = [blobs(3, 120, 80), scene(4, 120, 80), colour_cube()];

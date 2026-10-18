@@ -87,6 +87,15 @@ fn each_effect_matches_its_fingerprint_at_two_sizes_and_in_a_region() {
     }
 }
 
+/// A large photo rendered whole with Boost matches its fingerprint (`remap-boost-large`, blessed
+/// from the M12 per-pixel maths): the 3-D table its pass reads since M13.38 gives the same picture
+/// at full resolution.
+#[test]
+fn boost_matches_its_large_fingerprint() {
+    let img = blobs(13, 1200, 800);
+    check_fingerprint("remap-boost-large", &render(Source::upright(&img), &recipe(&["boost(50)"]), Target::Full).unwrap(), 0.5);
+}
+
 #[test]
 fn invert_is_the_negative_and_twice_is_the_identity() {
     for src in [blobs(2, 120, 80), scene(3, 120, 80), colour_cube()] {
