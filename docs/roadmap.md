@@ -8471,8 +8471,58 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
   - done when: the test, with the pinned file times and the old list comparison, fails every run
     (said in the PR), and with the fix passes 200 runs in a loop under `taskset -c 0` and 40 runs
     started just before a second boundary; `cargo xtask ci`.
+- ⬜ **M13.48 `engine` + `ui` + `mcp` + apps: people follow-ups: the automation permission, person search behind it, an exact person filter, faces shown through the whole geometry**
+  - after: M13.18, M13.24, M13.25, M13.29
+  - files: `apps/dalica/src/main.rs`, `apps/dalica/src/control/mod.rs`, `apps/dalica-cli/src/mcp.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/tests.rs`, `crates/mcp/src/connect.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/tests/organize_tools.rs`, `crates/engine/src/automation.rs`, `crates/engine/src/search.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/cmd/library.rs`, `crates/engine/src/cmd/faces.rs`, `crates/engine/tests/people.rs`, `crates/library/src/search/matcher.rs`, `crates/library/src/search/index.rs`, `crates/library/tests/people.rs`, `crates/ui/src/commands/people_pane.rs`, `crates/ui/src/commands/search.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/panels/edit/faces.rs`, `crates/ui/tests/people_pane.rs`, `docs/control-protocol.md`, `docs/mcp.md`, `docs/organizing.md`, `docs/data-model.md`, `docs/parity.md`
+  - scope: follow-ups reported by M13.15, M13.21, M13.24 and M13.29. (1) **The permission in the
+    app:** `dalica --control … --automation-allow-people` (flag only, no environment variable, as
+    `--automation-allow-external`; it needs `--control`) reaches the control channel's `Config`,
+    and `engine.execute` and each batch step answer through a `Policy` built from it instead of
+    `Policy::default()`; `dalica-cli mcp --connect` passes its own flag to
+    `Connect::allow_people` (names reach the client only when both have it, `mcp.md` §5).
+    (2) **No guess-oracle** (`faces.md` §7): today `library.query {text: "person:Ana"}` and
+    `query_photos {query: "person:Ana"}` answer without the permission, and plain words match
+    people's names too (`organizing.md` §8.1), so refusing `person:` alone would not close it.
+    Decision: without the permission an automation surface runs every search with people's names
+    left out of the match: `person:` matches nothing and is listed in `unavailable` (as in a
+    library without people), plain words skip names and nicknames, everything else matches as
+    before; nothing is refused, so a reply never tells a guessed name from an unknown one. The
+    engine's `Policy` sets this on the search commands' params (`library.query`, `search.set`; a
+    list beside `PEOPLE_REPLIES`), once for the control channel, headless MCP and, again, connect
+    mode; a window's own `search.set` always matches names (the switch is per call, never kept in
+    the session's search). The exact filter by person id (3) stays allowed: ids are not names and
+    `people.list` already gives them. (3) **An exact person filter:** the search `Query` takes
+    `people: [PersonId]` (photos holding a face of every one of them; a capped list, an
+    unknown id `not_found`), in `search.set`, `library.query` and `library.inspect`'s search; the People
+    pane's `people.filter` uses it instead of `person:` words, so selecting Ana no longer finds
+    Anabel's photos; the search field stays as typed, the banner says "Showing photos with Ana and
+    Rui" while the people filter is on, and Show All clears it (`organizing.md` §6.4).
+    (4) **Faces shown through the whole geometry:** `faces.list`'s `displayed` and `faces.add
+    {displayed}` go through the recipe's `edit::Geometry` (rotations, flips, straighten and crop,
+    normalised to the photo as shown, frames left out; past 0..1 where the crop cuts a face), not
+    the turn alone; the edit view's face boxes and Add a Person Manually use that mapping (one
+    implementation in the engine; `panels/edit/faces.rs`'s own `Shown` mapping goes).
+    (5) `Headless::open_with` gives its session `faces_scan::default_models_dir()` (M13.18), as
+    the app and the CLI do. (6) `data-model.md` §4 lists `people.askBeforeIgnoring` (M13.21) under
+    `settings.json`'s `people`, and §5's status line says people are written (M13.19). Rows
+    `SYS-MCP` (its "missing" note) and `PPL-PANE`; `control-protocol.md` §1's flag table and §6.4
+    (the "no flag yet" sentence goes; the search rule), `mcp.md` §5 and the `query_photos` row.
+  - done when: `crates/library/tests/people.rs`: `people: [Ana]` finds Ana's photos and not
+    Anabel's, two people find the photos holding both; `crates/engine/tests/people.rs`: through a
+    `Policy` without the permission `library.query` with `person:Ana` finds nothing and lists
+    `person` unavailable, the plain word `Ana` finds no photo by her name, `people: [Ana]` still
+    finds hers, and with the permission all three find them; `faces.list`'s `displayed` on a photo
+    cropped and straightened is where `Geometry` shows the face and `faces.add {displayed}` stores
+    it back within 10⁻⁹; `crates/ui/src/control/tests.rs`: with `allow_people` `faces.list` over
+    the channel carries names, without it names are `null` and `person:Ana` finds nothing;
+    `crates/mcp/tests/organize_tools.rs`: headless `query_photos {query: "person:Ana"}` finds her
+    photos only with the permission; unit tests: the app parses the flag (and refuses it without
+    `--control`), `dalica-cli mcp --connect --automation-allow-people` builds a `Connect` that lets
+    names through, the headless session has the default models folder; `crates/ui/tests/people_pane.rs`:
+    with Ana and Anabel in the library, selecting Ana in the pane shows only Ana's photos, and
+    the existing pane tests and fingerprints pass unchanged on the engine's mapping; `cargo xtask ci`.
 - ⬜ **M13.32 `accept M13`**
-  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44, M13.46
+  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44, M13.46, M13.48
   - files: `tests/acceptance/m13.rs`, `tests/acceptance/m13_*.rs`, `tests/acceptance/m13.md`, `tests/acceptance/fingerprints/m13-*.json`
   - scope: every *Done when* of M13's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a synthetic model installed from a local file after the
@@ -8552,7 +8602,7 @@ wave 4   M13.18 face scan  ‖  M13.19 names in files  ‖  M13.20 tiles + place
          ‖  M13.24 People pane + face boxes
 wave 5   M13.25 People tree + person sections  ‖  M13.26 suggestions  ‖  M13.27 model dialog + Options ▸ People
          ‖  M13.28 Options ▸ Network + tiles  ‖  M13.29 W13, W14
-wave 6   M13.30 suggestions in the window  ‖  M13.31 M13 budgets
+wave 6   M13.30 suggestions in the window  ‖  M13.31 M13 budgets  ‖  M13.48 people follow-ups
 wave 7   M13.32 accept M13 → M13.R          (M13.33 lead: M15 blocks, any time after M12.23)
 
 speed lane (effect speed, from M12.R; the board fits it between the feature waves, whose files
