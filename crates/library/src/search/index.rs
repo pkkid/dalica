@@ -3,8 +3,9 @@
 //! photo, so the engine can keep it on a worker.
 //!
 //! Photos live in slots (reused after a removal) and every term maps to the set of slots holding
-//! it. A folder's name, description and place, and an album's name, are terms of the folder or the
-//! album, found through its photos, so renaming a folder or an album touches one record. A query
+//! it. A folder's name, description and place, an album's name and a person's name and nickname
+//! are terms of the folder, the album or the person, found through its photos, so renaming one
+//! touches one record. A query
 //! word becomes a bit set per token (the union of every term the token starts), the tokens of a
 //! word are intersected, the words intersected (or, for `-word`, subtracted) from the photos the
 //! filters and the scope let through. Each folder's photos are sorted once in the folder's own
@@ -15,10 +16,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Bound;
 use std::sync::OnceLock;
 
-use dalica_core::{AlbumId, FolderId, PhotoId};
+use dalica_core::{AlbumId, FolderId, PersonId, PhotoId};
 use serde::Serialize;
 
-use super::extract::{AlbumDoc, Extract, FolderDoc, PhotoDoc, Update};
+use super::extract::{AlbumDoc, Extract, FolderDoc, PersonDoc, PhotoDoc, Update};
 use super::grammar::{Atom, Field, MAX_QUERY, Parsed, cut, is_word_separator, terms};
 use super::matcher::{Age, Query, Scope, passes};
 use crate::tags::fold;
@@ -133,6 +134,12 @@ struct AlbumEntry {
     photos: BTreeSet<u32>,
 }
 
+#[derive(Clone, Debug, Default)]
+struct PersonEntry {
+    doc: Option<PersonDoc>,
+    photos: BTreeSet<u32>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct TagEntry {
     /// Each spelling in use with how many photos use it.
@@ -171,7 +178,8 @@ pub struct SearchResult {
     pub folders: usize,
     /// The matches' bytes on disk.
     pub bytes: u64,
-    /// Operators and filters used that match nothing yet: `person`, `color`, `faces`.
+    /// Operators and filters used that match nothing for want of data: `person` while the library
+    /// has no people, `color` (not built yet), `faces` while no photo has a face.
     pub unavailable: Vec<&'static str>,
     /// Whether the text was cut at the grammar's caps.
     pub truncated: bool,
@@ -222,6 +230,11 @@ pub struct SearchIndex {
     camera: TermMap<u32>,
     folder_terms: TermMap<FolderId>,
     album_terms: TermMap<AlbumId>,
+    people: BTreeMap<PersonId, PersonEntry>,
+    /// People's name and nickname words (`person:`, and plain words).
+    person_terms: TermMap<PersonId>,
+    /// How many photos have a face the Faces filter counts.
+    with_faces: usize,
     /// Whole tags (folded), for suggestions.
     tag_names: BTreeMap<String, TagEntry>,
 }
@@ -235,6 +248,9 @@ impl SearchIndex {
         }
         for a in extract.albums {
             index.set_album(a.id.clone(), Some(a));
+        }
+        for p in extract.people {
+            index.set_person(p.id.clone(), Some(p));
         }
         index.docs.reserve(extract.photos.len());
         for p in extract.photos {
@@ -274,11 +290,17 @@ impl SearchIndex {
         for id in update.purged_albums {
             self.set_album(id, None);
         }
+        for id in update.purged_people {
+            self.set_person(id, None);
+        }
         for (id, doc) in update.folders {
             self.set_folder(id, doc);
         }
         for (id, doc) in update.albums {
             self.set_album(id, doc);
+        }
+        for (id, doc) in update.people {
+            self.set_person(id, doc);
         }
         for (id, doc) in update.photos {
             self.set_photo(id, doc);
@@ -340,6 +362,42 @@ impl SearchIndex {
                 }
                 None => {
                     self.album_terms.insert(t.clone(), BTreeSet::from([id.clone()]));
+                }
+            }
+        }
+    }
+
+    /// Sets person `id`'s record; `None` removes the person and their name from every photo.
+    fn set_person(&mut self, id: PersonId, doc: Option<PersonDoc>) {
+        let Some(doc) = doc else {
+            if let Some(entry) = self.people.remove(&id) {
+                for slot in &entry.photos {
+                    if let Some(Some(d)) = self.docs.get_mut(*slot as usize) {
+                        d.people.retain(|p| *p != id);
+                    }
+                }
+                if let Some(old) = entry.doc {
+                    for t in old.terms() {
+                        unlink(&mut self.person_terms, &t, &id);
+                    }
+                }
+            }
+            return;
+        };
+        let entry = self.people.entry(id.clone()).or_default();
+        let old_terms = entry.doc.as_ref().map(PersonDoc::terms).unwrap_or_default();
+        let new_terms = doc.terms();
+        entry.doc = Some(doc);
+        for t in old_terms.difference(&new_terms) {
+            unlink(&mut self.person_terms, t, &id);
+        }
+        for t in new_terms.difference(&old_terms) {
+            match self.person_terms.get_mut(t) {
+                Some(set) => {
+                    set.insert(id.clone());
+                }
+                None => {
+                    self.person_terms.insert(t.clone(), BTreeSet::from([id.clone()]));
                 }
             }
         }
@@ -448,6 +506,31 @@ impl SearchIndex {
         for a in new_albums.difference(&old_albums) {
             self.albums.entry((*a).clone()).or_default().photos.insert(slot);
         }
+        // Its people.
+        let none: &[PersonId] = &[];
+        let old_people: BTreeSet<&PersonId> = old.map_or(none, |d| d.people.as_slice()).iter().collect();
+        let new_people: BTreeSet<&PersonId> = new.map_or(none, |d| d.people.as_slice()).iter().collect();
+        for p in old_people.difference(&new_people) {
+            let gone = match self.people.get_mut(*p) {
+                Some(entry) => {
+                    entry.photos.remove(&slot);
+                    entry.doc.is_none() && entry.photos.is_empty()
+                }
+                None => false,
+            };
+            if gone {
+                self.people.remove(*p);
+            }
+        }
+        for p in new_people.difference(&old_people) {
+            self.people.entry((*p).clone()).or_default().photos.insert(slot);
+        }
+        // Whether it counts for the Faces filter.
+        match (old.is_some_and(|d| d.faces), new.is_some_and(|d| d.faces)) {
+            (false, true) => self.with_faces = self.with_faces.saturating_add(1),
+            (true, false) => self.with_faces = self.with_faces.saturating_sub(1),
+            _ => {}
+        }
     }
 
     /// Whether the photo in `slot` shows under `scope` (hidden and small pictures).
@@ -536,11 +619,20 @@ impl SearchIndex {
             Field::Any => &[&self.own, &self.tags, &self.camera],
             Field::Tag => &[&self.tags],
             Field::Camera => &[&self.camera],
-            Field::Person | Field::Color => return bits,
+            Field::Person => &[],
+            Field::Color => return bits,
         };
         for map in maps {
             for set in with_prefix(map, token) {
                 for slot in set {
+                    bits.set(*slot);
+                }
+            }
+        }
+        if matches!(field, Field::Any | Field::Person) {
+            let people: HashSet<&PersonId> = with_prefix(&self.person_terms, token).flatten().collect();
+            for p in people {
+                for slot in self.people.get(p).map(|e| &e.photos).into_iter().flatten() {
                     bits.set(*slot);
                 }
             }
@@ -585,7 +677,10 @@ impl SearchIndex {
         let parsed = Parsed::new(&query.text);
         let bits = self.matched(&parsed, query, scope);
         let mut unavailable = parsed.unavailable.clone();
-        if query.filters.faces {
+        if self.people.values().any(|e| e.doc.is_some()) {
+            unavailable.retain(|op| *op != Field::Person.name());
+        }
+        if query.filters.faces && self.with_faces == 0 {
             unavailable.push("faces");
         }
         // Matches per folder, and bytes.
@@ -734,6 +829,9 @@ impl SearchIndex {
             camera: map(&self.camera),
             folder_terms: &self.folder_terms,
             album_terms: &self.album_terms,
+            people: self.people.iter().map(|(id, e)| (id.clone(), (e.doc.as_ref(), ids(&e.photos)))).collect(),
+            person_terms: &self.person_terms,
+            with_faces: self.with_faces,
             tag_names: self.tag_names.iter().map(|(t, e)| (t.clone(), (&e.spellings, ids(&e.photos)))).collect(),
         }
     }
@@ -756,6 +854,9 @@ struct Canonical<'a> {
     camera: IdMap,
     folder_terms: &'a TermMap<FolderId>,
     album_terms: &'a TermMap<AlbumId>,
+    people: BTreeMap<PersonId, (Option<&'a PersonDoc>, BTreeSet<Option<PhotoId>>)>,
+    person_terms: &'a TermMap<PersonId>,
+    with_faces: usize,
     tag_names: TagIds<'a>,
 }
 

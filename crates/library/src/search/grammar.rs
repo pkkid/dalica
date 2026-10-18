@@ -9,10 +9,12 @@
 //! - Words are separated by whitespace, control characters and bidirectional formatting
 //!   characters. Several words must all match (AND).
 //! - A word starting with `-` excludes what it matches (NOT).
-//! - `tag:value` and `camera:value` look at the tags or the camera make and model only.
-//!   `person:value` and `color:value` are read but match nothing yet (people arrive in M13, colour
-//!   search later); [`Parsed::unavailable`] names them so the caller can say so. Any other
-//!   `name:value` is searched as plain words (`foo:bar` is `foo bar`).
+//! - `tag:value`, `camera:value` and `person:value` look at the tags, the camera make and model or
+//!   the names and nicknames of the people on the photo only. `color:value` is read but matches
+//!   nothing yet (colour search comes later). [`Parsed::unavailable`] names the operators that may
+//!   match nothing for want of data (`person` while a library has no people, `color`); the index
+//!   keeps those its library lacks, so the caller can say so. Any other `name:value` is searched
+//!   as plain words (`foo:bar` is `foo bar`).
 //! - A value is split into tokens at punctuation (dot, underscore, dash and the rest of ASCII
 //!   punctuation); every token must be the start of one of the photo's terms, ignoring case. A
 //!   date spelling (`2026`, `2026-06`, `2026-06-04`, or one being typed, `2026-0`) stays one token.
@@ -34,20 +36,21 @@ pub const MAX_TERM: usize = 64;
 #[serde(rename_all = "camelCase")]
 pub enum Field {
     /// Every searchable field: file name, caption, tags, folder name, description and place, album
-    /// names, dates, camera, pixel size.
+    /// names, people's names and nicknames, dates, camera, pixel size.
     Any,
     /// `tag:` — the tags only.
     Tag,
     /// `camera:` — the camera make and model only.
     Camera,
-    /// `person:` — read, matching nothing until people exist (M13).
+    /// `person:` — the names and nicknames of the people on the photo.
     Person,
     /// `color:` — read, matching nothing until colour search exists.
     Color,
 }
 
 impl Field {
-    /// Whether words of this field can match anything yet.
+    /// Whether words of this field can match without data a library may lack: `person:` needs
+    /// people (the index says whether its library has any), `color:` colour search.
     pub fn is_available(self) -> bool {
         matches!(self, Field::Any | Field::Tag | Field::Camera)
     }
@@ -86,7 +89,8 @@ pub struct Atom {
 pub struct Parsed {
     /// The words, in the order typed. None: the text matches everything.
     pub atoms: Vec<Atom>,
-    /// Operators used that match nothing yet (`person`, `color`), each once, in the order used.
+    /// Operators used that may match nothing for want of data (`person`, `color`), each once, in
+    /// the order used; a search's result keeps those its library lacks.
     pub unavailable: Vec<&'static str>,
     /// Whether the text was cut at [`MAX_QUERY`] bytes or [`MAX_WORDS`] words.
     pub truncated: bool,

@@ -7600,7 +7600,7 @@ the effect's draft, final and Save numbers before and after (`taskset -c 0,1 car
 dalica-edit --bench effects -- --only <ids>`); a Save median never rises above its M12.21 budget.
 The workstation is faster than the review's two-vCPU runner, so aim for about 12 ms and 75 ms.
 
-- ⬜ **M13.1 `core` + `library`: places, faces and people in the model**
+- ✅ **M13.1 `core` + `library`: places, faces and people in the model**
   - after: M9.8, M10.29, M12.R
   - files: `crates/core/src/geo.rs`, `crates/core/tests/geo.rs`, `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/people.rs`, `crates/library/src/query.rs`, `crates/library/src/search.rs`, `crates/library/src/search/**`, `crates/library/tests/people.rs`, `crates/library/tests/places.rs`, `crates/library/README.md`
   - scope: `core::geo`: a validated `LatLon` (finite, on the globe), decimal and

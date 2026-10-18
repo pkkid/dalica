@@ -9,6 +9,8 @@ mod m6_fields;
 mod m8_fields;
 mod m9_fields;
 mod ops;
+mod people;
+mod places;
 mod search;
 mod search_props;
 mod sketch;

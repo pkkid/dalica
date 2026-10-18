@@ -6,15 +6,17 @@
 //! revisions, its indexes and its tag index.
 //!
 //! M9's fields are held in maps of their own beside [`Photo`] and [`FolderInfo`], as M8's are, so
-//! the struct literals other crates build keep compiling.
+//! the struct literals other crates build keep compiling. So are M13's: each photo's faces and
+//! geotag, and the people (`people.rs`).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use dalica_core::{AlbumId, Date, DateTime, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_core::{AlbumId, Date, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 use serde::{Deserialize, Serialize};
 
+use crate::people::{Face, Geo, Person};
 use crate::tags::TagIndex;
 
 /// A folder of photos, by its absolute path.
@@ -535,6 +537,13 @@ pub struct Model {
     /// When Dalica last changed what is said about each photo (M9; index-only): only photos in
     /// `photos`.
     pub(crate) changed: BTreeMap<PhotoId, Timestamp>,
+    /// Each photo's faces (M13; folder sidecar `"faces"`): only photos in `photos`, never an empty
+    /// list, never more than [`MAX_FACES`](crate::MAX_FACES), every person named one of `people`.
+    pub(crate) faces: BTreeMap<PhotoId, Vec<Face>>,
+    /// The model's geotags (M13; folder sidecar `"geo"`): only photos in `photos`.
+    pub(crate) geo: BTreeMap<PhotoId, Geo>,
+    /// People (M13; `people.json`, names mirrored per folder): names unique ignoring case.
+    pub(crate) people: BTreeMap<PersonId, Person>,
 }
 
 /// The library: the model, its revision counters and the next free ids.

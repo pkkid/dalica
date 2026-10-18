@@ -28,17 +28,24 @@
 //! change, so the journal replays it and the inverse puts the old time back. A cover leaving its
 //! album (removed from it, or the photo removed) is cleared in the same op, and its inverse sets it
 //! again. Removing a photo takes everything said about it, memberships included.
+//!
+//! M13's ops (`people.rs`): faces ([`Op::SetFaces`]), geotags ([`Op::SetGeo`]) and people
+//! ([`Op::AddPerson`], [`Op::RenamePerson`], [`Op::MergePeople`], [`Op::DeletePerson`],
+//! [`Op::SetPersonThumbnail`]). Removing a photo takes its faces and geotag; deleting or merging
+//! away a person takes them out of every face, and the inverse puts the person back first, then
+//! the faces.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
-use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
     AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, MAX_FILE_NAME, Photo, PhotoInfo, PhotoSort, Project, Recipe, Saved, SavedAs,
     Sketch, Synced,
 };
+use crate::people::{Face, FaceKey, Geo, Person};
 use crate::tags::{self, fold};
 use crate::{Error, Result};
 
@@ -209,6 +216,42 @@ pub enum Op {
     /// Derived data; [`Library::stamped`] adds it to the op of a change.
     SetLastChanged {
         changed: Vec<(PhotoId, Option<Timestamp>)>,
+    },
+    /// Whole face lists of photos (an empty list clears them), applied in order: at most
+    /// [`crate::MAX_FACES`] each, every named face naming a person the model has.
+    SetFaces {
+        faces: Vec<(PhotoId, Vec<Face>)>,
+    },
+    /// The model's geotags (`None` forgets the model's word, so the file's GPS counts again),
+    /// applied in order; points are stored at six decimals.
+    SetGeo {
+        geo: Vec<(PhotoId, Option<Geo>)>,
+    },
+    /// A new person (a new id; a clean name no other person holds, ignoring case).
+    AddPerson {
+        id: PersonId,
+        person: Person,
+    },
+    /// A person's name and nickname (the name unique ignoring case; the thumbnail stays).
+    RenamePerson {
+        id: PersonId,
+        name: String,
+        nickname: String,
+    },
+    /// Every face of `from` becomes `into`'s, which keeps its name, and `from` goes.
+    MergePeople {
+        from: PersonId,
+        into: PersonId,
+    },
+    /// A person deleted; their faces go back to Unnamed.
+    DeletePerson {
+        id: PersonId,
+    },
+    /// A person's thumbnail face (`None` goes back to their first face); it must be one of their
+    /// faces.
+    SetPersonThumbnail {
+        id: PersonId,
+        thumbnail: Option<FaceKey>,
     },
     /// Several ops as one: all or nothing, one revision.
     Batch {
@@ -755,6 +798,13 @@ impl Library {
                 fx.times = true;
                 Ok(Op::SetLastChanged { changed: set_all(&mut self.model.changed, changed) })
             }
+            Op::SetFaces { faces } => self.set_faces(faces, touched),
+            Op::SetGeo { geo } => self.set_geo(geo, touched),
+            Op::AddPerson { id, person } => self.add_person(id, person),
+            Op::RenamePerson { id, name, nickname } => self.rename_person(id, name, nickname, touched),
+            Op::MergePeople { from, into } => self.merge_people(from, into, touched),
+            Op::DeletePerson { id } => self.delete_person(id, touched),
+            Op::SetPersonThumbnail { id, thumbnail } => self.set_person_thumbnail(id, thumbnail),
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
                 for op in ops {
@@ -778,8 +828,8 @@ impl Library {
 
     /// Removes the photos `ids` (all known, no repeats) with their info, synced hashes, saved
     /// records, copies saved beside, sketches, search facts, digests, times, album memberships and
-    /// the covers they were, and returns the ops that put them back, in order: [`Op::AddPhotos`]
-    /// first, then only what there was (memberships before covers).
+    /// the covers they were, faces and geotags, and returns the ops that put them back, in order:
+    /// [`Op::AddPhotos`] first, then only what there was (memberships before covers).
     fn remove_photos(&mut self, ids: &[PhotoId], fx: &mut Effects) -> Vec<Op> {
         let sketches: Vec<(PhotoId, Option<Sketch>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.sketches.remove(id)?)))).collect();
         let synced: Vec<(PhotoId, Option<Synced>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.synced.remove(id)?)))).collect();
@@ -790,6 +840,8 @@ impl Library {
         let indexed: Vec<(PhotoId, Option<Timestamp>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.indexed.remove(id)?)))).collect();
         let changed: Vec<(PhotoId, Option<Timestamp>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.changed.remove(id)?)))).collect();
         fx.times |= !indexed.is_empty() || !changed.is_empty();
+        let faces: Vec<(PhotoId, Vec<Face>)> = ids.iter().filter_map(|id| Some((*id, self.model.faces.remove(id)?))).collect();
+        let geo: Vec<(PhotoId, Option<Geo>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.geo.remove(id)?)))).collect();
         let gone: HashSet<PhotoId> = ids.iter().copied().collect();
         let mut covers = Vec::new();
         self.model.covers.retain(|album, photo| {
@@ -819,7 +871,7 @@ impl Library {
         let infos: Vec<(PhotoId, PhotoInfo)> = ids.iter().filter_map(|id| Some((*id, self.put_info(*id, PhotoInfo::default())?))).collect();
         let photos: Vec<Photo> = ids.iter().filter_map(|id| self.remove_photo(*id)).collect();
         fx.touched.extend(photos.iter().map(|p| p.folder));
-        let mut ops = Vec::with_capacity(12);
+        let mut ops = Vec::with_capacity(14);
         ops.push(Op::AddPhotos { photos });
         if !facts.is_empty() {
             ops.push(Op::SetFacts { facts });
@@ -838,6 +890,12 @@ impl Library {
         }
         if !covers.is_empty() {
             ops.push(Op::SetCovers { covers });
+        }
+        if !faces.is_empty() {
+            ops.push(Op::SetFaces { faces });
+        }
+        if !geo.is_empty() {
+            ops.push(Op::SetGeo { geo });
         }
         if !infos.is_empty() {
             ops.push(Op::SetPhotoInfo { photos: infos });
@@ -1109,7 +1167,8 @@ fn check_file_name(name: &str) -> Result<()> {
 /// The last-changed stamp (M9): which photos an op changes what is said about.
 impl Library {
     /// `op` with the last-changed time of every photo whose data it changes (star, caption, tags,
-    /// hidden, recipe, date, copy saved beside, album memberships and keys, moves and renames)
+    /// hidden, recipe, date, copy saved beside, album memberships and keys, moves and renames,
+    /// faces, including those of a person merged away or deleted, and geotags)
     /// set to `at`, as one batch, so the journal replays the same times and the inverse puts the
     /// old ones back exactly. Photos the op removes are left out; an op that changes no photo's
     /// data (scans, folder info, derived data) comes back as it was. The engine stamps the ops of
@@ -1149,6 +1208,9 @@ impl Library {
                 Op::DeleteAlbums { ids: albums } => {
                     ids.extend(albums.iter().filter_map(|a| self.model.members.get(a)).flat_map(|m| m.keys().copied()));
                 }
+                Op::SetFaces { faces } => ids.extend(faces.iter().map(|(id, _)| *id)),
+                Op::SetGeo { geo } => ids.extend(geo.iter().map(|(id, _)| *id)),
+                Op::MergePeople { from: id, .. } | Op::DeletePerson { id } => ids.extend(self.photos_of_person(id)),
                 Op::AddPhotos { photos } => added.extend(photos.iter().map(|p| p.id)),
                 Op::RemovePhotos { ids: list } => removed.extend(list.iter().copied()),
                 Op::RemoveFolder { id } => removed.extend(self.model.photos.values().filter(|p| p.folder == *id).map(|p| p.id)),

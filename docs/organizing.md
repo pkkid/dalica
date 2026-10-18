@@ -398,7 +398,10 @@ Manager.
   [Remove Location].
 - Confirmations when changing the location of more than 20 photos, or removing it from more than 5.
 - The map shows only the photos of the current folder/album/selection.
-- Geotagged thumbnails show the pin badge; the **Show only geotagged** filter uses it.
+- Geotagged thumbnails show the pin badge; the **Show only geotagged** filter uses it. A photo is
+  geotagged when the library holds a point for it, or, when the library has no word on it, when its
+  file has GPS; a location the user removed un-geotags it even while the file still holds GPS
+  (M13.1).
 - Folder/album **Place** (Properties) is a free-text field, searchable, distinct from geotags.
 
 ## 8. Search and filters
@@ -430,8 +433,11 @@ How the search reads the text and answers (decided while building it, M9.8 and M
   date, else the file's); the age slider reads the sort date (that, else the file time), so a photo
   without a date still ages.
 - **Operators.** An operator with no value (`tag:` alone, a lone `-`) narrows nothing.
-  `person:` and `color:` are read but match nothing until their milestones, and the result lists
-  them as `unavailable` (the Faces filter too). An unknown `name:value` is read as plain words.
+  `person:` matches the names and nicknames of the people whose faces are on a photo (plain words
+  find them too; M13.1). `color:` is read but matches nothing until its milestone. The result
+  lists as `unavailable` what cannot match for want of data: `color`, `person` while the library
+  has no people, and the Faces filter while no photo has a named or unnamed face. An unknown
+  `name:value` is read as plain words.
 - **Hidden and small pictures** count only when View ▸ Hidden Pictures and Small Pictures show
   them, so the banner counts what the light table shows.
 - **Order.** Results come in light-table order: by folder in the order the tree lists the folders
