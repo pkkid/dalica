@@ -405,6 +405,23 @@ Manager.
 - Selecting several people in the pane (Ctrl-click) filters the light table to photos containing
   all of them, with the filter banner ("Showing photos with Ana and Rui" + [Show All]).
 
+How Dalica filters by people (M13.48):
+
+- **An exact filter, by id.** The people selected in the pane are the search's `people` filter
+  (`search.set {people}`, `library.query {people}`): only the photos holding a face of every one
+  of them, so selecting Ana never finds Anabel's photos, as a `person:` prefix would. The filter
+  combines with what is typed: the search field stays as typed, the light table is in search mode
+  while anyone is selected, and the banner says "Showing photos with Ana and Rui". Show All (and
+  the field's ×, Esc in the field) clears the field and the selection; selecting no one clears the
+  filter only.
+- **Face boxes through the whole geometry.** The edit view's face boxes, Add a Person Manually's
+  box and `faces.list`'s `displayed` share one mapping (the engine's): a face's stored rectangle
+  goes through the photo's straighten, crop, rotations and flips onto the photo as shown, frames
+  left out; its centre lands where the photo shows that point, and its size stays on the face
+  (scaled with the straighten, sides swapped by a quarter turn, set square to the screen again),
+  so a box drawn on a straightened photo is stored back exactly. A face the crop cuts reaches past
+  the photo's edge; one it leaves out has no box.
+
 ## 7. Places (geotagging)
 
 - **Places pane** (right side pane; pin button, View → Places): header "Places"; status "No places
@@ -489,6 +506,10 @@ How the search reads the text and answers (decided while building it, M9.8 and M
   lists as `unavailable` what cannot match for want of data: `color`, `person` while the library
   has no people, and the Faces filter while no photo has a named or unnamed face. An unknown
   `name:value` is read as plain words.
+- **Names over automation** (M13.48, `faces.md` §7): a search an automation surface runs without
+  `--automation-allow-people` leaves people's names out of the match (`withholdNames`): `person:`
+  matches nothing and is `unavailable` as in a library without people, plain words skip names and
+  nicknames, everything else matches as before. The window's own searches always match names.
 - **Hidden and small pictures** count only when View ▸ Hidden Pictures and Small Pictures show
   them, so the banner counts what the light table shows.
 - **Order.** Results come in light-table order: by folder in the order the tree lists the folders

@@ -20,9 +20,12 @@
 //! - `--connect [HOST:PORT]` (default `127.0.0.1:7990`, loopback only) and `--control-token-file
 //!   PATH`: connect mode, the [`dalica_mcp::Connect`] backend over the app's control channel. It
 //!   starts even when the app is not running (the first call connects). The app's own policy
-//!   applies: the `--automation-*` flags and the client's roots are ignored (`mcp.md` §5), and the
-//!   headless session's options (`--demo`, `--library`, `FOLDERS`, `--read-only`) are refused with
-//!   it. (Wired here by M10.16: M10.17 built connect mode while this file was M10.16's.)
+//!   applies: the roots flags, `--automation-allow-external` and the client's roots are ignored
+//!   (`mcp.md` §5), and the headless session's options (`--demo`, `--library`, `FOLDERS`,
+//!   `--read-only`) are refused with it. `--automation-allow-people` is this process's own say
+//!   ([`Connect::allow_people`]): people's names reach the client only when it and the app's own
+//!   flag both allow them. (Wired here by M10.16: M10.17 built connect mode while this file was
+//!   M10.16's.)
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -40,7 +43,8 @@ session: the demo library (--demo), a library directory (--library DIR), or an e
 are added as Scan Once. --compact lists only the helper tools. --read-only writes nothing to disk.
 The --automation-* options say what automation may read, write and reach; the client's MCP roots
 are read roots unless --no-client-roots. --connect drives a running `dalica --control PORT`
-instead (default 127.0.0.1:7990), under the app's own policy. Logs go to standard error
+instead (default 127.0.0.1:7990), under the app's own policy (people's names reach the client
+only when both the app and this command have --automation-allow-people). Logs go to standard error
 (DALICA_LOG=error|warn|info|debug).";
 
 /// What the command line asks for.
@@ -122,7 +126,7 @@ pub fn main(args: &[String]) -> ExitCode {
     let backend: Box<dyn Backend> = match &options.connect {
         // Connect mode: the app's policy applies; the client's roots are not asked for.
         Some(c) => match Client::from_options(c) {
-            Ok(client) => Box::new(Connect::new(client)),
+            Ok(client) => Box::new(connect_backend(client, &options.policy)),
             Err(e) => {
                 eprintln!("dalica-cli mcp: {e}");
                 return ExitCode::from(2);
@@ -149,6 +153,12 @@ pub fn main(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// Connect mode over `client`: only `policy`'s people permission is its own (the app's policy
+/// decides the rest).
+fn connect_backend(client: Client, policy: &Policy) -> Connect {
+    Connect::new(client).allow_people(policy.allow_people())
 }
 
 /// A logger that writes to standard error only: standard output is the protocol's.
@@ -222,5 +232,16 @@ mod tests {
         assert!(o.policy.allow_external() && o.policy.allow_people() && o.client_roots && !o.read_only);
         assert!(parse(&strings(&["--automation-read-root"])).unwrap_err().contains("needs a folder"));
         assert!(parse(&strings(&["--colour"])).unwrap_err().contains("unknown option"));
+    }
+
+    /// `--connect --automation-allow-people` builds a backend that lets the app's people data
+    /// through; without the flag it withholds it.
+    #[test]
+    fn connect_takes_its_people_permission() {
+        for (args, allow) in [(&["--connect", "--automation-allow-people"][..], true), (&["--connect"], false)] {
+            let o = parse(&strings(args)).unwrap();
+            let client = Client::from_options(o.connect.as_ref().unwrap()).unwrap();
+            assert_eq!(connect_backend(client, &o.policy).allows_people(), allow, "{args:?}");
+        }
     }
 }

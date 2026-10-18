@@ -1042,3 +1042,40 @@ fn the_import_rooms_writes_keep_to_automations_rules_on_every_route() {
     assert_eq!(std::fs::read_dir(&roll).unwrap().count(), 0, "the person's click removes them");
     assert_eq!(std::fs::read_dir(pictures.join("Card")).unwrap().count(), 2, "every copy stays");
 }
+
+/// `--automation-allow-people` (`Config::allow_people`) is the control channel's people policy
+/// (§6.4): with it `faces.list` carries names and `person:Ana` finds her photo, as a batch step
+/// does; without it names are `null`, rectangles left out, and `person:Ana` and the plain word
+/// `Ana` find nothing (`person` unavailable), while the filter by her id still finds her photo.
+#[test]
+fn people_data_and_name_searches_follow_the_people_permission() {
+    for allow in [false, true] {
+        let mut t = setup_with(2, |_| Config { allow_people: allow, ..Config::default() });
+        let photo = t.ids[0];
+        let s = t.d.app_mut().session_mut().unwrap();
+        let face = s.execute("faces.add", &json!({ "id": photo, "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap()["face"].clone();
+        let ana = s.execute("faces.name", &json!({ "faces": [face], "name": "Ana", "create": true })).unwrap()["person"].clone();
+        let at = format!("allow_people {allow}");
+        let list = ok(&mut t, "engine.execute", json!({ "command": "faces.list", "params": {} }));
+        let f = &list["faces"][0];
+        assert_eq!(
+            (f["name"].clone(), f["person"].clone(), f.get("rect").is_some()),
+            (if allow { json!("Ana") } else { Value::Null }, ana.clone(), allow),
+            "{at}"
+        );
+        let total = |t: &mut T, params: Value| ok(t, "engine.execute", json!({ "command": "library.query", "params": params }))["total"].clone();
+        let want = json!(usize::from(allow));
+        assert_eq!(total(&mut t, json!({ "text": "person:Ana" })), want, "{at}: person:");
+        assert_eq!(total(&mut t, json!({ "text": "Ana", "withholdNames": false })), want, "{at}: a plain word");
+        assert_eq!(total(&mut t, json!({ "people": [ana] })), json!(1), "{at}: by id");
+        let r = ok(&mut t, "engine.execute", json!({ "command": "library.query", "params": { "text": "person:Ana" } }));
+        assert_eq!(r["unavailable"], if allow { json!([]) } else { json!(["person"]) }, "{at}");
+        let b = ok(
+            &mut t,
+            "batch",
+            json!({ "steps": [{ "command": "library.query", "params": { "text": "person:Ana" } }, { "command": "faces.list" }] }),
+        );
+        assert_eq!(b["results"][0]["result"]["total"], want, "{at}: a batch step");
+        assert_eq!(b["results"][1]["result"]["faces"][0]["name"], if allow { json!("Ana") } else { Value::Null }, "{at}: a batch step");
+    }
+}

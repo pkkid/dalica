@@ -26,6 +26,11 @@
 //!   descriptors never leave, whatever was granted. The one other reply that would name a person,
 //!   `export.defaults` of a person's section (`folderName`, the person's name), suggests the
 //!   dialog's fallback name (`Export <date>`) instead, so the `export` tool's folder carries no name.
+//!   Searches (`library.query`, `search.set`, so `query_photos`) run without the permission with
+//!   people's names left out of the match ([`Policy::people_params`]): `person:` finds nothing and
+//!   is `unavailable`, plain words skip names; the filter by person id still holds.
+//! - **Face models**: the session looks for them in [`dalica_engine::faces_scan::default_models_dir`],
+//!   as the app and the CLI do, so a model installed there scans faces here too.
 //! - **`engine.commands`**, **`jobs.list`**, **`jobs.wait`**, **`jobs.cancel`** as in
 //!   `control-protocol.md` §6.2 and §6.13; the `ui.*` methods need the app (connect mode).
 //! - Three methods of MCP's own for the helpers of `mcp.md` §4.2: **`engine.group {steps,
@@ -165,6 +170,7 @@ impl Headless {
             session.make_read_only();
             describe.push_str(", read-only (nothing is written to disk)");
         }
+        session.set_face_models_dir(dalica_engine::faces_scan::default_models_dir());
         let mut h = Headless { session, tray: Tray::default(), roots, describe, _temp: temp };
         h.add_folders(folders)?;
         Ok(h)
@@ -290,6 +296,7 @@ impl Headless {
             return Err(ToolError::new("unknown_command", format!("no command `{id}` (command_list lists them)")));
         };
         self.roots.policy().check_effect(spec.effect, id)?;
+        self.roots.policy().people_params(id, &mut cmd);
         self.check_paths(id, &cmd)?;
         if let Some((_, question)) = CONFIRM.iter().find(|(c, _)| *c == id) {
             match cmd.remove("confirm") {
@@ -736,6 +743,13 @@ mod tests {
         assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": [] }))), "limit");
         assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": steps, "label": "Anything" }))), "bad_params");
         assert_eq!(code(call(&mut h, "tray.state", json!({ "x": 1 }))), "bad_params");
+    }
+
+    /// A headless session looks for face models where the app and the CLI do.
+    #[test]
+    fn the_session_has_the_default_models_folder() {
+        let h = Headless::open(Source::Empty, &[]).unwrap();
+        assert_eq!(h.session().face_scan().models_dir(), dalica_engine::faces_scan::default_models_dir().as_deref());
     }
 
     /// A face drawn as an `engine.group` step answers without its rectangle when the people

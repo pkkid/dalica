@@ -45,11 +45,15 @@
 //!   `--automation-allow-people` the replies of the commands that carry it ([`PEOPLE_REPLIES`]:
 //!   `faces.list`, `faces.add`, `people.list`) reach automation with names and nicknames `null`
 //!   and face rectangles left out, ids and counts kept ([`Policy::people_reply`]); face
-//!   descriptors are never returned, whatever was granted. The commands themselves run as asked.
+//!   descriptors are never returned, whatever was granted. The commands themselves run as asked,
+//!   but for the searches ([`NAME_SEARCHES`]: `library.query`, `search.set`), which run with
+//!   people's names left out of the match ([`Policy::people_params`]: `"withholdNames": true`), so
+//!   no reply tells a guessed name from an unknown one; nothing is refused, and the filter by
+//!   person id (`people`) still holds: ids are not names.
 
 use std::path::{Component, Path, PathBuf, Prefix};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::registry::Effect;
 
@@ -72,6 +76,16 @@ pub const NEVER_AUTOMATED: &[&str] = &["import.removeFromSource"];
 /// `--automation-allow-people` an automation surface passes their replies through
 /// [`Policy::people_reply`]. A command that comes to answer with people data joins this list.
 pub const PEOPLE_REPLIES: &[&str] = &["faces.list", "faces.add", "people.list"];
+
+/// The commands that search by text (`faces.md` §7, `control-protocol.md` §6.4): without
+/// `--automation-allow-people` an automation surface runs them with people's names and nicknames
+/// left out of the match ([`Policy::people_params`]): `person:` matches nothing and is listed
+/// `unavailable`, plain words skip names, everything else matches as before. A command that comes
+/// to search by text joins this list.
+pub const NAME_SEARCHES: &[&str] = &["library.query", "search.set"];
+
+/// The param of [`NAME_SEARCHES`] that leaves names out of the match.
+pub const WITHHOLD_NAMES: &str = "withholdNames";
 
 /// Keys of a people reply set to `null` without the people permission.
 const NAME_KEYS: &[&str] = &["name", "nickname"];
@@ -245,6 +259,16 @@ impl Policy {
             return reply;
         }
         withhold_people(reply, !self.allow_people)
+    }
+
+    /// The params of command `id` as this surface runs it (`faces.md` §7): without
+    /// `--automation-allow-people` a search of [`NAME_SEARCHES`] gets `"withholdNames": true`,
+    /// whatever the caller sent, so people's names take no part in its match. Other commands, and
+    /// every command with the permission, run with the params as given.
+    pub fn people_params(&self, id: &str, params: &mut Map<String, Value>) {
+        if !self.allow_people && NAME_SEARCHES.contains(&id) {
+            params.insert(WITHHOLD_NAMES.into(), Value::Bool(true));
+        }
     }
 
     /// A command with `effect` (`id` naming it): an effect outside Dalica needs

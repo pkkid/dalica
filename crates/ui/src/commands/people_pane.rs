@@ -2,11 +2,11 @@
 //! and **Add a Person Manually** (`faces.addManually`, the edit view only).
 //!
 //! - **`people.filter {people}`** selects people in the pane (a click selects one, Ctrl-click adds
-//!   or drops one). Any selected filter the light table to the photos holding all of them: the
-//!   search field reads one `person:` word per person ([`query`], their names' words joined by
-//!   dashes, as Search for This Tag writes a tag), and the filter banner says "Showing photos with
-//!   Ana and Rui" ([`banner`]) with [Show All], which clears both. `[]` clears the selection and,
-//!   when the search is still the people's, leaves search mode.
+//!   or drops one). Any selected filter the light table to the photos holding a face of every one
+//!   of them, by id (the engine search's exact `people` filter, M13.48: selecting Ana never finds
+//!   Anabel's photos); the search field stays as typed (the filter combines with it), and the
+//!   filter banner says "Showing photos with Ana and Rui" ([`banner`]) with [Show All], which
+//!   clears the filter and the search. `[]` clears the selection and the filter.
 //! - **`faces.addManually {on?, name?}`** shows (on) or drops (off) the box drawn round a face on
 //!   the photo in the edit view (`peoplePane.manual`; toggles without `on`). With `name` (or Enter
 //!   in the box's name field) the box is stored ([`store_manual`]): its rectangle, as shown on the
@@ -42,7 +42,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Filter by People",
         menu: "",
         keys: &[],
-        params: "{people: [PersonId]}: select these people in the People pane; the light table shows only the photos holding all of them (the search field reads their `person:` words, the banner \"Showing photos with Ana and Rui\"); [] clears the selection and that search",
+        params: "{people: [PersonId]}: select these people in the People pane; the light table shows only the photos holding a face of every one of them, by id (the engine search's people filter; the search field stays as typed; the banner \"Showing photos with Ana and Rui\"); [] clears the selection and the filter",
         run: filter,
     },
     UiCommand {
@@ -76,32 +76,6 @@ struct Manual {
     name: Option<String>,
 }
 
-/// The search word of a person's name: `person:` and its words joined by dashes (the grammar
-/// splits a value at punctuation, and every piece must start one of the photo's people's names).
-pub fn person_word(name: &str) -> String {
-    format!("person:{}", name.split_whitespace().collect::<Vec<_>>().join("-"))
-}
-
-/// The search text that filters the light table to the photos holding all of `people` (their
-/// names as the library has them; people it lacks are left out), cut to whole words within the
-/// field's length. Empty without a library or a known person.
-pub fn query(app: &App, people: &[PersonId]) -> String {
-    let Some(session) = app.session() else { return String::new() };
-    let lib = session.library();
-    let mut text = String::new();
-    for word in people.iter().filter_map(|id| lib.person(id)).map(|p| person_word(&p.name)) {
-        let len = text.chars().count() + usize::from(!text.is_empty()) + word.chars().count();
-        if len > MAX_DRAFT {
-            break;
-        }
-        if !text.is_empty() {
-            text.push(' ');
-        }
-        text.push_str(&word);
-    }
-    text
-}
-
 /// The names of `people` the library has, in order.
 pub fn names(app: &App, people: &[PersonId]) -> Vec<String> {
     let Some(session) = app.session() else { return Vec::new() };
@@ -118,28 +92,18 @@ pub fn listed(names: &[String]) -> String {
 }
 
 /// What the filter banner says while the light table shows the selected people's photos ("Showing
-/// photos with Ana and Rui"), or `None` when it does not: no one selected, or the search is no
-/// longer theirs (typed over).
+/// photos with Ana and Rui"), or `None` when no one the library has is selected.
 pub fn banner(app: &App) -> Option<String> {
-    let selected = &app.state().people_pane.selected;
-    if selected.is_empty() {
-        return None;
-    }
-    let text = query(app, selected);
-    (!text.is_empty() && app.state().search.text == text).then(|| format!("Showing photos with {}", listed(&names(app, selected))))
+    let names = names(app, &app.state().people_pane.selected);
+    (!names.is_empty()).then(|| format!("Showing photos with {}", listed(&names)))
 }
 
-/// Selects `people` in the pane and filters the light table to their photos (see the module docs).
+/// Selects `people` in the pane and filters the light table to their photos (see the module docs):
+/// the engine's search takes them at once when a library is open. Replies `{people}`.
 pub fn select_people(app: &mut App, people: Vec<PersonId>) -> Value {
-    let before = query(app, &app.state().people_pane.selected);
-    let after = query(app, &people);
     app.state_mut().people_pane.selected = people.clone();
-    if !after.is_empty() {
-        let search = &mut app.state_mut().search;
-        search.text = after;
-        search.highlight = None;
-    } else if !before.is_empty() && app.state().search.text == before {
-        super::search::clear(app);
+    if app.session().is_some() {
+        let _ = super::search::push(app);
     }
     json!({ "people": people })
 }
@@ -259,7 +223,7 @@ mod tests {
         let mut app = App::new(None);
         app.run("people.filter", &json!({ "people": ["p00a1", "p00b2", "p00a1"] })).unwrap();
         assert_eq!(app.state().people_pane.selected.len(), 2, "kept once");
-        assert_eq!(app.state().search.text, "", "no library: nothing to filter");
+        assert_eq!(app.state().search.text, "", "the search field is left as typed");
         app.run("people.filter", &json!({ "people": [] })).unwrap();
         assert!(app.state().people_pane.selected.is_empty());
         assert!(matches!(app.run("people.filter", &json!({ "people": ["x"] })), Err(CmdError::BadParams(_))));
@@ -275,12 +239,11 @@ mod tests {
     }
 
     #[test]
-    fn names_are_listed_and_written_as_search_words() {
+    fn names_are_listed() {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         assert_eq!(listed(&s(&[])), "");
         assert_eq!(listed(&s(&["Ana"])), "Ana");
         assert_eq!(listed(&s(&["Ana", "Rui"])), "Ana and Rui");
         assert_eq!(listed(&s(&["Ana", "Rui", "Eva"])), "Ana, Rui and Eva");
-        assert_eq!(person_word("Ana  Maria Silva"), "person:Ana-Maria-Silva");
     }
 }

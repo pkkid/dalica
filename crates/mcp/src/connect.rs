@@ -28,7 +28,9 @@
 //!   clients by its own policy; the MCP process withholds them again, on the replies of
 //!   `engine.execute` and of each `engine.group` step ([`Policy::people_reply`]), unless it was
 //!   built with [`Connect::allow_people`] (`--automation-allow-people` given to it too). Names
-//!   reach the client only when both allow it.
+//!   reach the client only when both allow it. Its searches (`library.query`, `search.set`) go
+//!   with `"withholdNames": true` without it ([`Policy::people_params`]), as the app sends them
+//!   without its own.
 //! - **[`Options`]**: `--connect [HOST:PORT]` (default [`crate::DEFAULT_ADDR`]; loopback addresses
 //!   only) and `--control-token-file PATH`, shared by `dalica-cli run` and `dalica-cli mcp`.
 //!
@@ -397,6 +399,30 @@ impl Connect {
         self
     }
 
+    /// Whether people data the app gives passes through ([`Connect::allow_people`]).
+    pub fn allows_people(&self) -> bool {
+        self.policy.allow_people()
+    }
+
+    /// A step `{command, params?}` as this process sends it (`mcp.md` §5): a search without the
+    /// people permission leaves names out of its match. `params` that are not an object go as
+    /// they are: the app answers them.
+    fn people_params(&self, step: &mut Map<String, Value>) {
+        let id = step.get("command").and_then(Value::as_str).unwrap_or_default().to_string();
+        let mut params = match step.remove("params") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(o)) => o,
+            Some(other) => {
+                step.insert("params".into(), other);
+                return;
+            }
+        };
+        self.policy.people_params(&id, &mut params);
+        if !params.is_empty() {
+            step.insert("params".into(), Value::Object(params));
+        }
+    }
+
     pub fn client(&mut self) -> &mut Client {
         &mut self.client
     }
@@ -415,6 +441,7 @@ impl Connect {
         let Value::Object(mut p) = params else { return self.client.call("engine.execute", params) };
         let mut photos = None;
         self.fill_from_tray(&mut p, &mut photos)?;
+        self.people_params(&mut p);
         if !(wait.is_null() || wait == Value::Bool(true)) {
             // `wait: false` answers at once; a bad `wait` is the app's to refuse.
             return self.client.call("engine.execute", Value::Object(p));
@@ -571,6 +598,7 @@ impl Connect {
                 o.insert("params".into(), params.clone());
             }
             self.fill_from_tray(&mut o, &mut photos).map_err(at)?;
+            self.people_params(&mut o);
             prepared.push(Value::Object(o));
         }
         if let [one] = prepared.as_slice() {
@@ -814,6 +842,7 @@ mod tests {
                             json!({ "completed": 2, "failed": 0, "results": [{ "ok": true, "result": face.clone() }, { "ok": true, "result": face }] })
                         }
                         Some("auth") => json!({ "app": "dalica" }),
+                        Some("engine.execute") if r["params"]["command"] == "library.query" => json!({ "sent": r["params"]["params"] }),
                         _ => face,
                     };
                     if writeln!(out, "{}", json!({ "id": r["id"], "ok": true, "result": result })).is_err() {
@@ -843,6 +872,11 @@ mod tests {
                 assert_eq!((&face["name"], face.get("rect").is_some(), face.get("embedding")), (&name, allow, None), "{face}");
                 assert_eq!((&face["id"], &face["person"]), (&json!("1.0"), &json!("p1")));
             }
+            // A search goes with names withheld unless allowed.
+            let sent =
+                c.call("engine.execute", json!({ "command": "library.query", "params": { "text": "person:ana" } }), &mut crate::backend::NoProgress);
+            let want = if allow { json!({ "text": "person:ana" }) } else { json!({ "text": "person:ana", "withholdNames": true }) };
+            assert_eq!(sent.unwrap()["sent"], want);
         }
     }
 }

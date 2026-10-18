@@ -10,7 +10,8 @@
 //! word are intersected, the words intersected (or, for `-word`, subtracted) from the photos the
 //! filters and the scope let through. Each folder's photos are sorted once in the folder's own
 //! sort and kept until one of them changes, so the result comes out in light-table order without
-//! sorting it.
+//! sorting it. The People pane's filter ([`People`]) intersects each person's photos first; a
+//! search that withholds names never looks at people's name terms.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Bound;
@@ -21,7 +22,7 @@ use serde::Serialize;
 
 use super::extract::{AlbumDoc, Extract, FolderDoc, PersonDoc, PhotoDoc, Update};
 use super::grammar::{Atom, Field, MAX_QUERY, Parsed, cut, is_word_separator, terms};
-use super::matcher::{Age, Query, Scope, passes};
+use super::matcher::{Age, People, Query, Scope, passes};
 use crate::tags::fold;
 use crate::{AlbumRef, PhotoSort, Section, SortBy};
 
@@ -179,7 +180,8 @@ pub struct SearchResult {
     /// The matches' bytes on disk.
     pub bytes: u64,
     /// Operators and filters used that match nothing for want of data: `person` while the library
-    /// has no people, `color` (not built yet), `faces` while no photo has a face.
+    /// has no people (or the search withholds names), `color` (not built yet), `faces` while no
+    /// photo has a face.
     pub unavailable: Vec<&'static str>,
     /// Whether the text was cut at the grammar's caps.
     pub truncated: bool,
@@ -542,13 +544,32 @@ impl SearchIndex {
         self.folders.get(&id).and_then(|e| e.doc.as_ref()).is_some_and(|f| f.hidden)
     }
 
-    /// The slots `parsed`, the filters and the age let through under `scope`.
-    fn matched(&self, parsed: &Parsed, query: &Query, scope: &Scope) -> Bits {
-        // The words that must match narrow the photos first; the filters and the scope then look
-        // only at what is left, and the negated words take theirs out.
+    /// The slots `parsed`, the filters, the age and the people filter let through under `scope`.
+    fn matched(&self, parsed: &Parsed, query: &Query, who: &People, scope: &Scope) -> Bits {
+        // The people filter and the words that must match narrow the photos first; the filters
+        // and the scope then look only at what is left, and the negated words take theirs out.
+        let names = !who.withhold_names;
         let mut candidates: Option<Bits> = None;
+        for p in &who.people {
+            let mut hits = Bits::new(self.docs.len());
+            for slot in self.people.get(p).map(|e| &e.photos).into_iter().flatten() {
+                hits.set(*slot);
+            }
+            let next = match candidates {
+                None => hits,
+                Some(mut c) => {
+                    c.and(&hits);
+                    c
+                }
+            };
+            let empty = next.is_empty();
+            candidates = Some(next);
+            if empty {
+                return Bits::new(self.docs.len());
+            }
+        }
         for atom in parsed.atoms.iter().filter(|a| !a.negated) {
-            let hits = self.atom_bits(atom);
+            let hits = self.atom_bits(atom, names);
             let next = match candidates {
                 None => hits,
                 Some(mut c) => {
@@ -586,16 +607,16 @@ impl SearchIndex {
             if bits.is_empty() {
                 break;
             }
-            bits.and_not(&self.atom_bits(atom));
+            bits.and_not(&self.atom_bits(atom, names));
         }
         bits
     }
 
-    /// The slots one word matches (every token must).
-    fn atom_bits(&self, atom: &Atom) -> Bits {
+    /// The slots one word matches (every token must); people's names only with `names`.
+    fn atom_bits(&self, atom: &Atom, names: bool) -> Bits {
         let mut acc: Option<Bits> = None;
         for token in &atom.tokens {
-            let hits = self.token_bits(atom.field, token);
+            let hits = self.token_bits(atom.field, token, names);
             let next = match acc {
                 None => hits,
                 Some(mut a) => {
@@ -612,8 +633,9 @@ impl SearchIndex {
         acc.unwrap_or_else(|| Bits::new(0))
     }
 
-    /// The slots with a term in `field` that `token` starts.
-    fn token_bits(&self, field: Field, token: &str) -> Bits {
+    /// The slots with a term in `field` that `token` starts; people's names and nicknames only
+    /// with `names` (without, `person:` matches nothing).
+    fn token_bits(&self, field: Field, token: &str, names: bool) -> Bits {
         let mut bits = Bits::new(self.docs.len());
         let maps: &[&TermMap<u32>] = match field {
             Field::Any => &[&self.own, &self.tags, &self.camera],
@@ -629,7 +651,7 @@ impl SearchIndex {
                 }
             }
         }
-        if matches!(field, Field::Any | Field::Person) {
+        if names && matches!(field, Field::Any | Field::Person) {
             let people: HashSet<&PersonId> = with_prefix(&self.person_terms, token).flatten().collect();
             for p in people {
                 for slot in self.people.get(p).map(|e| &e.photos).into_iter().flatten() {
@@ -656,7 +678,13 @@ impl SearchIndex {
 
     /// The photos `query` matches under `scope`, by id (the same set as [`Extract::matching`]).
     pub fn matching(&self, query: &Query, scope: &Scope) -> Vec<PhotoId> {
-        let bits = self.matched(&Parsed::new(&query.text), query, scope);
+        self.matching_with(query, &People::default(), scope)
+    }
+
+    /// [`SearchIndex::matching`] with what the search asks of people (the same set as
+    /// [`Extract::matching_with`]).
+    pub fn matching_with(&self, query: &Query, who: &People, scope: &Scope) -> Vec<PhotoId> {
+        let bits = self.matched(&Parsed::new(&query.text), query, who, scope);
         let mut out: Vec<PhotoId> = bits.ones().filter_map(|s| self.doc(s).map(|d| d.id)).collect();
         out.sort();
         out
@@ -674,10 +702,16 @@ impl SearchIndex {
 
     /// Runs `query` under `scope` (see [`SearchResult`]).
     pub fn search(&self, query: &Query, scope: &Scope) -> SearchResult {
+        self.search_with(query, &People::default(), scope)
+    }
+
+    /// [`SearchIndex::search`] with what the search asks of people ([`People`]): the people filter,
+    /// and without names `person` stays `unavailable` as in a library without people.
+    pub fn search_with(&self, query: &Query, who: &People, scope: &Scope) -> SearchResult {
         let parsed = Parsed::new(&query.text);
-        let bits = self.matched(&parsed, query, scope);
+        let bits = self.matched(&parsed, query, who, scope);
         let mut unavailable = parsed.unavailable.clone();
-        if self.people.values().any(|e| e.doc.is_some()) {
+        if !who.withhold_names && self.people.values().any(|e| e.doc.is_some()) {
             unavailable.retain(|op| *op != Field::Person.name());
         }
         if query.filters.faces && self.with_faces == 0 {

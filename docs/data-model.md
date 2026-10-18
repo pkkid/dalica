@@ -422,7 +422,7 @@ value), when the library opens. The objects:
 | `viewer` | Options → Photo Viewer → Interface (`viewing.md` §3.3): `wheel` (`"zoom"` or `"navigate"`; zoom), `hideControls` (on), `translucent` (on) | M11 |
 | `import` | `folder` (Options → General → "Save imported pictures in"; unset: the Pictures folder), `detectDuplicates` (on), `after` (the room's "After copying", `"leave"` or `"delete"`; leave), `recentSources`, `recentDestinations` (absolute folders) and `recentFolderNames`, each the last 8, most recent first (`organizing.md` §3) | M11 |
 | `compare` | what "Don't ask again" remembers in compare (`editing.md` §4): `askBeforeApplying` (on) and `keep` (`"ask"`, `"left"` or `"right"`; ask) | M11 |
-| `people` | Options → People (`faces.md` §3–§5, `organizing.md` §6.1): `findFaces` (on), `suggestNames` (on), `suggestionConfidence` and `groupingConfidence` (85, 50–95 in steps of 5), `storeNamesInPhotos` (off), and `model`, the recogniser chosen with Use (a model id: 1–64 lowercase letters, digits, `.`, `_` or `-`, starting with a letter or digit; none: the newest installed) | M13 |
+| `people` | Options → People (`faces.md` §3–§5, `organizing.md` §6.1): `findFaces` (on), `suggestNames` (on), `suggestionConfidence` and `groupingConfidence` (85, 50–95 in steps of 5), `storeNamesInPhotos` (off), `model`, the recogniser chosen with Use (a model id: 1–64 lowercase letters, digits, `.`, `_` or `-`, starting with a letter or digit; none: the newest installed), and `askBeforeIgnoring` (on; Ignore Faces' "Don't ask again" turns it off, M13.21) | M13 |
 | `network` | Options → Network (`organizing.md` §7): `allowMapTiles` (off), `tileServer` (an address template with `{z}`, `{x}`, `{y}`; OpenStreetMap's tiles), `tileAttribution` (© OpenStreetMap contributors), `geocoder` (an address template with `{query}`; OpenStreetMap's Nominatim search), each text of at most 2 048 bytes (the attribution 256), `proxy` (`"system"` or `"manual"`; system), `proxyHost` (empty, at most 253 bytes), `proxyPort` (8080, 1–65535), `logLevel` (`"errors"`, `"requests"` or `"details"`; errors) | M13 |
 
 The Options dialog's rows name these keys (`menus-and-shortcuts.md` §5). An option whose feature
@@ -551,8 +551,9 @@ data, and a test proves it (scan → edit everything → rebuild → compare).
 > write-back: `crates/engine/src/metadata.rs`) and places (M13.14: a geotag set, cleared, pasted,
 > undone or redone is written as EXIF GPS and its XMP mirror, a TIFF's XMP only; a file's GPS comes
 > into the model on the scan that reads it and follows the file when only the file changed, with
-> no undo step, never over a location the user removed); people wait for M13.19. Edits and
-> rotations reach pixels only on Save (M7).
+> no undo step, never over a location the user removed) and people (M13.19: a photo's named faces
+> as MWG face regions, while Store people names in photos is on). Edits and rotations reach pixels
+> only on Save (M7).
 
 | Item | When | Where |
 |---|---|---|

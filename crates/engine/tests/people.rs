@@ -233,6 +233,42 @@ fn a_face_added_by_hand_on_a_turned_photo_is_stored_in_the_stored_frame() {
     assert_eq!(listed["faces"][0]["displayed"], json!([0.1, 0.2, 0.3, 0.6]), "where it was drawn, after a restart");
 }
 
+/// On a photo turned, straightened and cropped, `faces.list`'s `displayed` is where the photo's
+/// `Geometry` shows the face, normalised to the photo as shown (past 0..1 where the crop cuts the
+/// face), and `faces.add {displayed}` on a photo of the same geometry stores it back within 10⁻⁹.
+#[test]
+fn displayed_faces_go_through_the_whole_geometry() {
+    let (_lib, _disk, _dir, mut s, ids) = lisbon(&[photo_bytes(4), photo_bytes(5)], None);
+    for id in &ids {
+        s.execute("photo.rotate.cw", &json!({ "ids": [id] })).unwrap();
+        for op in ["straighten(4)", "crop(0.1,0.15,0.8,0.9)"] {
+            s.execute("photo.history.apply", &json!({ "id": id, "op": op })).unwrap();
+        }
+    }
+    let stored = [rect(0.3, 0.3, 0.45, 0.5), rect(0.4, 0.02, 0.55, 0.2)];
+    for r in &stored {
+        s.execute("faces.add", &json!({ "id": ids[0], "rect": r })).unwrap();
+    }
+    let p = s.library().photo(ids[0]).unwrap();
+    let recipe = dalica_edit::Recipe::parse(&s.library().info(ids[0]).edits).unwrap();
+    let g = dalica_edit::Geometry::new(&recipe, dalica_image::Orientation::default(), p.width, p.height);
+    let area = g.photo_area().unwrap().to_display(g.orientation());
+    let listed = s.execute("faces.list", &json!({ "ids": [ids[0]] })).unwrap();
+    for (n, r) in stored.iter().enumerate() {
+        let d: Vec<f64> = listed["faces"][n]["displayed"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        let c = g.to_display(dalica_edit::Point::new((r.x0() + r.x1()) / 2.0, (r.y0() + r.y1()) / 2.0)).unwrap();
+        let want = [(c.x - area.x0) / (area.x1 - area.x0), (c.y - area.y0) / (area.y1 - area.y0)];
+        let got = [(d[0] + d[2]) / 2.0, (d[1] + d[3]) / 2.0];
+        assert!((want[0] - got[0]).abs() < 1e-9 && (want[1] - got[1]).abs() < 1e-9, "face {n}: {got:?} is not where Geometry shows it, {want:?}");
+        let back = s.execute("faces.add", &json!({ "id": ids[1], "displayed": d })).unwrap();
+        let back: Vec<f64> = back["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        let r = [r.x0(), r.y0(), r.x1(), r.y1()];
+        assert!(back.iter().zip(r).all(|(a, b)| (a - b).abs() < 1e-9), "face {n}: stored back as {back:?}, not {r:?}");
+    }
+    let cut = &listed["faces"][1]["displayed"];
+    assert!(cut.as_array().unwrap().iter().any(|v| !(0.0..=1.0).contains(&v.as_f64().unwrap())), "the crop cuts the second face: {cut}");
+}
+
 /// `person:` finds the photos of a person by name and nickname, and the Faces filter the photos
 /// with a named or unnamed face (an ignored one does not count); neither is unavailable once the
 /// library has people and faces.
@@ -406,6 +442,64 @@ fn without_the_people_permission_automation_sees_no_names_or_rectangles() {
     let mut with_embedding = list.clone();
     with_embedding["faces"][0]["embedding"] = json!([0.1, 0.2]);
     assert_eq!(allowed.people_reply("faces.list", with_embedding), list, "descriptors are never returned");
+}
+
+/// Without `--automation-allow-people` a search over automation leaves people's names out of the
+/// match (`Policy::people_params`): `library.query` with `person:Ana` finds nothing and lists
+/// `person` unavailable, the plain word `Ana` finds no photo by her name, `people: [Ana]` (an id)
+/// still finds hers; with the permission all three find them. A `search.set` through the policy is
+/// withheld too, while the window's own `search.set` after it matches names again: the switch is
+/// per call.
+#[test]
+fn without_the_people_permission_searches_leave_names_out_of_the_match() {
+    let photos: Vec<Vec<u8>> = (0..3).map(photo_bytes).collect();
+    let (_lib, _disk, _dir, mut s, ids) = lisbon(&photos, None);
+    let mut faces = Vec::new();
+    for id in &ids[..2] {
+        faces.push(s.execute("faces.add", &json!({ "id": id, "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap()["face"].clone());
+    }
+    let ana = s.execute("faces.name", &json!({ "faces": faces, "name": "Ana", "create": true })).unwrap()["person"].clone();
+    let run = |s: &mut Session, policy: &Policy, id: &str, params: Value| -> Value {
+        let Value::Object(mut p) = params else { panic!("params are an object") };
+        policy.people_params(id, &mut p);
+        s.execute(id, &Value::Object(p)).unwrap()
+    };
+    let found = |r: &Value| -> Vec<u64> {
+        let mut v: Vec<u64> = r["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
+        v.sort_unstable();
+        v
+    };
+    let hers = vec![ids[0].get(), ids[1].get()];
+    let mut allowed = Policy::default();
+    allowed.set_allow_people(true);
+    for (policy, want, unavailable) in [(Policy::default(), vec![], json!(["person"])), (allowed, hers.clone(), json!([]))] {
+        let at = format!("allow_people {}", policy.allow_people());
+        let r = run(&mut s, &policy, "library.query", json!({ "text": "person:Ana" }));
+        assert_eq!((found(&r), r["unavailable"].clone()), (want.clone(), unavailable), "{at}: person:");
+        assert_eq!(found(&run(&mut s, &policy, "library.query", json!({ "text": "Ana" }))), want, "{at}: a plain word");
+        // A caller asking for names is overruled without the permission.
+        let r = run(&mut s, &policy, "library.query", json!({ "text": "ana", "withholdNames": false }));
+        assert_eq!(found(&r), want, "{at}: withholdNames from the caller");
+        assert_eq!(found(&run(&mut s, &policy, "library.query", json!({ "people": [ana] }))), hers, "{at}: by id");
+        run(&mut s, &policy, "search.set", json!({ "text": "person:Ana" }));
+        s.wait_search();
+        assert_eq!(s.search_inspect()["matches"], json!(want.len()), "{at}: search.set");
+    }
+    run(&mut s, &Policy::default(), "search.set", json!({ "text": "ana" }));
+    s.wait_search();
+    assert_eq!(s.search_inspect()["matches"], json!(0), "withheld");
+    s.execute("search.set", &json!({ "text": "person:Ana" })).unwrap();
+    s.wait_search();
+    assert_eq!(s.search_inspect()["matches"], json!(2), "the window's own search matches names");
+    let r = s.execute("search.set", &json!({ "text": "", "people": [ana] })).unwrap();
+    assert_eq!(r["people"], json!([ana]));
+    s.wait_search();
+    assert_eq!(s.search_inspect()["matches"], json!(2), "the people filter alone is a search");
+    assert!(matches!(s.execute("library.query", &json!({ "people": ["p0f0f"] })), Err(CmdError::NotFound(_))));
+    assert!(matches!(s.execute("search.set", &json!({ "people": ["p0f0f"] })), Err(CmdError::NotFound(_))));
+    assert!(matches!(s.execute("search.set", &json!({ "people": ["x"] })), Err(CmdError::BadParams(_))));
+    let many: Vec<String> = (0..=dalica_library::search::MAX_PEOPLE).map(|i| format!("p{i:04x}")).collect();
+    assert!(matches!(s.execute("library.query", &json!({ "people": many })), Err(CmdError::Limit(_))));
 }
 
 /// Each command's own failures: ids that are not ids, faces, photos and people the library does

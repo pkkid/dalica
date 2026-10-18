@@ -28,6 +28,8 @@ pub struct Flags {
     pub read_roots: Vec<PathBuf>,
     pub write_roots: Vec<PathBuf>,
     pub allow_external: bool,
+    /// `--automation-allow-people` (flag only: no environment variable grants it).
+    pub allow_people: bool,
 }
 
 /// A port number for `--control`: 1–65535.
@@ -78,7 +80,13 @@ pub fn resolve(mut flags: Flags, var: impl Fn(&str) -> Option<OsString>, cwd: &P
 impl Flags {
     /// What automation may do (§5.6, §5.7).
     pub fn config(&self, demo: bool) -> Config {
-        Config { read_roots: self.read_roots.clone(), write_roots: self.write_roots.clone(), allow_external: self.allow_external, demo }
+        Config {
+            read_roots: self.read_roots.clone(),
+            write_roots: self.write_roots.clone(),
+            allow_external: self.allow_external,
+            allow_people: self.allow_people,
+            demo,
+        }
     }
 }
 
@@ -192,7 +200,8 @@ mod tests {
     fn flags_make_the_automation_config() {
         let f = Flags { read_roots: vec![cwd()], allow_external: true, ..Flags::default() };
         let c = f.config(true);
-        assert_eq!((c.read_roots, c.write_roots.is_empty(), c.allow_external, c.demo), (vec![cwd()], true, true, true));
+        assert_eq!((c.read_roots, c.write_roots.is_empty(), c.allow_external, c.allow_people, c.demo), (vec![cwd()], true, true, false, true));
+        assert!(Flags { allow_people: true, ..Flags::default() }.config(false).allow_people, "--automation-allow-people reaches the config");
     }
 
     #[test]

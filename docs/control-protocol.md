@@ -38,6 +38,7 @@ dalica --control 18042 --control-token-file ~/.cache/dalica/agent-a.token \
 | `--automation-read-root DIR` (repeatable) | `DALICA_AUTOMATION_READ_ROOT` (`:`/`;`-separated) | Folders automation may add to the library or read from (§5.7). |
 | `--automation-write-root DIR` (repeatable) | `DALICA_AUTOMATION_WRITE_ROOT` | Folders automation may write new files into (§5.7). |
 | `--automation-allow-external` | — | Allow commands with effects outside Dalica (§5.6). Off by default. |
+| `--automation-allow-people` | — | Let people's names and nicknames and face rectangles reach automation, and its searches match names (§6.4). Off by default; a flag only, needing `--control`. |
 | `--demo` | — | Procedural demo library (`dalica-scenes`) in `dalica-demo` in the OS temporary folder: made on first use and **reused** by later runs (so a star survives a restart; delete the folder to start over), with **isolated settings**: the library index, `folders.json` and `settings.json` live in the demo folder, so nothing in the user's settings, library index or window state is read or changed. Ids are deterministic (§5.4). |
 | `--demo-fresh` | — | Like `--demo`, but in a new folder `dalica-demo-<pid>-<n>` in the OS temporary folder (private to the user on Unix), removed with everything in it when the app or the CLI command exits: a clean slate for every automation run. A killed process leaves the folder behind. |
 
@@ -519,8 +520,19 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   name). With the permission the replies are as the engine gives them. Whatever was granted,
   `embedding`, `embeddings` and `landmarks` never appear in a reply, and no error message holds
   a name or a rectangle (people are named by id). A command that comes to answer with people
-  data joins `PEOPLE_REPLIES`. The desktop app has no `--automation-allow-people` flag yet, so
-  `engine.execute` over the control channel always answers as to a client without it.
+  data joins `PEOPLE_REPLIES`. Over the control channel `engine.execute` and each `batch` step
+  answer through the policy the app's `--automation-allow-people` builds (M13.48).
+- **No guess-oracle in searches** (M13.48, `faces.md` §7; `automation::NAME_SEARCHES` and
+  `Policy::people_params`): without `--automation-allow-people` the searches an automation
+  surface runs (`library.query`, `search.set`) go with `"withholdNames": true`, whatever the
+  caller sent: people's names and nicknames take no part in the match, so `person:` matches
+  nothing and is listed in `unavailable` (as in a library without people), plain words skip names
+  and nicknames, and everything else matches as before. Nothing is refused, so no reply tells a
+  guessed name from an unknown one. The exact filter by person id (`people: [PersonId]`, the
+  photos holding a face of every one of them) stays allowed: ids are not names and `people.list`
+  gives them. The switch belongs to one call: a `search.set` the window makes itself (typing in
+  the search field, the People pane) always matches names. `library.inspect`'s `search` lists
+  the People pane's filter as `people`.
 - A person's section is `person:<PersonId>` (§5.4): `library.inspect`'s `photos` and `section`,
   `library.query`, `slideshow.list`, `export.*`, `places.list` and `section.refreshThumbs` take
   it (the photos holding the person's faces, by date like a folder); a person section listed here

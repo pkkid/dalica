@@ -8471,7 +8471,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
   - done when: the test, with the pinned file times and the old list comparison, fails every run
     (said in the PR), and with the fix passes 200 runs in a loop under `taskset -c 0` and 40 runs
     started just before a second boundary; `cargo xtask ci`.
-- ⬜ **M13.48 `engine` + `ui` + `mcp` + apps: people follow-ups: the automation permission, person search behind it, an exact person filter, faces shown through the whole geometry**
+- ✅ **M13.48 `engine` + `ui` + `mcp` + apps: people follow-ups: the automation permission, person search behind it, an exact person filter, faces shown through the whole geometry**
   - after: M13.18, M13.24, M13.25, M13.29
   - files: `apps/dalica/src/main.rs`, `apps/dalica/src/control/mod.rs`, `apps/dalica-cli/src/mcp.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/tests.rs`, `crates/mcp/src/connect.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/tests/organize_tools.rs`, `crates/engine/src/automation.rs`, `crates/engine/src/search.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/cmd/library.rs`, `crates/engine/src/cmd/faces.rs`, `crates/engine/tests/people.rs`, `crates/library/src/search/matcher.rs`, `crates/library/src/search/index.rs`, `crates/library/tests/people.rs`, `crates/ui/src/commands/people_pane.rs`, `crates/ui/src/commands/search.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/panels/edit/faces.rs`, `crates/ui/tests/people_pane.rs`, `docs/control-protocol.md`, `docs/mcp.md`, `docs/organizing.md`, `docs/data-model.md`, `docs/parity.md`
   - scope: follow-ups reported by M13.15, M13.21, M13.24 and M13.29. (1) **The permission in the

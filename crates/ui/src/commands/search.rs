@@ -12,9 +12,13 @@
 //!   named `Search results for "x"`, whose OK runs the engine's `search.saveAsAlbum {name}`.
 //!
 //! **The view state and the engine stay in step** ([`sync`], once a frame before the sections are
-//! built): a change of the view state's query (typing, a filter, the age, `ui.set`) is sent as
-//! `search.set`; a change of the engine's (a script's `search.set` or `search.clear`, Find
-//! Duplicates entering its mode) is copied into the view state. The engine's age is in days, the
+//! built): a change of the view state's query (typing, a filter, the age, the people selected in
+//! the People pane, `ui.set`) is sent as `search.set`; a change of the engine's (a script's
+//! `search.set` or `search.clear`, Find Duplicates entering its mode) is copied into the view
+//! state. The People pane's selection is the engine search's exact `people` filter
+//! (`organizing.md` §6.4): the light table is in search mode while it is on, the field showing
+//! what was typed (the view state's `search.duplicates` then says the engine searches for more
+//! than the field holds, as it does for Find Duplicates' groups, so the banner shows). The engine's age is in days, the
 //! slider's a position (0 … 1), turned into days by `ui-kit`'s logarithmic map
 //! ([`widgets::age_days`], [`widgets::age_position`]). When search mode starts, the light table's
 //! scroll anchor is saved (unless `ui.set` gave one) and the view goes to the top; when it ends, the
@@ -23,6 +27,7 @@
 
 use std::time::Duration;
 
+use dalica_core::PersonId;
 use dalica_engine::search::SearchMode;
 use dalica_engine::{CmdError, Context};
 use dalica_ui_kit::widgets;
@@ -32,7 +37,7 @@ use serde_json::{Value, json};
 use super::{Check, Opener, UiCommand, no_params, parse_object};
 use crate::app::App;
 use crate::dialogs::album_properties;
-use crate::state::{AlbumDraft, Filters, MAX_DRAFT, ScrollAnchor, SearchState};
+use crate::state::{AlbumDraft, Filters, MAX_DRAFT, ScrollAnchor};
 
 pub const COMMANDS: &[UiCommand] = &[
     UiCommand {
@@ -108,27 +113,30 @@ fn search_tag(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     push(app)
 }
 
-/// The query of the view state as the engine takes it: the text, the filters and the age in days
-/// (`None`: every age).
+/// The query of the view state as the engine takes it: the text, the filters, the age in days
+/// (`None`: every age) and the people selected in the People pane.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct Query {
     text: String,
     filters: Filters,
     days: Option<u32>,
+    people: Vec<PersonId>,
 }
 
-fn query_of(s: &SearchState) -> Query {
-    Query { text: s.text.clone(), filters: s.filters, days: widgets::age_days(s.age) }
+fn query_of(app: &App) -> Query {
+    let s = &app.state().search;
+    Query { text: s.text.clone(), filters: s.filters, days: widgets::age_days(s.age), people: app.state().people_pane.selected.clone() }
 }
 
 /// Sends the view state's query to the engine (`search.set`). Replies what the engine replies.
-fn push(app: &mut App) -> Result<Value, CmdError> {
-    let q = query_of(&app.state().search);
+pub(crate) fn push(app: &mut App) -> Result<Value, CmdError> {
+    let q = query_of(app);
     let f = q.filters;
     let params = json!({
         "text": q.text,
         "filters": { "starred": f.starred, "faces": f.faces, "videos": f.videos, "geotagged": f.geotagged },
         "age": q.days,
+        "people": q.people,
     });
     match app.session_mut() {
         Some(s) => s.execute("search.set", &params),
@@ -136,10 +144,12 @@ fn push(app: &mut App) -> Result<Value, CmdError> {
     }
 }
 
-/// Leaves search mode (the field's ×, Esc in the field, Show All): no text, filters or age, and
-/// the engine's search (or Find Duplicates' groups) cleared. The scroll anchor saved when search
-/// mode started comes back on the next frame ([`sync`]).
+/// Leaves search mode (the field's ×, Esc in the field, Show All): no text, filters, age or
+/// people selected in the People pane, and the engine's search (or Find Duplicates' groups)
+/// cleared. The scroll anchor saved when search mode started comes back on the next frame
+/// ([`sync`]).
 pub fn clear(app: &mut App) {
+    app.state_mut().people_pane.selected.clear();
     let s = &mut app.state_mut().search;
     s.text.clear();
     s.highlight = None;
@@ -173,9 +183,9 @@ const POLL: Duration = Duration::from_millis(33);
 pub fn sync(app: &mut App, ctx: &egui::Context) {
     let Some(engine) = app.session().map(dalica_engine::Session::search_state) else { return };
     let (generation, mode, pending) = (engine.generation, engine.mode, engine.pending());
-    let theirs = Query { text: engine.text.clone(), filters: ui_filters(engine.filters), days: engine.age_days };
+    let theirs = Query { text: engine.text.clone(), filters: ui_filters(engine.filters), days: engine.age_days, people: engine.people.clone() };
     let memo: Synced = ctx.data(|d| d.get_temp(synced_id())).unwrap_or_default();
-    let ours = query_of(&app.state().search);
+    let ours = query_of(app);
     let pull = match &memo.query {
         // The first frame: an engine searching already (a script before the window) is shown.
         None => ours == Query::default() && theirs != Query::default(),
@@ -184,7 +194,9 @@ pub fn sync(app: &mut App, ctx: &egui::Context) {
     };
     let push_ours = !pull && memo.query.as_ref() != Some(&ours);
     if pull {
-        let s = &mut app.state_mut().search;
+        let state = app.state_mut();
+        state.people_pane.selected = theirs.people.iter().take(crate::state::MAX_PEOPLE).cloned().collect();
+        let s = &mut state.search;
         s.text = theirs.text.chars().take(MAX_DRAFT).collect();
         s.filters = theirs.filters;
         s.age = widgets::age_position(theirs.days);
@@ -194,7 +206,8 @@ pub fn sync(app: &mut App, ctx: &egui::Context) {
     }
     let generation = app.session().map_or(generation, |s| s.search_state().generation);
     let state = app.state_mut();
-    state.search.duplicates = mode == Some(SearchMode::Duplicates);
+    // Search mode for more than the field holds: Find Duplicates' groups, the People pane's filter.
+    state.search.duplicates = mode == Some(SearchMode::Duplicates) || (mode == Some(SearchMode::Search) && !state.people_pane.selected.is_empty());
     let active = state.search.active();
     if active && !memo.active {
         if state.search.saved_scroll.is_none() {
@@ -207,7 +220,7 @@ pub fn sync(app: &mut App, ctx: &egui::Context) {
     {
         state.scroll = anchor;
     }
-    let memo = Synced { query: Some(query_of(&state.search)), generation, active };
+    let memo = Synced { query: Some(query_of(app)), generation, active };
     ctx.data_mut(|d| d.insert_temp(synced_id(), memo));
     if pending {
         ctx.request_repaint_after(POLL);
@@ -288,7 +301,7 @@ mod tests {
         }
         let long = "x".repeat(MAX_DRAFT);
         assert!(matches!(app.run("search.tag", &json!({ "tag": long })), Err(CmdError::Limit(_))));
-        assert_eq!(app.state().search, SearchState::default(), "nothing changed");
+        assert_eq!(app.state().search, crate::state::SearchState::default(), "nothing changed");
         let v = app.run("search.tag", &json!({ "tag": "beach" })).unwrap();
         assert_eq!((v["text"].as_str(), v["active"].as_bool()), (Some("tag:beach"), Some(true)));
         assert_eq!(app.state().search.text, "tag:beach");

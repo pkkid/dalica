@@ -59,8 +59,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let line = people.unwrap_or_else(|| app.session().map_or_else(|| SEARCHING.to_string(), text));
     let out = widgets::filter_banner(ui, &t, BANNER_ID, SHOW_ALL_ID, &line);
     if out.show_all.clicked() {
+        // Leaves search mode and drops the People pane's selection with it.
         crate::commands::search::clear(app);
-        app.state_mut().people_pane.selected.clear();
     }
 }
 

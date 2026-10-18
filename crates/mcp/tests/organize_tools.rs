@@ -340,7 +340,8 @@ fn people_client(dir: &std::path::Path, allow: bool) -> Client {
 /// carries it (`faces.add`, `faces.list`, `people.list`, through `command_run`, a `cmd_*` tool or a
 /// `command_batch` step, and `photo_info`'s faces) has names `null` and no face rectangles, ids
 /// and counts kept, and a person's section suggests no export folder named after them; with it
-/// they pass.
+/// they pass. A search by a name (`query_photos {query: "person:Ana"}`, or the plain word) finds
+/// her photo only with it.
 #[test]
 fn people_data_is_withheld_without_the_permission() {
     for allow in [false, true] {
@@ -370,6 +371,11 @@ fn people_data_is_withheld_without_the_permission() {
         let defaults = ok(&c.call(9, "cmd_export_defaults", json!({ "section": format!("person:{person}") }))).clone();
         let folder = if allow { json!("Ana") } else { defaults["fallbackName"].clone() };
         assert_eq!(defaults["folderName"], folder, "{defaults}");
+
+        // A search by her name finds her photo only with the permission (no guess-oracle).
+        let hers: Vec<u64> = if allow { vec![1] } else { vec![] };
+        assert_eq!(ids(ok(&c.call(10, "query_photos", json!({ "query": "person:Ana" })))), hers, "person:");
+        assert_eq!(ids(ok(&c.call(11, "query_photos", json!({ "query": "Ana" })))), hers, "a plain word");
         c.close();
     }
 }
