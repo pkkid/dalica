@@ -63,7 +63,7 @@ pub fn label(op: &EditOp) -> &'static str {
         Some("trim") => "Trim",
         Some("sharpen") => "Sharpen",
         Some("sepia") => "Sepia",
-        Some("bw") => "Black and White",
+        Some("bw") => "B&W",
         Some("warmify") => "Warmify",
         Some("grain") => "Film Grain",
         Some("tint") => "Tint",

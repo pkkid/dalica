@@ -4,10 +4,9 @@
 //! Batch Edit ▸ Black and White). A parameter effect opens its panel instead:
 //! `edit.tool.open {tool: "effect", name}` ([`super::effect_session`]).
 //!
-//! **Stubs until M12.15**, which owns this file: both commands check their parameters, the edit
-//! view and that no tool is open, then refuse with "Not available yet."; M12.15 makes the apply one
-//! step of the photo's history ("Undo Sepia") and the tile grid ([`crate::panels::edit::effects`])
-//! calls it.
+//! The apply is one step of the photo's history named after the effect ("Undo Sepia", "Undo B&W"):
+//! the effect's entry at its defaults appended (`photo.history.apply`; on A│A's right side the
+//! variant's, as every edit-view step). The tile grid ([`crate::panels::edit::effects`]) calls it.
 
 use dalica_edit::catalog::OpInfo;
 use dalica_engine::{CmdError, Context};
@@ -19,13 +18,10 @@ use super::{Check, UiCommand, no_params, parse};
 use crate::app::App;
 use crate::state::effect_row;
 
-/// What a stub answers.
-pub const NOT_YET: &str = "Not available yet.";
-
-/// Whether effect `row` applies with one click (a tile without a panel): it has no parameters.
-/// The seam the catalogue's own one-click column (M12.1) replaces.
+/// Whether effect `row` applies with one click (a tile without a panel, with the "1-click"
+/// badge): the catalogue's one-click column (`editing.md` §8.1).
 pub fn one_click(row: &OpInfo) -> bool {
-    row.params.is_empty()
+    row.effect.is_some_and(|e| e.one_click)
 }
 
 pub const COMMANDS: &[UiCommand] = &[
@@ -74,7 +70,9 @@ fn apply(app: &mut App, params: &Value) -> Result<Value, CmdError> {
         return Err(CmdError::BadParams(format!("{} has parameters: open its panel (edit.tool.open {{tool: \"effect\", name}})", row.label)));
     }
     can_apply(app, params).map_err(CmdError::Disabled)?;
-    Err(CmdError::Disabled(NOT_YET.into()))
+    let photo = open_photo(app).ok_or_else(|| CmdError::Disabled(NOT_EDITING.into()))?;
+    let op = row.default_entry().ok_or_else(|| CmdError::Internal(format!("{} has no default entry", row.label)))?;
+    app.run("photo.history.apply", &json!({ "id": photo, "op": op }))
 }
 
 fn bw(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -88,15 +86,21 @@ mod tests {
     use crate::app::tests::session_with_photos;
 
     #[test]
-    fn one_click_effects_are_checked_then_wait_for_their_task() {
+    fn an_effect_is_refused_outside_the_edit_view_with_a_panel_or_a_tool_open() {
         let (_dir, s, ids) = session_with_photos(1);
         let mut app = App::new(Some(s));
         assert!(matches!(app.run("edit.bw", &json!({})), Err(CmdError::Disabled(m)) if m == NOT_EDITING));
         app.run("view.edit", &json!({ "id": ids[0] })).unwrap();
         assert!(matches!(app.run("edit.effect.apply", &json!({ "name": "sharpen" })), Err(CmdError::BadParams(m)) if m.contains("panel")));
         assert!(matches!(app.run("edit.effect.apply", &json!({ "name": "crop" })), Err(CmdError::BadParams(_))));
-        assert!(matches!(app.run("edit.effect.apply", &json!({ "name": "sepia" })), Err(CmdError::Disabled(m)) if m == NOT_YET));
         app.run("edit.tool.open", &json!({ "tool": "crop" })).unwrap();
         assert!(matches!(app.run("edit.bw", &json!({})), Err(CmdError::Disabled(m)) if m.contains("Crop")));
+    }
+
+    #[test]
+    fn the_one_click_column_marks_the_four_badged_effects() {
+        let mut names: Vec<&str> = dalica_edit::catalog::catalog().iter().filter(|op| one_click(op)).map(|op| op.name).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["bw", "invert", "sepia", "warmify"]);
     }
 }

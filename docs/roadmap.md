@@ -7015,7 +7015,7 @@ a maintainer decision mid-run.
     falls on the side its angle names and the far corner is the background colour; two Museum
     Mattes are larger than one; a region at 1:1 equals that window of the whole render; each effect
     renders the same at two sizes after a downscale.
-- ⬜ **M12.15 `ui`: the effect tabs' tile grids and one-click effects**
+- ✅ **M12.15 `ui`: the effect tabs' tile grids and one-click effects**
   - after: M12.2, M12.4, M12.5
   - files: `crates/ui/src/panels/edit/effects.rs`, `crates/ui/src/commands/effects.rs`, `crates/ui/tests/effect_tiles.rs`, `crates/ui/tests/fingerprints/edit-effects-*.json`, `docs/editing.md`
   - scope: `editing.md` §5 and §8.1: tabs 3–5 show their grids (three columns, at most four rows,
