@@ -287,10 +287,11 @@ pub fn details(p: &Photo, date: Option<DateTime>, shown: (u32, u32)) -> Vec<Stri
     out
 }
 
-/// The size photo `p` shows at: its file's displayed size turned by its recipe's rotations and
-/// flips (a landscape turned a quarter is a portrait).
+/// The size photo `p` shows at: its file's displayed size grown by its recipe's frames (Border,
+/// Drop Shadow, …) and turned by its rotations and flips (a landscape turned a quarter is a
+/// portrait); a crop is not counted (`edit::shown_size`).
 pub fn displayed(library: &Library, p: &Photo) -> (u32, u32) {
-    crate::panels::thumbnails::recipe_orientation(&library.info(p.id).edits).display_size(p.width, p.height)
+    dalica_edit::shown_size(&library.info(p.id).edits, p.width, p.height, dalica_edit::Cropping::Ignored)
 }
 
 /// The line for one photo: name, effective date, pixel size as it shows ([`displayed`]), size on

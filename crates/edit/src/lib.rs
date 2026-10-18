@@ -45,7 +45,7 @@ pub mod version;
 pub use frame::{Point, Rect};
 pub use geometry::Dihedral;
 pub use ops::{ParamError, Typed};
-pub use recipe::{MAX_OPERATIONS, Recipe};
+pub use recipe::{Cropping, MAX_OPERATIONS, Recipe, shown_size};
 pub use render::{Geometry, Region, Source, Target, render, render_region};
 pub use syntax::{LISTED, Op, Stage, Turn};
 pub use version::RenderKey;

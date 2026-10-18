@@ -42,7 +42,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Inspect Photos",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId]}: everything known about each photo: the file's fields, its caption, tags, hidden flag, recipe (edits, redo), effective date, displayed size and albums ([{id, name, key}])"#,
+            params: r#"{"ids":[PhotoId]}: everything known about each photo: the file's fields, its caption, tags, hidden flag, recipe (edits, redo), effective date, displayed size (the file's, grown by the recipe's frames and turned by its rotations and flips; a crop not counted) and albums ([{id, name, key}])"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -150,11 +150,11 @@ fn inspect(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 }
 
 /// The size the photo shows at: its file's displayed size (`width × height`, after the EXIF
-/// orientation) turned by what the recipe's rotations and flips add up to. A recipe `edit` cannot
-/// read (more operations than it holds) counts as no turn.
+/// orientation) grown by the recipe's frames (Border, Drop Shadow, …) and turned by what its
+/// rotations and flips add up to; a crop is not counted (`edit::shown_size`). A recipe `edit`
+/// cannot read (more operations than it holds) counts as none.
 pub(crate) fn displayed_size(edits: &[String], width: u32, height: u32) -> (u32, u32) {
-    let turn = dalica_edit::Recipe::parse(edits).map(|r| r.orientation()).unwrap_or(dalica_edit::Dihedral::IDENTITY);
-    turn.display_size(width, height)
+    dalica_edit::shown_size(edits, width, height, dalica_edit::Cropping::Ignored)
 }
 
 #[cfg(test)]
@@ -258,12 +258,16 @@ mod tests {
     }
 
     #[test]
-    fn displayed_size_turns_with_the_recipe() {
+    fn displayed_size_turns_with_the_recipe_and_grows_with_its_frames() {
         let t = |e: &[&str]| super::displayed_size(&e.iter().map(|s| s.to_string()).collect::<Vec<_>>(), 120, 80);
         assert_eq!(t(&[]), (120, 80));
         assert_eq!(t(&["rotate(90)"]), (80, 120));
         assert_eq!(t(&["rotate(90)", "future_op(1)", "flip_h()"]), (80, 120));
         assert_eq!(t(&["rotate(180)"]), (120, 80));
         assert_eq!(t(&["rotate(45)"]), (120, 80), "an operation edit does not know is no turn");
+        // A Border (5 % of the short side, 4 px) grows it, turned by a later rotation; a crop is
+        // not counted, as before frames.
+        assert_eq!(t(&["border(#000000,50,#ffffff,0,0,0)", "rotate(90)"]), (88, 128));
+        assert_eq!(t(&["crop(0.25,0,0.75,1)"]), (120, 80));
     }
 }

@@ -39,7 +39,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Inspect Library",
         menu: "",
         keys: &[],
-        params: r#"{"photos"?:bool|"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search", "section"?:section id, "offset"?:int=0 (at most 1000000000), "limit"?:int=200 (at most 1000)}: the library as the user sees it: {revision, demo, watched, counts, tree, sections, search, view, undo, unsavedEdits, pendingWrites, problems, fileOpRepairs, scan}; with photos (true, or a section id, as section restricts) also photos [{id, section, path, name, star, caption, tags, hidden, rotate, edited, recipe, geo, date, width, height, bytes, video}] in light-table order and page {offset, limit, total}; offset and limit only with photos"#,
+        params: r#"{"photos"?:bool|"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search", "section"?:section id, "offset"?:int=0 (at most 1000000000), "limit"?:int=200 (at most 1000)}: the library as the user sees it: {revision, demo, watched, counts, tree, sections, search, view, undo, unsavedEdits, pendingWrites, problems, fileOpRepairs, scan}; with photos (true, or a section id, as section restricts) also photos [{id, section, path, name, star, caption, tags, hidden, rotate, edited, recipe, geo, date, width, height, displayed, bytes, video}] in light-table order (width × height the file's; displayed {width, height} the size it shows at, as photo.inspect's: grown by the recipe's frames and turned, a crop not counted) and page {offset, limit, total}; offset and limit only with photos"#,
         effect: Effect::Query,
         history: History::None,
         enabled: always,
@@ -388,19 +388,22 @@ fn problems(s: &Session) -> Vec<Value> {
 }
 
 /// One photo of a page: `{id, section, path, name, star, caption, tags, hidden, rotate, edited,
-/// recipe, geo, date, width, height, bytes, video}`. `rotate` is the recipe's clockwise turn in
-/// degrees, `edited` whether it has unsaved edits, `recipe` its operations, `geo` whether its file
-/// holds a location, `date` its effective date (the user's, else the file's).
+/// recipe, geo, date, width, height, displayed, bytes, video}`. `rotate` is the recipe's clockwise
+/// turn in degrees, `edited` whether it has unsaved edits, `recipe` its operations, `geo` whether
+/// its file holds a location, `date` its effective date (the user's, else the file's), `width` and
+/// `height` the file's size and `displayed` the size it shows at (`photo.inspect`'s).
 fn photo(lib: &Library, section: &Section, id: PhotoId) -> Option<Value> {
     let p = lib.photo(id)?;
     let folder = lib.folder(p.folder)?;
     let info = lib.info(id);
     let facts = lib.facts(id);
     let turn = dalica_edit::Recipe::parse(&info.edits).map(|r| r.orientation()).unwrap_or(dalica_edit::Dihedral::IDENTITY);
+    let (dw, dh) = crate::cmd::photo::displayed_size(&info.edits, p.width, p.height);
     Some(json!({
         "id": id, "section": section.to_string(), "path": folder.path.join(&p.name), "name": p.name, "star": p.star,
         "caption": info.caption, "tags": info.tags, "hidden": info.hidden || lib.is_folder_hidden(p.folder),
         "rotate": u16::from(turn.quarters()).saturating_mul(90), "edited": lib.has_unsaved_edits(id), "recipe": info.edits,
-        "geo": facts.geotagged, "date": lib.effective_date(id), "width": p.width, "height": p.height, "bytes": p.size, "video": facts.video,
+        "geo": facts.geotagged, "date": lib.effective_date(id), "width": p.width, "height": p.height,
+        "displayed": { "width": dw, "height": dh }, "bytes": p.size, "video": facts.video,
     }))
 }

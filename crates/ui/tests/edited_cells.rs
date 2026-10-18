@@ -216,3 +216,24 @@ fn a_newly_cropped_cell_draws_its_old_texture_at_its_own_shape() {
     assert_eq!((after.drawn, after.stale), (Drawn::Image, false), "the cropped texture");
     assert!((after.rect.min - cropped.min).length() < 0.01 && (after.rect.max - cropped.max).length() < 0.01, "{after:?} fills {cropped:?}");
 }
+
+/// A frame grows the cell's shape (M12.27): a Border whose bands are 10 % of the short side and
+/// whose caption is 20 % of it makes the 600 × 400 photo 680 × 560, so its cell turns from 3:2 to
+/// 1.21:1, filled by the framed thumbnail, whose edge is the frame's colour.
+#[test]
+fn a_framed_cell_takes_the_grown_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = new_driver(App::new(Some(library(dir.path()))), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let id = first_photo(&d);
+    let aspect = |r: egui::Rect| r.width() / r.height();
+    assert!((aspect(painted(&d, id).rect) - 1.5).abs() < 0.01);
+    session(&mut d).execute("photo.history.apply", &json!({ "id": id, "op": "border(#ff00ff,100,#ff00ff,0,0,200)" })).unwrap();
+    d.settle(FRAMES).unwrap();
+    let after = painted(&d, id);
+    assert_eq!((after.drawn, after.stale), (Drawn::Image, false), "the framed texture");
+    assert!((aspect(after.rect) - 680.0 / 560.0).abs() < 0.01, "the grown shape: {after:?}");
+    let shot = d.screenshot().unwrap();
+    let px = shot.pixel(after.rect.center().x.round() as u32, (after.rect.top() + 2.0).round() as u32).unwrap();
+    assert!(px[0] > 200 && px[1] < 60 && px[2] > 200, "the frame's top band: {px:?}");
+}

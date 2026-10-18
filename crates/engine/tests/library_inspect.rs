@@ -79,8 +79,19 @@ fn every_key_is_there_and_the_counts_match_the_library() {
     assert_eq!(v["unsavedEdits"], json!({ "photos": 1, "sections": ["folder:1"] }));
     let three = v["photos"].as_array().unwrap().iter().find(|p| p["id"] == 3).unwrap();
     assert_eq!((&three["rotate"], &three["edited"], three["recipe"].as_array().map(Vec::len)), (&json!(90), &json!(true), Some(1)), "{three}");
+    assert_eq!(three["displayed"], json!({ "width": three["height"], "height": three["width"] }), "turned: {three}");
     assert_eq!(v["sections"].as_array().unwrap().iter().find(|x| x["section"] == "folder:1").unwrap()["edited"], 1);
     assert_eq!((s.library().revision(), s.undo_stack().len()), (rev, undo));
+
+    // A Border (5 % of the short side on every side) grows the size the photo shows at, turned by
+    // the rotation after it; `width` and `height` stay the file's.
+    s.execute("photo.history.apply", &json!({ "id": 3, "op": "border(#000000,50,#ffffff,0,0,0)" })).unwrap();
+    let v = inspect(&mut s, json!({ "section": "folder:1" }));
+    let three = v["photos"].as_array().unwrap().iter().find(|p| p["id"] == 3).unwrap();
+    let (w, h) = (three["width"].as_u64().unwrap(), three["height"].as_u64().unwrap());
+    let band = (w.min(h) as f64 * 0.05).round() as u64;
+    assert_eq!(three["displayed"], json!({ "width": h + 2 * band, "height": w + 2 * band }), "{three}");
+    assert_eq!(three["displayed"], s.execute("photo.inspect", &json!({ "ids": [3] })).unwrap()[0]["displayed"], "photo.inspect's");
 }
 
 #[test]
@@ -95,8 +106,24 @@ fn paging_and_a_section_restrict_the_photos() {
     assert_eq!((every[0], &all["photos"][0]["section"]), (7, &json!("album:starred")), "light-table order: the albums first");
     let first = &all["photos"][1];
     for key in [
-        "id", "section", "path", "name", "star", "caption", "tags", "hidden", "rotate", "edited", "recipe", "geo", "date", "width", "height",
-        "bytes", "video",
+        "id",
+        "section",
+        "path",
+        "name",
+        "star",
+        "caption",
+        "tags",
+        "hidden",
+        "rotate",
+        "edited",
+        "recipe",
+        "geo",
+        "date",
+        "width",
+        "height",
+        "displayed",
+        "bytes",
+        "video",
     ] {
         assert!(first.get(key).is_some(), "{key} in {first}");
     }

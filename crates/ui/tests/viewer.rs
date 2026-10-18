@@ -219,3 +219,38 @@ fn while_another_dalica_holds_the_library_the_changes_are_greyed() {
     assert!(matches!(d.run("viewer.toggleStar", &json!({})), Err(e) if e.to_string().contains(dalica_engine::viewer::ALREADY_OPEN)));
     assert!(widget(&d, "button:viewer.zoomIn").enabled, "viewing still works");
 }
+
+/// A frame shows in both strips (M12.27): with C.jpg in the library under a Border (bands 10 % of
+/// the short side, caption 20 %: 1200 × 800 shows at 1360 × 1120), the viewer's strip cell and the
+/// edit view's filmstrip cell are each the centre square of the framed picture, so their top and
+/// bottom rows are the frame's colour. Both cut the square from the thumbnail's own pixels, which
+/// the renderer grows by the frame (a size read from the recipe would stretch a thumbnail still
+/// showing earlier edits).
+#[test]
+fn a_framed_photo_shows_its_frame_in_the_viewer_strip_and_the_filmstrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, folder) = fixture(dir.path());
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let id = s.library().photos().find(|p| p.name == "C.jpg").unwrap().id;
+    s.execute("photo.history.apply", &json!({ "id": id, "op": "border(#ff00ff,100,#ff00ff,0,0,200)" })).unwrap();
+    s.open_viewer(&folder.join("C.jpg")).unwrap();
+    let mut d = new_driver(App::new(Some(s)), LARGE.0, LARGE.1, 1.0);
+    settle_with_thumbnails(&mut d);
+    assert_eq!(current_cell(&d), strip::film_id(2));
+    let framed = |d: &Driver, cell: &str| {
+        let [x, y, w, h] = widget(d, cell).rect;
+        let shot = d.screenshot().unwrap();
+        let magenta = |y: f32| {
+            let [r, g, b, _] = shot.pixel((x + w / 2.0) as u32, y as u32).unwrap();
+            r > 200 && g < 60 && b > 200
+        };
+        assert!(magenta(y) && magenta(y + h - 1.0), "{cell}: the frame's bands at the top and bottom of the square");
+        assert!(!magenta(y + h / 2.0), "{cell}: the photo in the middle");
+    };
+    framed(&d, &strip::film_id(2));
+    d.key("E").unwrap();
+    settle_with_thumbnails(&mut d);
+    assert_eq!((d.state().view, d.state().edit.photo), (View::Edit, Some(id)));
+    framed(&d, &format!("film:{id}"));
+}

@@ -194,17 +194,20 @@ pub enum Reach {
 /// What an [`Adjust`] operation is prepared with, once per render.
 #[derive(Clone, Copy, Debug)]
 pub struct Prepare<'a> {
-    /// The whole output's size before the recipe's rotations and flips (the stored frame, after
-    /// crop and straighten), in output pixels; a region render prepares for the whole output.
+    /// The size of the whole canvas at this operation's place, before the recipe's rotations and
+    /// flips, in output pixels: the stored frame after crop and straighten, grown or cut by every
+    /// frame standing before the operation ([`crate::render::Reframe`]: Border, Drop Shadow, …)
+    /// and by none after it. A region render prepares for the whole canvas.
     pub width: u32,
     pub height: u32,
-    /// Output pixels per stored-frame pixel of the source.
+    /// Output pixels per stored-frame pixel of the source (the frames keep it: their bands are
+    /// laid out at this scale).
     pub scale: f64,
     /// The picture at this operation's place in the pipeline at the fixed analysis size
     /// ([`crate::analysis::PROXY_EDGE`]), when the operation asks for it ([`Adjust::ANALYSES`]).
     pub proxy: Option<&'a dalica_image::Rgba8>,
-    /// The geometric stage, to map stored-frame points (retouch strokes, effect centres) into the
-    /// output.
+    /// The geometric stage with the frames before this operation only, to map stored-frame
+    /// points (retouch strokes, effect centres) onto this canvas where the photo lies on it.
     pub geometry: &'a Geometry,
 }
 
