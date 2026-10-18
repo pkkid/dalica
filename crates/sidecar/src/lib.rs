@@ -17,6 +17,10 @@
 //! ([`albums`]), parsed and printed the same way. Ids, keys and names that cannot be used are kept
 //! verbatim and reported, never used.
 //!
+//! M13 adds a photo's `faces` and `geo` and the folder's `people` ([`fields`]): coordinates kept to
+//! six decimals, a face or person that cannot be used kept verbatim and left out, the keys of a
+//! face Dalica does not know kept with it.
+//!
 //! Printing is deterministic: keys sorted by their bytes at every level, two-space indentation,
 //! LF line endings, a final newline.
 
@@ -31,7 +35,10 @@ mod print;
 use serde_json::{Map, Value};
 
 pub use albums::AlbumsFile;
-pub use fields::{AlbumNames, FolderFields, FolderValue, PhotoAlbums, PhotoFields, PhotoValue, SavedAs, parse_utc, utc_text};
+pub use fields::{
+    AlbumNames, Face, FacePerson, FaceRect, FolderFields, FolderPeople, FolderValue, Geo, PersonName, PhotoAlbums, PhotoFaces, PhotoFields,
+    PhotoValue, SavedAs, parse_utc, utc_text,
+};
 pub use originals::Originals;
 
 /// The sidecar's file name.

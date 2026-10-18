@@ -17,6 +17,15 @@
 //! (`"2026-10-15T09:41:07.250Z"`, milliseconds always written; [`M10_PHOTO_KEYS`], [`utc_text`],
 //! [`parse_utc`]), so Recently Updated survives a rebuild.
 //!
+//! M13 adds a photo's `faces` (a list of `{"rect": [x0, y0, x1, y1], "person": …}`, the person a
+//! person id, `"ignored"`, or no key for an unnamed face) and `geo` (`[lat, lon]`), and the
+//! top-level `people` (person id → `{"name", "nickname"?}`, the people present in the folder)
+//! ([`M13_PHOTO_KEYS`], [`M13_TOP_KEYS`]). Coordinates are kept to six decimals ([`FaceRect`],
+//! [`Geo`]). A face that cannot be used (a rectangle outside the photo, inverted or not finite, a
+//! person that is not a person id) and the faces past [`MAX_FACES`] are kept verbatim and left
+//! out ([`PhotoFaces::bad`], [`PhotoFaces::over`]); so are the keys of a face Dalica does not know.
+//! A `geo` that is not a place on the globe is a value of the wrong type.
+//!
 //! Reading never fails: each key is [`Field::Absent`], a value of the right type, or
 //! [`Field::WrongType`] holding what is there (kept, reported by [`Sidecar::problems`]). A date
 //! that does not parse counts as a value of the wrong type. Writing sets one key or clears it:
@@ -26,7 +35,7 @@
 
 use std::collections::BTreeMap;
 
-use dalica_core::{AlbumId, Date, DateTime, PosKey, Timestamp};
+use dalica_core::{AlbumId, Date, DateTime, PersonId, PosKey, Timestamp};
 use serde_json::{Map, Value};
 
 use crate::{Field, Problem, Sidecar, WrongType, escape};
@@ -57,6 +66,20 @@ pub const ALBUMS: &str = "albums";
 pub const M10_PHOTO_KEYS: [&str; 1] = [CHANGED];
 /// A photo's last-changed time (`photos.<name>.changed`), a UTC time with milliseconds.
 pub const CHANGED: &str = "changed";
+/// The photo keys M13 adds: the photo's faces and its geotag.
+pub const M13_PHOTO_KEYS: [&str; 2] = [FACES, GEO];
+/// The top-level keys M13 adds: the people present in the folder.
+pub const M13_TOP_KEYS: [&str; 1] = [PEOPLE];
+/// A photo's faces (`photos.<name>.faces`), a list of `{"rect", "person"?}`.
+pub const FACES: &str = "faces";
+/// A photo's geotag (`photos.<name>.geo`), `[lat, lon]` in degrees.
+pub const GEO: &str = "geo";
+/// The folder's people (top level), person id → `{"name", "nickname"?}`.
+pub const PEOPLE: &str = "people";
+/// The person of an ignored face.
+pub const IGNORED: &str = "ignored";
+/// The most faces a photo has: later usable entries are kept in the file and left out.
+pub const MAX_FACES: usize = 256;
 /// A folder's photo sort, in `"folder"` (`manual | name | date | size | modified`).
 pub const SORT: &str = "sort";
 /// Whether a folder's photo sort is reversed, in `"folder"`.
@@ -87,6 +110,147 @@ pub struct AlbumNames {
 pub struct SavedAs {
     pub name: String,
     pub recipe: Vec<String>,
+}
+
+/// `v` kept to six decimals (`data-model.md` §3), `-0` as `0`: the nearest double to a decimal of
+/// at most six places, so it prints as that decimal and reads back exactly.
+fn six_decimals(v: f64) -> f64 {
+    (v * 1e6).round() / 1e6 + 0.0
+}
+
+/// A face's rectangle, normalised in the stored frame (`data-model.md` §3.3): `[x0, y0, x1, y1]`,
+/// finite, inside `0..=1`, corners in order (`x0 ≤ x1`, `y0 ≤ y1`), six decimals.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FaceRect([f64; 4]);
+
+impl FaceRect {
+    /// The rectangle with its corners kept to six decimals, or `None` when it is not finite, not
+    /// inside the photo or inverted.
+    pub fn new(x0: f64, y0: f64, x1: f64, y1: f64) -> Option<FaceRect> {
+        let r = [x0, y0, x1, y1].map(six_decimals);
+        let inside = r.iter().all(|v| (0.0..=1.0).contains(v));
+        (inside && r[0] <= r[2] && r[1] <= r[3]).then_some(FaceRect(r))
+    }
+
+    /// `[x0, y0, x1, y1]`.
+    pub fn corners(&self) -> [f64; 4] {
+        self.0
+    }
+
+    fn to_json(self) -> Value {
+        Value::Array(self.0.iter().map(|v| Value::from(*v)).collect())
+    }
+
+    fn from_json(v: &Value) -> Option<FaceRect> {
+        match v.as_array()?.as_slice() {
+            [x0, y0, x1, y1] => FaceRect::new(x0.as_f64()?, y0.as_f64()?, x1.as_f64()?, y1.as_f64()?),
+            _ => None,
+        }
+    }
+}
+
+/// Whose face it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FacePerson {
+    /// Not named yet (no `person` key): shown under Unnamed.
+    Unnamed,
+    /// `"person": "ignored"`: never shown, never found again.
+    Ignored,
+    /// `"person": "<person id>"`.
+    Named(PersonId),
+}
+
+/// One face of a photo.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Face {
+    pub rect: FaceRect,
+    pub person: FacePerson,
+}
+
+impl Face {
+    /// A usable face entry: an object with a usable `rect` and, if present, a `person` that is a
+    /// person id or `"ignored"`.
+    fn from_json(v: &Value) -> Option<Face> {
+        let o = v.as_object()?;
+        let rect = FaceRect::from_json(o.get("rect")?)?;
+        let person = match o.get("person") {
+            None => FacePerson::Unnamed,
+            Some(Value::String(s)) if s == IGNORED => FacePerson::Ignored,
+            Some(Value::String(s)) => FacePerson::Named(PersonId::parse(s).ok()?),
+            Some(_) => return None,
+        };
+        Some(Face { rect, person })
+    }
+
+    /// Writes this face into `object` (an entry already there, whose other keys are kept).
+    fn write_into(&self, mut object: Map<String, Value>) -> Value {
+        object.insert("rect".into(), self.rect.to_json());
+        match &self.person {
+            FacePerson::Unnamed => object.remove("person"),
+            FacePerson::Ignored => object.insert("person".into(), Value::String(IGNORED.into())),
+            FacePerson::Named(id) => object.insert("person".into(), Value::String(id.as_str().into())),
+        };
+        Value::Object(object)
+    }
+}
+
+/// What a photo's `faces` list says: the usable faces in file order (at most [`MAX_FACES`]), the
+/// positions of the entries kept but not used, and how many usable ones were past the cap.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PhotoFaces {
+    pub faces: Vec<Face>,
+    /// The positions (in the list) of the entries that are not usable faces.
+    pub bad: Vec<usize>,
+    /// Usable faces after the first [`MAX_FACES`]: kept in the file, left out.
+    pub over: usize,
+}
+
+/// A geotag: latitude in `-90..=90` and longitude in `-180..=180` degrees, finite, six decimals.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Geo {
+    lat: f64,
+    lon: f64,
+}
+
+impl Geo {
+    /// The place kept to six decimals, or `None` when it is not finite or not on the globe.
+    pub fn new(lat: f64, lon: f64) -> Option<Geo> {
+        let (lat, lon) = (six_decimals(lat), six_decimals(lon));
+        ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)).then_some(Geo { lat, lon })
+    }
+
+    pub fn lat(&self) -> f64 {
+        self.lat
+    }
+
+    pub fn lon(&self) -> f64 {
+        self.lon
+    }
+
+    fn from_json(v: &Value) -> Option<Geo> {
+        match v.as_array()?.as_slice() {
+            [lat, lon] => Geo::new(lat.as_f64()?, lon.as_f64()?),
+            _ => None,
+        }
+    }
+}
+
+/// A person as the folder's `people` names them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PersonName {
+    pub name: String,
+    /// `None` when absent or empty.
+    pub nickname: Option<String>,
+}
+
+/// What the top-level `people` object says: each usable person, and the ids of the entries kept
+/// but not used (an id that is not a person id, no non-empty string `name`, or a `nickname` that
+/// is not a string).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FolderPeople {
+    pub people: BTreeMap<PersonId, PersonName>,
+    /// The keys of the entries left out, in file order.
+    pub bad: Vec<String>,
 }
 
 /// What a photo's entry says, key by key.
@@ -295,6 +459,8 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         SAVED_AS => matches!(read_saved_as(Some(v)), Field::Value(_)),
         ALBUMS => v.is_object(),
         CHANGED => v.as_str().and_then(parse_utc).is_some(),
+        FACES => v.is_array(),
+        GEO => Geo::from_json(v).is_some(),
         _ => true,
     };
     (!ok).then_some(match key {
@@ -304,6 +470,8 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         SAVED_AS => "an object with a file name (\"name\") and a list of strings (\"recipe\")",
         ALBUMS => "an object from album id to position key",
         CHANGED => "a UTC time (2026-10-15T09:41:07.250Z)",
+        FACES => "a list of faces ({\"rect\": [x0, y0, x1, y1], \"person\": …})",
+        GEO => "a place ([latitude, longitude] in degrees)",
         _ => "a list of strings",
     })
 }
@@ -450,7 +618,7 @@ impl Sidecar {
                     let at = format!("/photos/{}", escape(name));
                     match entry {
                         Value::Object(e) => {
-                            for key in PHOTO_KEYS.iter().chain(&M8_PHOTO_KEYS).chain(&M9_PHOTO_KEYS).chain(&M10_PHOTO_KEYS) {
+                            for key in PHOTO_KEYS.iter().chain(&M8_PHOTO_KEYS).chain(&M9_PHOTO_KEYS).chain(&M10_PHOTO_KEYS).chain(&M13_PHOTO_KEYS) {
                                 if let Some(expected) = e.get(*key).and_then(|v| photo_problem(key, v)) {
                                     out.push(Problem { pointer: format!("{at}/{key}"), expected });
                                 }
@@ -466,6 +634,10 @@ impl Sidecar {
             None => {}
             Some(Value::Object(_)) => {}
             Some(_) => out.push(Problem { pointer: format!("/{ALBUMS}"), expected: "an object from album id to {\"name\": …}" }),
+        }
+        match self.root.get(PEOPLE) {
+            None | Some(Value::Object(_)) => {}
+            Some(_) => out.push(Problem { pointer: format!("/{PEOPLE}"), expected: "an object from person id to {\"name\": …}" }),
         }
     }
 
@@ -677,6 +849,192 @@ impl Sidecar {
     pub fn set_folder_reverse(&mut self, on: bool) -> Result<(), WrongType> {
         self.set_folder_key(REVERSE, flag(on))
     }
+
+    /// Photo `name`'s `faces`: absent, its faces (with the entries left out), or a value that is
+    /// not a list (kept, not used).
+    pub fn photo_faces(&self, name: &str) -> Field<PhotoFaces> {
+        match self.photo_entry(name).and_then(|e| e.get(FACES)) {
+            None => Field::Absent,
+            Some(Value::Array(list)) => {
+                let mut out = PhotoFaces::default();
+                for (i, v) in list.iter().enumerate() {
+                    match Face::from_json(v) {
+                        Some(_) if out.faces.len() >= MAX_FACES => out.over += 1,
+                        Some(face) => out.faces.push(face),
+                        None => out.bad.push(i),
+                    }
+                }
+                Field::Value(out)
+            }
+            Some(other) => Field::WrongType(other.clone()),
+        }
+    }
+
+    /// Makes photo `name`'s usable faces exactly `faces`, in that order. Each face is written into
+    /// the entry it came from, so the keys of a face Dalica does not know stay with it: an entry
+    /// with the same rectangle first, then (a face moved, or every face mapped by a Save) the
+    /// entries left in their order. The entries left out by reading (not usable, or past
+    /// [`MAX_FACES`]) are kept verbatim after them. The key goes when nothing is left in it, and the
+    /// photo's entry when nothing is left in that; clearing never creates anything. A value of the
+    /// wrong type is written over only by faces. Refused if `photos` or the entry is not an object.
+    pub fn set_photo_faces(&mut self, name: &str, faces: &[Face]) -> Result<(), WrongType> {
+        let Some((entry, had)) = self.entry_for(name, faces.is_empty())? else { return Ok(()) };
+        let old = match entry.remove(FACES) {
+            Some(Value::Array(list)) => list,
+            Some(other) if faces.is_empty() => {
+                entry.insert(FACES.into(), other);
+                return Ok(());
+            }
+            _ => Vec::new(),
+        };
+        // The usable entries Dalica read (with their rectangles) and the ones it keeps as they are.
+        let mut usable: Vec<Option<(FaceRect, Map<String, Value>)>> = Vec::new();
+        let mut kept = Vec::new();
+        for v in old {
+            match (Face::from_json(&v), v) {
+                (Some(face), Value::Object(o)) if usable.len() < MAX_FACES => usable.push(Some((face.rect, o))),
+                (_, v) => kept.push(v),
+            }
+        }
+        let mut objects: Vec<Option<Map<String, Value>>> = faces
+            .iter()
+            .map(|f| usable.iter_mut().find(|u| u.as_ref().is_some_and(|(r, _)| *r == f.rect)).and_then(Option::take).map(|(_, o)| o))
+            .collect();
+        let mut left = usable.into_iter().flatten();
+        for slot in objects.iter_mut().filter(|o| o.is_none()) {
+            *slot = left.next().map(|(_, o)| o);
+        }
+        let mut list: Vec<Value> = faces.iter().zip(objects).map(|(f, o)| f.write_into(o.unwrap_or_default())).collect();
+        list.extend(kept);
+        if !list.is_empty() {
+            entry.insert(FACES.into(), Value::Array(list));
+        }
+        if had && entry.is_empty() {
+            self.remove_photo_entry(name);
+        }
+        Ok(())
+    }
+
+    /// Photo `name`'s `geo`: absent, its place, or a value that is not a place on the globe (kept,
+    /// not used).
+    pub fn geo(&self, name: &str) -> Field<Geo> {
+        match self.photo_entry(name).and_then(|e| e.get(GEO)) {
+            None => Field::Absent,
+            Some(v) => Geo::from_json(v).map_or_else(|| Field::WrongType(v.clone()), Field::Value),
+        }
+    }
+
+    /// Sets or clears photo `name`'s `geo` (`[lat, lon]`, six decimals), the way
+    /// [`Sidecar::set_photo`] sets a key: setting writes over whatever is there, clearing removes
+    /// the key and the entry left empty. Refused if `photos` or the entry is not an object.
+    pub fn set_geo(&mut self, name: &str, geo: Option<Geo>) -> Result<(), WrongType> {
+        let Some((entry, had)) = self.entry_for(name, geo.is_none())? else { return Ok(()) };
+        match geo {
+            Some(g) => {
+                entry.insert(GEO.into(), Value::Array(vec![Value::from(g.lat), Value::from(g.lon)]));
+            }
+            None => {
+                entry.remove(GEO);
+            }
+        }
+        if had && entry.is_empty() {
+            self.remove_photo_entry(name);
+        }
+        Ok(())
+    }
+
+    /// The folder's people (the top-level `people`): absent, the usable ones (with the entries
+    /// left out), or a value that is not an object (kept, not used).
+    pub fn people(&self) -> Field<FolderPeople> {
+        match self.root.get(PEOPLE) {
+            None => Field::Absent,
+            Some(Value::Object(m)) => {
+                let mut out = FolderPeople::default();
+                for (id, v) in m {
+                    match person_name(id, v) {
+                        Some((person, name)) => {
+                            out.people.insert(person, name);
+                        }
+                        None => out.bad.push(id.clone()),
+                    }
+                }
+                Field::Value(out)
+            }
+            Some(other) => Field::WrongType(other.clone()),
+        }
+    }
+
+    /// Makes the folder's usable people exactly `people`, as [`Sidecar::set_album_names`] does for
+    /// albums: usable entries not in it go, each person gets `name` (and `nickname`, or none) set
+    /// in the object already there (other keys kept) or a new one, and the entries left out by
+    /// reading are kept verbatim (one with the id of a person in `people` is replaced). The key
+    /// goes when nothing is left in it. A value of the wrong type is written over only by people.
+    pub fn set_people(&mut self, people: &BTreeMap<PersonId, PersonName>) {
+        let mut object = match self.root.remove(PEOPLE) {
+            Some(Value::Object(m)) => m,
+            Some(other) if people.is_empty() => {
+                self.root.insert(PEOPLE.into(), other);
+                return;
+            }
+            _ => Map::new(),
+        };
+        object.retain(|id, v| match PersonId::parse(id) {
+            Ok(p) if people.contains_key(&p) => v.is_object(),
+            Ok(_) => person_name(id, v).is_none(),
+            Err(_) => true,
+        });
+        for (person, name) in people {
+            let slot = object.entry(person.as_str()).or_insert_with(|| Value::Object(Map::new()));
+            if let Value::Object(o) = slot {
+                o.insert("name".into(), Value::String(name.name.clone()));
+                put(o, "nickname", name.nickname.as_deref().and_then(text));
+            }
+        }
+        if !object.is_empty() {
+            self.root.insert(PEOPLE.into(), Value::Object(object));
+        }
+    }
+
+    /// Photo `name`'s entry to write into, and whether it was there before: `None` when there is
+    /// nothing to clear (`clearing`, no entry). Refused if `photos` or the entry is not an object.
+    fn entry_for(&mut self, name: &str, clearing: bool) -> Result<Option<EntryToWrite<'_>>, WrongType> {
+        if clearing && !self.root.contains_key("photos") {
+            return Ok(None);
+        }
+        let photos = self.root.entry("photos").or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(photos) = photos else { return Err(WrongType { pointer: "/photos".into() }) };
+        let had = photos.contains_key(name);
+        if !had && clearing {
+            return Ok(None);
+        }
+        match photos.entry(name).or_insert_with(|| Value::Object(Map::new())) {
+            Value::Object(entry) => Ok(Some((entry, had))),
+            _ => Err(WrongType { pointer: format!("/photos/{}", escape(name)) }),
+        }
+    }
+
+    /// Removes photo `name`'s entry (left empty by a write).
+    fn remove_photo_entry(&mut self, name: &str) {
+        if let Some(Value::Object(photos)) = self.root.get_mut("photos") {
+            photos.remove(name);
+        }
+    }
+}
+
+/// A photo's entry to write into, and whether it was there before the write.
+type EntryToWrite<'a> = (&'a mut Map<String, Value>, bool);
+
+/// A usable person entry: a person id with an object holding a non-empty string `name` and, if
+/// present, a string `nickname` (empty reads as none).
+fn person_name(id: &str, v: &Value) -> Option<(PersonId, PersonName)> {
+    let o = v.as_object()?;
+    let name = o.get("name")?.as_str().filter(|n| !n.is_empty())?;
+    let nickname = match o.get("nickname") {
+        None => None,
+        Some(Value::String(n)) => Some(n.clone()).filter(|n| !n.is_empty()),
+        Some(_) => return None,
+    };
+    Some((PersonId::parse(id).ok()?, PersonName { name: name.to_string(), nickname }))
 }
 
 /// A usable membership: an album id with a position key.
