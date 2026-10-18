@@ -21,17 +21,18 @@
 //!   stored frame through [`Space`], so the circle and the gradient land on the same content after
 //!   a crop, a straighten, the EXIF orientation and the recipe's rotations and flips, and every
 //!   length is relative to the stored photo's shorter side (the same at every render size).
-//!   - Soft Focus: a [`Gaussian`] of `Amount × SOFT_SIGMA` of the shorter side, mixed in by the
+//!   - Soft Focus: a Gaussian of `Amount × SOFT_SIGMA` of the shorter side, mixed in by the
 //!     outside of a [`Circle`] that is sharp out to Size and fully blurred at `Size × (1 +
-//!     SOFT_EDGE)`. One [`Reach::Pixels`] pass: each band blurs its own rows with the blur's reach
-//!     around them (a plane cut with that margin blurs exactly as the whole picture), so a band
-//!     never waits on another (the shared [`crate::fx::Blurred`] would make every band wait on the
-//!     first one's blur, which runs on rayon inside a rayon band) and a region render equals that
-//!     window of the whole render. A blur wider than `CELL_SIGMA` pixels runs on a grid of cell
-//!     averages (a cell about a third of its sigma, at most `MAX_CELL` pixels) read back
-//!     bilinearly, with the variance the averaging and the reading add taken off; one under the
-//!     smallest box blur (`MIN_SIGMA`) is that blur mixed in by the share of its variance, so every
-//!     render size blurs alike. Amount 0 changes nothing.
+//!     SOFT_EDGE)`. One [`Reach::Pixels`] pass on M13.34's [`GridBlur`] (M13.37): a grid of cell
+//!     means (a cell about a third of the sigma; the pixels themselves under three pixels of
+//!     sigma) blurred once per render by the first band that needs it, over the whole window the
+//!     render holds, with the variance the averaging and the bilinear read add taken off, and one
+//!     under the smallest box blur mixed in by the share of its variance, so every render size
+//!     blurs alike; a region render equals that window of the whole render. Each row solves the
+//!     circle once (its squared distance is a quadratic along the row): the sharp core is left
+//!     as it is without reading the blur, the edge is weighed pixel by pixel, and the rest takes
+//!     the blur in full on flat runs, the grid's two rows blended once per pixel row and each
+//!     column's taps once per band. Amount 0 changes nothing.
 //!   - Focal B&W: colour inside the circle of Size, the Rec.601 grey ([`crate::fx::luma`]) outside;
 //!     the edge fades over `(1 − Sharpness) × Size` (one output pixel at Sharpness 1). Pixel-only.
 //!   - Graduated Tint: a [`Gradient`] from the start along the angle over Feather (at least one
@@ -44,7 +45,7 @@ use std::fmt;
 
 use super::{Adjust, Band, DEGREES, Operation, ParamError, Pass, Prepare, Reach, Reader, UNIT, clamp, clamp_point, hex, num, num_point};
 use crate::frame::Point;
-use crate::fx::{Circle, Gaussian, Gradient, Plane, Space, luma, mix, smoothstep};
+use crate::fx::{Circle, Gradient, GridBlur, Plane, Space, Window, luma, mix, smoothstep};
 
 /// The range of a focal circle's Size: its radius as a fraction of the shorter side.
 pub const SIZE: (f64, f64) = UNIT;
@@ -61,13 +62,6 @@ pub const SHADE: (f64, f64) = UNIT;
 
 /// Soft Focus's blur at Amount 1: its sigma as a fraction of the stored photo's shorter side.
 pub const SOFT_SIGMA: f64 = 0.015;
-/// The smallest blur three whole-pixel boxes make (radii 0, 0, 1: σ ≈ 0.82 px); a smaller one is
-/// this blur mixed in by the share of its variance.
-const MIN_SIGMA: f64 = 0.82;
-/// A wide Soft Focus blur runs on a grid of cells about this many times smaller than its sigma.
-const CELL_SIGMA: f64 = 3.0;
-/// The largest grid cell, in output pixels.
-const MAX_CELL: u32 = 32;
 /// Soft Focus's edge: from sharp at Size to fully blurred at `Size × (1 + SOFT_EDGE)`.
 pub const SOFT_EDGE: f64 = 0.5;
 /// How much of Graduated Tint's colour is multiplied in at Shade 0 (all of it at Shade 1).
@@ -218,118 +212,238 @@ impl Adjust for SoftFocus {
             return None;
         }
         let space = Space::new(ctx)?;
-        let sigma = space.length(s.amount * SOFT_SIGMA);
-        // A wide blur runs on a grid of `cell × cell` pixel averages and is read back bilinearly:
-        // the averaging and the reading add about cell²/4 to its variance, taken off the grid's.
-        let cell = (sigma / CELL_SIGMA).floor().clamp(1.0, f64::from(MAX_CELL));
-        let on_grid = (sigma * sigma - if cell > 1.0 { cell * cell / 4.0 } else { 0.0 }).max(0.0).sqrt() / cell;
-        let (w, h) = space.size();
-        let grid = (w.div_ceil(cell as u32), h.div_ceil(cell as u32));
-        // Whole-pixel boxes blur no less than about 0.8 px: a smaller blur is that one mixed in by
-        // the share of its variance, so a small render blurs as much as a large one scaled down.
-        let gaussian = Gaussian::new(on_grid.max(MIN_SIGMA), grid);
-        let strength = (on_grid / gaussian.sigma().max(1e-9)).powi(2).min(1.0) as f32;
-        if gaussian.is_identity() || strength < 1e-4 {
-            return None;
-        }
+        let blur = GridBlur::new(space.length(s.amount * SOFT_SIGMA), space.size())?;
         let circle = focal_circle(&space, s.centre, s.size, s.size * SOFT_EDGE);
-        Some(Box::new(SoftFocusPass { gaussian, cell: cell as u32, strength, circle }))
+        let rows = Rows::new(space, s.centre, s.size, s.size * SOFT_EDGE);
+        Some(Box::new(SoftFocusPass { blur, circle, rows }))
     }
 }
 
-/// Soft Focus over the bands: the blur mixed in outside the circle. Each band blurs the grid
-/// rows its pixels read, with the blur's reach around them, from the picture as it was: a plane
-/// cut with that margin blurs exactly as the whole picture's, so a band never waits on another
-/// and a region equals that window of the whole render.
+/// Soft Focus over the bands: the blur mixed in outside the circle. The blur is made once per
+/// render ([`GridBlur`], by the first band that needs it, over the whole window the render holds)
+/// and read back row by row where a row leaves the sharp core.
 struct SoftFocusPass {
-    /// The blur on the grid.
-    gaussian: Gaussian,
-    /// The grid's cell side in output pixels (1: the blur runs on the pixels themselves).
-    cell: u32,
-    /// How much of the blur is mixed in (below 1 only for a blur under [`MIN_SIGMA`]).
-    strength: f32,
+    blur: GridBlur,
+    /// The circle, for a band's corners.
     circle: Circle,
+    /// The circle along each row.
+    rows: Rows,
 }
 
-impl SoftFocusPass {
-    /// The grid cell `(cx, cy)`: the mean of its pixels (the picture's edge pixels repeated past
-    /// it, as [`crate::ops::View::get`] reads them).
-    fn cell_mean(&self, view: &crate::ops::View<'_>, cx: u32, cy: u32) -> [f32; 3] {
-        let c = i64::from(self.cell);
-        let (x0, y0) = (i64::from(cx) * c, i64::from(cy) * c);
-        let mut sum = [0.0f32; 3];
-        for y in y0..y0 + c {
-            for x in x0..x0 + c {
-                let p = view.get(x, y);
-                sum = [sum[0] + p[0], sum[1] + p[1], sum[2] + p[2]];
-            }
-        }
-        let n = (c * c) as f32;
-        sum.map(|v| v / n)
+/// The circle of [`focal_circle`] along each output row. Along a row the stored frame moves by a
+/// similarity, so a pixel's squared distance from the centre is a quadratic in its column: solved
+/// once per row, it gives the columns surely inside the sharp core (the mask exactly 1, the pixel
+/// unchanged) and those that may lie under the circle at all (outside them the mask is exactly 0,
+/// the blur mixed in fully); between the two the mask is that quadratic's distance through the
+/// edge, the same in every band and region.
+struct Rows {
+    space: Space,
+    /// The centre in units of the stored photo's shorter side ([`Space::units`]).
+    centre: (f64, f64),
+    /// The sharp core's radius and the outer one, in the same units, as [`Circle::new`] makes
+    /// them for [`focal_circle`].
+    hard: f64,
+    outer: f64,
+}
+
+/// The columns `lo..=hi` of a row; empty when `lo > hi`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Span {
+    lo: i64,
+    hi: i64,
+}
+
+impl Span {
+    const NONE: Span = Span { lo: 1, hi: 0 };
+
+    fn contains(self, x: i64) -> bool {
+        self.lo <= x && x <= self.hi
+    }
+}
+
+/// How far, in output pixels, a row's spans keep from the radii they are solved for: far more
+/// than the rounding of the solution, so a column inside the core span has its mask exactly 1 and
+/// one outside the outer span exactly 0.
+const SPAN_MARGIN: f64 = 2.0;
+
+/// One row of the circle: the squared distance `a x² + 2 b x + c` of the column `x`, and its
+/// spans.
+struct Row {
+    a: f64,
+    b: f64,
+    c: f64,
+    /// The columns whose mask is exactly 1.
+    core: Span,
+    /// The columns whose mask may be above 0.
+    under: Span,
+}
+
+impl Rows {
+    fn new(space: Space, centre: Point, size: f64, edge: f64) -> Rows {
+        // As `focal_circle` and `Circle::new` place them.
+        let outer = size + edge.max(space.pixel());
+        let radius = if outer.is_finite() { outer.clamp(0.0, 1e6) } else { 0.0 };
+        let feather = (outer - size) / outer;
+        let feather = if feather.is_nan() { 0.0 } else { feather.clamp(0.0, 1.0) };
+        Rows { space, centre: space.units(centre), hard: radius * (1.0 - feather), outer: radius }
     }
 
-    /// The blurred grid read back at the centre of the output pixel `(x, y)`, bilinearly.
-    fn read(&self, plane: &Plane, x: u32, y: u32) -> [f32; 3] {
-        if self.cell == 1 {
-            return plane.get(i64::from(x), i64::from(y));
+    /// The circle along the output row `y`.
+    fn row(&self, y: u32) -> Row {
+        let p0 = self.space.pixel_units(0, y);
+        let p1 = self.space.pixel_units(1, y);
+        let d = (p1.0 - p0.0, p1.1 - p0.1);
+        let e = (p0.0 - self.centre.0, p0.1 - self.centre.1);
+        let (a, b, c) = (d.0 * d.0 + d.1 * d.1, e.0 * d.0 + e.1 * d.1, e.0 * e.0 + e.1 * e.1);
+        let all = Span { lo: i64::MIN, hi: i64::MAX };
+        if ![a, b, c, self.hard, self.outer].iter().all(|v| v.is_finite()) || a <= 0.0 {
+            // Nothing to solve: every column reads its distance (not a number: mask 0).
+            return Row { a, b, c, core: Span::NONE, under: all };
         }
-        let c = f64::from(self.cell);
-        let (u, v) = ((f64::from(x) + 0.5) / c - 0.5, (f64::from(y) + 0.5) / c - 0.5);
-        let (i, j) = (u.floor(), v.floor());
-        let (tx, ty) = ((u - i) as f32, (v - j) as f32);
-        let (i, j) = (i as i64, j as i64);
-        let top = mix(plane.get(i, j), plane.get(i + 1, j), tx);
-        let bottom = mix(plane.get(i, j + 1), plane.get(i + 1, j + 1), tx);
-        mix(top, bottom, ty)
+        // The real columns within `r` of the centre.
+        let within = |r: f64| {
+            let disc = b * b - a * (c - r * r);
+            (r > 0.0 && disc >= 0.0).then(|| {
+                let s = disc.sqrt();
+                ((-b - s) / a, (-b + s) / a)
+            })
+        };
+        let margin = SPAN_MARGIN * a.sqrt();
+        let core = within(self.hard - margin).map_or(Span::NONE, |(lo, hi)| Span { lo: lo.ceil() as i64, hi: hi.floor() as i64 });
+        let under = within(self.outer + margin).map_or(Span::NONE, |(lo, hi)| Span { lo: lo.floor() as i64, hi: hi.ceil() as i64 });
+        Row { a, b, c, core, under }
     }
+
+    /// The mask at the column `x` of `row`: 1 inside the core, falling to 0 at the outer radius.
+    fn at(&self, row: &Row, x: u32) -> f32 {
+        let i = i64::from(x);
+        if row.core.contains(i) {
+            return 1.0;
+        }
+        if !row.under.contains(i) {
+            return 0.0;
+        }
+        let x = f64::from(x);
+        let d = (row.a * x * x + 2.0 * row.b * x + row.c).max(0.0).sqrt();
+        if !d.is_finite() || d >= self.outer {
+            return 0.0;
+        }
+        (1.0 - smoothstep(self.hard, self.outer, d)) as f32
+    }
+}
+
+/// Where a pixel column reads the grid: its two cells (as offsets into the grid's row) and the
+/// weight of the second, as [`GridBlur::read`] taps them.
+#[derive(Clone, Copy)]
+struct Tap {
+    i0: usize,
+    i1: usize,
+    t: f32,
+}
+
+/// The grid cell before the pixel coordinate `p` along one axis and the weight of the next, for
+/// cells of `cell` pixels (as [`GridBlur`] reads its grid).
+fn tap(p: u32, cell: u32) -> (i64, f32) {
+    let c = f64::from(cell.max(1));
+    let u = (f64::from(p) + 0.5) / c - 0.5;
+    let i = u.floor();
+    (i as i64, (u - i) as f32)
+}
+
+/// The grid's row `j` (clamped into it).
+fn grid_row(grid: &Plane, j: i64) -> &[[f32; 3]] {
+    let w = grid.width as usize;
+    let lj = (j - i64::from(grid.y0)).clamp(0, i64::from(grid.height.max(1)) - 1) as usize;
+    grid.data.get(lj * w..(lj + 1) * w).unwrap_or(&[])
 }
 
 impl Pass for SoftFocusPass {
     fn reach(&self) -> Reach {
-        // The grid's own reach, the bilinear read and the cells' extent, in output pixels.
-        Reach::Pixels(self.gaussian.reach().saturating_add(3).saturating_mul(self.cell))
+        Reach::Pixels(self.blur.reach())
     }
 
     fn run(&self, band: &mut Band<'_>) {
         let Some(view) = band.before else { return };
-        if band.width == 0 || band.rows == 0 || self.cell == 0 {
+        if band.width == 0 || band.rows == 0 {
             return;
         }
         let (x1, y1) = (band.x0.saturating_add(band.width - 1), band.y0.saturating_add(band.rows - 1));
-        // A band wholly inside the sharp core (the disc is convex, so its corners tell) is unchanged.
+        // A band wholly inside the sharp core (the disc is convex, so its corners tell) is unchanged
+        // and never asks for the blur.
         if [(band.x0, band.y0), (x1, band.y0), (band.x0, y1), (x1, y1)].iter().all(|&(x, y)| self.circle.at(x, y) >= 1.0) {
             return;
         }
-        // The grid rows under the band's rows and the reach around them, within the window the
-        // render holds; the grid columns under the window.
-        let Reach::Pixels(reach) = self.reach() else { return };
-        let top = band.y0.saturating_sub(reach).max(view.y0) / self.cell;
-        let bottom = y1.saturating_add(reach).saturating_add(1).min(view.y0.saturating_add(view.height)).div_ceil(self.cell);
-        let left = view.x0 / self.cell;
-        let right = view.x0.saturating_add(view.width).div_ceil(self.cell);
-        let Some(mut plane) = Plane::from_fn(left, top, right.saturating_sub(left), bottom.saturating_sub(top), |cx, cy| {
-            if self.cell == 1 { view.get(i64::from(cx), i64::from(cy)) } else { self.cell_mean(view, cx, cy) }
-        }) else {
-            return;
+        let Some(grid) = Window::of(view).and_then(|w| self.blur.rgb(w)) else { return };
+        let cell = self.blur.cell();
+        let last = i64::from(grid.width.max(1)) - 1;
+        let cell_at = |i: i64| (i - i64::from(grid.x0)).clamp(0, last) as usize;
+        // The grid's columns the band reads, and each pixel column's taps among them (the same on
+        // every row).
+        let (g0, g1) = (cell_at(tap(band.x0, cell).0), cell_at(tap(x1, cell).0.saturating_add(1)));
+        let taps: Vec<Tap> = (band.x0..=x1)
+            .map(|x| {
+                let (i, t) = tap(x, cell);
+                Tap { i0: cell_at(i).saturating_sub(g0), i1: cell_at(i.saturating_add(1)).saturating_sub(g0), t }
+            })
+            .collect();
+        let mut column = vec![[0.0f32; 3]; g1.saturating_sub(g0) + 1];
+        let strength = self.blur.strength();
+        let width = band.width as usize;
+        let (bx0, bx1) = (i64::from(band.x0), i64::from(x1));
+        // A span's columns as offsets into the band: `start..end`.
+        let local = |span: Span| {
+            if span.lo > span.hi {
+                return (0, 0);
+            }
+            let clip = |x: i64| (x.clamp(bx0, bx1.saturating_add(1)) - bx0) as usize;
+            (clip(span.lo), clip(span.hi.saturating_add(1)))
         };
-        if !self.gaussian.apply(&mut plane) {
-            return;
-        }
-        for j in 0..band.rows {
-            let y = band.y0.saturating_add(j);
-            for i in 0..band.width {
-                let x = band.x0.saturating_add(i);
-                let outside = (1.0 - self.circle.at(x, y)) * self.strength;
-                if outside <= 0.0 {
-                    continue;
+        for (j, pixels) in band.pixels.chunks_exact_mut(width).enumerate() {
+            let y = band.y0.saturating_add(j as u32);
+            // The grid between its two rows about this pixel row.
+            let (gj, ty) = tap(y, cell);
+            let (Some(top), Some(bottom)) = (grid_row(grid, gj).get(g0..=g1), grid_row(grid, gj.saturating_add(1)).get(g0..=g1)) else {
+                continue;
+            };
+            for ((v, a), b) in column.iter_mut().zip(top).zip(bottom) {
+                *v = lerp(*a, *b, ty);
+            }
+            // Fully blurred outside the circle, the edge read pixel by pixel, the core unchanged.
+            let row = self.rows.row(y);
+            let (u0, u1) = local(row.under);
+            let (c0, c1) = local(row.core);
+            let (c0, c1) = if c0 < c1 { (c0.max(u0), c1.min(u1)) } else { (u0, u0) };
+            let blurred = |t: &Tap| match (column.get(t.i0), column.get(t.i1)) {
+                (Some(a), Some(b)) => Some(lerp(*a, *b, t.t)),
+                _ => None,
+            };
+            for (s, e) in [(0, u0), (u1, width)] {
+                let (Some(pixels), Some(taps)) = (pixels.get_mut(s..e), taps.get(s..e)) else { continue };
+                for (px, t) in pixels.iter_mut().zip(taps) {
+                    if let Some(b) = blurred(t) {
+                        *px = lerp(*px, b, strength);
+                    }
                 }
-                let blurred = self.read(&plane, x, y);
-                if let Some(px) = band.get_mut(i, j) {
-                    *px = mix(*px, blurred, outside);
+            }
+            for (s, e) in [(u0, c0), (c1, u1)] {
+                let (Some(pixels), Some(taps)) = (pixels.get_mut(s..e), taps.get(s..e)) else { continue };
+                for (k, (px, t)) in pixels.iter_mut().zip(taps).enumerate() {
+                    let x = band.x0.saturating_add((s + k) as u32);
+                    let outside = (1.0 - self.rows.at(&row, x)) * strength;
+                    if outside > 0.0
+                        && let Some(b) = blurred(t)
+                    {
+                        *px = lerp(*px, b, outside);
+                    }
                 }
             }
         }
     }
+}
+
+/// `a` moved toward `b` by `t`, which is already in 0..1 ([`mix`] without its clamp).
+fn lerp(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
 
 impl Adjust for FocalBw {
