@@ -7078,7 +7078,7 @@ a maintainer decision mid-run.
     previews softened; one painted stroke softens only under it; an erase stroke over it gives the
     photo back there; Apply records one "Soften" step whose strokes land where they were drawn on a
     photo turned 90°; a fingerprint of the brush over a painted stroke at 1400 × 900.
-- ⬜ **M12.19 `engine` + `ui`: Batch Edit's five effects**
+- ✅ **M12.19 `engine` + `ui`: Batch Edit's five effects**
   - after: M11.9, M11.18, M12.6, M12.7
   - files: `crates/engine/src/cmd/batch.rs`, `crates/engine/tests/batch_edit.rs`, `crates/ui/src/commands/batch.rs`, `crates/ui/tests/batch_ui.rs`
   - scope: `editing.md` §9: Batch Edit ▸ Sepia, Sharpen, Warmify, Film Grain and Black and White

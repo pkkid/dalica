@@ -3,8 +3,9 @@
 //! an agent would:
 //!
 //! - Picture ▸ Batch Edit ▸ Auto Fix acts on the tray's photos (20 held ones here), and one Ctrl+Z
-//!   gives all 20 their recipes back; each of the five effects is greyed with "Arrives with Effects"
-//!   while its module is a stub, and once it renders is one undo step on the 20 held photos;
+//!   gives all 20 their recipes back;
+//! - its five effects (Sepia, Sharpen, Warmify, Film Grain, Black and White) are live, and Black and
+//!   White on 3 held photos gives each a `bw()` entry as one library step ("Undo B&W");
 //! - Edit ▸ Copy All Edits on one photo, then Paste All Edits on three selected, gives them its
 //!   recipe; a photo holding an entry Dalica cannot read is skipped and named in a toast;
 //! - in the edit view Paste All Edits is a step of the open photo's history, which its Undo button
@@ -81,7 +82,7 @@ fn edits(t: &T, id: PhotoId) -> Vec<String> {
 }
 
 #[test]
-fn batch_auto_fix_on_twenty_held_photos_is_one_undo_step_and_effects_are_greyed() {
+fn batch_auto_fix_on_twenty_held_photos_is_one_undo_step() {
     let mut t = setup(22, None);
     let held: Vec<PhotoId> = t.ids[..20].to_vec();
     select(&mut t, &held);
@@ -98,33 +99,32 @@ fn batch_auto_fix_on_twenty_held_photos_is_one_undo_step_and_effects_are_greyed(
     for id in &held {
         assert!(edits(&t, *id).is_empty(), "one Ctrl+Z restores photo {id}");
     }
+}
 
-    // Each effect waits for its renderer (M12.6–M12.14): greyed with its reason and refused when
-    // invoked while its module is a stub; once it renders, one undo step on the 20 held photos.
-    for (label, name) in [("Sepia", "sepia"), ("Sharpen", "sharpen"), ("Warmify", "warmify"), ("Film Grain", "grain"), ("Black and White", "bw")] {
-        let path = format!("Picture/Batch Edit/{label}");
-        let row = dalica_edit::catalog::lookup(name).unwrap();
-        if row.renders() {
-            let steps = t.d.app().session().unwrap().undo_stack().len();
-            menu(&mut t, &path);
-            let entry = row.default_entry().unwrap();
-            for id in &held {
-                assert_eq!(edits(&t, *id), [entry.as_str()], "{path}: photo {id}");
-            }
-            assert!(edits(&t, t.ids[20]).is_empty() && edits(&t, t.ids[21]).is_empty(), "{path}: photos outside the tray are left alone");
-            let stack = t.d.app().session().unwrap().undo_stack();
-            assert_eq!((stack.len(), stack.undo_label()), (steps + 1, Some(row.label)), "{path}: one library step, named by the operation");
-            ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Z" }));
-            for id in &held {
-                assert!(edits(&t, *id).is_empty(), "{path}: one Ctrl+Z restores photo {id}");
-            }
-        } else {
-            let e = call(&mut t, "ui.menu.invoke", json!({ "path": path, "wait": true })).unwrap_err();
-            assert_eq!(e.code.as_str(), "disabled", "{path}");
-            assert!(e.message.contains("Arrives with Effects"), "{path}: {}", e.message);
-            assert!(held.iter().all(|id| edits(&t, *id).is_empty()), "{path}");
-        }
+#[test]
+fn the_five_effects_are_live_and_black_and_white_gives_three_held_photos_a_bw_entry() {
+    let mut t = setup(4, None);
+    let held: Vec<PhotoId> = t.ids[..3].to_vec();
+    select(&mut t, &held);
+    run(&mut t, "tray.hold", json!({}));
+    select(&mut t, &[]);
+    let tree = ok(&mut t, "ui.menu.tree", json!({}));
+    let picture = tree.as_array().unwrap().iter().find(|m| m["label"] == "Picture").unwrap();
+    let batch = picture["children"].as_array().unwrap().iter().find(|i| i["label"] == "Batch Edit").unwrap();
+    let rows = batch["children"].as_array().unwrap();
+    for label in ["Sepia", "Sharpen", "Warmify", "Film Grain", "Black and White"] {
+        let row = rows.iter().find(|i| i["label"] == label).unwrap_or_else(|| panic!("{label}"));
+        assert_eq!((row["live"].as_bool(), row["enabled"].as_bool(), row.get("reason")), (Some(true), Some(true), None), "{label}: {row}");
     }
+
+    let steps = t.d.app().session().unwrap().undo_stack().len();
+    menu(&mut t, "Picture/Batch Edit/Black and White");
+    for id in &held {
+        assert_eq!(edits(&t, *id), ["bw()"], "photo {id}");
+    }
+    assert!(edits(&t, t.ids[3]).is_empty(), "a photo outside the tray is left alone");
+    let stack = t.d.app().session().unwrap().undo_stack();
+    assert_eq!((stack.len(), stack.undo_label()), (steps + 1, Some("B&W")), "one library step, \"Undo B&W\"");
 }
 
 #[test]
