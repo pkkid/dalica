@@ -24,6 +24,7 @@ mod export;
 mod export_mixed;
 mod export_sections;
 mod face_regions;
+mod face_scan;
 mod facts;
 mod file_followups;
 mod file_types;

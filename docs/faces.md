@@ -4,8 +4,8 @@ Adapted from LightCraft `docs/faces.md` and `crates/faces` (revision 88ea1a8); M
 
 > **Status: Partly built (M13).** `crates/faces` has the interpreter and its limits (§2, M13.6),
 > grouping and suggestions (§5, M13.7), and the detector, alignment, embeddings, manifests, the
-> bring-your-own catalog, the known models and the self-test (§2–§3, M13.10); the scan, the
-> downloads and the UI follow in M13. The user-facing behaviour (the People group,
+> bring-your-own catalog, the known models and the self-test (§2–§3, M13.10), and the background
+> scan with its index and groups (§4–§5, M13.18); the downloads and the UI follow in M13. The user-facing behaviour (the People group,
 > Unnamed, suggestions, the People pane, options) is specified in [`organizing.md`](organizing.md)
 > §6; where faces are stored is in [`data-model.md`](data-model.md) §2–§5; how names travel in
 > files is in [`xmp-interop.md`](xmp-interop.md) §6. This document is the engine design behind
@@ -150,6 +150,30 @@ Turning on **Find faces in my photos** starts a scan of the library at the lowes
   idle on the People view, more. Photos in progress are never interrupted. The worker count is also
   limited by the memory budget (`architecture.md` §5), since a photo in progress holds a decoded
   preview plus model scratch.
+
+How it is built (M13.18; engine `faces_scan.rs`, `faces_index.rs`, `cmd/face_scan.rs`):
+
+- **Models folder.** The host gives the session its models folder (`Session::set_face_models_dir`
+  with `default_models_dir`: `$DALICA_FACE_MODELS` or `<config>/models`; the app, the CLI and MCP
+  are wired to it with the model commands); a session given none scans nothing, so tests and
+  benches never pick up a user's models. An installed model is a folder named by its id holding
+  `model.onnx` and its manifest `face-model.json`; a file whose SHA-256 differs from its
+  manifest's is refused. The recogniser in use is `people.model` when installed, else the newest;
+  the newest detector finds faces. Without a detector, faces already on the photos are still
+  embedded (cut by their boxes) and nothing new is found.
+- **Pace in numbers.** Input reported within the last second: nothing new starts (a photo asked
+  for by name, Find Faces Again or `faces.detect`, one at a time even then); input or pointer
+  movement within three seconds: one photo; otherwise half the cores, or four fifths while the
+  window is away; never more than four at once (192 MiB per photo in progress, 768 MiB in all).
+- **What is skipped:** videos, folders with "Find faces in this folder" off, folders hidden with
+  Hide Folder, and folders on volumes found offline; their files are never opened. A photo that
+  could not be read, or a face that could not be cut out, is not tried again until its file
+  changes or the session restarts.
+- **Cancelling** the `faces` job stops the scan until it is asked for again (`faces.enable`,
+  `faces.detect`, `faces.reset`). Photos added while a scan runs join it once its list runs dry.
+- **Find Faces Again and Remove Faces** take the found faces (unnamed and ignored) off the photos as
+  one undo step; named faces stay. Find Faces Again then searches the photos again first; Remove
+  Faces leaves them searched, so the faces stay away.
 
 ## 5. Grouping and suggestions
 

@@ -7968,7 +7968,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     measured on the set and written into `known.rs`; the CI corpus job runs it; §11's table.
   - done when: `cargo xtask test-corpus -p faces` passes with the floors committed; `cargo xtask
     corpus` reports both sets present; the calibration tables rise with the slider value.
-- ⬜ **M13.18 `engine`: the face scan**
+- ✅ **M13.18 `engine`: the face scan**
   - after: M13.3, M13.7, M13.9, M13.10, M13.15
   - files: `crates/engine/src/faces_scan.rs`, `crates/engine/src/faces_index.rs`, `crates/engine/src/cmd/face_scan.rs`, `crates/engine/tests/face_scan.rs`
   - scope: `faces.md` §4–§5 and the decisions above: while Find faces in my photos is on and a

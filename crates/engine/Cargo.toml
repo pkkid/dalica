@@ -24,6 +24,8 @@ dalica-core.workspace = true
 dalica-create.workspace = true
 # Edit recipes: rotations and flips appended with their merge and cancel rules (`cmd/rotate.rs`).
 dalica-edit.workspace = true
+# The face scan's detector, recogniser and grouping (`faces_scan.rs`, `faces_index.rs`, M13.18).
+dalica-faces.workspace = true
 dalica-fs.workspace = true
 # Decode limits of the thumbnail jobs (`thumbs.rs`).
 dalica-image.workspace = true
