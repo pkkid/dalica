@@ -7052,7 +7052,7 @@ a maintainer decision mid-run.
     colour; Fade 100 shows the photo unchanged; Film Grain's Lighten and the slider's double-click
     reset work; at 900 × 600 the panel and the popup fit; fingerprints of Tint's, Film Grain's and
     Duo-Tone's panels and of the open picker at 1400 × 900.
-- ⬜ **M12.17 `ui`: the crosshair on the photo**
+- ✅ **M12.17 `ui`: the crosshair on the photo**
   - after: M12.8, M12.12, M12.13, M12.16
   - files: `crates/ui/src/panels/edit/crosshair.rs`, `crates/ui/tests/effect_crosshair.rs`, `crates/ui/tests/fingerprints/effect-crosshair-*.json`
   - scope: `editing.md` §8.1: while Soft Focus, Focal B&W, Graduated Tint or Focal Zoom is open,

@@ -433,9 +433,13 @@ impl Tool for Effect {
         }
     }
 
-    /// Esc closes an open picker popup, else disarms the eyedropper; with neither it drops the
-    /// candidate and leaves the key to cancel the panel.
+    /// The arrows nudge a crosshair (`crosshair::key`, M12.17). Esc closes an open picker popup,
+    /// else disarms the eyedropper; with neither it drops the candidate and leaves the key to
+    /// cancel the panel.
     fn key(&self, app: &mut App, key: &Key) -> Option<Result<Value, CmdError>> {
+        if let Some(r) = crate::panels::edit::crosshair::key(app, key) {
+            return Some(r);
+        }
         if key.code != "Esc" || key.ctrl || key.alt {
             return None;
         }
