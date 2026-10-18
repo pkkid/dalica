@@ -646,9 +646,9 @@ fetched from **pins** (a URL with its sha256, or a commit) and are checked again
 
 - **Our own corpus** is a separate repository, `pkkid/dalica-corpus`, holding only CC0 or
   public-domain photos (and files we generated ourselves from them with other applications, for
-  metadata interop), each with its source. Third-party test suites with their own permissive or
-  public-domain terms (PngSuite, raw camera samples published as CC0) are fetched from their
-  upstreams the same way and are never copied into `dalica-corpus`. Personal photos are never part
+  metadata interop, or with Dalica's own face pipeline, as references), each with its source.
+  Third-party files with their own terms (PngSuite, raw camera samples published as CC0, the face
+  models) are fetched from their upstreams the same way and are never copied into `dalica-corpus`. Personal photos are never part
   of any corpus. The `SOURCES.tsv` of `dalica-corpus` lists every file with its source URL, page, author,
   licence, size, sha256 and the tool that derived it, if any; its `LICENSE` is CC0 1.0.
 - All pins are in one file, `xtask/src/corpus_pins.rs`; each set has a manifest
@@ -661,7 +661,8 @@ fetched from **pins** (a URL with its sha256, or a commit) and are checked again
 | `corpus/photos/` | 57 CC0 and public-domain photos (134.5 MB) from 18 camera and phone makes: JPEG orientations 0–8 and none (1–8 also as one generated set showing the same picture), EXIF thumbnails, MPF, Display P3 and Adobe RGB (with and without an ICC profile), CMYK JPEG and LZW TIFF, progressive, truncated, 16-bit TIFF and PNG, WebP | `photos/` of `dalica-corpus` at commit `6239cad2`, by commit and sha256 (published M6.42 at `ef4826d0`; files unchanged since) | `dalica-image`, `dalica-thumbs` |
 | `corpus/heif/` | 3 CC0 and public-domain iPhone HEIC photos (5.6 MB, grid tiles, EXIF, colour), for the `heif` feature | `heif/` of `dalica-corpus` at commit `6239cad2`, by commit and sha256 (published M6.42 at `ef4826d0`; files unchanged since) | `dalica-image` |
 | `corpus/metadata/` | 53 generated files (1.0 MB): `dalica-scenes` photos (JPEG, PNG, WebP, TIFF and a DNG-like TIFF) after exiv2 0.28.9, ImageMagick 7.1.2-32 and Pillow 12.3.0 wrote captions, keywords, ratings, GPS, dates, MWG face regions and foreign metadata into them, and RAW `.xmp` sidecars | `metadata/` of `dalica-corpus` at commit `6239cad2`, by commit and sha256 (M6.34) | `dalica-meta` interop and round-trip tests ([`xmp-interop.md`](xmp-interop.md) §8; `crates/meta/tests/corpus.rs`) |
-| `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M13 | planned, `dalica-corpus` | `dalica-faces` ([`faces.md`](faces.md)) |
+| `corpus/public-faces/` | 45 public-domain portraits of 10 people, 3 to 6 each (17.2 MB): official portraits across the decades (one person from 1972 to 2021) and candid shots with other faces nearby, all US federal government works from Wikimedia Commons as its 1280-pixel renditions; `reference/` holds what Dalica's pipeline found in each (the detector's box and landmarks, each recogniser's vector) | `public-faces/` of `dalica-corpus` at commit `f3dd25cc`, by commit and sha256 (M13.17) | `dalica-faces` ([`faces.md`](faces.md) §10; `crates/faces/tests/corpus.rs`) |
+| `corpus/face-models/` | the built-in face models (reserved decision 5): YuNet 2023mar (detector, MIT), SFace 2021dec and AuraFace v1 (recognisers, Apache-2.0); 299.6 MB | each from its own repository (OpenCV Zoo on GitHub, fal.ai on Hugging Face) at the commit-pinned address `crates/faces/src/known.rs` records, by URL and sha256; never in `dalica-corpus` | `dalica-faces` |
 
 ```sh
 cargo xtask corpus                  # each set: its directory, pin and state (present / missing / stale / not published yet); no network
@@ -694,8 +695,8 @@ cargo xtask corpus --update-manifest raw   # after moving a pin: refetch from th
 **Opt-in locally, strict when opted in, always at the review.**
 
 - The corpus tests sit in each crate's `tests/corpus.rs` behind a `corpus` cargo feature
-  (`dalica-image` and `dalica-meta` today; `dalica-thumbs` and later `dalica-faces` when their
-  tests land), so plain `cargo test` and `cargo xtask ci` neither compile nor need them.
+  (`dalica-image`, `dalica-meta` and `dalica-faces` today; `dalica-thumbs` when its tests land),
+  so plain `cargo test` and `cargo xtask ci` neither compile nor need them.
 - With the feature on, a missing or stale corpus is a **failure** ("run `cargo xtask corpus --all`"),
   never a silent skip, and every floor is enforced.
 - **Floors only rise.** Each crate commits floors per set (`crates/image/tests/corpus_floors.json`:
@@ -703,7 +704,12 @@ cargo xtask corpus --update-manifest raw   # after moving a pin: refetch from th
   decodes, 256 px thumbnails, embedded thumbnails decoded, and for PngSuite the corrupt files
   refused; `crates/meta/tests/corpus_floors.json`: files and sidecars read, writes made and
   written, sidecar writes, RAW+sidecar pairs; refusals and unchanged writes have no floor, and
-  any failed write fails the test). A measured set without floors, a floor without a manifest and a count below its floor
+  any failed write fails the test; `crates/faces/tests/corpus_floors.json`: portraits detected,
+  found where the reference has them and aligned, and per recogniser the faces embedded, those
+  agreeing with the reference vectors, people whose portraits form one group at confidence 85,
+  faces in groups of one person, and suggestions made, right and their precision in thousandths;
+  the test also fails when a built-in recogniser's calibration table in `known.rs` is not the one
+  it measures, `faces.md` §5). A measured set without floors, a floor without a manifest and a count below its floor
   all fail; a count above its floor is printed so the PR that improved it raises it. Never lower
   one. A file that newly fails is investigated, and a synthetic reproduction goes into the crate's
   ordinary tests (corpus files are never committed or quoted).
@@ -711,7 +717,7 @@ cargo xtask corpus --update-manifest raw   # after moving a pin: refetch from th
   `cargo xtask test-corpus` yourself only when a task's *done when* asks for corpus numbers (a new
   set, a raised floor).
 - The CI `corpus` job (Linux) runs `cargo xtask corpus --all`, clippy of `dalica-image` (with the
-  `corpus` and `heif` features) and of `dalica-meta` (with `corpus`), and `cargo xtask test-corpus`
+  `corpus` and `heif` features) of `dalica-meta` and of `dalica-faces` (with `corpus`), and `cargo xtask test-corpus`
   at full strength, on the review's pull request and when dispatched, with `corpus/` cached under a key of `corpus_pins.rs` plus the manifests; `--all` re-hashes a restored
   cache before the tests run.
 - **Bumping a pin:** for our own sets, commit and push in `dalica-corpus`, then in a PR here update

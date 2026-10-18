@@ -107,3 +107,22 @@ impl Calibration {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The built-in recognisers' tables (measured on `corpus/public-faces/`, M13.17) rise with the
+    /// slider value at every step and are the model's `matchCosine` at the default confidence.
+    #[test]
+    fn the_built_in_tables_rise_with_the_slider_value() {
+        for m in [crate::known::sface(), crate::known::auraface()] {
+            let table = m.calibration.unwrap_or_else(|| panic!("{}: no calibration table", m.id));
+            let c = Calibration::table(table).unwrap();
+            let at: Vec<f32> = Confidence::all().map(|v| c.threshold(v)).collect();
+            assert!(at.windows(2).all(|w| w[1] > w[0]), "{}: {at:?}", m.id);
+            assert_eq!(Some(c.threshold(Confidence::default())), m.thresholds.match_cosine, "{}", m.id);
+            assert_eq!(m.calibration(), Some(c), "{}: the manifest uses its table", m.id);
+        }
+    }
+}

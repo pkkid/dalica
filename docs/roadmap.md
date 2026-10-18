@@ -7953,7 +7953,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     hash and the self-test; a wrong hash deletes the file; a local file installs with its stated
     assumptions; removing a model deletes its cached embeddings; selecting another model never
     mixes caches; each command's contract and graceful failures; `panic_hunt` green.
-- ⬜ **M13.17 `faces` + `xtask`: the public-faces corpus, the model pins, the floors and calibration**
+- ✅ **M13.17 `faces` + `xtask`: the public-faces corpus, the model pins, the floors and calibration**
   - after: M13.7, M13.10
   - files: `crates/faces/tests/corpus.rs`, `crates/faces/tests/corpus_floors.json`, `crates/faces/src/calibration.rs`, `crates/faces/src/known.rs`, `crates/faces/Cargo.toml`, `xtask/src/corpus_pins.rs`, `xtask/src/corpus.rs`, `xtask/corpus/public-faces.sha256`, `xtask/corpus/face-models.sha256`, `.github/workflows/ci.yml`, `docs/development.md`
   - scope: `faces.md` §10 and `development.md` §11: `corpus/public-faces/` (public-domain

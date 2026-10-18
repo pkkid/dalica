@@ -11,6 +11,12 @@ publish = false
 # Every integration test is a module of one binary (`tests/all.rs`): one link, not one per file.
 autotests = false
 
+[features]
+# The corpus test (`tests/corpus.rs`, docs/development.md §11): the pinned `public-faces` portraits
+# and `face-models`, run by `cargo xtask test-corpus -p faces`. Off by default, so plain `cargo test`
+# and `cargo xtask ci` neither compile nor need it.
+corpus = []
+
 [dependencies]
 # Safe matrix views over `matrixmultiply`'s single-threaded GEMM (no BLAS, no threads of its own).
 ndarray.workspace = true
@@ -24,10 +30,20 @@ sha2.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
+# The corpus test decodes the portraits (JPEG) itself: `dalica-image` is in the same layer. Already
+# in the product graph under `dalica-image`.
+zune-jpeg.workspace = true
 
 [[test]]
 name = "all"
 path = "tests/all.rs"
+
+# The pinned public-faces corpus and face models (`cargo xtask test-corpus`): built only with the
+# feature.
+[[test]]
+name = "corpus"
+path = "tests/corpus.rs"
+required-features = ["corpus"]
 
 # Face inference on seeded networks of the candidate models' shapes (`development.md` §8, M13.31).
 [[bench]]

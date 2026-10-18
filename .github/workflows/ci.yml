@@ -70,7 +70,8 @@ jobs:
   # The test corpora (docs/development.md §11): every published set fetched from its pin and
   # sha256-verified, then the corpus tests with their committed floors. `corpus/` is cached under a
   # key of the pins and the manifests; `cargo xtask corpus --all` re-hashes a restored cache and
-  # fetches only what is missing or stale. The only CI job that uses the network for test data.
+  # fetches only what is missing or stale (the face models, 300 MB, come from their own
+  # repositories). The only CI job that uses the network for test data.
   corpus:
     name: corpus
     if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
@@ -95,6 +96,8 @@ jobs:
         run: cargo clippy -p dalica-image --all-targets --features corpus,heif -- -D warnings
       - name: dalica-meta corpus tests (clippy)
         run: cargo clippy -p dalica-meta --all-targets --features corpus -- -D warnings
+      - name: dalica-faces corpus tests (clippy)
+        run: cargo clippy -p dalica-faces --all-targets --features corpus -- -D warnings
       - name: cargo xtask test-corpus
         env:
           DALICA_FULL_TESTS: "1"

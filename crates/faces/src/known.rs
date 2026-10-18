@@ -7,12 +7,17 @@
 //! user already has is recognised by its hash ([`lookup`], [`recognise`]), so its terms can be shown
 //! before it is installed. Weights are never part of Dalica.
 //!
-//! **The built-in list.** Which of them Dalica offers to download is reserved decision 5 (the
-//! maintainer's): [`OFFERED`] names them and is empty until that decision is recorded, so
-//! [`builtin`] offers nothing and a model comes only from a local file or the user's own
-//! `catalog.json` ([`crate::catalog`]). Each candidate's address is kept pinned to a commit of the
-//! model's own repository ([`pinned`]), so the decision is a change to [`OFFERED`] only. A model
-//! whose weights are for non-commercial use is never offered, whatever [`OFFERED`] says.
+//! **The built-in list.** Which of them Dalica offers to download is reserved decision 5, recorded
+//! by the maintainer on 2026-10-18 (issue #818): the YuNet detector with the SFace (the default)
+//! and AuraFace recognisers, LightCraft's set. [`OFFERED`] names them; each one's address is pinned
+//! to a commit of the model's own repository ([`pinned`]) with its size and SHA-256, and its
+//! licence is shown before anything is fetched. The same files are pinned for the corpus test in
+//! `xtask/corpus/face-models.sha256`. A model whose weights are for non-commercial use is never
+//! offered, whatever [`OFFERED`] says.
+//!
+//! **Calibration.** Each recogniser carries its table of the Suggestion and Grouping confidence
+//! (`faces.md` §5), measured on the public-domain portraits of `corpus/public-faces/` by
+//! `tests/corpus.rs` (M13.17), which fails when the table here is not the one it measures.
 //!
 //! **A dropped file.** Recognised by its hash (the known models, then the user's catalog), or else
 //! read by its declared shapes: a float image input and one vector output make a recogniser whose
@@ -37,8 +42,11 @@ pub const SFACE_SHA256: &str = "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c82
 pub const AURAFACE_SHA256: &str = "a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60";
 
 /// The ids on the built-in download list: reserved decision 5 (`roadmap.md`, *Reserved
-/// decisions*). Empty until the maintainer records it.
-pub const OFFERED: &[&str] = &[];
+/// decisions*; recorded 2026-10-18): the detector, then the recognisers, the default first.
+pub const OFFERED: &[&str] = &[YUNET_ID, SFACE_ID, AURAFACE_ID];
+
+/// The recogniser offered first (reserved decision 5): smaller and faster than AuraFace.
+pub const DEFAULT_RECOGNISER: &str = SFACE_ID;
 
 fn licence(name: &str, commercial: Commercial, url: &str, notice: &str) -> Licence {
     Licence { name: name.into(), commercial, url: Some(url.into()), notice: notice.into() }
@@ -68,9 +76,10 @@ pub fn yunet() -> ModelManifest {
     }
 }
 
-/// SFace 2021dec (OpenCV Zoo). Its `matchCosine` is a starting point measured by LightCraft
-/// (0.55: 97.5 % right suggestions for 88 % of 755 named faces); Dalica's calibration table comes
-/// from its own evaluation set (M13.17).
+/// SFace 2021dec (OpenCV Zoo). Its `matchCosine` was measured by LightCraft (0.55: 97.5 % right
+/// suggestions for 88 % of 755 named faces) and is the table's value at 85; the rest of the table
+/// was measured on `corpus/public-faces/` (M13.17: 45 portraits of 10 people; the highest cosine
+/// of two different people 0.330, the median of one person's pairs 0.678).
 pub fn sface() -> ModelManifest {
     ModelManifest {
         id: SFACE_ID.into(),
@@ -90,12 +99,14 @@ pub fn sface() -> ModelManifest {
         input: InputSpec { width: 112, height: 112, colour: Colour::Rgb, mean: [0.0; 3], std: [1.0; 3], resize: Resize::Stretch },
         output: OutputSpec::Embedding { dim: 128 },
         thresholds: Thresholds { match_cosine: Some(0.55), ..Thresholds::default() },
-        calibration: None,
+        calibration: Some([0.34, 0.37, 0.40, 0.43, 0.46, 0.49, 0.52, 0.55, 0.615, 0.68]),
     }
 }
 
-/// AuraFace v1 `glintr100` (fal.ai). Starting-point `matchCosine` measured by LightCraft: 0.40
-/// (96.6 % right suggestions for 56 % of the same faces).
+/// AuraFace v1 `glintr100` (fal.ai). Its `matchCosine` was measured by LightCraft: 0.40 (96.6 %
+/// right suggestions for 56 % of the same faces), the table's value at 85; the rest of the table
+/// was measured on `corpus/public-faces/` (M13.17; the highest cosine of two different people
+/// 0.303, the median of one person's pairs 0.630).
 pub fn auraface() -> ModelManifest {
     ModelManifest {
         id: AURAFACE_ID.into(),
@@ -115,7 +126,7 @@ pub fn auraface() -> ModelManifest {
         input: InputSpec::default(),
         output: OutputSpec::Embedding { dim: 512 },
         thresholds: Thresholds { match_cosine: Some(0.40), ..Thresholds::default() },
-        calibration: None,
+        calibration: Some([0.31, 0.323, 0.336, 0.349, 0.361, 0.374, 0.387, 0.40, 0.515, 0.63]),
     }
 }
 
