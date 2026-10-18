@@ -109,7 +109,7 @@ impl Body for HttpBody {
 /// address, a scheme-relative (`//host/path`), absolute-path (`/path`) or relative (`file`) one.
 /// A redirect to plain http, or to any other scheme, is refused.
 pub fn redirect_target(from: &Url, location: &str) -> Result<Url, TransportError> {
-    let refused = |why: String| TransportError::Protocol(why);
+    let refused = |why: String| TransportError::Refused(why);
     let l = location.trim();
     let scheme =
         l.split_once(':').map(|(s, _)| s).filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')));
@@ -181,7 +181,8 @@ mod tests {
         for bad in
             ["http://a.example/z", "HTTP://a.example/z", "http:/a.example", "ftp://nope", "file:///etc/passwd", "data:,x", "https://u:p@h/", "/a b"]
         {
-            assert!(redirect_target(&u, bad).is_err(), "{bad}");
+            // refused for good: trying again would only ask again
+            assert!(matches!(redirect_target(&u, bad), Err(e @ TransportError::Refused(_)) if !e.retryable()), "{bad}");
         }
     }
 

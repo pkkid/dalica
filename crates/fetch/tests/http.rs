@@ -320,8 +320,9 @@ fn redirects_are_followed_capped_and_never_to_http() {
             Answer::Send(format!("HTTP/1.1 301 Moved\r\nLocation: {location}\r\nContent-Length: 0\r\n\r\n").into_bytes())
         });
         let dir = tmp.path().join("http");
-        let r = get(&transport(Proxy::direct()), &to_http.url("/x"), &dir, &once());
-        assert!(matches!(&r, Err(FetchError::Transport(TransportError::Protocol(m))) if m.contains("refused") || m.contains("unsupported")), "{r:?}");
+        // with every try allowed: a refused redirect is final, never asked again
+        let r = get(&transport(Proxy::direct()), &to_http.url("/x"), &dir, &Options { attempts: 3, ..once() });
+        assert!(matches!(&r, Err(FetchError::Transport(TransportError::Refused(m))) if m.contains("refused") || m.contains("unsupported")), "{r:?}");
         assert_eq!(to_http.heads().len(), 1);
         assert!(!dir.join("file.bin").exists());
     }

@@ -109,16 +109,21 @@ pub enum TransportError {
     /// The secure connection failed (certificate, handshake).
     #[error("secure connection failed: {0}")]
     Tls(String),
-    /// The server's answer could not be understood, or broke a rule (a redirect to http).
+    /// The server's answer could not be understood.
     #[error("unexpected answer: {0}")]
     Protocol(String),
+    /// The server's answer broke a rule that trying again cannot mend: a redirect to plain http,
+    /// to another scheme or to an unusable address.
+    #[error("refused: {0}")]
+    Refused(String),
     /// The connection broke.
     #[error("{0}")]
     Io(String),
 }
 
 impl TransportError {
-    /// Whether trying again (resuming) may help.
+    /// Whether trying again (resuming) may help: never after a refused redirect, a failed secure
+    /// connection or a cancel.
     pub fn retryable(&self) -> bool {
         matches!(self, TransportError::Stalled | TransportError::Io(_) | TransportError::Protocol(_))
     }

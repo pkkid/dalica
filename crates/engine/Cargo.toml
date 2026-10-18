@@ -26,7 +26,8 @@ dalica-create.workspace = true
 dalica-edit.workspace = true
 # The face scan's detector, recogniser and grouping (`faces_scan.rs`, `faces_index.rs`, M13.18).
 dalica-faces.workspace = true
-# Map tiles and place searches over the HTTPS transport (`map_tiles.rs`, `geocode.rs`, M13.20).
+# Face model downloads (`face_models.rs`, M13.16), map tiles and place searches (`map_tiles.rs`,
+# `geocode.rs`, M13.20): over the HTTPS transport.
 dalica-fetch.workspace = true
 dalica-fs.workspace = true
 # Decode limits of the thumbnail jobs (`thumbs.rs`).

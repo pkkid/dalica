@@ -23,6 +23,7 @@ mod execute_group;
 mod export;
 mod export_mixed;
 mod export_sections;
+mod face_models;
 mod face_regions;
 mod face_scan;
 mod facts;
