@@ -2,11 +2,12 @@
 //! Plain data, so `ui.state` and `ui.set` can read and drive it and tests can assert on it. Library
 //! state never lives here: it is the engine's.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
 use dalica_core::{AlbumId, FolderId, PhotoId};
+use dalica_edit::catalog::{Kind, OpInfo, Param};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Which view fills the window.
@@ -705,7 +706,8 @@ pub enum EditTab {
 /// The tools of the edit view that hold a draft until Apply or Cancel (`editing.md` §6–§7), named
 /// as in their widget ids (`tool:crop`). Crop, Straighten and Retouch replace the tab's content
 /// with their panel; a Tuning session is the Tuning tab's sliders being moved, one history step
-/// when it ends.
+/// when it ends. An effect's parameter panel (M12, `editing.md` §8.1) replaces the effect tab's
+/// grid; [`EditState::effect`] says which effect and holds its draft.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ToolKind {
@@ -713,10 +715,11 @@ pub enum ToolKind {
     Straighten,
     Retouch,
     Tuning,
+    Effect,
 }
 
 impl ToolKind {
-    pub const ALL: [ToolKind; 4] = [ToolKind::Crop, ToolKind::Straighten, ToolKind::Retouch, ToolKind::Tuning];
+    pub const ALL: [ToolKind; 5] = [ToolKind::Crop, ToolKind::Straighten, ToolKind::Retouch, ToolKind::Tuning, ToolKind::Effect];
 
     /// The tool as the protocol writes it (`crop`).
     pub fn name(self) -> &'static str {
@@ -725,6 +728,7 @@ impl ToolKind {
             ToolKind::Straighten => "straighten",
             ToolKind::Retouch => "retouch",
             ToolKind::Tuning => "tuning",
+            ToolKind::Effect => "effect",
         }
     }
 }
@@ -885,6 +889,240 @@ pub struct TuningDraft {
     pub neutral: Option<[f32; 3]>,
 }
 
+/// The longest effect or parameter name kept, in characters; the most parameters one effect holds;
+/// the longest text value (a colour, a choice) kept.
+pub const MAX_EFFECT_NAME: usize = 32;
+pub const MAX_EFFECT_PARAMS: usize = 16;
+pub const MAX_EFFECT_TEXT: usize = 64;
+/// The largest magnitude of an effect's number parameter whose range is still open (M12.1 decides
+/// it with the effect's module).
+pub const MAX_EFFECT_NUMBER: f64 = 1.0e6;
+/// The most Soften strokes one panel holds (as Retouch's patches), and the most points one stroke
+/// holds.
+pub const MAX_STROKES: usize = 1000;
+pub const MAX_STROKE_POINTS: usize = 1000;
+/// Soften's brush radius range and default, as a fraction of the photo's shorter side.
+pub const SOFTEN_BRUSH_MIN: f32 = 0.005;
+pub const SOFTEN_BRUSH_MAX: f32 = 0.5;
+pub const SOFTEN_BRUSH_DEFAULT: f32 = 0.05;
+
+/// The catalogue row of effect `name` (`dalica_edit::catalog`, `editing.md` §8): one of the
+/// effects of tabs 3–5, never a basic fix or a geometry operation. Effects join the catalogue with
+/// their syntax (M12.1), so a name the catalogue does not list yet is no effect.
+pub fn effect_row(name: &str) -> Option<&'static OpInfo> {
+    dalica_edit::catalog::lookup(name).filter(|op| op.milestone == "M12")
+}
+
+/// One parameter value of an open effect: a checkbox, a number, a point normalised to the photo in
+/// the stored frame, or a text (a colour `#rrggbb`, a choice by name).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EffectValue {
+    Flag(bool),
+    Number(f64),
+    Point([f64; 2]),
+    Text(String),
+}
+
+/// Whether `text` is an sRGB colour `#rrggbb`.
+pub fn is_colour(text: &str) -> bool {
+    text.len() == 7 && text.starts_with('#') && text.bytes().skip(1).all(|b| b.is_ascii_hexdigit())
+}
+
+/// The part of the crosshair being dragged (`editing.md` §8.1): its centre, or Graduated Tint's
+/// extent and angle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CrosshairPart {
+    Centre,
+    Extent,
+}
+
+/// The crosshair drag under way: the part dragged and where the drag began, normalised to the
+/// photo in the stored frame.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CrosshairDrag {
+    pub part: CrosshairPart,
+    pub from: [f32; 2],
+}
+
+/// One Soften stroke: the points dragged through (normalised to the photo in the stored frame), the
+/// brush radius (a fraction of the photo's shorter side) and whether it erases.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SoftenStroke {
+    pub points: Vec<[f32; 2]>,
+    pub radius: f32,
+    #[serde(default)]
+    pub erase: bool,
+}
+
+/// An effect's parameter panel while it is open (`editing.md` §8.1, M12): the effect (its name in
+/// the recipe, `soft_focus`), its parameter values by name (absent ones at their defaults), the
+/// crosshair drag under way, Soften's strokes, brush and Paint or Erase, the colour parameter whose
+/// picker popup is open and the one the eyedropper is armed for. Nothing reaches the recipe before
+/// Apply.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectDraft {
+    pub name: String,
+    #[serde(default)]
+    pub params: BTreeMap<String, EffectValue>,
+    #[serde(default)]
+    pub drag: Option<CrosshairDrag>,
+    #[serde(default)]
+    pub strokes: Vec<SoftenStroke>,
+    #[serde(default = "soften_brush_default")]
+    pub brush: f32,
+    #[serde(default)]
+    pub erase: bool,
+    #[serde(default)]
+    pub picker: Option<String>,
+    #[serde(default)]
+    pub eyedropper: Option<String>,
+}
+
+fn soften_brush_default() -> f32 {
+    SOFTEN_BRUSH_DEFAULT
+}
+
+/// Whether parameter `name` of `row` is a colour (a swatch with its picker and eyedropper).
+fn is_colour_param(row: &OpInfo, name: &str) -> bool {
+    row.params.iter().any(|p| p.name == name && matches!(p.kind, Kind::Colour { .. }))
+}
+
+impl EffectDraft {
+    /// The panel of effect `name` with nothing set (every parameter at its default).
+    pub fn new(name: &str) -> EffectDraft {
+        EffectDraft {
+            name: name.into(),
+            params: BTreeMap::new(),
+            drag: None,
+            strokes: Vec::new(),
+            brush: SOFTEN_BRUSH_DEFAULT,
+            erase: false,
+            picker: None,
+            eyedropper: None,
+        }
+    }
+
+    /// Why this draft cannot be used, if it cannot: an effect the catalogue does not list, a
+    /// parameter it does not have or a value of the wrong kind or out of its range, too many
+    /// strokes or points, a point outside the photo, a picker or eyedropper on no colour parameter.
+    pub fn check(&self) -> Result<(), String> {
+        let Some(row) = effect_row(&self.name) else {
+            let short: String = self.name.chars().take(MAX_EFFECT_NAME).collect();
+            return Err(format!("`edit.effect.name` is an effect of tabs 3–5, not `{short}`"));
+        };
+        if self.params.len() > MAX_EFFECT_PARAMS {
+            return Err(format!("`edit.effect.params` holds at most {MAX_EFFECT_PARAMS} values"));
+        }
+        for (name, value) in &self.params {
+            let shown: String = name.chars().take(MAX_EFFECT_NAME).collect();
+            let Some(param) = row.params.iter().find(|p| p.name == name.as_str()) else {
+                return Err(format!("{} has no parameter `{shown}`", row.label));
+            };
+            check_value(param, value).map_err(|why| format!("`edit.effect.params.{shown}` {why}"))?;
+        }
+        let colour = |p: &Option<String>| p.as_deref().is_none_or(|n| is_colour_param(row, n));
+        if !colour(&self.picker) || !colour(&self.eyedropper) {
+            return Err(format!("`edit.effect.picker` and `edit.effect.eyedropper` name a colour parameter of {}, or are null", row.label));
+        }
+        let point = |p: [f32; 2]| p.iter().all(|v| within(*v, 0.0, 1.0));
+        if self.drag.is_some_and(|d| !point(d.from)) {
+            return Err("`edit.effect.drag.from` is inside the photo (0 … 1)".into());
+        }
+        if self.strokes.len() > MAX_STROKES {
+            return Err(format!("`edit.effect.strokes` holds at most {MAX_STROKES} strokes"));
+        }
+        let (lo, hi) = (SOFTEN_BRUSH_MIN, SOFTEN_BRUSH_MAX);
+        if !within(self.brush, lo, hi) {
+            return Err(format!("`edit.effect.brush` is {lo} … {hi}"));
+        }
+        if self.strokes.iter().any(|s| s.points.len() > MAX_STROKE_POINTS || !s.points.iter().all(|p| point(*p)) || !within(s.radius, lo, hi)) {
+            return Err(format!("each stroke holds at most {MAX_STROKE_POINTS} points inside the photo (0 … 1) and its `radius` is {lo} … {hi}"));
+        }
+        Ok(())
+    }
+
+    /// This draft within its limits: unknown parameters and values of the wrong kind dropped
+    /// (they read as their defaults), numbers clamped, strokes and points cut to their counts and
+    /// moved inside the photo, a picker or eyedropper on no colour parameter closed. `None` when
+    /// the effect is not one.
+    pub fn sanitized(mut self) -> Option<EffectDraft> {
+        let row = effect_row(&self.name)?;
+        let params = std::mem::take(&mut self.params);
+        self.params = params
+            .into_iter()
+            .filter_map(|(name, value)| {
+                let param = row.params.iter().find(|p| p.name == name.as_str())?;
+                let value = match (param.kind, value) {
+                    (Kind::Number { min, max }, EffectValue::Number(v)) if v.is_finite() => EffectValue::Number(v.clamp(min, max)),
+                    (Kind::Open, EffectValue::Number(v)) if v.is_finite() => EffectValue::Number(v.clamp(-MAX_EFFECT_NUMBER, MAX_EFFECT_NUMBER)),
+                    (_, v) => v,
+                };
+                check_value(param, &value).is_ok().then_some((name, value))
+            })
+            .take(MAX_EFFECT_PARAMS)
+            .collect();
+        self.picker = self.picker.take().filter(|n| is_colour_param(row, n));
+        self.eyedropper = self.eyedropper.take().filter(|n| is_colour_param(row, n));
+        let point = |p: [f32; 2]| p.map(|v| clamp_or(v, 0.0, 1.0, 0.5));
+        if let Some(d) = &mut self.drag {
+            d.from = point(d.from);
+        }
+        self.brush = clamp_or(self.brush, SOFTEN_BRUSH_MIN, SOFTEN_BRUSH_MAX, SOFTEN_BRUSH_DEFAULT);
+        self.strokes.truncate(MAX_STROKES);
+        for s in &mut self.strokes {
+            s.points.truncate(MAX_STROKE_POINTS);
+            for p in &mut s.points {
+                *p = point(*p);
+            }
+            s.radius = clamp_or(s.radius, SOFTEN_BRUSH_MIN, SOFTEN_BRUSH_MAX, SOFTEN_BRUSH_DEFAULT);
+        }
+        Some(self)
+    }
+}
+
+/// Why `value` cannot be parameter `param`'s, if it cannot: the kind its catalogue row gives (a
+/// number in its range, a choice of its list, a colour, a checkbox); a kind the row does not type
+/// for a panel takes any finite number, point inside the photo, checkbox or short text.
+fn check_value(param: &Param, value: &EffectValue) -> Result<(), String> {
+    let number = match value {
+        EffectValue::Number(n) if n.is_finite() => Some(*n),
+        _ => None,
+    };
+    let text = match value {
+        EffectValue::Text(t) => Some(t.as_str()),
+        _ => None,
+    };
+    // Not one `match` on the kind: a kind the catalogue gains later falls through to the shape
+    // check rather than breaking this one.
+    if let Kind::Number { min, max } = param.kind {
+        return number.filter(|n| (min..=max).contains(n)).map(|_| ()).ok_or_else(|| format!("is a number {min} … {max}"));
+    }
+    if let Kind::Open = param.kind {
+        return number.filter(|n| n.abs() <= MAX_EFFECT_NUMBER).map(|_| ()).ok_or_else(|| "is a number".into());
+    }
+    if let Kind::Choice(list) = param.kind {
+        return text.filter(|t| list.contains(t)).map(|_| ()).ok_or_else(|| format!("is one of {}", list.join(", ")));
+    }
+    if let Kind::Colour { none } = param.kind {
+        return text.filter(|t| is_colour(t) || (none && *t == "none")).map(|_| ()).ok_or_else(|| "is a colour \"#rrggbb\"".into());
+    }
+    if let Kind::Flag = param.kind {
+        return if matches!(value, EffectValue::Flag(_)) { Ok(()) } else { Err("is true or false".into()) };
+    }
+    match value {
+        EffectValue::Flag(_) => Ok(()),
+        EffectValue::Number(n) if n.is_finite() && n.abs() <= MAX_EFFECT_NUMBER => Ok(()),
+        EffectValue::Point(p) if p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)) => Ok(()),
+        EffectValue::Text(t) if t.chars().count() <= MAX_EFFECT_TEXT => Ok(()),
+        _ => Err(format!("is a finite number, a point inside the photo, a checkbox or a text of at most {MAX_EFFECT_TEXT} characters")),
+    }
+}
+
 /// The edit view's state (`editing.md`, `control-protocol.md` §6.5): the photo shown, the tab of the
 /// edit panel, the open tool, the compare mode, the zoom, whether the edit panel is shown, and
 /// each tool's draft while it is open (nothing is applied before the tool's Apply). Starts fresh;
@@ -921,6 +1159,9 @@ pub struct EditState {
     /// Before/after: the focused side is shown unedited while `\` or Show original is held (M11).
     #[serde(default)]
     pub show_original: bool,
+    /// The open effect's parameter panel (M12): `null`, or its draft while `tool` is `effect`.
+    #[serde(default)]
+    pub effect: Option<EffectDraft>,
 }
 
 impl Default for EditState {
@@ -940,6 +1181,7 @@ impl Default for EditState {
             focus: Side::Left,
             layout: CompareLayout::SideBySide,
             show_original: false,
+            effect: None,
         }
     }
 }
@@ -957,10 +1199,13 @@ impl EditState {
         self.straighten = None;
         self.retouch = None;
         self.tuning = None;
+        self.effect = None;
     }
 
     /// Why this edit state cannot be used, if it cannot: a number out of its range, a ratio that is
-    /// not one, too many patches, a tool open with no photo. What `ui.set` refuses (`bad_params`).
+    /// not one, too many patches, a tool open with no photo, an effect panel without the effect
+    /// tool (or the other way round) or one [`EffectDraft::check`] refuses. What `ui.set` refuses
+    /// (`bad_params`).
     pub fn check(&self) -> Result<(), String> {
         if let Zoom::Scale(v) = self.zoom
             && !within(v, ZOOM_MIN, ZOOM_MAX)
@@ -1003,6 +1248,12 @@ impl EditState {
             if r.patches.iter().any(|p| !point(p.target) || !point(p.source) || !within(p.radius, BRUSH_MIN, BRUSH_MAX)) {
                 return Err(format!("each patch's `target` and `source` are inside the photo (0 … 1) and its `radius` is {BRUSH_MIN} … {BRUSH_MAX}"));
             }
+        }
+        if (self.tool == Some(ToolKind::Effect)) != self.effect.is_some() {
+            return Err("`edit.effect` is set exactly while `edit.tool` is \"effect\"".into());
+        }
+        if let Some(e) = &self.effect {
+            e.check()?;
         }
         if let Some(t) = &self.tuning {
             let ok = within(t.fill, 0.0, 1.0)
@@ -1057,6 +1308,11 @@ impl EditState {
             t.shadows = clamp_or(t.shadows, 0.0, 0.5, 0.0);
             t.temperature = clamp_or(t.temperature, -1.0, 1.0, 0.0);
             t.neutral = t.neutral.map(|c| c.map(|v| clamp_or(v, 0.0, 1.0, 0.5)));
+        }
+        // An effect panel and the effect tool go together: one without the other is closed.
+        self.effect = self.effect.take().filter(|_| self.tool == Some(ToolKind::Effect)).and_then(EffectDraft::sanitized);
+        if self.tool == Some(ToolKind::Effect) && self.effect.is_none() {
+            self.tool = None;
         }
         self
     }
@@ -2879,6 +3135,36 @@ mod tests {
         let s =
             UiState { view: View::Edit, edit: EditState { tool: Some(ToolKind::Retouch), ..EditState::default() }, ..UiState::default() }.sanitized();
         assert_eq!((s.view, s.edit.tool), (View::Library, None));
+    }
+
+    #[test]
+    fn a_hostile_effect_panel_is_made_safe() {
+        let photo = Some(PhotoId::new(1));
+        let mut d = EffectDraft::new("tint");
+        d.params.insert("fade".into(), EffectValue::Number(1e9));
+        d.params.insert("color".into(), EffectValue::Text("blue".into()));
+        d.params.insert("nope".into(), EffectValue::Flag(true));
+        d.picker = Some("fade".into());
+        d.eyedropper = Some("color".into());
+        d.drag = Some(CrosshairDrag { part: CrosshairPart::Centre, from: [f32::NAN, 7.0] });
+        d.brush = f32::INFINITY;
+        d.strokes = vec![SoftenStroke { points: vec![[-1.0, 2.0]; MAX_STROKE_POINTS + 3], radius: 0.0, erase: false }; MAX_STROKES + 2];
+        let hostile = EditState { photo, tool: Some(ToolKind::Effect), effect: Some(d), ..EditState::default() };
+        assert!(hostile.check().is_err());
+        let safe = hostile.sanitized();
+        assert_eq!(safe.check(), Ok(()), "{safe:?}");
+        let e = safe.effect.unwrap();
+        assert_eq!(e.params.into_iter().collect::<Vec<_>>(), vec![("fade".to_string(), EffectValue::Number(100.0))]);
+        assert_eq!((e.picker, e.eyedropper.as_deref()), (None, Some("color")));
+        assert_eq!(e.drag.map(|d| d.from), Some([0.5, 1.0]));
+        assert_eq!((e.brush, e.strokes.len(), e.strokes[0].points.len()), (SOFTEN_BRUSH_DEFAULT, MAX_STROKES, MAX_STROKE_POINTS));
+        assert_eq!((e.strokes[0].points[0], e.strokes[0].radius), ([0.0, 1.0], SOFTEN_BRUSH_MIN));
+        // A panel on no effect, or without the effect tool, is closed with its tool.
+        let gone = EditState { photo, tool: Some(ToolKind::Effect), effect: Some(EffectDraft::new("crop")), ..EditState::default() }.sanitized();
+        assert_eq!((gone.tool, gone.effect), (None, None));
+        let stray = EditState { photo, tool: Some(ToolKind::Crop), effect: Some(EffectDraft::new("sharpen")), ..EditState::default() };
+        assert!(stray.check().is_err());
+        assert_eq!(stray.sanitized().effect, None);
     }
 
     #[test]

@@ -6792,7 +6792,7 @@ a maintainer decision mid-run.
     with ranges matching their clamps, each tab holding at most 12; a recipe with every effect
     renders as the same recipe without them (stubs); every existing `edit` test passes
     unchanged.
-- ⬜ **M12.2 `ui`: M12's view state, UI commands and the effect panels' stubs**
+- ✅ **M12.2 `ui`: M12's view state, UI commands and the effect panels' stubs**
   - after: M11.2, M11.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/tools.rs`, `crates/ui/src/commands/effects.rs`, `crates/ui/src/commands/effect_session.rs`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/edit/effects.rs`, `crates/ui/src/panels/edit/effect_panel.rs`, `crates/ui/src/panels/edit/effect_panel/**`, `crates/ui/src/panels/edit/crosshair.rs`, `crates/ui/src/panels/edit/soften_brush.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`, `docs/menus-and-shortcuts.md`
   - scope: every M12 field of `UiState` in one go: `edit.tool` gains `effect`, and `edit.effect`

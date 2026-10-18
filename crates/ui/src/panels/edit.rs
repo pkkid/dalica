@@ -11,6 +11,9 @@
 //! | [`panel`], [`basic`], [`history`], [`histogram`] | the edit panel, Basic fixes, Undo / Redo, the histogram box | M7.16 |
 //! | [`crop`], [`straighten`], [`fill_light`], [`tuning`], [`retouch`] | the tools ([`crate::commands::tools::Tool`]) | M7.19–M7.22 |
 //! | [`compare`] | the compare modes' second side and before/after | M11.16 |
+//! | [`effects`] | the effect tabs' tile grids | M12.15 |
+//! | [`effect_panel`] | an effect's parameter panel ([`crate::commands::effect_session`]) | M12.16 |
+//! | [`crosshair`], [`soften_brush`] | an open effect's crosshair and Soften's brush on the photo | M12.17, M12.18 |
 //!
 //! While a room is open the room tab strip sits under the menu bar (`ui-layout.md` §8): the edit
 //! view is the Library tab's content.
@@ -20,6 +23,9 @@ pub mod canvas;
 pub mod caption_bar;
 pub mod compare;
 pub mod crop;
+pub mod crosshair;
+pub mod effect_panel;
+pub mod effects;
 pub mod fill_light;
 pub mod filmstrip;
 pub mod histogram;
@@ -27,6 +33,7 @@ pub mod history;
 pub mod navigator;
 pub mod panel;
 pub mod retouch;
+pub mod soften_brush;
 pub mod straighten;
 pub mod top_bar;
 pub mod tuning;
@@ -64,6 +71,11 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             Some(ToolKind::Straighten) => straighten::show(app, ui),
             Some(ToolKind::Crop) => crop::on_canvas(app, ui),
             Some(ToolKind::Retouch) => retouch::on_canvas(app, ui),
+            // An open effect's overlays: each draws only for the effects it serves.
+            Some(ToolKind::Effect) => {
+                crosshair::on_canvas(app, ui);
+                soften_brush::on_canvas(app, ui);
+            }
             _ => {}
         }
     });

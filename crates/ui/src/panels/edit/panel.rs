@@ -4,8 +4,9 @@
 //! The tabs (`tab:edit.basic` … `tab:edit.effects3`, `edit.tab`) run along the panel's top on a
 //! `canvas` strip, 40 × 32 each with their glyph and tooltip, the one shown filled `chrome` and
 //! joined to the panel below. The content is the tab's: Basic Fixes ([`basic`]), Tuning
-//! ([`tuning`]), or an empty state for the three effect tabs until M12. While a modal tool is open
-//! (Crop, Straighten, Retouch) the panel of Crop and Retouch replaces the content, and the rest of
+//! ([`tuning`]), or the three effect tabs' grids ([`effects`]). While a modal tool is open (Crop,
+//! Straighten, Retouch, an effect's parameter panel) the panel of Crop, Retouch or the effect
+//! ([`effect_panel`]) replaces the content, and the rest of
 //! the panel is drawn disabled until Apply or Cancel: the tab content and Undo / Redo. The tabs stay
 //! clickable (`editing.md` §5): another tab shows its content disabled, the open tool's panel
 //! stays. A Tuning session leaves the panel enabled.
@@ -25,7 +26,7 @@ use dalica_ui_kit::widgets::{self, Tab, Target};
 use egui::{CornerRadius, Id, Rect, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
 use serde_json::json;
 
-use super::{basic, crop, histogram, history, retouch, tuning};
+use super::{basic, crop, effect_panel, effects, histogram, history, retouch, tuning};
 use crate::app::App;
 use crate::commands::tools;
 use crate::state::{EditTab, ToolKind};
@@ -45,11 +46,6 @@ pub const TAB_ITEMS: [(EditTab, &str, EditIcon, &str); 5] = [
     (EditTab::Effects2, "tab:edit.effects2", EditIcon::MoreEffects, "More effects"),
     (EditTab::Effects3, "tab:edit.effects3", EditIcon::EvenMoreEffects, "Even more effects"),
 ];
-
-/// The effect tabs' empty state until M12.
-pub const EFFECTS_EMPTY_ID: &str = "empty:edit.effects";
-pub const EFFECTS_EMPTY_TITLE: &str = "No effects yet";
-pub const EFFECTS_EMPTY_BODY: &str = "Effects come in a later version of Dalica.";
 
 /// Show original: its automation id, label, tooltip and width.
 pub const ORIGINAL_ID: &str = "button:edit.showOriginal";
@@ -105,6 +101,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     part(ui, "content", p.content, true, |ui| match modal {
         Some(ToolKind::Crop) => crop::show(app, ui),
         Some(ToolKind::Retouch) => retouch::show(app, ui),
+        Some(ToolKind::Effect) => effect_panel::show(app, ui),
         _ => {
             if modal.is_some() {
                 ui.disable();
@@ -121,11 +118,7 @@ fn content(app: &mut App, ui: &mut Ui, tab: EditTab) {
     match tab {
         EditTab::Basic => basic::show(app, ui),
         EditTab::Tuning => tuning::show(app, ui),
-        // The effect tabs (M12) show an empty state until then.
-        EditTab::Effects | EditTab::Effects2 | EditTab::Effects3 => {
-            let t = *app.tokens();
-            widgets::empty_state(ui, &t, EFFECTS_EMPTY_ID, EFFECTS_EMPTY_TITLE, EFFECTS_EMPTY_BODY, None);
-        }
+        EditTab::Effects | EditTab::Effects2 | EditTab::Effects3 => effects::show(app, ui, tab),
     }
 }
 

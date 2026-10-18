@@ -15,6 +15,10 @@
 //! tab and the strip appears 28 high, closing it removes the strip; each view's keys act only in
 //! their context (a Slideshow key does nothing in the library); M11's stub dialogs and Options
 //! tabs are drawn with their ids.
+//!
+//! M12's view state (M12.2): `edit.effect`, the open effect's parameter panel, round-trips the
+//! same way with `edit.tool: "effect"`; `edit.tool.open {tool: "effect", name: "sharpen"}` opens
+//! the stub panel and Esc closes it; Ctrl+Shift+B (B&W) does nothing in the library.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -894,4 +898,127 @@ fn m11s_stub_dialogs_and_options_tabs_are_drawn_with_their_ids() {
         ok(&mut t, "ui.clickWidget", json!({ "id": id }));
         assert_eq!(state(&mut t)["options"]["tab"], tab);
     }
+}
+
+/// The edit view on photo `p` with the Sharpen panel open, set through `ui.set`.
+fn sharpen_panel(p: u64) -> Value {
+    json!({ "view": "edit", "edit": { "photo": p, "tab": "effects", "tool": "effect",
+            "effect": { "name": "sharpen", "params": { "a": 1.5 }, "drag": { "part": "centre", "from": [0.25, 0.75] },
+                        "strokes": [{ "points": [[0.125, 0.25], [0.375, 0.5]], "radius": 0.125, "erase": true }], "brush": 0.25,
+                        "erase": true, "picker": null, "eyedropper": null } } })
+}
+
+/// `edit.effect` round-trips through `ui.set` and `ui.state` with `edit.tool: "effect"`, and goes
+/// back to `null` with it; a colour parameter's picker and eyedropper read back as set.
+#[test]
+fn the_effect_panel_round_trips_through_ui_set_and_ui_state() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let defaults = state(&mut t);
+    assert_eq!(defaults["edit"]["effect"], Value::Null);
+    for change in [
+        sharpen_panel(p[0]),
+        json!({ "view": "edit", "edit": { "photo": p[0], "tool": "effect",
+                "effect": { "name": "tint", "params": { "color": "#102030", "fade": 40.0 }, "drag": null, "strokes": [], "brush": 0.0625,
+                            "erase": false, "picker": "color", "eyedropper": "color" } } }),
+    ] {
+        let reply = ok(&mut t, "ui.set", change.clone());
+        let now = state(&mut t);
+        for (k, v) in change["edit"].as_object().unwrap() {
+            assert_eq!(&now["edit"][k], v, "edit.{k}");
+            assert_eq!(&reply["edit"][k], v, "the reply is the new state: edit.{k}");
+        }
+        ok(&mut t, "ui.set", json!({ "view": "library", "edit": defaults["edit"].clone() }));
+        assert_eq!(state(&mut t), defaults, "{change}");
+    }
+    // A partial panel takes the defaults for the rest.
+    ok(&mut t, "ui.set", json!({ "view": "edit", "edit": { "photo": p[0], "tool": "effect", "effect": { "name": "grain" } } }));
+    let mut e = state(&mut t)["edit"]["effect"].clone();
+    let brush = e.as_object_mut().unwrap().remove("brush").and_then(|b| b.as_f64()).unwrap();
+    assert!((brush - f64::from(dalica_ui::state::SOFTEN_BRUSH_DEFAULT)).abs() < 1e-6, "{brush}");
+    assert_eq!(e, json!({ "name": "grain", "params": {}, "drag": null, "strokes": [], "erase": false, "picker": null, "eyedropper": null }));
+}
+
+/// Bad `edit.effect` values are `bad_params`, and nothing changes.
+#[test]
+fn bad_effect_values_are_refused_and_change_nothing() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    ok(&mut t, "ui.set", sharpen_panel(p[0]));
+    let before = state(&mut t);
+    let effect = |e: Value| json!({ "edit": { "effect": e } });
+    let stroke = |points: Value, radius: f64| json!({ "name": "sharpen", "strokes": [{ "points": points, "radius": radius }] });
+    for bad in [
+        json!({ "edit": { "tool": null } }),
+        json!({ "edit": { "tool": "crop" } }),
+        json!({ "edit": { "effect": null } }),
+        effect(json!({ "name": "nope" })),
+        effect(json!({ "name": "crop" })),
+        effect(json!({ "name": "x".repeat(5000) })),
+        effect(json!({ "name": "sharpen", "params": { "a": 9 } })),
+        effect(json!({ "name": "sharpen", "params": { "a": "high" } })),
+        effect(json!({ "name": "sharpen", "params": { "amount": 1 } })),
+        effect(json!({ "name": "grain", "params": { "lighten": 1 } })),
+        effect(json!({ "name": "tint", "params": { "color": "blue" } })),
+        effect(json!({ "name": "tint", "picker": "fade" })),
+        effect(json!({ "name": "sharpen", "eyedropper": "a" })),
+        effect(json!({ "name": "sharpen", "drag": { "part": "centre", "from": [2, 0] } })),
+        effect(json!({ "name": "sharpen", "drag": { "part": "middle", "from": [0, 0] } })),
+        effect(json!({ "name": "sharpen", "brush": 0 })),
+        effect(stroke(json!([[0.5, 1.5]]), 0.1)),
+        effect(stroke(json!([[0.5, 0.5]]), 9.0)),
+        effect(stroke(json!(vec![[0.5, 0.5]; 1001]), 0.1)),
+        effect(json!({ "name": "sharpen", "colour": 1 })),
+        effect(json!("sharpen")),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "bad_params", "{bad:.200}");
+        assert_eq!(state(&mut t), before, "{bad:.200}");
+    }
+}
+
+/// `edit.tool.open {tool: "effect", name: "sharpen"}` opens the stub panel in place of the grid:
+/// its title, Apply │ Cancel, the draft at Sharpen's defaults; Esc closes it and the grid's empty
+/// state is back. A one-click effect has no panel.
+#[test]
+fn an_effect_panel_opens_and_esc_closes_it() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": p[0] } }));
+    ok(&mut t, "engine.execute", json!({ "command": "edit.tab", "params": { "tab": "effects" } }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert!(rect_of(&t, "empty:edit.effects").is_some(), "the grid's stub");
+    let opened = ok(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "effect", "name": "sharpen" } }));
+    assert_eq!(opened, json!({ "tool": "effect", "name": "sharpen" }), "{opened}");
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    let e = state(&mut t)["edit"].clone();
+    assert_eq!((&e["tool"], &e["effect"]["name"], &e["effect"]["params"]), (&json!("effect"), &json!("sharpen"), &json!({ "a": 0.6 })));
+    for id in ["button:panel.apply", "button:panel.cancel"] {
+        assert!(rect_of(&t, id).is_some(), "{id} drawn");
+    }
+    assert!(rect_of(&t, "empty:edit.effects").is_none(), "the panel replaces the grid");
+    assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty());
+    ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+    let e = state(&mut t)["edit"].clone();
+    assert_eq!((&e["tool"], &e["effect"]), (&Value::Null, &Value::Null));
+    assert_eq!(state(&mut t)["view"], "edit", "Esc closed the panel and stayed");
+    assert!(rect_of(&t, "empty:edit.effects").is_some());
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "effect", "name": "sepia" } })), "bad_params");
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "effect" } })), "bad_params");
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.tool.open", "params": { "tool": "crop", "name": "sharpen" } })), "bad_params");
+}
+
+/// Ctrl+Shift+B is the edit view's (B&W, `edit.bw`): in the library it runs nothing; in the edit
+/// view it reaches the stub.
+#[test]
+fn ctrl_shift_b_does_nothing_in_the_library() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let not_yet = dalica_ui::commands::effects::NOT_YET;
+    let before = state(&mut t);
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Shift+B" }));
+    assert_ne!(t.d.app().state().status, not_yet, "Ctrl+Shift+B ran edit.bw in the library");
+    assert_eq!(state(&mut t), before);
+    ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": p[0] } }));
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Shift+B" }));
+    assert_eq!(t.d.app().state().status, not_yet);
 }

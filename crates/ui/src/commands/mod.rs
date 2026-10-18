@@ -32,6 +32,9 @@
 //!   [`peek`] (the quick full-screen preview), [`compare`] (the edit view's compare modes and
 //!   before/after), [`batch`] (Undo All Edits…'s question) and [`viewer`] (the photo viewer's
 //!   keys and its Settings).
+//! - M12's areas, stubs until the tasks that fill them: [`effects`] (the one-click effects,
+//!   `edit.effect.apply` and `edit.bw`, M12.15) and [`effect_session`] (the effect panels'
+//!   session behind `edit.tool.open {tool: "effect", name}`, M12.16).
 //!
 //! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
 //! (`photo.rename {ids, name}`, `photo.moveToNewFolder`, `folder.move`) opens its dialog in the UI,
@@ -58,6 +61,8 @@ pub mod clipboard;
 pub mod compare;
 pub mod dialogs;
 pub mod edit_view;
+pub mod effect_session;
+pub mod effects;
 pub mod export;
 pub mod files;
 pub mod folder_ops;
@@ -119,6 +124,7 @@ const AREAS: &[&[UiCommand]] = &[
     edit_view::COMMANDS,
     zoom::COMMANDS,
     tools::COMMANDS,
+    effects::COMMANDS,
     export::COMMANDS,
     save_as::COMMANDS,
     albums::COMMANDS,
@@ -144,6 +150,7 @@ const CHECKS: &[&[(&str, Check)]] = &[
     caption::CHECKS,
     info::CHECKS,
     edit_view::CHECKS,
+    effects::CHECKS,
     export::CHECKS,
     save_as::CHECKS,
     albums::CHECKS,
