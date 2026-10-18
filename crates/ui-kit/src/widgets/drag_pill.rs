@@ -41,14 +41,20 @@ pub enum DragOp {
     Hold,
     /// Between two cells of an album: the photos move to that place in its order.
     Reorder,
+    /// A drag of faces over nothing that takes them: the count of faces alone (M13).
+    Faces,
+    /// A drag of faces onto a person: the faces are named as theirs (M13).
+    NameFaces,
 }
 
 /// The pill's text: the operation and the count, and the target's name where one is given
 /// ("Move 3 photos to Garden", "Copy 1 photo", "Add 3 photos to album", "Hold 3 photos in the
-/// tray", "Reorder 3 photos"; with nothing to drop on only "3 photos"). Counts are grouped by
-/// thousands ("1,204 photos").
+/// tray", "Reorder 3 photos"; with nothing to drop on only "3 photos"). A drag of faces counts
+/// faces: "3 faces", and onto a person "Name 3 faces Ana". Counts are grouped by thousands ("1,204
+/// photos").
 pub fn drag_pill_text(op: DragOp, count: usize, target: Option<&str>) -> String {
     let photos = format!("{} {}", grouped(count), if count == 1 { "photo" } else { "photos" });
+    let faces = format!("{} {}", grouped(count), if count == 1 { "face" } else { "faces" });
     let to = |default: Option<&str>| match target.filter(|s| !s.is_empty()).or(default) {
         Some(name) => format!(" to {name}"),
         None => String::new(),
@@ -60,6 +66,11 @@ pub fn drag_pill_text(op: DragOp, count: usize, target: Option<&str>) -> String 
         DragOp::AddToAlbum => format!("Add {photos}{}", to(Some("album"))),
         DragOp::Hold => format!("Hold {photos} in the tray"),
         DragOp::Reorder => format!("Reorder {photos}"),
+        DragOp::Faces => faces,
+        DragOp::NameFaces => match target.filter(|s| !s.is_empty()) {
+            Some(name) => format!("Name {faces} {name}"),
+            None => format!("Name {faces}"),
+        },
     }
 }
 
@@ -221,5 +232,12 @@ mod tests {
         assert_eq!(grouped(999), "999");
         assert_eq!(grouped(1204), "1,204");
         assert_eq!(grouped(12_345_678), "12,345,678");
+    }
+
+    #[test]
+    fn a_drag_of_faces_counts_faces() {
+        assert_eq!(drag_pill_text(DragOp::Faces, 1, Some("Ana")), "1 face");
+        assert_eq!(drag_pill_text(DragOp::NameFaces, 2, Some("Ana")), "Name 2 faces Ana");
+        assert_eq!(drag_pill_text(DragOp::NameFaces, 1_204, None), "Name 1,204 faces");
     }
 }

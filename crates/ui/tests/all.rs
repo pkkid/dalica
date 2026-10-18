@@ -99,6 +99,7 @@ mod tree_status_pane;
 mod tuning_tab;
 mod ui_glyphs;
 mod ui_scale;
+mod unnamed_faces;
 mod view_state;
 mod viewer;
 mod widget_ids;
