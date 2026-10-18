@@ -73,7 +73,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use dalica_core::{PhotoId, Timestamp};
-use dalica_edit::{Dihedral, Geometry, Recipe, RenderKey};
+use dalica_edit::{Cropping, Dihedral, Recipe, RenderKey};
 use dalica_engine::thumbs::Size;
 use dalica_engine::{Refreshed, Session, Thumb};
 use dalica_library::Photo;
@@ -141,8 +141,8 @@ pub struct PhotoShape {
     /// The render key of its other operations (`None`: its pixels are its file's): what the
     /// session's images of it show.
     pub edits: Option<RenderKey>,
-    /// The size its edits leave of the upright picture (a crop, a straighten), before `turn`, when
-    /// that is not the file's.
+    /// The size its edits make of the upright picture (a crop, a straighten, a frame's growth;
+    /// `edit::Recipe::shown_size`), before `turn`, when that is not the file's.
     pub kept: Option<(u32, u32)>,
 }
 
@@ -160,13 +160,10 @@ pub fn shape_of(edits: &[String], width: u32, height: u32) -> PhotoShape {
     let Ok(recipe) = Recipe::parse(edits) else { return PhotoShape::PLAIN };
     let turn = recipe.orientation();
     let Some(pixels) = Edits::from_recipe(&recipe, dalica_edit::ops::version) else { return PhotoShape { turn, ..PhotoShape::PLAIN } };
-    let kept = if width == 0 || height == 0 {
-        None
-    } else {
-        let (w, h) = Geometry::new(&pixels.recipe, dalica_image::Orientation::default(), width, height).size();
-        let round = |v: f64| if v.is_finite() && v >= 0.5 { Some(v.round().min(f64::from(u32::MAX)) as u32) } else { None };
-        round(w).zip(round(h)).filter(|&k| k != (width, height))
-    };
+    // The cell counts a crop and a straighten, and grows with a frame (Border, Drop Shadow, …):
+    // the shape of the picture its thumbnail shows, before the turn the cell paints it with.
+    let kept = Some(pixels.recipe.shown_size(dalica_image::Orientation::default(), width, height, Cropping::Counted))
+        .filter(|&k| k != (width, height) && k.0 > 0 && k.1 > 0);
     PhotoShape { turn, edits: Some(pixels.key), kept }
 }
 
@@ -449,8 +446,8 @@ impl Thumbnails {
         photo.session.library().has_unsaved_edits(photo.photo.id)
     }
 
-    /// The size `photo` shows at: what its edits keep of its file's displayed size (a crop's
-    /// shape), turned by its recipe (a landscape turned a quarter is a portrait); 0 × 0 when the
+    /// The size `photo` shows at: what its edits make of its file's displayed size (a crop's
+    /// shape, a frame's growth), turned by its recipe (a landscape turned a quarter is a portrait); 0 × 0 when the
     /// file's size is unknown. What callers letterbox or crop it to.
     pub fn displayed(&mut self, photo: PhotoRef<'_>) -> (u32, u32) {
         let shape = self.shape(photo);

@@ -233,6 +233,39 @@ fn the_displayed_size_follows_the_exif_orientation_and_the_recipe() {
     assert_eq!(Recipe::parse(["rotate(90)"; 4]).unwrap().orientation(), Dihedral::IDENTITY);
 }
 
+/// The shown size (`Recipe::shown_size`, `shown_size`): a Border grows the picture by both bands,
+/// a later rotation turns the grown picture, a crop counts only where the reader counts it (the
+/// frame then grows the photo as that reader sizes it), and without a frame it is the file's size
+/// turned; an unreadable recipe or an unknown size changes nothing.
+#[test]
+fn the_shown_size_is_the_frames_grown_size_turned_and_the_files_without_a_frame() {
+    use dalica_edit::{Cropping, shown_size};
+    let s = |e: &[&str], c| shown_size(&e.iter().map(|t| t.to_string()).collect::<Vec<_>>(), 600, 400, c);
+    // 5 % of the short side (400) on every side: 600 × 400 shows at 640 × 440.
+    let border = "border(#000000,50,#ffffff,0,0,0)";
+    for c in [Cropping::Counted, Cropping::Ignored] {
+        assert_eq!(s(&[border], c), (640, 440), "{c:?}");
+        assert_eq!(s(&[border, "rotate(90)"], c), (440, 640), "{c:?}: turned after the frame");
+        assert_eq!(s(&["rotate(90)", border], c), (440, 640), "{c:?}: a turn turns the framed picture wherever it stands");
+        assert_eq!(s(&[], c), (600, 400), "{c:?}");
+        assert_eq!(s(&["rotate(90)", "flip_h()", "sepia()"], c), (400, 600), "{c:?}: the file's size turned");
+        assert_eq!(s(&["rotate(45)"], c), (600, 400), "{c:?}: an operation edit does not know is no turn");
+    }
+    // A crop to the middle half across (300 × 400): the frame's bands follow the photo it frames.
+    let cropped = ["crop(0.25,0,0.75,1)", border];
+    assert_eq!(s(&cropped, Cropping::Counted), (330, 430));
+    assert_eq!(s(&cropped, Cropping::Ignored), (640, 440));
+    assert_eq!(s(&cropped[..1], Cropping::Counted), (300, 400));
+    assert_eq!(s(&cropped[..1], Cropping::Ignored), (600, 400));
+    // The same through a parsed recipe and an EXIF orientation that turns the file.
+    let r = Recipe::parse([border]).unwrap();
+    assert_eq!(r.shown_size(Orientation::new(6).unwrap(), 600, 400, Cropping::Counted), (440, 640));
+    // A recipe edit cannot read counts as none; an unknown size stays unknown.
+    let too_many = vec![border.to_string(); MAX_OPERATIONS + 1];
+    assert_eq!(shown_size(&too_many, 600, 400, Cropping::Counted), (600, 400));
+    assert_eq!(shown_size(&[border.to_string()], 0, 0, Cropping::Counted), (0, 0));
+}
+
 /// The 27 effects' rows.
 fn effects() -> impl Iterator<Item = &'static OpInfo> {
     catalog().iter().filter(|op| op.effect.is_some())

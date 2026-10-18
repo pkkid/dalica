@@ -276,3 +276,37 @@ fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
     fx.d.settle(FRAMES).unwrap();
     check_sizes(&mut fx.d, "dialog:adjustDate", "dialog-adjust-date");
 }
+
+/// A frame grows the preview's shape (M12.27): a Border whose bands are 10 % of the short side and
+/// whose caption is 20 % of it makes the 96 × 64 photo 108 × 89, so the framed thumbnail is
+/// letterboxed at 1.21:1 (not stretched to the file's 3:2): the frame's colour spans that shape.
+#[test]
+fn a_framed_photo_shows_at_its_grown_shape() {
+    let mut fx = fixture(LARGE);
+    let id = fx.ids[0];
+    fx.d.app_mut().session_mut().unwrap().execute("photo.history.apply", &json!({ "id": id, "op": "border(#ff00ff,100,#ff00ff,0,0,200)" })).unwrap();
+    select(&mut fx.d, &[id]);
+    open(&mut fx.d);
+    let start = std::time::Instant::now();
+    while fx.d.app().session().is_some_and(|s| s.thumbnails_pending() > 0) {
+        assert!(start.elapsed() < std::time::Duration::from_secs(120), "the thumbnail is not in");
+        fx.d.step();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    fx.d.settle(FRAMES).unwrap();
+    shot(&fx.d, "adjust-date-framed-1400x900");
+    // The bounding box of the frame's colour in the window: the preview's picture.
+    let s = fx.d.screenshot().unwrap();
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+    for y in 0..s.height {
+        for x in 0..s.width {
+            let [r, g, b, _] = s.pixel(x, y).unwrap();
+            if r > 230 && g < 30 && b > 230 {
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            }
+        }
+    }
+    assert!(x1 > x0 + 40 && y1 > y0 + 20, "the framed preview shows: {x0},{y0} – {x1},{y1}");
+    let aspect = f64::from(x1 - x0 + 1) / f64::from(y1 - y0 + 1);
+    assert!((aspect - 108.0 / 89.0).abs() < 0.04, "the grown shape, not the file's 1.5: {aspect}");
+}

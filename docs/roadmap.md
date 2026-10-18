@@ -7152,7 +7152,7 @@ a maintainer decision mid-run.
     limit) for the maintainer at M12.R.
   - done when: both budgets pass on two consecutive Budgets runs on GitHub, or the task is blocked with the
     measurements and options; before/after numbers in the PR; `cargo xtask ci`.
-- ⬜ **M12.27 `ui` + `engine` + `edit`: a frame's grown size everywhere a size is read, and the effect docs as built**
+- ✅ **M12.27 `ui` + `engine` + `edit`: a frame's grown size everywhere a size is read, and the effect docs as built**
   - after: M12.13, M12.14
   - files: `crates/edit/src/recipe.rs`, `crates/edit/tests/recipe.rs`, `crates/edit/src/ops/mod.rs`, `crates/edit/README.md`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/src/panels/viewer/strip.rs`, `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui/tests/edited_cells.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/viewer.rs`, `crates/ui/tests/adjust_date.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/tests/library_inspect.rs`, `docs/parity.md`
   - scope: a fix task from M12.13 (#768). M12.13 made Border and Widescreen Film (and M12.14 Drop

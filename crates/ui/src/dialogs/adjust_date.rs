@@ -221,8 +221,10 @@ fn thumbnail(app: &mut App, ui: &mut Ui, id: PhotoId, rect: Rect) {
     let thumb = session.thumbnail(id, need);
     let library = session.library();
     let Some(photo) = library.photo(id) else { return };
-    let turn = recipe_orientation(&library.info(id).edits);
-    let (w, h) = turn.display_size(photo.width, photo.height);
+    let edits = &library.info(id).edits;
+    let turn = recipe_orientation(edits);
+    // Its shape as the status bar gives it: grown by a frame and turned, a crop not counted.
+    let (w, h) = dalica_edit::shown_size(edits, photo.width, photo.height, dalica_edit::Cropping::Ignored);
     let image = letterbox(rect, w, h);
     let painter = ui.painter_at(rect);
     let key = Id::new("adjustDate.thumbnail");

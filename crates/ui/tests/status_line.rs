@@ -163,6 +163,24 @@ fn every_case_reads_as_the_spec_writes_it() {
     assert_eq!(status(&d), "No selection", "{}", case("the tray emptied"));
 }
 
+/// A frame grows the size the line gives (M12.27): a Border of 5 % of the short side on every side
+/// makes the 400 × 300 photo 430 × 330, turned by a rotation after it; a crop is not counted, as
+/// before frames.
+#[test]
+fn a_framed_photo_reads_at_its_grown_size() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), LARGE);
+    let id = ids(&d)["IMG_0361.jpg"];
+    select(&mut d, &["IMG_0361.jpg"]);
+    let line = |size: &str| format!("IMG_0361.jpg     June 4, 2026 7:42 PM     {size}     100.0 KB");
+    assert_eq!(status(&d), line("400 × 300"));
+    for (op, size) in [("border(#000000,50,#ffffff,0,0,0)", "430 × 330"), ("rotate(90)", "330 × 430"), ("crop(0.25,0,0.75,1)", "330 × 430")] {
+        d.app_mut().session_mut().unwrap().execute("photo.history.apply", &json!({ "id": id, "op": op })).unwrap();
+        d.settle(FRAMES).unwrap();
+        assert_eq!(status(&d), line(size), "after {op}");
+    }
+}
+
 /// The done-when: a long file name is shown whole where it fits (1400) and middle-elided where it
 /// does not (900), the other fields kept whole.
 #[test]

@@ -189,6 +189,9 @@ fn upload(ctx: &egui::Context, name: &str, image: &Arc<Rgba8>) -> Option<Texture
 }
 
 /// `tex` (the upright picture) turned by `turn` and cut to its centre square, over `square`.
+/// The square is cut from the texture's own size: the thumbnail as rendered, which a frame grows
+/// and a crop cuts (`edit::render`), so a thumbnail still showing earlier edits is never stretched
+/// to the recipe's new shape.
 fn cropped(square: Rect, tex: &Texture, turn: Dihedral, opacity: f32) -> Shape {
     let (w, h) = turn.display_size(tex.width, tex.height);
     let crop = centre_square(w, h);
