@@ -42,7 +42,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Inspect Photos",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId]}: everything known about each photo: the file's fields, its caption, tags, hidden flag, recipe (edits, redo), effective date, displayed size (the file's, grown by the recipe's frames and turned by its rotations and flips; a crop not counted) and albums ([{id, name, key}])"#,
+            params: r#"{"ids":[PhotoId]}: everything known about each photo: the file's fields, its caption, tags, hidden flag, recipe (edits, redo), effective date, displayed size (the file's, grown by the recipe's frames and turned by its rotations and flips; a crop not counted), albums ([{id, name, key}]), geotagged (the library's word, else the file's GPS) and place ([lat, lon] of its geotag, or null)"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -143,6 +143,7 @@ fn inspect(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
                 "dateSet": info.date, "effectiveDate": lib.effective_date(p.id),
                 "displayed": { "width": dw, "height": dh },
                 "albums": crate::cmd::albums::albums_of(lib, p.id),
+                "geotagged": lib.is_geotagged(p.id), "place": lib.geotag(p.id),
             }))
         })
         .collect();

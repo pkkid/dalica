@@ -32,8 +32,19 @@
 //!   undone (the synced hashes stay those of the file, so undoing an import writes Dalica's old
 //!   value back rather than importing again; the facts are derived data).
 //!
-//! The model holds no place per photo yet: a place is read and its hash synced, never imported and
-//! never reported as a conflict.
+//! **The place** (M13.14, `organizing.md` §7) is the model's word on where the photo was taken
+//! (`dalica_library::Geo`): a point, or the location the user removed. A file's GPS comes into the
+//! model as follows, always with no undo step (the place a file holds is the photo's while the
+//! user has said nothing else, so bringing it in changes nothing the user sees):
+//! - a photo the model has no word on takes its file's GPS as its point (a new photo's in the
+//!   engine's add batch, after its sidecar's word, `scanning.rs`; a known one's in the sync op's
+//!   fills), so a library indexed before geotags were read gets them at the next scan:
+//!   [`Known::of_placed`] leaves out the photos whose file held GPS when last read and that the
+//!   model has no word on, so their files are read again;
+//! - a point the file changed in another application while Dalica's did not follows the file (the
+//!   word dropped when the file lost its GPS);
+//! - a location the user removed (`"geo": null`) is never brought back, whatever the file says;
+//! - changed on both sides, Dalica's point stays and [`conflicts`] names the place.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -41,10 +52,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use dalica_core::geo::LatLon;
 use dalica_core::{DateTime, PhotoId, Timestamp};
 use dalica_image::{Format, RawKind};
 use dalica_library::sync::{self, Decision, Field, Values};
-use dalica_library::{Facts, Library, Op, Photo, PhotoInfo, Synced, clean_caption, clean_tags};
+use dalica_library::{Facts, Geo, Library, Op, Photo, PhotoInfo, Synced, clean_caption, clean_tags};
 use dalica_meta::xmp_sidecar::{self, Sidecars};
 use dalica_meta::{DateTaken, Metadata, OwnedFields};
 
@@ -100,9 +112,20 @@ pub struct Known {
 impl Known {
     /// Every photo of `library` (one pass over its folders and photos).
     pub fn of(library: &Library) -> Known {
+        Known::of_photos(library, |_| true)
+    }
+
+    /// Every photo of `library` but the ones whose file held GPS when last read and that the model
+    /// has no word on the place of (a library indexed before geotags were read into the model):
+    /// their files are read again, so their place comes in (the engine's scans, M13.14).
+    pub fn of_placed(library: &Library) -> Known {
+        Known::of_photos(library, |p| library.geo(p.id).is_some() || !library.facts(p.id).geotagged)
+    }
+
+    fn of_photos(library: &Library, keep: impl Fn(&Photo) -> bool) -> Known {
         let paths: HashMap<_, &Path> = library.folders().map(|f| (f.id, f.path.as_path())).collect();
         let mut out = Known::default();
-        for p in library.photos() {
+        for p in library.photos().filter(|p| keep(p)) {
             if let Some(path) = paths.get(&p.folder) {
                 out.folders.entry(path.to_path_buf()).or_default().insert(p.name.clone(), (p.size, p.mtime));
                 out.photos = out.photos.saturating_add(1);
@@ -286,15 +309,41 @@ fn prefix(path: &Path, first: u64, max: u64) -> Option<Vec<u8>> {
     }
 }
 
-/// Dalica's values for photo `p` as the diff leaves it: its caption, tags and star, and its
-/// effective date with `header_date` as the file's (the date the scan read).
+/// Dalica's values for photo `p` as the diff leaves it: its caption, tags and star, its effective
+/// date with `header_date` as the file's (the date the scan read), and the model's point (none
+/// for a location removed, or no word).
 fn ours(library: &Library, p: &Photo, header_date: Option<DateTime>) -> Values {
     let info = library.info(p.id);
-    Values { caption: info.caption.clone(), tags: info.tags.clone(), star: p.star, place: None, date: info.date.or(header_date) }
+    let place = library.geotag(p.id).map(|g| (g.lat(), g.lon()));
+    Values { caption: info.caption.clone(), tags: info.tags.clone(), star: p.star, place, date: info.date.or(header_date) }
 }
 
-/// Dalica's values for photo `id` now (caption, tags, star, effective date; no place), or `None`
-/// for an unknown photo. What the engine compares the hashes of a sync op with.
+/// The point a file's place `(lat, lon)` is in the model, at the six decimals a geotag is stored
+/// with (`None` off the globe, which a place read from a file never is).
+pub fn point_of(place: (f64, f64)) -> Option<LatLon> {
+    LatLon::new(place.0, place.1).ok().map(|p| p.round6())
+}
+
+/// What the model's word on photo `id`'s place becomes now that its file says `file` (the sync
+/// rules of the module doc), or `None` to leave it: no word takes the file's GPS; a point follows
+/// the file when only the file changed since the last sync (`synced`, the hashes before this read);
+/// a location removed stays removed.
+fn place_follows(library: &Library, p: &Photo, file: &Values, synced: Option<&Synced>) -> Option<Option<Geo>> {
+    match library.geo(p.id) {
+        None => file.place.and_then(point_of).map(|g| Some(Geo::At(g))),
+        Some(Geo::Removed) => None,
+        Some(Geo::At(_)) => {
+            let ours = ours(library, p, p.date);
+            if sync::decide_field(Field::Place, file, &ours, synced, false) != Decision::Import {
+                return None;
+            }
+            Some(file.place.and_then(point_of).map(Geo::At))
+        }
+    }
+}
+
+/// Dalica's values for photo `id` now (caption, tags, star, effective date, the model's point), or
+/// `None` for an unknown photo. What the engine compares the hashes of a sync op with.
 pub fn ours_of(library: &Library, id: PhotoId) -> Option<Values> {
     let p = library.photo(id)?;
     Some(ours(library, p, p.date))
@@ -327,6 +376,8 @@ pub(crate) struct Sync {
     fill_stars: Vec<(PhotoId, bool)>,
     synced: Vec<(PhotoId, Option<Synced>)>,
     facts: Vec<(PhotoId, Facts)>,
+    /// Places following the files ([`place_follows`]), with no undo step.
+    geo: Vec<(PhotoId, Option<Geo>)>,
 }
 
 impl Sync {
@@ -345,6 +396,9 @@ impl Sync {
         let id = photo.id;
         let synced = library.synced(id);
         let v = &file.0;
+        if let Some(geo) = place_follows(library, photo, v, synced) {
+            self.geo.push((id, geo));
+        }
         if synced.is_none()
             && let Some((star, info)) = first_fill(photo.star, library.info(id), file, header_date)
         {
@@ -365,7 +419,7 @@ impl Sync {
                     Field::Tags => self.tags.push((id, v.tags.clone())),
                     Field::Rating => self.stars.push((id, v.star)),
                     Field::Date => self.dates.push((id, user_date(v.date, header_date))),
-                    // No place per photo in the model yet.
+                    // With no undo step: above.
                     Field::Place => {}
                 }
             }
@@ -381,7 +435,7 @@ impl Sync {
 
     /// The sync op, or `None` when there is nothing to change.
     pub(crate) fn op(self) -> Option<Op> {
-        let Sync { captions, tags, stars, dates, fills, fill_stars, synced, facts } = self;
+        let Sync { captions, tags, stars, dates, fills, fill_stars, synced, facts, geo } = self;
         let mut imports = Vec::new();
         if !captions.is_empty() {
             imports.push(Op::SetCaptions { captions });
@@ -401,6 +455,9 @@ impl Sync {
         }
         if !fill_stars.is_empty() {
             first.push(Op::SetStars { stars: fill_stars });
+        }
+        if !geo.is_empty() {
+            first.push(Op::SetGeo { geo });
         }
         if imports.is_empty() && first.is_empty() && synced.is_empty() && facts.is_empty() {
             return None;
@@ -447,13 +504,15 @@ pub fn undo_of_import(inverse: &Op) -> Option<Op> {
 
 /// The fields of photo `id` a sync op's hashes (`file`, the file's side) report as changed both in
 /// another application and in Dalica since the last sync (`Decision::Conflict`), judged on the
-/// model before the op is applied. The place is never reported (the model has none yet).
+/// model before the op is applied. The place only when the model has a word on it (without one
+/// the file's GPS is the photo's).
 pub fn conflicts(library: &Library, id: PhotoId, file: &Synced) -> Vec<Field> {
     let Some(ours) = ours_of(library, id) else { return Vec::new() };
     let last = library.synced(id);
+    let word = library.geo(id).is_some();
     Field::ALL
         .into_iter()
-        .filter(|f| *f != Field::Place)
+        .filter(|f| *f != Field::Place || word)
         .filter(|f| file.get(*f).is_some_and(|hash| sync::decide(hash, ours.hash(*f), last.and_then(|s| s.get(*f)), false) == Decision::Conflict))
         .collect()
 }

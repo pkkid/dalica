@@ -7895,7 +7895,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     stale-entry test gains an entry holding only `faces` and one holding only `"geo": null`, each
     marked when its file goes and pruned after 30 days; the readers' agreement test passes;
     `panic_hunt` green; `cargo xtask ci`.
-- ⬜ **M13.14 `engine`: geotags: set, clear, copy and paste, written to the files and read on scan**
+- ✅ **M13.14 `engine`: geotags: set, clear, copy and paste, written to the files and read on scan**
   - after: M13.1, M13.3, M13.9, M13.45
   - files: `crates/engine/src/cmd/places.rs`, `crates/engine/src/places.rs`, `crates/engine/src/metadata.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/meta.rs`, `crates/scan/tests/meta.rs`, `crates/engine/tests/places.rs`
   - scope: `organizing.md` §7, `data-model.md` §5 and `xmp-interop.md` §2: `photo.geo.set {ids,

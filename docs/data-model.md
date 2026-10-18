@@ -548,8 +548,11 @@ data, and a test proves it (scan → edit everything → rebuild → compare).
 ## 5. Writing metadata into files
 
 > Status: built for captions, tags, stars and dates (M6.30 the write queue, M6.33 the session's
-> write-back: `crates/engine/src/metadata.rs`); places and people wait for their model fields
-> (M13). Edits and rotations reach pixels only on Save (M7).
+> write-back: `crates/engine/src/metadata.rs`) and places (M13.14: a geotag set, cleared, pasted,
+> undone or redone is written as EXIF GPS and its XMP mirror, a TIFF's XMP only; a file's GPS comes
+> into the model on the scan that reads it and follows the file when only the file changed, with
+> no undo step, never over a location the user removed); people wait for M13.19. Edits and
+> rotations reach pixels only on Save (M7).
 
 | Item | When | Where |
 |---|---|---|

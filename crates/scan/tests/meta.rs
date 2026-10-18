@@ -3,7 +3,10 @@
 //! JPEG, PNG and a RAW's `.xmp` sidecar; a first scan's import in the `AddPhotos` batch; a value
 //! changed elsewhere imported by the sync op and a field changed on both sides left to Dalica (and
 //! reported by `meta::conflicts`); a sync op decided before a model change decided again by a new
-//! diff; the place never imported; unreadable and truncated files bring nothing and never panic.
+//! diff; the place (M13.14): a photo with no word of the model's takes its file's GPS, a point
+//! follows its file with no undo step, a location the user removed never comes back, and a
+//! library indexed before geotags were read reads those files again; unreadable and truncated
+//! files bring nothing and never panic.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -11,9 +14,10 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::common::apply_all;
+use dalica_core::geo::LatLon;
 use dalica_core::{DateTime, PhotoId};
 use dalica_library::sync::Field;
-use dalica_library::{Library, Op};
+use dalica_library::{Geo, Library, Op};
 use dalica_meta::xmp_sidecar::{self, SidecarWrite};
 use dalica_meta::{Changes, DateTaken, Place, WriteOptions};
 use dalica_scan::meta::{conflicts, sync_parts, undo_of_import};
@@ -132,6 +136,19 @@ fn the_owned_fields_of_new_and_changed_photos_are_read_and_only_theirs() {
     }
     assert_eq!(found(&again, "plain.jpg").file.as_ref().unwrap().0.caption, "Now with a caption");
 
+    // The engine's scans (`Known::of_placed`) also read a file that held GPS the model has no
+    // word on (here the diff alone brought tagged.jpg in; the engine gives a new photo its file's
+    // GPS in the add batch): its place then comes in, and the file is known again.
+    let placed = |lib: &Library| scan_with(&roots, &reading(ReadMetadata::NewOrChanged(Arc::new(Known::of_placed(lib)))));
+    let again = placed(&lib);
+    for p in again.folders.iter().flat_map(|f| &f.photos) {
+        assert_eq!(p.file.is_some(), ["plain.jpg", "tagged.jpg"].contains(&p.name.as_str()), "{}", p.name);
+    }
+    let ops = diff(&mut lib, &again);
+    apply_all(&mut lib, ops);
+    assert!(lib.geotag(id_of(&lib, &dir, "tagged.jpg")).is_some());
+    assert!(placed(&lib).folders.iter().flat_map(|f| &f.photos).all(|p| p.file.is_none()), "every file known now");
+
     // A cancelled scan stops before reading.
     let cancelled = Options { cancel: Some(Arc::new(AtomicBool::new(true))), ..reading(ReadMetadata::all()) };
     assert!(scan_with(&roots, &cancelled).folders.is_empty());
@@ -175,12 +192,26 @@ fn a_first_scan_imports_in_the_add_batch_and_the_sync_op_sets_the_hashes() {
     assert_eq!(lib.info(tagged).date, None, "the file's own date is not a user date");
     assert_eq!(lib.effective_date(tagged), Some(date("2026-06-04T19:42:10")));
     assert!(lib.synced(tagged).is_some());
+    // The place is the engine's to bring in with a new photo (after its sidecar's word); a diff
+    // of a known photo the model has no word on brings its file's GPS, with no undo step.
+    assert_eq!(lib.geo(tagged), None);
+    let again = diff(&mut lib, &scan);
+    let fill = Op::SetGeo { geo: vec![(tagged, Some(Geo::At(LatLon::new(38.71, -9.14).unwrap())))] };
+    let [sync] = again.as_slice() else { panic!("{again:?}") };
+    assert_eq!(
+        sync,
+        &Op::Batch {
+            ops: vec![Op::Batch { ops: vec![] }, Op::Batch { ops: vec![fill] }, Op::SetSynced { synced: vec![] }, Op::SetFacts { facts: vec![] }]
+        }
+    );
+    assert_eq!(undo_of_import(&lib.apply(sync.clone()).unwrap()), None, "no undo step");
     assert_eq!(diff(&mut lib, &scan), vec![], "applied, diffed again: nothing");
 }
 
 /// `xmp-interop.md` §5 rule 3 on a rescan: a value changed elsewhere is imported by the sync op
 /// (its undo is the import alone); changed on both sides, Dalica's value stays and
-/// `meta::conflicts` names the field; the place is never imported nor reported.
+/// `meta::conflicts` names the field; the place is no undoable import (it follows the file:
+/// `the_place_follows_its_file_and_a_removed_location_stays_removed`).
 #[test]
 fn a_rescan_imports_what_changed_elsewhere_and_leaves_a_conflict_to_dalica() {
     let tmp = tempfile::tempdir().unwrap();
@@ -205,7 +236,7 @@ fn a_rescan_imports_what_changed_elsewhere_and_leaves_a_conflict_to_dalica() {
     assert_eq!(
         parts.imports,
         &[Op::SetCaptions { captions: vec![(tagged, "Tram 28 at night".into())] }, Op::SetStars { stars: vec![(tagged, false)] }][..],
-        "no place: the model holds none"
+        "no place: it follows the file with no undo step"
     );
     let file = parts.synced.iter().find(|(i, _)| *i == tagged).unwrap().1.unwrap();
     assert_eq!(conflicts(&lib, tagged, &file), vec![], "only the file changed");
@@ -331,4 +362,68 @@ fn the_owned_fields_come_from_the_bytes_the_header_read() {
     let without = Options { bytes_reader: None, ..reading(ReadMetadata::all()) };
     let scan = scan_with(&roots, &without);
     assert_eq!(found(&scan, "plain.jpg").file.as_ref().unwrap().0, Default::default(), "read from the file itself");
+}
+
+/// M13.14: a point the model took from the file follows the file when only the file changed (no
+/// undo step), and goes when the file loses its GPS; changed on both sides, Dalica's point stays
+/// and `meta::conflicts` names the place; a location the user removed never comes back from the
+/// file.
+#[test]
+fn the_place_follows_its_file_and_a_removed_location_stays_removed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Lisbon");
+    folder(&dir);
+    let roots = [tmp.path().to_path_buf()];
+    let rescan = |lib: &Library| scan_with(&roots, &reading(ReadMetadata::NewOrChanged(Arc::new(Known::of_placed(lib)))));
+    let mut lib = Library::new();
+    let ops = diff(&mut lib, &scan_with(&roots, &reading(ReadMetadata::all())));
+    apply_all(&mut lib, ops);
+    let (tagged, plain) = (id_of(&lib, &dir, "tagged.jpg"), id_of(&lib, &dir, "plain.jpg"));
+    // The user removed plain.jpg's location (it had none); tagged.jpg's GPS comes in.
+    lib.apply(Op::SetGeo { geo: vec![(plain, Some(Geo::Removed))] }).unwrap();
+    let scan = rescan(&lib);
+    let ops = diff(&mut lib, &scan);
+    apply_all(&mut lib, ops);
+    let at = |lat, lon| Some(Geo::At(LatLon::new(lat, lon).unwrap()));
+    assert_eq!(lib.geo(tagged), at(38.71, -9.14));
+
+    // Another application moves tagged.jpg and gives plain.jpg GPS.
+    let porto = || Changes { place: Some(Place::new(41.15, -8.61)), ..Changes::default() };
+    other_app(&dir.join("tagged.jpg"), porto(), 10);
+    other_app(&dir.join("plain.jpg"), porto(), 10);
+    let scan = rescan(&lib);
+    let ops = diff(&mut lib, &scan);
+    let parts = sync_parts(ops.last().unwrap()).unwrap();
+    assert!(parts.imports.is_empty(), "no undoable import: {:?}", parts.imports);
+    let file = parts.synced.iter().find(|(i, _)| *i == tagged).unwrap().1.unwrap();
+    assert_eq!(conflicts(&lib, tagged, &file), vec![], "only the file changed");
+    apply_all(&mut lib, ops);
+    assert_eq!(lib.geo(tagged), at(41.15, -8.61), "the point follows the file");
+    assert_eq!(lib.geo(plain), Some(Geo::Removed), "the user's word stays");
+    assert_eq!(diff(&mut lib, &scan), vec![]);
+
+    // Changed on both sides: Dalica's point stays, and the place is reported.
+    lib.apply(Op::SetGeo { geo: vec![(tagged, at(1.0, 2.0))] }).unwrap();
+    other_app(&dir.join("tagged.jpg"), Changes { place: Some(Place::new(-33.87, 151.21)), ..Changes::default() }, 20);
+    let scan = rescan(&lib);
+    let ops = diff(&mut lib, &scan);
+    let file = sync_parts(ops.last().unwrap()).unwrap().synced.iter().find(|(i, _)| *i == tagged).unwrap().1.unwrap();
+    assert_eq!(conflicts(&lib, tagged, &file), vec![Field::Place]);
+    apply_all(&mut lib, ops);
+    assert_eq!(lib.geo(tagged), at(1.0, 2.0));
+
+    // Dalica's point written (as the engine's write-back would) and synced; the file then loses
+    // its GPS elsewhere: the model's word goes.
+    let written = Changes { place: Some(Place::new(1.0, 2.0)), ..Changes::default() };
+    other_app(&dir.join("tagged.jpg"), written, 30);
+    let scan = rescan(&lib);
+    let ops = diff(&mut lib, &scan);
+    apply_all(&mut lib, ops);
+    assert_eq!(lib.geo(tagged), at(1.0, 2.0));
+    other_app(&dir.join("tagged.jpg"), Changes { place: Some(None), ..Changes::default() }, 40);
+    let scan = rescan(&lib);
+    let ops = diff(&mut lib, &scan);
+    apply_all(&mut lib, ops);
+    assert_eq!(lib.geo(tagged), None);
+    assert!(!lib.is_geotagged(tagged));
 }
