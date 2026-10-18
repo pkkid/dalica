@@ -45,6 +45,13 @@
 //!   word dropped when the file lost its GPS);
 //! - a location the user removed (`"geo": null`) is never brought back, whatever the file says;
 //! - changed on both sides, Dalica's point stays and [`conflicts`] names the place.
+//!
+//! **Faces** (M13.19, `xmp-interop.md` §6): the same read brings the file's MWG face regions
+//! ([`FileValues::faces`]: boxes in the stored frame, each with the name the file gives it, if
+//! any). The diff leaves them to its caller, the engine, which turns them into faces and people
+//! (a name matched to a person ignoring case, else a new person) in the op that adds the photo and,
+//! for a photo the model knows whose file changed, in the op that updates it: the faces of the file
+//! that overlap none of the photo's (`dalica_store::metawrite::new_faces`), with no undo step.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -57,6 +64,7 @@ use dalica_core::{DateTime, PhotoId, Timestamp};
 use dalica_image::{Format, RawKind};
 use dalica_library::sync::{self, Decision, Field, Values};
 use dalica_library::{Facts, Geo, Library, Op, Photo, PhotoInfo, Synced, clean_caption, clean_tags};
+use dalica_meta::fields::FaceRegion;
 use dalica_meta::xmp_sidecar::{self, Sidecars};
 use dalica_meta::{DateTaken, Metadata, OwnedFields};
 
@@ -71,13 +79,14 @@ pub const MAX_FILE: u64 = 1 << 30;
 const JPEG_FIRST: u64 = 256 * 1024;
 
 /// What a file says: the fields Dalica owns, cleaned as the library stores them (caption and tags
-/// through `clean_caption` / `clean_tags`, a rating of 5 as a star, the date to the second), and
-/// its search facts ([`crate::facts`]: camera, video, GPS location), derived data the diff sets
-/// without an undo step.
+/// through `clean_caption` / `clean_tags`, a rating of 5 as a star, the date to the second), its
+/// search facts ([`crate::facts`]: camera, video, GPS location), derived data the diff sets
+/// without an undo step, and its face regions (M13.19, in file order; empty for none).
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct FileValues(pub Values, pub Facts);
+pub struct FileValues(pub Values, pub Facts, pub Vec<FaceRegion>);
 
-/// The place is a `dalica_meta::Place`: always finite, so equality is an equivalence.
+/// The place is a `dalica_meta::Place` and a face's box a `Rect01`: always finite, so equality is
+/// an equivalence.
 impl Eq for FileValues {}
 
 impl FileValues {
@@ -91,13 +100,20 @@ impl FileValues {
             place: owned.place.map(|p| (p.latitude(), p.longitude())),
             date: owned.date_taken.as_ref().map(DateTaken::date_time),
         };
-        FileValues(values, Facts { geotagged: owned.place.is_some(), ..Facts::default() })
+        FileValues(values, Facts { geotagged: owned.place.is_some(), ..Facts::default() }, owned.faces.clone())
+    }
+
+    /// The file's face regions: boxes in the stored frame (`data-model.md` §3.3) with the name the
+    /// file gives each, if any (`xmp-interop.md` §6).
+    pub fn faces(&self) -> &[FaceRegion] {
+        &self.2
     }
 
     /// What a file of `format` whose metadata reads as `metadata` says: its owned fields and every
     /// search fact.
     pub fn read(format: Format, metadata: &Metadata) -> FileValues {
-        FileValues(FileValues::of(&metadata.owned).0, crate::facts::of(format, metadata))
+        let FileValues(values, _, faces) = FileValues::of(&metadata.owned);
+        FileValues(values, crate::facts::of(format, metadata), faces)
     }
 }
 
@@ -197,7 +213,7 @@ pub(crate) fn read_folder(
         p.file = catch_unwind(AssertUnwindSafe(|| read_file(&path, format, sidecar.as_deref(), limits)))
             .ok()
             .flatten()
-            .map(|FileValues(values, facts)| FileValues(values, crate::facts::with_camera_of(facts, &header)));
+            .map(|FileValues(values, facts, faces)| FileValues(values, crate::facts::with_camera_of(facts, &header), faces));
     }
     true
 }
@@ -221,7 +237,7 @@ pub(crate) fn read_with_header(
     if let Format::Raw(_) = format {
         let h = header(path, limits);
         let facts = h.as_ref().ok().map(crate::facts::of_header).filter(|f| !f.is_empty());
-        return (h, facts.map(|f| FileValues(Values::default(), f)));
+        return (h, facts.map(|f| FileValues(Values::default(), f, Vec::new())));
     }
     if !matches!(format, Format::Jpeg | Format::Png | Format::WebP | Format::Tiff) {
         return (header(path, limits), None);
@@ -608,7 +624,7 @@ mod tests {
         let date: DateTime = "2026-06-04T19:42:10".parse().unwrap();
         let other: DateTime = "2020-01-01T00:00:00".parse().unwrap();
         let values = Values { caption: "Tram".into(), tags: vec!["a".into()], star: true, place: Some((1.0, 2.0)), date: Some(date) };
-        let file = FileValues(values, Facts::default());
+        let file = FileValues(values, Facts::default(), Vec::new());
         let (star, info) = first_fill(false, &PhotoInfo::default(), &file, Some(date)).unwrap();
         assert!(star);
         assert_eq!(

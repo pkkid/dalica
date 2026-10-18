@@ -1,7 +1,8 @@
 //! One metadata write: re-read, decide per field, merge-write, replace atomically keeping the
 //! time (put back after the rename only where the platform did not keep it), hand back the synced
 //! hashes (see the module above). A photo file (JPEG, PNG, WebP, TIFF) is rewritten in place; a
-//! RAW gets its `.xmp` sidecar.
+//! RAW gets its `.xmp` sidecar. People names go with the other fields, in the same write, unless
+//! the file holds faces new from another application (then they come back as an import first).
 
 use std::path::{Path, PathBuf};
 
@@ -79,7 +80,8 @@ fn photo(
     if plan.changes.is_empty() {
         // An earlier try wrote the file and could not put its time back: do it now, if the file
         // still says what Dalica wrote and nobody else changed it since.
-        let ours = !result.fields.iter().any(|(_, o)| matches!(o, FieldOutcome::Imported | FieldOutcome::Conflict { .. }));
+        let ours = !result.fields.iter().any(|(_, o)| matches!(o, FieldOutcome::Imported | FieldOutcome::Conflict { .. }))
+            && result.people != Some(FieldOutcome::Imported);
         if let Some(times) = remembered.filter(|t| ours && !options.update_modification_time && t.modified != stat.times.modified) {
             return match dalica_fs::set_times(path, &times, stat.identity) {
                 Ok(_) => (result, None),
@@ -96,7 +98,7 @@ fn photo(
     if !stat.writable {
         return (fail_writes(result, &plan.to_write, "the file is read-only; the folder sidecar keeps the value".into()), None);
     }
-    let write_options = write_options(options, now);
+    let write_options = write_options(options, now, plan.to_write.people);
     let new = match dalica_meta::write_owned(&bytes, &plan.changes, &write_options) {
         Ok(new) => new,
         Err(e) => return (fail_writes(result, &plan.to_write, format!("{e}; the folder sidecar keeps the value")), None),
@@ -184,7 +186,8 @@ fn raw(request: &Request, options: &Options, now: Timestamp, raw: &[u8]) -> File
     result.file = Some(file.clone());
     result.synced = Some(file.hashes());
     if plan.changes.is_empty() {
-        if let Some(why) = off.filter(|_| result.fields.iter().any(|(_, o)| matches!(o, FieldOutcome::Skipped(_) | FieldOutcome::Conflict { .. }))) {
+        let skipped = |o: &FieldOutcome| matches!(o, FieldOutcome::Skipped(_) | FieldOutcome::Conflict { .. });
+        if let Some(why) = off.filter(|_| result.fields.iter().any(|(_, o)| skipped(o)) || result.people.as_ref().is_some_and(skipped)) {
             result.status = Status::Skipped(format!("{raw_name} is a RAW file and {why}"));
         }
         return result;
@@ -192,7 +195,7 @@ fn raw(request: &Request, options: &Options, now: Timestamp, raw: &[u8]) -> File
     if let Some((p, _, false)) = &existing {
         return fail_writes(result, &plan.to_write, format!("its sidecar {} is read-only; the folder sidecar keeps the value", p.display()));
     }
-    let bytes = match xmp_sidecar::merge(Some(raw), sidecar, &plan.changes, &write_options(options, now)) {
+    let bytes = match xmp_sidecar::merge(Some(raw), sidecar, &plan.changes, &write_options(options, now, plan.to_write.people)) {
         Ok(SidecarWrite::Unchanged) => return written(result, &plan.to_write, Status::Unchanged),
         Ok(SidecarWrite::Write(bytes)) => bytes,
         Ok(SidecarWrite::ReplaceDamaged { bytes, .. }) => {
@@ -238,8 +241,16 @@ struct Plan {
     /// The result with every field's outcome so far (fields to write are filled in later).
     result: FileResult,
     changes: Changes,
-    /// The fields in `changes`, in order, and whether each is a conflict.
-    to_write: Vec<(Field, bool)>,
+    to_write: ToWrite,
+}
+
+/// What `changes` writes.
+#[derive(Default)]
+struct ToWrite {
+    /// The fields, in order, and whether each is a conflict.
+    fields: Vec<(Field, bool)>,
+    /// The people names.
+    people: bool,
 }
 
 /// Decides every field (`xmp-interop.md` §5) and gathers the changes to write: the fields the
@@ -281,7 +292,29 @@ fn plan(request: &Request, file: &Values, owned: &OwnedFields, options: &Options
             Decision::Conflict => result.fields.push((field, FieldOutcome::Conflict { written: false })),
         }
     }
-    Plan { result, changes, to_write }
+    let people = people(request, owned, options, off, &mut result, &mut changes);
+    Plan { result, changes, to_write: ToWrite { fields: to_write, people } }
+}
+
+/// Decides the people names (`xmp-interop.md` §6), when the request asks to write them: skipped
+/// with `off` or with neither the option nor the request's `always`; an import when the file holds
+/// a face Dalica does not know (nothing is written over it); else into `changes`. Returns whether
+/// they are written.
+fn people(request: &Request, owned: &OwnedFields, options: &Options, off: Option<&str>, result: &mut FileResult, changes: &mut Changes) -> bool {
+    let Some(people) = request.people.as_ref().filter(|_| !request.first_scan) else { return false };
+    result.faces = Some(owned.faces.clone());
+    let outcome = if let Some(why) = off {
+        FieldOutcome::Skipped(why.to_owned())
+    } else if !options.people_names && !people.always {
+        FieldOutcome::Skipped("its write option is off".to_owned())
+    } else if !people.new_in(&owned.faces).is_empty() {
+        FieldOutcome::Imported
+    } else {
+        changes.faces = Some(people.faces.clone());
+        return true;
+    };
+    result.people = Some(outcome);
+    false
 }
 
 /// Adds Dalica's value of `field` to `changes`.
@@ -318,13 +351,14 @@ fn values_of(owned: &OwnedFields) -> Values {
     }
 }
 
-/// `meta`'s write options for `options`, written at `now` (`xmp:MetadataDate`, in UTC).
-fn write_options(options: &Options, now: Timestamp) -> WriteOptions {
+/// `meta`'s write options for `options`, written at `now` (`xmp:MetadataDate`, in UTC); `people`:
+/// the people names are written (their option is on, or the request writes them always).
+fn write_options(options: &Options, now: Timestamp, people: bool) -> WriteOptions {
     WriteOptions {
         captions_tags_places: options.captions_tags_places,
         stars_as_ratings: options.stars_as_ratings,
         dates: options.dates,
-        people_names: false,
+        people_names: people,
         metadata_date: DateTime::from_unix_secs(now.as_secs()).and_then(|d| DateTaken::new(d, Some(0), None)),
         limits: options.limits,
     }
@@ -346,9 +380,12 @@ fn landed(path: &Path, bytes: &[u8], error: FsError, options: &Options) -> Resul
 }
 
 /// The fields to write become `Written` (or a written conflict); `status` is the file's.
-fn written(mut result: FileResult, to_write: &[(Field, bool)], status: Status) -> FileResult {
-    for &(field, conflict) in to_write {
+fn written(mut result: FileResult, to_write: &ToWrite, status: Status) -> FileResult {
+    for &(field, conflict) in &to_write.fields {
         result.fields.push((field, if conflict { FieldOutcome::Conflict { written: true } } else { FieldOutcome::Written }));
+    }
+    if to_write.people {
+        result.people = Some(FieldOutcome::Written);
     }
     result.fields.sort_by_key(|(f, _)| *f);
     result.status = status;
@@ -356,9 +393,12 @@ fn written(mut result: FileResult, to_write: &[(Field, bool)], status: Status) -
 }
 
 /// The fields to write failed with `why`, and so did the file.
-fn fail_writes(mut result: FileResult, to_write: &[(Field, bool)], why: String) -> FileResult {
-    for &(field, _) in to_write {
+fn fail_writes(mut result: FileResult, to_write: &ToWrite, why: String) -> FileResult {
+    for &(field, _) in &to_write.fields {
         result.fields.push((field, FieldOutcome::Failed(why.clone())));
+    }
+    if to_write.people {
+        result.people = Some(FieldOutcome::Failed(why.clone()));
     }
     result.fields.sort_by_key(|(f, _)| *f);
     result.status = Status::Failed(why);
@@ -366,10 +406,17 @@ fn fail_writes(mut result: FileResult, to_write: &[(Field, bool)], why: String) 
 }
 
 /// Not written yet: the file is read again on the next pass.
-fn requeue_with(mut result: FileResult, to_write: &[(Field, bool)], retry: Retry, why: String) -> FileResult {
-    for &(field, _) in to_write {
+fn requeue_with(mut result: FileResult, to_write: &ToWrite, retry: Retry, why: String) -> FileResult {
+    for &(field, _) in &to_write.fields {
         result.fields.push((field, FieldOutcome::Skipped(format!("not written yet: {why}"))));
     }
+    if to_write.people {
+        result.people = Some(FieldOutcome::Skipped(format!("not written yet: {why}")));
+    }
+    if result.people == Some(FieldOutcome::Imported) {
+        result.people = None;
+    }
+    result.faces = None;
     result.fields.sort_by_key(|(f, _)| *f);
     // Nothing is known for sure about the file now: no imports, no synced hashes.
     result.fields.retain(|(_, o)| !matches!(o, FieldOutcome::Imported | FieldOutcome::Conflict { written: false }));
@@ -386,11 +433,12 @@ fn requeue(request: &Request, retry: Retry, why: String) -> FileResult {
     r
 }
 
-/// The asked fields with `outcome`, and the file's `status`.
+/// The asked fields (the people names included) with `outcome`, and the file's `status`.
 fn every_asked(request: &Request, status: Status, outcome: impl Fn() -> FieldOutcome) -> FileResult {
     let mut r = FileResult::new(request, status);
     if !request.first_scan {
         r.fields = request.fields.iter().map(|f| (*f, outcome())).collect();
+        r.people = request.people.as_ref().map(|_| outcome());
     }
     r
 }

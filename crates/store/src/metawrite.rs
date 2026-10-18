@@ -1,6 +1,6 @@
 //! The metadata write queue (`data-model.md` §5, `xmp-interop.md` §1, §5, §7): captions, tags,
-//! stars, places and dates written into the photo files themselves, so other applications see
-//! them, without ever harming a file.
+//! stars, places, dates and people names written into the photo files themselves, so other
+//! applications see them, without ever harming a file.
 //!
 //! The engine queues a [`Request`] for every photo whose owned field an op changed (undo and redo
 //! included). Requests are batched per photo (the fields of several ops go out in one write, with
@@ -35,6 +35,17 @@
 //! or one whose guarded root fails its check right before the write ([`MetaWriteQueue::guard`],
 //! M6.43), or whose folder is not there, waits and is written when its volume returns.
 //!
+//! **People names** (M13.19, `xmp-interop.md` §6) ride in a request of their own kind
+//! ([`PeopleWrite`]): the photo's named faces as MWG face regions, written while "Store people
+//! names in photos" is on ([`Options::people_names`]) or for Write People Names to Photos…
+//! ([`PeopleWrite::always`]). The library keeps no last-synced hash of them, so what is new in a
+//! file is told by overlap instead: a face entry of the file that overlaps (IoU ≥ 0.5) none of the
+//! rectangles Dalica knows on the photo ([`PeopleWrite::known`]: its faces now and before the
+//! changes being written, named or not) came from another application since Dalica last read it.
+//! Such a file is not given Dalica's faces: the people outcome is an import ([`FileResult::faces`]
+//! holds the file's), the engine brings the new faces in and writes again, so a write never removes
+//! a face another application added (`xmp-interop.md` §1 principle 3).
+//!
 //! The queue takes the time from its caller (`now`, the session's clock) and reads no clock: it
 //! debounces with it and writes it as `xmp:MetadataDate`.
 
@@ -45,10 +56,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use dalica_core::{PhotoId, Timestamp};
+use dalica_core::{PhotoId, Rect01, Timestamp};
 use dalica_fs::Times;
 use dalica_library::Synced;
 pub use dalica_library::sync::{Field, Values};
+pub use dalica_meta::fields::FaceRegion;
+pub use dalica_meta::write::{NamedFace, NamedFaces};
 
 pub use self::file::write_file;
 use crate::writer::RootCheck;
@@ -86,12 +99,58 @@ pub struct Request {
     /// RAWs sharing a stem never share an `.xmp` sidecar). The photo's own format is read from
     /// the file.
     pub raws: Vec<String>,
+    /// The people names to write (`None`: they are only read).
+    pub people: Option<PeopleWrite>,
+}
+
+/// The people names of one photo to write as MWG face regions (`xmp-interop.md` §6).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PeopleWrite {
+    /// The photo's named faces now, with its upright pixel size (unnamed and ignored faces are
+    /// never written).
+    pub faces: NamedFaces,
+    /// Every face rectangle Dalica knows on the photo, named or not, now and before the changes
+    /// being written: a face entry of the file overlapping none of them is new from another
+    /// application, and comes in before anything is written over it.
+    pub known: Vec<Rect01>,
+    /// Written whatever "Store people names in photos" says (Write People Names to Photos…).
+    pub always: bool,
+}
+
+impl PeopleWrite {
+    /// The file's face entries that overlap none of the rectangles Dalica knows (IoU below
+    /// [`NEW_FACE_IOU`]).
+    pub fn new_in<'a>(&self, file: &'a [FaceRegion]) -> Vec<&'a FaceRegion> {
+        new_faces(file, &self.known)
+    }
+
+    /// This write, joined with a later one of the same photo: the later faces, every rectangle
+    /// either knew, and written always if either is.
+    fn join(self, later: PeopleWrite) -> PeopleWrite {
+        let mut known = self.known;
+        for r in later.known {
+            if !known.contains(&r) {
+                known.push(r);
+            }
+        }
+        PeopleWrite { faces: later.faces, known, always: self.always || later.always }
+    }
+}
+
+/// How much a face entry of a file must overlap a face Dalica knows to be that face (intersection
+/// over union, as `xmp-interop.md` §6 matches entries).
+pub const NEW_FACE_IOU: f64 = 0.5;
+
+/// The faces of `file` that overlap none of `known` (IoU below [`NEW_FACE_IOU`]): new from another
+/// application.
+pub fn new_faces<'a>(file: &'a [FaceRegion], known: &[Rect01]) -> Vec<&'a FaceRegion> {
+    file.iter().filter(|f| !known.iter().any(|k| dalica_meta::xmp::regions::iou(&f.rect, k) >= NEW_FACE_IOU)).collect()
 }
 
 impl Request {
     /// A request to write `fields` of `photo` at `path`, with Dalica's `values`.
     pub fn new(photo: PhotoId, path: PathBuf, fields: impl IntoIterator<Item = Field>, values: Values) -> Request {
-        Request { photo, path, fields: fields.into_iter().collect(), values, synced: None, first_scan: false, raws: Vec::new() }
+        Request { photo, path, fields: fields.into_iter().collect(), values, synced: None, first_scan: false, raws: Vec::new(), people: None }
     }
 }
 
@@ -108,6 +167,8 @@ pub struct Options {
     pub raw_xmp_sidecars: bool,
     /// Update file modification time on metadata changes (off: the time is put back).
     pub update_modification_time: bool,
+    /// Store people names in photos (Options → People, off): named faces as MWG face regions.
+    pub people_names: bool,
     /// Metadata parse limits (`security.md` §4.2).
     pub limits: dalica_meta::Limits,
     /// The largest file rewritten.
@@ -122,6 +183,7 @@ impl Default for Options {
             dates: true,
             raw_xmp_sidecars: false,
             update_modification_time: false,
+            people_names: false,
             limits: dalica_meta::Limits::default(),
             max_file: MAX_FILE,
         }
@@ -199,6 +261,14 @@ pub struct FileResult {
     pub set_aside: Option<PathBuf>,
     /// Something to know that is not a failure (the modification time could not be put back).
     pub note: Option<String>,
+    /// What happened to the people names, when the request asked to write them: written,
+    /// unchanged, skipped (the option off), failed, or `Imported` (the file holds faces new from
+    /// another application: nothing was written over them, [`FileResult::faces`] holds them).
+    pub people: Option<FieldOutcome>,
+    /// The file's face regions as read before the write (with a people outcome).
+    pub faces: Option<Vec<FaceRegion>>,
+    /// The request's [`PeopleWrite::always`], for a write made again after an import.
+    pub people_always: bool,
     /// Why a re-queued write is tried again, for the queue's count.
     pub(crate) retry: Option<Retry>,
 }
@@ -226,6 +296,9 @@ impl FileResult {
             synced: None,
             set_aside: None,
             note: None,
+            people: None,
+            faces: None,
+            people_always: request.people.as_ref().is_some_and(|p| p.always),
             retry: None,
         }
     }
@@ -297,7 +370,11 @@ impl MetaWriteQueue {
             Some(p) => {
                 let mut fields = std::mem::take(&mut p.request.fields);
                 fields.extend(request.fields.iter().copied());
-                p.request = Request { fields, ..request };
+                let people = match (p.request.people.take(), request.people.clone()) {
+                    (Some(a), Some(b)) => Some(a.join(b)),
+                    (a, b) => b.or(a),
+                };
+                p.request = Request { fields, people, ..request };
                 p.since = now;
                 p.waiting = None;
                 p.tries = 0;

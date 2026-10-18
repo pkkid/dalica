@@ -5,8 +5,8 @@
 //! reported by `meta::conflicts`); a sync op decided before a model change decided again by a new
 //! diff; the place (M13.14): a photo with no word of the model's takes its file's GPS, a point
 //! follows its file with no undo step, a location the user removed never comes back, and a
-//! library indexed before geotags were read reads those files again; unreadable and truncated
-//! files bring nothing and never panic.
+//! library indexed before geotags were read reads those files again; a file's MWG face regions
+//! (M13.19) come with the same read; unreadable and truncated files bring nothing and never panic.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -152,6 +152,33 @@ fn the_owned_fields_of_new_and_changed_photos_are_read_and_only_theirs() {
     // A cancelled scan stops before reading.
     let cancelled = Options { cancel: Some(Arc::new(AtomicBool::new(true))), ..reading(ReadMetadata::all()) };
     assert!(scan_with(&roots, &cancelled).folders.is_empty());
+}
+
+/// M13.19 (`xmp-interop.md` §6): the same read brings a file's MWG face regions with their names,
+/// from a JPEG and from a RAW's `.xmp` sidecar; a file without regions brings none.
+#[test]
+fn the_face_regions_of_a_file_are_read_with_its_fields() {
+    use dalica_meta::write::{NamedFace, NamedFaces};
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Lisbon");
+    let rect = dalica_core::Rect01::new(0.2, 0.25, 0.4, 0.55).unwrap();
+    let named = NamedFaces { width: 64, height: 48, faces: vec![NamedFace { name: "Ana".into(), rect }] };
+    let changes = Changes { faces: Some(named), ..Changes::default() };
+    let people = WriteOptions { people_names: true, ..options() };
+    put(&dir.join("faces.jpg"), &dalica_meta::write_owned(&plain_jpeg(1), &changes, &people).unwrap(), 0);
+    put(&dir.join("plain.jpg"), &plain_jpeg(2), 0);
+    put(&dir.join("IMG_0001.CR3"), CR3, 0);
+    let Ok(SidecarWrite::Write(xmp)) = xmp_sidecar::merge(None, None, &changes, &people) else { panic!("a new sidecar") };
+    put(&dir.join("IMG_0001.xmp"), &xmp, 0);
+    let scan = scan_with(&[tmp.path().to_path_buf()], &reading(ReadMetadata::all()));
+    for name in ["faces.jpg", "IMG_0001.CR3"] {
+        let faces = found(&scan, name).file.as_ref().unwrap().faces();
+        assert_eq!(faces.len(), 1, "{name}: {faces:?}");
+        let r = faces[0].rect;
+        assert_eq!(faces[0].name.as_deref(), Some("Ana"), "{name}");
+        assert!([r.x0() - 0.2, r.y0() - 0.25, r.x1() - 0.4, r.y1() - 0.55].iter().all(|d| d.abs() < 1e-6), "{name}: {r:?}");
+    }
+    assert!(found(&scan, "plain.jpg").file.as_ref().unwrap().faces().is_empty());
 }
 
 /// `xmp-interop.md` §5 rule 1: a photo Dalica has nothing for brings every value its file has in

@@ -19,8 +19,9 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 > in the library, a failed write shown as a failure toast); reading on scan M6.32; places and
 > people M13: MWG face regions read and written in `dalica-meta` (M13.11,
 > `crates/meta/src/xmp/regions.rs`: §6, through the merge writer into every container that takes
-> XMP and `.xmp` sidecars, `Changes::faces` under `WriteOptions::people_names`), the engine's use
-> of them M13.19. The parser and writer are our own, in `crates/meta`
+> XMP and `.xmp` sidecars, `Changes::faces` under `WriteOptions::people_names`), and the engine's
+> use of them (M13.19: regions read on scan into faces and people, named faces written through the
+> write queue with Store people names in photos or Write People Names to Photos…, §6). The parser and writer are our own, in `crates/meta`
 > (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
 > §9).
 
@@ -269,7 +270,21 @@ the format most photo applications use for named faces.
   caption does. Writing the same faces again changes nothing. At most 256 faces are written.
 - **Option off:** nothing is written; regions in the file are read and preserved. **Tools →
   Experimental → Write People Names to Photos…** (`faces.writeXmp`) writes them for a selection
-  once, after a confirmation.
+  once, after a confirmation ("Write the names of the people in the 3 selected pictures into the
+  files? Other applications will show them."); photos without faces are skipped.
+- **In the library** (M13.19): on a photo's first scan, a file's face entries become its faces
+  when its folder sidecar gives it none: a named entry is the person holding that name, ignoring
+  case, else a new person; an unnamed one goes to Unnamed. A photo the library knows whose file
+  changed takes the face entries of its file that overlap (IoU ≥ 0.5) none of its faces. Both come
+  in with no undo step and are never written back. With the option on, every change to a photo's
+  named faces (naming, renaming, merging or deleting a person, moving or removing a face, undo and
+  redo included) queues a regions write through the metadata write queue (`data-model.md` §5);
+  turning the option on writes nothing until a face changes or the command runs. The library keeps
+  no last-synced hash of the people names, so what is new in a file is told by overlap: a write
+  knows every face rectangle the photo had before and after the change, and a file holding a face
+  entry none of them overlaps (added by another application since) is not written over; that
+  face comes in first and the write is made again. Faces already in the library keep the library's
+  names (rule 2 of §5).
 
 ## 7. `.xmp` sidecars for RAW files
 

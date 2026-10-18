@@ -7990,7 +7990,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     excluded folder is never read; the job yields while user activity is reported and the owner
     made no `fs` call; switching models rebuilds from its own cache; under `RUST_LOG=trace` the log
     holds no name, rectangle or embedding; `panic_hunt` green.
-- ⬜ **M13.19 `engine` + `store` + `scan`: people names in photo files**
+- ✅ **M13.19 `engine` + `store` + `scan`: people names in photo files**
   - after: M13.9, M13.11, M13.15
   - files: `crates/engine/src/cmd/face_regions.rs`, `crates/engine/src/metadata.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/meta.rs`, `crates/scan/tests/meta.rs`, `crates/store/src/metawrite.rs`, `crates/store/src/metawrite/**`, `crates/engine/tests/face_regions.rs`, `docs/xmp-interop.md`
   - scope: `xmp-interop.md` §6 and `data-model.md` §5: MWG regions read on scan become faces and

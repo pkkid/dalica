@@ -216,8 +216,10 @@ fn first_field(changes: &Changes) -> &'static str {
         "star"
     } else if changes.place.is_some() {
         "place"
-    } else {
+    } else if changes.date_taken.is_some() || changes.faces.is_none() {
         "date taken"
+    } else {
+        "people names"
     }
 }
 
@@ -259,7 +261,8 @@ fn xmp_overflow(old: Option<&[u8]>, changes: &Changes, metadata_date: Option<&Da
     if !fits(&so_far) {
         return "XMP bytes for the place";
     }
-    "XMP bytes for the date taken"
+    so_far.date_taken.clone_from(&changes.date_taken);
+    if changes.faces.is_none() || !fits(&so_far) { "XMP bytes for the date taken" } else { "XMP bytes for the people names" }
 }
 
 /// The new Photoshop resources, or `None` when they stay as they are.
@@ -432,5 +435,22 @@ mod tests {
         );
         assert_eq!(out, b"01exR4589P");
         assert_eq!(apply(b"abc", Vec::new()), b"abc");
+    }
+
+    /// Faces that push the packet past one APP1 are named as the people names (M13.19), not as
+    /// the date taken.
+    #[test]
+    fn an_overflow_of_faces_names_the_people_names() {
+        use crate::write::{NamedFace, NamedFaces};
+        let face = |i: u32| NamedFace {
+            name: format!("{i} {}", "x".repeat(1000)),
+            rect: dalica_core::Rect01::new(f64::from(i) * 0.003, 0.0, f64::from(i) * 0.003 + 0.002, 0.1).unwrap(),
+        };
+        let faces = NamedFaces { width: 4000, height: 3000, faces: (0..256).map(face).collect() };
+        let date = DateTaken::parse_iso("2026-06-04T19:42:10").unwrap();
+        let changes = Changes { date_taken: Some(date), faces: Some(faces), ..Changes::default() };
+        assert_eq!(xmp_overflow(None, &changes, None, &Limits::default()), "XMP bytes for the people names");
+        assert_eq!(first_field(&Changes { faces: changes.faces.clone(), ..Changes::default() }), "people names");
+        assert_eq!(first_field(&changes), "date taken");
     }
 }
