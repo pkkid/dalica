@@ -3,7 +3,8 @@
 //! an agent would:
 //!
 //! - Picture ▸ Batch Edit ▸ Auto Fix acts on the tray's photos (20 held ones here), and one Ctrl+Z
-//!   gives all 20 their recipes back; Sepia is greyed with "Arrives with Effects";
+//!   gives all 20 their recipes back; each of the five effects is greyed with "Arrives with Effects"
+//!   while its module is a stub, and once it renders is one undo step on the 20 held photos;
 //! - Edit ▸ Copy All Edits on one photo, then Paste All Edits on three selected, gives them its
 //!   recipe; a photo holding an entry Dalica cannot read is skipped and named in a toast;
 //! - in the edit view Paste All Edits is a step of the open photo's history, which its Undo button
@@ -98,11 +99,32 @@ fn batch_auto_fix_on_twenty_held_photos_is_one_undo_step_and_effects_are_greyed(
         assert!(edits(&t, *id).is_empty(), "one Ctrl+Z restores photo {id}");
     }
 
-    // The effects wait for M12: greyed with their reason, refused when invoked.
-    let e = call(&mut t, "ui.menu.invoke", json!({ "path": "Picture/Batch Edit/Sepia", "wait": true })).unwrap_err();
-    assert_eq!(e.code.as_str(), "disabled");
-    assert!(e.message.contains("Arrives with Effects"), "{}", e.message);
-    assert!(held.iter().all(|id| edits(&t, *id).is_empty()));
+    // Each effect waits for its renderer (M12.6–M12.14): greyed with its reason and refused when
+    // invoked while its module is a stub; once it renders, one undo step on the 20 held photos.
+    for (label, name) in [("Sepia", "sepia"), ("Sharpen", "sharpen"), ("Warmify", "warmify"), ("Film Grain", "grain"), ("Black and White", "bw")] {
+        let path = format!("Picture/Batch Edit/{label}");
+        let row = dalica_edit::catalog::lookup(name).unwrap();
+        if row.renders() {
+            let steps = t.d.app().session().unwrap().undo_stack().len();
+            menu(&mut t, &path);
+            let entry = row.default_entry().unwrap();
+            for id in &held {
+                assert_eq!(edits(&t, *id), [entry.as_str()], "{path}: photo {id}");
+            }
+            assert!(edits(&t, t.ids[20]).is_empty() && edits(&t, t.ids[21]).is_empty(), "{path}: photos outside the tray are left alone");
+            let stack = t.d.app().session().unwrap().undo_stack();
+            assert_eq!((stack.len(), stack.undo_label()), (steps + 1, Some(label)), "{path}: one library step, named as the menu item");
+            ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Z" }));
+            for id in &held {
+                assert!(edits(&t, *id).is_empty(), "{path}: one Ctrl+Z restores photo {id}");
+            }
+        } else {
+            let e = call(&mut t, "ui.menu.invoke", json!({ "path": path, "wait": true })).unwrap_err();
+            assert_eq!(e.code.as_str(), "disabled", "{path}");
+            assert!(e.message.contains("Arrives with Effects"), "{path}: {}", e.message);
+            assert!(held.iter().all(|id| edits(&t, *id).is_empty()), "{path}");
+        }
+    }
 }
 
 #[test]
