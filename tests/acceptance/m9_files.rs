@@ -454,7 +454,12 @@ fn moved_outside(exe: &Path, home: &Path, root: &Path, app_: live::App, mut cl: 
         assert_eq!(app::photos(c, root).len(), all.len(), "{case}: nothing new, nothing lost");
     };
 
-    // While watching.
+    // While watching. The folder moves once Dalica's writes into it have landed (the caption into
+    // the photo, the sidecar's caption and album): Windows refuses to rename a folder while a file
+    // in it is open ("Access is denied"), as it would refuse a user moving it in Explorer then.
+    until(c, "the caption and the album are written", Duration::from_secs(120), |c| {
+        c.ok("engine.execute", json!({ "command": "library.inspect", "params": {} }))["pendingWrites"].is_null()
+    });
     std::fs::create_dir_all(root.join("Elsewhere")).unwrap();
     std::fs::rename(root.join("Porto"), root.join("Elsewhere").join("Oporto")).unwrap();
     let watched = until(c, "the watcher found the moved folder", Duration::from_secs(120), |c| {
