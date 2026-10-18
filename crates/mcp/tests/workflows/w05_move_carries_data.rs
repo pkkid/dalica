@@ -118,6 +118,10 @@ fn w05_move_carries_data() {
     agent.tool("cmd_edit_undo", json!({}));
     wait_holds(&from, &items, true);
     wait_holds(&to, &items, false);
+    // The carry back writes the entries as they were in the other folder (their last-change time
+    // the move's) and then the model's values over them: the exact entry is there once no sidecar
+    // write is pending.
+    eventually("every write done after the undo", || agent.inspect()["pendingWrites"].is_null().then_some(()), String::new);
     for i in &items {
         assert_eq!(sidecar_entry(&from, &i.name), i.entry, "the undo gives back the entry as it was, its last-change time too");
     }
