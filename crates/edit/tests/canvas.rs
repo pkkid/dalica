@@ -37,6 +37,15 @@ fn each_effect_at_its_defaults_matches_its_fingerprint_at_two_sizes() {
     }
 }
 
+/// A whole 1200 × 800 render of Widescreen Film at its defaults, large enough that its grain's
+/// cells are about a pixel and the rows' fast paths are taken (the fingerprint above is too small
+/// for that), matches `canvas-widescreen-large`, blessed from the M12 code before M13.42 made it
+/// faster.
+#[test]
+fn widescreen_film_at_its_defaults_matches_its_large_fingerprint() {
+    check_fingerprint("canvas-widescreen-large", &run(&scene(12, 1200, 800), &[WIDESCREEN]), 0.5);
+}
+
 #[test]
 fn a_border_is_the_photo_grown_by_both_bands_with_the_photo_unchanged_inside() {
     let up = scene(7, 300, 200);
