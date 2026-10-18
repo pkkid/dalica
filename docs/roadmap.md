@@ -7913,7 +7913,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     off nothing is written; a phone photo's GPS appears as its geotag after the first scan; paste
     applies the copied place; 21 moves and 6 removals ask; each command's contract and graceful
     failures; the owner thread made no `fs` call; `panic_hunt` green.
-- ⬜ **M13.15 `engine`: faces and people as data: naming, ignoring, people, person albums, face tiles and search**
+- ✅ **M13.15 `engine`: faces and people as data: naming, ignoring, people, person albums, face tiles and search**
   - after: M13.1, M13.3, M13.9, M13.45
   - files: `crates/engine/src/cmd/people.rs`, `crates/engine/src/cmd/faces.rs`, `crates/engine/src/face_tiles.rs`, `crates/engine/src/search.rs`, `crates/engine/src/automation.rs`, `crates/engine/tests/people.rs`, `docs/control-protocol.md`
   - scope: `organizing.md` §6 and `faces.md` §9, no model needed: `faces.list {person | unnamed |

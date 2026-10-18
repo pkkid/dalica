@@ -50,6 +50,7 @@ mod options_catalogue;
 mod options_set;
 mod panic_hunt;
 mod pending_writes;
+mod people;
 mod photo_history;
 mod photo_metadata;
 mod places;

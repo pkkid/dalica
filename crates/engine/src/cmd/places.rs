@@ -105,7 +105,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "List Places",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId]} | {"section":"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"}: the geotags of the photos named, or of the section's photos: {total (photos looked at), photos:[{id, geo:[lat, lon]}] (the geotagged ones, in the order given), places (distinct points among them), removed (photos whose location the user removed)}"#,
+            params: r#"{"ids":[PhotoId]} | {"section":"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"person:<id>"}: the geotags of the photos named, or of the section's photos: {total (photos looked at), photos:[{id, geo:[lat, lon]}] (the geotagged ones, in the order given), places (distinct points among them), removed (photos whose location the user removed)}"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -254,6 +254,7 @@ fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         (Some(ids), None) => known(s, ids)?,
         (None, Some(text)) => match crate::cmd::section::section(s, &text)? {
             Section::Folder(folder) => s.library().photos_in(folder).into_iter().map(|p| p.id).collect(),
+            Section::Person(person) => s.library().person_photos(&person).to_vec(),
             Section::Album(album) => {
                 if matches!(album, AlbumRef::Search) {
                     return Err(CmdError::Disabled("There are no search results.".into()));

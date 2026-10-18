@@ -40,8 +40,16 @@
 //! directory capabilities (`cap-std`): absolute paths are resolved through their links and
 //! compared, as the control channel did; several roots of each kind; the watched folders and
 //! `.dalica-originals`; the MCP client's roots; the external and people permissions.
+//!
+//! - **People data** (`control-protocol.md` §6.4, `faces.md` §7): without
+//!   `--automation-allow-people` the replies of the commands that carry it ([`PEOPLE_REPLIES`]:
+//!   `faces.list`, `faces.add`, `people.list`) reach automation with names and nicknames `null`
+//!   and face rectangles left out, ids and counts kept ([`Policy::people_reply`]); face
+//!   descriptors are never returned, whatever was granted. The commands themselves run as asked.
 
 use std::path::{Component, Path, PathBuf, Prefix};
+
+use serde_json::Value;
 
 use crate::registry::Effect;
 
@@ -58,6 +66,21 @@ pub const MAX_ROOTS: usize = 256;
 /// imported files from a card is the one permanent deletion in Dalica, and only the person at the
 /// computer answers its question.
 pub const NEVER_AUTOMATED: &[&str] = &["import.removeFromSource"];
+
+/// The commands whose replies carry people data (`control-protocol.md` §6.4): names and nicknames
+/// (`name`, `nickname`) and face rectangles (`rect`, `displayed`). Without
+/// `--automation-allow-people` an automation surface passes their replies through
+/// [`Policy::people_reply`]. A command that comes to answer with people data joins this list.
+pub const PEOPLE_REPLIES: &[&str] = &["faces.list", "faces.add", "people.list"];
+
+/// Keys of a people reply set to `null` without the people permission.
+const NAME_KEYS: &[&str] = &["name", "nickname"];
+/// Keys of a people reply left out without the people permission.
+const RECT_KEYS: &[&str] = &["rect", "displayed"];
+/// Keys left out of every reply, whatever was granted: face descriptors never leave the engine.
+const NEVER_KEYS: &[&str] = &["embedding", "embeddings", "landmarks"];
+/// The deepest a reply is walked.
+const MAX_REPLY_DEPTH: usize = 64;
 
 /// Why a path or an effect was refused: the control protocol's error codes (`control-protocol.md`
 /// §3).
@@ -212,6 +235,18 @@ impl Policy {
         self.allow_people
     }
 
+    /// The reply of command `id` as this surface may give it (`control-protocol.md` §6.4): face
+    /// descriptors (`embedding`, `landmarks`) are always left out; without
+    /// `--automation-allow-people` the replies of [`PEOPLE_REPLIES`] have their names and
+    /// nicknames `null` and their face rectangles left out, ids and counts kept. Other replies are
+    /// returned as they are.
+    pub fn people_reply(&self, id: &str, reply: Value) -> Value {
+        if !PEOPLE_REPLIES.contains(&id) {
+            return reply;
+        }
+        withhold_people(reply, !self.allow_people)
+    }
+
     /// A command with `effect` (`id` naming it): an effect outside Dalica needs
     /// `--automation-allow-external` (§5.6), and a command of [`NEVER_AUTOMATED`] is refused
     /// whatever was granted ([`never_automated`]).
@@ -327,6 +362,38 @@ pub fn never_automated(id: &str) -> Result<(), Refused> {
         ));
     }
     Ok(())
+}
+
+/// `reply` without face descriptors and, when `names` is set, with every name and nickname `null`
+/// and every face rectangle left out, at any depth (a reply deeper than [`MAX_REPLY_DEPTH`] is
+/// cut there: its deeper values are left out).
+pub fn withhold_people(mut reply: Value, names: bool) -> Value {
+    let mut stack: Vec<(&mut Value, usize)> = vec![(&mut reply, 0)];
+    while let Some((value, depth)) = stack.pop() {
+        match value {
+            Value::Object(map) => {
+                map.retain(|k, _| !NEVER_KEYS.contains(&k.as_str()) && !(names && RECT_KEYS.contains(&k.as_str())));
+                for (k, v) in map.iter_mut() {
+                    if (names && NAME_KEYS.contains(&k.as_str())) || depth >= MAX_REPLY_DEPTH {
+                        *v = Value::Null;
+                    } else {
+                        stack.push((v, depth + 1));
+                    }
+                }
+            }
+            Value::Array(list) => {
+                for v in list.iter_mut() {
+                    if depth >= MAX_REPLY_DEPTH {
+                        *v = Value::Null;
+                    } else {
+                        stack.push((v, depth + 1));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    reply
 }
 
 /// Adds `dir` to `roots` when it is absolute and not there yet, up to [`MAX_ROOTS`].

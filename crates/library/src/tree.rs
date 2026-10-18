@@ -59,7 +59,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use dalica_core::{AlbumId, Date, DateTime, FolderId, PhotoId, Timestamp};
+use dalica_core::{AlbumId, Date, DateTime, FolderId, PersonId, PhotoId, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Library, Photo};
@@ -166,13 +166,15 @@ impl fmt::Display for AlbumRef {
     }
 }
 
-/// A light-table section of any kind: an album's or a folder's. [`SectionId`] names the folder
-/// sections [`Tree`] lists; this one adds the albums of [`AlbumTree`].
+/// A light-table section of any kind: an album's, a folder's or a person's. [`SectionId`] names the
+/// folder sections [`Tree`] lists; this one adds the albums of [`AlbumTree`] and the person albums
+/// (M13: the photos holding a person's faces, by date like a folder, [`Library::person_photos`]).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Section {
     Album(AlbumRef),
     Folder(FolderId),
+    Person(PersonId),
 }
 
 impl From<SectionId> for Section {
@@ -184,11 +186,13 @@ impl From<SectionId> for Section {
 }
 
 impl fmt::Display for Section {
-    /// `folder:12`, `album:starred`, `album:recent`, `album:search` or `album:a91c0e`.
+    /// `folder:12`, `album:starred`, `album:recent`, `album:search`, `album:a91c0e` or
+    /// `person:p7f3a2c`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Section::Album(a) => write!(f, "album:{a}"),
             Section::Folder(id) => write!(f, "folder:{id}"),
+            Section::Person(id) => write!(f, "person:{id}"),
         }
     }
 }
@@ -198,13 +202,15 @@ impl FromStr for Section {
 
     /// Reads what [`Section`]'s `Display` writes.
     fn from_str(s: &str) -> Result<Section, crate::Error> {
-        let bad = crate::Error::BadText { what: "section", why: "not folder:<id>, album:<id>, album:starred, album:recent or album:search" };
+        let bad =
+            crate::Error::BadText { what: "section", why: "not folder:<id>, album:<id>, album:starred, album:recent, album:search or person:<id>" };
         match s.split_once(':') {
             Some(("folder", id)) => id.parse().map(Section::Folder).map_err(|_| bad),
             Some(("album", "search")) => Ok(Section::Album(AlbumRef::Search)),
             Some(("album", "starred")) => Ok(Section::Album(AlbumRef::Starred)),
             Some(("album", "recent")) => Ok(Section::Album(AlbumRef::Recent)),
             Some(("album", id)) => AlbumId::parse(id).map(|id| Section::Album(AlbumRef::User(id))).map_err(|_| bad),
+            Some(("person", id)) => PersonId::parse(id).map(Section::Person).map_err(|_| bad),
             _ => Err(bad),
         }
     }
@@ -841,7 +847,7 @@ pub fn section_photos(library: &Library, sections: &[Section], options: &TreeOpt
         .iter()
         .filter_map(|s| match s {
             Section::Folder(id) => Some(*id),
-            Section::Album(_) => None,
+            Section::Album(_) | Section::Person(_) => None,
         })
         .collect();
     let mut by_folder: HashMap<FolderId, Vec<&Photo>> = HashMap::with_capacity(wanted.len());
@@ -864,6 +870,7 @@ pub fn section_photos(library: &Library, sections: &[Section], options: &TreeOpt
                     options.now.map(|now| shown(&library.recently_updated(now, options.recent_days))).unwrap_or_default()
                 }
                 Section::Album(AlbumRef::Search) => shown(options.filter.as_ref().map(|f| f.ids()).unwrap_or_default()),
+                Section::Person(p) => shown(library.person_photos(p)),
             };
             (s.clone(), ids)
         })

@@ -735,6 +735,8 @@ impl SearchIndex {
                     None => 0,
                 },
                 Section::Album(AlbumRef::Search) => 0,
+                // A person album (M13.15): the matches holding one of the person's faces.
+                Section::Person(p) => bits.ones().filter(|s| self.doc(*s).is_some_and(|d| d.people.contains(p))).count(),
             };
             if count > 0 {
                 sections.push(SectionCount { section: s.clone(), count });

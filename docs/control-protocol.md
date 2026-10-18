@@ -495,7 +495,8 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   on its logarithmic scale); and once the worker's answer came the banner's numbers: `matches`
   (`null` before it and outside search mode), `folders`, `bytes`, `seconds`, the `sections` that
   keep a match with their counts (the search album first), `unavailable` (operators and filters
-  that match nothing yet: `person`, `color`, `faces`) and `truncated` (the text was cut at the
+  that match nothing for want of data: `person` while the library has no people, `faces` while no
+  photo has a face, `color` until colour search exists) and `truncated` (the text was cut at the
   grammar's caps). `pending` is true while a query waits for its debounce (120 ms on the session
   clock) or for the worker; `generation` rises with every change of the query. In duplicates mode
   `groups` lists the groups (`{count, size, bytes, ids}`, largest total first) and `banner` is the
@@ -508,6 +509,22 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
 - **People data is withheld by default:** person names, face rectangles and assignments appear only
   when the app was started with `--automation-allow-people`; otherwise people rows show
   `name: null` and counts. Face descriptors are never returned (`AGENTS.md` "Privacy").
+- **What is withheld, command by command** (M13.15; the engine's `automation::PEOPLE_REPLIES`
+  and `Policy::people_reply`, one rule for the control channel and MCP): without
+  `--automation-allow-people` the replies of `faces.list`, `faces.add` and `people.list` keep
+  their ids (faces `"<PhotoId>.<n>"`, people `p…`), photos, counts and flags (`ignored`,
+  `created`, `changed`), while every `name` and `nickname` in them is `null` and every face
+  rectangle (`rect`, `displayed`) is left out. The commands themselves run as asked (naming a
+  face by a person's id or by a name the caller gives is allowed: the caller already knows the
+  name). With the permission the replies are as the engine gives them. Whatever was granted,
+  `embedding`, `embeddings` and `landmarks` never appear in a reply, and no error message holds
+  a name or a rectangle (people are named by id). A command that comes to answer with people
+  data joins `PEOPLE_REPLIES`. The desktop app has no `--automation-allow-people` flag yet, so
+  `engine.execute` over the control channel always answers as to a client without it.
+- A person's section is `person:<PersonId>` (§5.4): `library.inspect`'s `photos` and `section`,
+  `library.query`, `slideshow.list`, `export.*`, `places.list` and `section.refreshThumbs` take
+  it (the photos holding the person's faces, by date like a folder); a person section listed here
+  carries no `name` (names are `people.list`'s). `counts.people` counts the people.
 
 ### 6.5 `ui.state` and `ui.set`
 

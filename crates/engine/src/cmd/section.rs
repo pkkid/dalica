@@ -36,7 +36,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Refresh Thumbnails",
             menu: "Folder/Refresh Thumbnails",
             keys: &[],
-            params: r#"{"section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent", "ids"?:[PhotoId]}: make the thumbnails of the section (or of the folders of the photos `ids` names) again, in the background"#,
+            params: r#"{"section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"person:<id>", "ids"?:[PhotoId]}: make the thumbnails of the section (or of the folders of the photos `ids` names) again, in the background"#,
             effect: Effect::Library,
             history: History::None,
             enabled: has_target,
@@ -78,7 +78,9 @@ fn has_target(_: &Session, p: &Value) -> Result<(), Disabled> {
 pub(crate) fn section(s: &Session, text: &str) -> Result<Section, CmdError> {
     let bad = || {
         let shown: String = text.chars().take(40).collect();
-        CmdError::BadParams(format!("section must be \"folder:<id>\", \"album:<id>\", \"album:starred\" or \"album:recent\", not {shown:?}"))
+        CmdError::BadParams(format!(
+            "section must be \"folder:<id>\", \"album:<id>\", \"album:starred\", \"album:recent\" or \"person:<id>\", not {shown:?}"
+        ))
     };
     let section = match text.strip_prefix("folder:") {
         Some(n) => Section::Folder(FolderId::new(n.parse::<u64>().ok().filter(|n| *n > 0).ok_or_else(bad)?)),
@@ -87,6 +89,7 @@ pub(crate) fn section(s: &Session, text: &str) -> Result<Section, CmdError> {
     match &section {
         Section::Folder(id) if s.library().folder(*id).is_none() => Err(CmdError::NotFound(format!("no folder {id}"))),
         Section::Album(AlbumRef::User(a)) if s.library().album(a).is_none() => Err(CmdError::NotFound(format!("no album {a}"))),
+        Section::Person(p) if s.library().person(p).is_none() => Err(CmdError::NotFound(format!("no person {p}"))),
         Section::Album(AlbumRef::Search) => Err(CmdError::Disabled("There are no search results.".into())),
         _ => Ok(section),
     }
@@ -132,6 +135,7 @@ fn refresh_thumbs(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
             folders.insert(*id);
         }
         Some(Section::Album(album)) => photos = section_photos(s, album),
+        Some(Section::Person(person)) => photos = s.library().person_photos(person).to_vec(),
         None => {}
     }
     let seen: BTreeSet<PhotoId> = photos.iter().copied().collect();
@@ -160,6 +164,7 @@ fn sort(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     match named {
         Some(Section::Album(AlbumRef::User(album))) => sort_album(s, &album, by, reverse.unwrap_or(false)),
         Some(Section::Album(_)) => Err(CmdError::Disabled("Starred Photos and Recently Updated keep their own order.".into())),
+        Some(Section::Person(_)) => Err(CmdError::Disabled("A person's photos keep their own order.".into())),
         Some(Section::Folder(id)) => {
             folders.insert(id);
             sort_folders(s, &folders, by, reverse, turn)

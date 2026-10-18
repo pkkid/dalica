@@ -42,7 +42,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Slideshow Photos",
         menu: "",
         keys: &[],
-        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out}; hidden photos only while the view shows hidden pictures"#,
+        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out}; hidden photos only while the view shows hidden pictures"#,
         effect: Effect::Query,
         history: History::None,
         enabled: has_target,
@@ -93,6 +93,7 @@ fn section_list(s: &mut Session, text: &str) -> Result<Vec<PhotoId>, CmdError> {
         }
         Section::Folder(f) if lib.folder(*f).is_none() => return Err(CmdError::NotFound(format!("no folder {f}"))),
         Section::Album(AlbumRef::User(a)) if lib.album(a).is_none() => return Err(CmdError::NotFound(format!("no album {a}"))),
+        Section::Person(p) if lib.person(p).is_none() => return Err(CmdError::NotFound(format!("no person {p}"))),
         _ => {}
     }
     let options = s.search_tree_options();
