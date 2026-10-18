@@ -5,8 +5,9 @@
 //! writes them back; with the option off nothing is written; a file's GPS is the photo's geotag
 //! after the first scan, unless its sidecar says the user removed it, and a removed location never
 //! comes back from the file; Copy and Paste Location; changing the location of 21 tagged photos
-//! and removing it from 6 ask first; `places.list`; each command's graceful failures; the owner
-//! thread makes no file system call.
+//! and removing it from 6 ask first; `places.list` and the effective geotag in `photo.inspect`
+//! and `library.inspect`; each command's graceful failures; the owner thread makes no file system
+//! call.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -369,6 +370,16 @@ fn places_lists_the_geotags_of_the_photos_shown_or_selected() {
     s.execute("photo.star.set", &json!({ "ids": [ids[2]], "on": true })).unwrap();
     let starred = s.execute("places.list", &json!({ "section": "album:starred" })).unwrap();
     assert_eq!((starred["total"].clone(), starred["places"].clone()), (json!(1), json!(1)));
+
+    // The effective geotag in `photo.inspect` and `library.inspect`.
+    s.execute("geo.clear", &json!({ "ids": [ids[1]] })).unwrap();
+    let v = s.execute("photo.inspect", &json!({ "ids": [ids[0], ids[1], ids[3]] })).unwrap();
+    let got: Vec<(Value, Value)> = v.as_array().unwrap().iter().map(|p| (p["geotagged"].clone(), p["place"].clone())).collect();
+    assert_eq!(got, [(json!(true), json!([38.7, -9.1])), (json!(false), Value::Null), (json!(false), Value::Null)]);
+    let lib = s.execute("library.inspect", &json!({ "photos": format!("folder:{folder}") })).unwrap();
+    let row = |id: PhotoId| lib["photos"].as_array().unwrap().iter().find(|p| p["id"] == json!(id)).cloned().unwrap();
+    assert_eq!((row(ids[2])["geo"].clone(), row(ids[2])["place"].clone()), (json!(true), json!([41.1, -8.6])));
+    assert_eq!((row(ids[1])["geo"].clone(), row(ids[1])["place"].clone()), (json!(false), Value::Null), "removed by the user");
 }
 
 /// Each command's graceful failures: nothing selected, unknown photos and sections, bad points and
