@@ -159,3 +159,29 @@ fn names_windows_would_misread_are_named() {
         assert_eq!(code(automation::lexical(Path::new(r"C:\out\a.png:x"), "path")), "bad_params");
     }
 }
+
+/// `options.set` changing an option that lets the app reach outside or decides where it connects
+/// needs `--automation-allow-external` (M13.28); turning tiles off and the attribution do not.
+#[test]
+fn options_that_reach_outside_need_the_external_permission() {
+    let mut p = Policy::default();
+    let set = |values: serde_json::Value| serde_json::Map::from_iter([("values".to_string(), values)]);
+    for key in dalica_engine::automation::EXTERNAL_OPTIONS {
+        let value = if *key == "network.allowMapTiles" { serde_json::json!(true) } else { serde_json::json!("x") };
+        let refused = p.check_command(Effect::Library, "options.set", &set(serde_json::json!({ *key: value }))).unwrap_err();
+        assert_eq!(refused.kind, Refusal::ExternalDenied, "{key}");
+    }
+    for fine in [
+        serde_json::json!({ "network.allowMapTiles": false }),
+        serde_json::json!({ "network.tileAttribution": "© Maps", "interface.animations": false }),
+    ] {
+        assert!(p.check_command(Effect::Library, "options.set", &set(fine.clone())).is_ok(), "{fine}");
+    }
+    assert!(
+        p.check_command(Effect::Library, "photo.star.toggle", &set(serde_json::json!({ "network.allowMapTiles": true }))).is_ok(),
+        "only options.set"
+    );
+    assert_eq!(p.check_command(Effect::External, "photo.locate", &serde_json::Map::new()).unwrap_err().kind, Refusal::ExternalDenied);
+    p.set_allow_external(true);
+    assert!(p.check_command(Effect::Library, "options.set", &set(serde_json::json!({ "network.allowMapTiles": true }))).is_ok());
+}

@@ -1219,3 +1219,43 @@ fn people_names_are_withheld_from_the_windows_replies_without_the_people_permiss
         assert_eq!(ok(&mut t, "ui.state", json!({}))["peoplePane"]["manual"]["name"], named("Person", "Ana"), "{at}");
     }
 }
+
+/// Without `--automation-allow-external` nothing automation does lets the app reach the network
+/// (§5.6, M13.28): `options.set` turning Allow map tiles on or changing where the app connects is
+/// `external_denied` and changes nothing, the Places pane's Allow and a name searched there are
+/// refused with the reason on the status line, and turning tiles off or changing the attribution
+/// still runs. With the permission, the same `options.set` runs.
+#[test]
+fn options_that_reach_outside_and_the_panes_allow_need_the_external_permission() {
+    let mut t = setup(1);
+    // Never the network, even if a refusal failed.
+    t.d.app_mut().session_mut().unwrap().set_network_transport(Some(Arc::new(dalica_fetch::MemoryTransport::new())));
+    for values in [
+        json!({ "network.allowMapTiles": true }),
+        json!({ "network.tileServer": "https://maps.example/{z}/{x}/{y}.png" }),
+        json!({ "network.geocoder": "https://geo.example/?q={query}" }),
+        json!({ "network.proxy": "manual", "network.proxyHost": "proxy.example" }),
+        json!({ "network.proxyPort": 3128 }),
+    ] {
+        let e = refused(&mut t, "engine.execute", json!({ "command": "options.set", "params": { "values": values } }), "external_denied");
+        assert!(e.message.contains("--automation-allow-external"), "{}", e.message);
+    }
+    let s = t.d.app().session().unwrap().settings().network();
+    assert!(!s.allow_map_tiles && s.tile_server == dalica_engine::map_tiles::DEFAULT_TILE_SERVER, "nothing changed");
+    let harmless = json!({ "values": { "network.allowMapTiles": false, "network.tileAttribution": "© Maps" } });
+    ok(&mut t, "engine.execute", json!({ "command": "options.set", "params": harmless }));
+    assert_eq!(t.d.app().session().unwrap().settings().network().tile_attribution, "© Maps");
+
+    // The pane's question and its search, driven by the channel.
+    ok(&mut t, "engine.execute", json!({ "command": "pane.places", "params": {} }));
+    ok(&mut t, "ui.clickWidget", json!({ "id": crate::panels::places::tiles::ALLOW_ID }));
+    assert!(!t.d.app().session().unwrap().map_tiles_allowed(), "Allow refused over automation");
+    assert_eq!(t.d.state().status, crate::commands::map::EXTERNAL);
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "map.allowTiles", "params": { "on": true } })), "disabled");
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "map.search", "params": { "text": "Lisbon" } })), "disabled");
+
+    let mut t = setup_with(1, |_| Config { allow_external: true, ..Config::default() });
+    t.d.app_mut().session_mut().unwrap().set_network_transport(Some(Arc::new(dalica_fetch::MemoryTransport::new())));
+    ok(&mut t, "engine.execute", json!({ "command": "options.set", "params": { "values": { "network.allowMapTiles": true } } }));
+    assert!(t.d.app().session().unwrap().map_tiles_allowed(), "granted: it runs");
+}

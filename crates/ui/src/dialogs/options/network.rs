@@ -26,8 +26,10 @@
 //! servers are editable for a self-hosted one; an address the map cannot use (not `https://`, or
 //! without its `{z}`, `{x}`, `{y}` or `{query}`) is accepted but says why under it in `danger`
 //! ([`template_problem`]). The port takes digits only and goes into the draft once it is 1 …
-//! 65535. Under automation without `--automation-allow-external`, ticking Allow map tiles is
-//! refused with the reason on the status line (it would let the app reach outside).
+//! 65535. Under automation without `--automation-allow-external`, a change that would let the app
+//! reach outside or decide where it connects (ticking Allow map tiles; the tile server, the
+//! geocoding service, the proxy: `dalica_engine::automation::EXTERNAL_OPTIONS`) is refused with the
+//! reason on the status line, as `options.set` is over `engine.execute` and MCP.
 //!
 //! Automation ids (`control-protocol.md` §7): `check:option.network.allowMapTiles`, the fields
 //! `field:option.network.tileServer`, `field:option.network.tileAttribution`,
@@ -99,7 +101,8 @@ pub fn body(app: &mut App, ui: &mut Ui) {
         .show(ui, |ui| changes = form(ui, &t, &opts, &draft));
     for (i, value) in changes {
         let Some(o) = opts.get(i) else { continue };
-        if o.row.key == ALLOW && value == json!(true) && !external_allowed() {
+        let one = serde_json::Map::from_iter([("values".to_string(), json!({ o.row.key.as_str(): value.clone() }))]);
+        if !external_allowed() && dalica_engine::automation::external_option("options.set", &one).is_some() {
             app.state_mut().status = crate::commands::map::EXTERNAL.into();
             continue;
         }
