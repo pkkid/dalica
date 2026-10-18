@@ -14,6 +14,7 @@
 //! | [`effects`] | the effect tabs' tile grids | M12.15 |
 //! | [`effect_panel`] | an effect's parameter panel ([`crate::commands::effect_session`]) | M12.16 |
 //! | [`crosshair`], [`soften_brush`] | an open effect's crosshair and Soften's brush on the photo | M12.17, M12.18 |
+//! | [`faces`] | the face boxes and Add a Person Manually's box on the photo (no tool open) | M13.24 |
 //!
 //! While a room is open the room tab strip sits under the menu bar (`ui-layout.md` §8): the edit
 //! view is the Library tab's content.
@@ -79,6 +80,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             }
             _ => {}
         }
+        faces::on_canvas(app, ui);
     });
     region(ui, "captionBar", l.caption_bar, t.canvas, |ui| caption_bar::show(app, ui));
     if let Some(rect) = l.side_pane {

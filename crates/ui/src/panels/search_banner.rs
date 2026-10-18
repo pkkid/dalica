@@ -3,7 +3,10 @@
 //! [`widgets::filter_banner`]: [Show All] at its left (`button:search.showAll`, which leaves search
 //! mode and brings the scroll position back), and what is shown after it ([`text`]): "Showing 33
 //! pictures in 4 folders (0.01 s) · 439.8 MB", "Searching…" until the first answer, or in Find
-//! Duplicates' mode "12 duplicate groups (31 files)". The banner itself is `banner:search`.
+//! Duplicates' mode "12 duplicate groups (31 files)"; while the light table shows the photos of the
+//! people selected in the People pane, "Showing photos with Ana and Rui" (`organizing.md` §6.4,
+//! [`crate::commands::people_pane::banner`]), whose Show All also clears that selection. The
+//! banner itself is `banner:search`.
 
 use dalica_engine::Session;
 use dalica_engine::search::SearchMode;
@@ -48,13 +51,16 @@ pub fn text(session: &Session) -> String {
     }
 }
 
-/// Paints the banner into `ui`'s rect; Show All leaves search mode.
+/// Paints the banner into `ui`'s rect; Show All leaves search mode (and drops the people the
+/// People pane filters by).
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
-    let line = app.session().map_or_else(|| SEARCHING.to_string(), text);
+    let people = crate::commands::people_pane::banner(app);
+    let line = people.unwrap_or_else(|| app.session().map_or_else(|| SEARCHING.to_string(), text));
     let out = widgets::filter_banner(ui, &t, BANNER_ID, SHOW_ALL_ID, &line);
     if out.show_all.clicked() {
         crate::commands::search::clear(app);
+        app.state_mut().people_pane.selected.clear();
     }
 }
 
