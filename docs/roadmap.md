@@ -6966,7 +6966,7 @@ a maintainer decision mid-run.
     eraser stroke over it gives the photo back there, Fade 100 gives the input; a stroke on a photo
     turned 90° lands where its stored-frame points say; 1 001 strokes are refused by the parser
     (kept, skipped); the mask is the same at two sizes after a downscale.
-- ⬜ **M12.12 `edit`: Vignette, Pixelate and Focal Zoom**
+- ✅ **M12.12 `edit`: Vignette, Pixelate and Focal Zoom**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/stylize.rs`, `crates/edit/tests/stylize_effects.rs`, `crates/edit/tests/fingerprints/stylize-*.json`
   - scope: `editing.md` §8.4: Vignette (edges darkened, or toward a colour, by Size and Strength,

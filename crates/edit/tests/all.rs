@@ -18,5 +18,6 @@ mod render;
 mod retouch;
 mod soften;
 mod straighten;
+mod stylize_effects;
 mod suggest;
 mod tone;
