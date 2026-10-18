@@ -30,8 +30,9 @@
 //!   within 4 % of the sigma of M12's box passes (`soften_blur`). Without strokes there is no
 //!   mask at all; with strokes it is painted only over the paint strokes' box (0 outside it), and
 //!   the blur's grid covers only the box where the mask applies, grown by its reach, so a small
-//!   stroke on a large photo blurs a small patch. The grid is read back a row at a time (each grid
-//!   row spread across the band's columns once) and the screen, the fade and the mask applied on
+//!   stroke on a large photo blurs a small patch. The grid is read back a row at a time by
+//!   [`crate::fx::GridRows`] (each grid row spread across the band's columns once, M13.47: one
+//!   reader for every effect) and the screen, the fade and the mask applied on
 //!   flat rows. A region render equals that window of the whole render. The mask is made once per
 //!   render, by the first band to run, through [`crate::fx::apart`] (M12.28), and the grid after
 //!   it by [`crate::fx::GridBlur::rgb`] (apart as well): no band waits on a setup it is making.
@@ -45,7 +46,7 @@ use rayon::prelude::*;
 use super::{Adjust, Band, FADE, Operation, ParamError, Pass, Prepare, Reach, Reader, View, clamp, num, num_point};
 use crate::frame::Point;
 use crate::fx::brush::{MAX_DABS, dab_alpha, dab_spacing};
-use crate::fx::{Dabs, Gaussian, GridBlur, Plane, Space, Window, apart};
+use crate::fx::{Dabs, Gaussian, GridBlur, Space, Window, apart};
 use crate::render::Geometry;
 
 /// The range of Softness.
@@ -414,8 +415,8 @@ impl Pass for SoftenPass {
             None => None,
             Some(blur) => {
                 let Some(grid) = Self::grid_window(made, view).and_then(|window| blur.rgb(window)) else { return };
-                let Some(rows) = GridRows::new(blur, grid, cx0, span.len()) else { return };
-                Some((blur, grid, rows))
+                let Some(rows) = blur.rows(grid, cx0, span.len()) else { return };
+                Some((blur, rows))
             }
         };
         let Some(mut blurred) = alloc(span.len().saturating_mul(3), 0.0f32) else { return };
@@ -427,8 +428,8 @@ impl Pass for SoftenPass {
             let Some(row) = row.get_mut(span.clone()) else { continue };
             let row = row.as_flattened_mut();
             match &mut reader {
-                Some((blur, grid, rows)) => {
-                    rows.read(blur, grid, cx0, y, &mut blurred);
+                Some((blur, rows)) => {
+                    rows.read(y, &mut blurred);
                     let s = blur.strength();
                     if s < 1.0 {
                         // A blur under the smallest box blur is mixed in by its share.
@@ -442,84 +443,6 @@ impl Pass for SoftenPass {
             self.soften_row(row, &blurred, made.mask.as_ref().map(|m| m.row(y, cx0, cx1)));
         }
     }
-}
-
-/// The blurred grid read back at the pixels of a band's rows: [`GridBlur::read`]'s bilinear read
-/// with its two lerps in the other order. Each grid row the band reads is spread across the band's
-/// columns once (the place of each pixel between its two grid columns found once per band), and
-/// each output row lerps the two it lies between, flat.
-struct GridRows {
-    /// Per pixel of the row, its two grid columns (indices into a grid row) and the weight of the
-    /// second; empty when the grid is the pixels ([`GridBlur::read_row`] itself).
-    taps: Vec<(u32, u32, f32)>,
-    /// Two grid rows spread across the row (three values a pixel), and which grid rows they are.
-    spread: [(i64, Vec<f32>); 2],
-}
-
-impl GridRows {
-    /// The reader of `w` pixels from the output column `x0`.
-    fn new(blur: &GridBlur, grid: &Plane, x0: u32, w: usize) -> Option<GridRows> {
-        if blur.cell() <= 1 {
-            return Some(GridRows { taps: Vec::new(), spread: [(i64::MIN, Vec::new()), (i64::MIN, Vec::new())] });
-        }
-        let last = i64::from(grid.width.max(1)) - 1;
-        let at = |i: i64| (i - i64::from(grid.x0)).clamp(0, last) as u32;
-        let mut taps = Vec::new();
-        taps.try_reserve_exact(w).ok()?;
-        taps.extend((0..w).map(|k| {
-            let (i, t) = cell_tap(blur.cell(), x0.saturating_add(u32::try_from(k).unwrap_or(u32::MAX)));
-            (at(i), at(i + 1), t)
-        }));
-        let n = w.checked_mul(3)?;
-        Some(GridRows { taps, spread: [(i64::MIN, alloc(n, 0.0)?), (i64::MIN, alloc(n, 0.0)?)] })
-    }
-
-    /// The blur at the pixels of the output row `y` from the column `x0`, into `out` (three values
-    /// a pixel).
-    fn read(&mut self, blur: &GridBlur, grid: &Plane, x0: u32, y: u32, out: &mut [f32]) {
-        if blur.cell() <= 1 {
-            blur.read_row(grid, x0, y, out.as_chunks_mut::<3>().0);
-            return;
-        }
-        let (j, ty) = cell_tap(blur.cell(), y);
-        if self.spread[0].0 != j {
-            if self.spread[1].0 == j {
-                self.spread.swap(0, 1);
-            } else {
-                spread_row(grid, j, &self.taps, &mut self.spread[0].1);
-                self.spread[0].0 = j;
-            }
-        }
-        if self.spread[1].0 != j + 1 {
-            spread_row(grid, j + 1, &self.taps, &mut self.spread[1].1);
-            self.spread[1].0 = j + 1;
-        }
-        let [(_, top), (_, bottom)] = &self.spread;
-        for ((o, &a), &b) in out.iter_mut().zip(top).zip(bottom) {
-            *o = a + (b - a) * ty;
-        }
-    }
-}
-
-/// The grid row `j` (clamped into the grid) read across a row at `taps`, into `out` (three values
-/// a pixel).
-fn spread_row(grid: &Plane, j: i64, taps: &[(u32, u32, f32)], out: &mut [f32]) {
-    let gw = grid.width as usize;
-    let lj = (j - i64::from(grid.y0)).clamp(0, i64::from(grid.height.max(1)) - 1) as usize;
-    let row = grid.data.get(lj * gw..(lj + 1) * gw).unwrap_or(&[]);
-    for (o, &(i0, i1, t)) in out.as_chunks_mut::<3>().0.iter_mut().zip(taps) {
-        let (a, b) = (row.get(i0 as usize).copied().unwrap_or([0.0; 3]), row.get(i1 as usize).copied().unwrap_or([0.0; 3]));
-        *o = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-    }
-}
-
-/// The grid cell before the pixel coordinate `p` along one axis, for cells of `cell` pixels, and
-/// the weight of the next (as [`GridBlur::read`] places a pixel's centre).
-fn cell_tap(cell: u32, p: u32) -> (i64, f32) {
-    let u = (f64::from(p) + 0.5) / f64::from(cell.max(1)) - 0.5;
-    // `⌊u⌋` (`u` is above −0.5).
-    let i = u as i64 - i64::from(u < 0.0);
-    (i, (u - i as f64) as f32)
 }
 
 /// The box `(x0, y0, x1, y1)` (half-open, window pixels) of the mask's cells above 0, if any.
@@ -783,29 +706,6 @@ mod tests {
             assert!((blur.sigma() / want - 1.0).abs() < 0.04, "{sigma}: {} for {want}", blur.sigma());
         }
         assert!(soften_blur(0.2, (3000, 2000)).is_none());
-    }
-
-    /// The rows read the grid as [`GridBlur::read`] does, within float rounding, from any column
-    /// and down any rows (the two spread grid rows kept, swapped or made again).
-    #[test]
-    fn the_rows_read_the_grid_as_grid_blur_does() {
-        let (fw, fh) = (900u32, 600u32);
-        let data: Vec<u8> = (0..fw * fh).flat_map(|i| [(i * 7 % 251) as u8, (i * 13 % 256) as u8, (i % 9 * 28) as u8, 255]).collect();
-        let view = View { data: &data, x0: 0, y0: 0, width: fw, height: fh, full_width: fw, full_height: fh };
-        for sigma in [4.0, 18.0, 60.0] {
-            let blur = soften_blur(sigma, (fw, fh)).unwrap();
-            let grid = blur.rgb(Window::of(&view).unwrap()).unwrap();
-            let (x0, w) = (37u32, 700usize);
-            let mut rows = GridRows::new(&blur, grid, x0, w).unwrap();
-            let mut got = vec![0.0f32; w * 3];
-            for y in [0u32, 1, 2, 30, 31, 299, 300, 598, 599, 5] {
-                rows.read(&blur, grid, x0, y, &mut got);
-                for (i, g) in got.chunks(3).enumerate() {
-                    let want = blur.read(grid, x0 + i as u32, y);
-                    assert!((0..3).all(|c| (g[c] - want[c]).abs() < 1e-5), "{sigma}: ({}, {y}) {g:?} vs {want:?}", x0 + i as u32);
-                }
-            }
-        }
     }
 
     /// The mask is 0 outside the paint strokes' box (where it is painted), on the output and on a

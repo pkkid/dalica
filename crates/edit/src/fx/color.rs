@@ -9,6 +9,8 @@
 //!   once and read with linear interpolation (within 0.01 of a level of the curves), for the
 //!   effects that convert every pixel: no `powf` per channel. A table reads its input brought
 //!   into 0..1 (`NaN` as 0).
+//! - [`UNIT8`] (M13.47): `v / 255` for every 8-bit value, looked up (the same values the division
+//!   gives), for the renderer's bands and the grids made from 8-bit pixels.
 //!
 //! Our own code from the public formulas.
 
@@ -16,6 +18,17 @@ use std::sync::OnceLock;
 
 /// The steps of the [`linear_light`] tables over 0..1.
 pub const STEPS: usize = 4096;
+
+/// `v / 255` for every 8-bit value `v`, as `f32`: the values the division gives, looked up.
+pub const UNIT8: [f32; 256] = {
+    let mut t = [0.0f32; 256];
+    let mut i = 0;
+    while i < 256 {
+        t[i] = i as f32 / 255.0;
+        i += 1;
+    }
+    t
+};
 
 /// The Rec.601 luma of an encoded RGB value.
 pub fn luma(p: [f32; 3]) -> f32 {

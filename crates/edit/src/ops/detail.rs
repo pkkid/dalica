@@ -30,11 +30,12 @@
 //! - **Speed** (M13.36, the slider's 16 ms draft and 100 ms final): Sharpen reads the band's rows
 //!   and their margin into working values once and runs both passes on flat slices in strips of
 //!   [`SHARPEN_STRIP`] pixels, its taps in the same order (the output bit for bit M12's). Film
-//!   Grain draws its noise a run of [`GRAIN_RUN`] pixels at a time ([`fx::Noise::row_values`]),
-//!   each lattice corner hashed once along a run that stays on one row of cells (bit for bit the
-//!   same values). Glow's blur is a [`fx::GridBlur`] made once per render (the highlights weighed
-//!   before the cells are averaged), whose whole sigma is the closest a grid makes to Radius's,
-//!   read back a row at a time; within the fingerprints' tolerance of M12's full-size blur.
+//!   Grain draws its noise a run of [`GRAIN_RUN`] pixels at a time ([`fx::Noise::run_values`],
+//!   M13.47: each lattice corner hashed once along a run that stays on one row of cells, bit for
+//!   bit [`fx::Noise::row_values`]). Glow's blur is a [`fx::GridBlur`] made once per render (the
+//!   highlights weighed before the cells are averaged), whose whole sigma is the closest a grid
+//!   makes to Radius's, read back along the band's rows by [`fx::GridRows`] (M13.47: bit for bit
+//!   [`fx::GridBlur::read`]); within the fingerprints' tolerance of M12's full-size blur.
 //!
 //! Sharpen ported from PhotoCraft `crates/algo/src/sharpen.rs` (`unsharp`: the unsharp formula
 //! with no threshold) and `crates/algo/src/blur.rs` (`gaussian_kernel`), Film Grain from
@@ -47,8 +48,8 @@
 use std::fmt;
 
 use super::{Adjust, Band, Operation, ParamError, Pass, Prepare, Reach, Reader, UNIT, View, clamp, flag, num};
-use crate::fx::noise::hash01;
-use crate::fx::{self, GridBlur, Noise, Space, Window};
+use crate::fx::noise::{self, Corners};
+use crate::fx::{self, GridBlur, Noise, Space, UNIT8, Window};
 
 /// The range of Sharpen's Amount.
 pub const SHARPEN: (f64, f64) = (0.0, 3.0);
@@ -80,8 +81,8 @@ pub const GLOW_FROM: f64 = 0.5;
 /// Sharpen blurs a band in strips of this many pixels (a strip of its rows stays in the cache).
 pub const SHARPEN_STRIP: usize = 128;
 /// Film Grain draws its noise in runs of this many pixels along a row, anchored at its multiples
-/// in the whole output ([`Noise::row_values`]).
-pub const GRAIN_RUN: u32 = 256;
+/// in the whole output ([`Noise::run_values`], whose fast path takes runs this long).
+pub const GRAIN_RUN: u32 = noise::RUN;
 
 /// `sharpen(a)`: an unsharp mask, accurate at 1:1.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -332,7 +333,7 @@ fn view_row(view: &View<'_>, y: i64, columns: &[usize], out: &mut [f32]) {
     let straight =
         columns.get(lead..lead + middle).is_some_and(|m| m.iter().enumerate().all(|(i, &c)| c == start + 4 * i)) && row.len() >= start + 4 * middle;
     let px = |at: usize| match row.get(at..at + 3) {
-        Some(&[r, g, b]) => [UNIT_VALUE[usize::from(r)], UNIT_VALUE[usize::from(g)], UNIT_VALUE[usize::from(b)]],
+        Some(&[r, g, b]) => [UNIT8[usize::from(r)], UNIT8[usize::from(g)], UNIT8[usize::from(b)]],
         _ => [0.0; 3],
     };
     if !straight {
@@ -346,23 +347,12 @@ fn view_row(view: &View<'_>, y: i64, columns: &[usize], out: &mut [f32]) {
     }
     let bytes = row.get(start..start + 4 * middle).unwrap_or(&[]);
     for (o, b) in out.iter_mut().skip(lead).zip(bytes.as_chunks::<4>().0) {
-        *o = [UNIT_VALUE[usize::from(b[0])], UNIT_VALUE[usize::from(b[1])], UNIT_VALUE[usize::from(b[2])]];
+        *o = [UNIT8[usize::from(b[0])], UNIT8[usize::from(b[1])], UNIT8[usize::from(b[2])]];
     }
     for (o, &at) in out.iter_mut().zip(columns).skip(lead + middle) {
         *o = px(at);
     }
 }
-
-/// `v / 255` for every 8-bit value, as `f32` (the values the division gives, looked up).
-const UNIT_VALUE: [f32; 256] = {
-    let mut t = [0.0f32; 256];
-    let mut i = 0;
-    while i < 256 {
-        t[i] = i as f32 / 255.0;
-        i += 1;
-    }
-    t
-};
 
 fn alloc(n: usize) -> Option<Vec<f32>> {
     let mut out = Vec::new();
@@ -378,11 +368,11 @@ impl Adjust for Grain {
             return None;
         }
         let space = Space::new(ctx)?;
-        let seed = fx::noise::seed(&format!("{}({})", Self::NAME, self.clamped()));
+        let seed = noise::seed(&format!("{}({})", Self::NAME, self.clamped()));
         let spread = (grain / 100.0 * 0.5 / 3f64.sqrt()) as f32;
         let noise = Noise::new(seed, GRAIN_CELL);
         let fading = noise.attenuation(&space).max(MIN_FADING);
-        Some(Box::new(GrainPass { space, noise, seed, spread, fading, lighten: self.lighten }))
+        Some(Box::new(GrainPass { space, noise, spread, fading, lighten: self.lighten }))
     }
 }
 
@@ -390,8 +380,6 @@ impl Adjust for Grain {
 struct GrainPass {
     space: Space,
     noise: Noise,
-    /// The noise's seed.
-    seed: u32,
     spread: f32,
     /// [`Noise::attenuation`] in this render.
     fading: f32,
@@ -407,18 +395,19 @@ impl Pass for GrainPass {
         let mut noise = [0.0f32; GRAIN_RUN as usize];
         let mut corners = Corners::default();
         let x1 = band.x0.saturating_add(band.width);
-        for (j, row) in band.pixels.chunks_exact_mut(w).enumerate() {
-            let y = band.y0.saturating_add(u32::try_from(j).unwrap_or(u32::MAX));
-            // The row in runs anchored at multiples of `GRAIN_RUN` in the whole output, so a
-            // region's pixels draw exactly the whole render's values.
-            let mut start = band.x0 - band.x0 % GRAIN_RUN;
-            while start < x1 {
-                let end = start.saturating_add(GRAIN_RUN).min(x1);
+        // The band in runs anchored at multiples of `GRAIN_RUN` in the whole output, so a
+        // region's pixels draw exactly the whole render's values; each run down the band's rows
+        // (the lattice rows' corners carried from row to row, M13.47).
+        let mut start = band.x0 - band.x0 % GRAIN_RUN;
+        while start < x1 {
+            let end = start.saturating_add(GRAIN_RUN).min(x1);
+            let skip = band.x0.saturating_sub(start) as usize;
+            let at = (start.max(band.x0) - band.x0) as usize;
+            for (j, row) in band.pixels.chunks_exact_mut(w).enumerate() {
+                let y = band.y0.saturating_add(u32::try_from(j).unwrap_or(u32::MAX));
                 let Some(run) = noise.get_mut(..(end - start) as usize) else { break };
-                self.noise_run(start, y, run, &mut corners);
-                let skip = band.x0.saturating_sub(start) as usize;
-                let at = start.max(band.x0) - band.x0;
-                let Some(pixels) = row.get_mut(at as usize..(end - band.x0) as usize) else { break };
+                self.noise.run_values(&self.space, start, y, 0, run, &mut corners);
+                let Some(pixels) = row.get_mut(at..(end - band.x0) as usize) else { break };
                 let run = run.get_mut(skip..).unwrap_or(&mut []);
                 // The light half's mean stays as its variation fades (never below 0: it only
                 // lightens).
@@ -434,116 +423,10 @@ impl Pass for GrainPass {
                 for (p, &d) in pixels.iter_mut().zip(run.iter()) {
                     *p = p.map(|v| (v + d).clamp(0.0, 1.0));
                 }
-                start = end;
             }
+            start = end;
         }
     }
-}
-
-/// The lattice corners [`GrainPass::noise_run`] hashes along one run at most: two lattice cells a
-/// pixel, and the corner past the last.
-const CORNERS: usize = 2 * GRAIN_RUN as usize + 3;
-
-/// [`GrainPass::noise_run`]'s scratch: the hashed corners of two lattice rows and, per cell, its
-/// top-left corner, the step to the top-right one and the same below.
-struct Corners {
-    hashes: [[f32; CORNERS]; 2],
-    cells: [[f32; 4]; CORNERS],
-}
-
-impl Default for Corners {
-    fn default() -> Corners {
-        Corners { hashes: [[0.0; CORNERS]; 2], cells: [[0.0; 4]; CORNERS] }
-    }
-}
-
-impl GrainPass {
-    /// [`Noise::row_values`] for the pixels `(start, y) … (start + out.len() − 1, y)` (at most
-    /// [`GRAIN_RUN`]), bit for bit, into `out`; `scratch` holds the run's corners.
-    ///
-    /// Where the run stays on one row of lattice cells and steps forward by at most two cells a
-    /// pixel (a render that is not turned or mirrored, its shorter side at least 1 000 pixels: the
-    /// edit view's final and a Save), each lattice corner along it is hashed once, in a loop that
-    /// vectorises, rather than four per pixel; the stored-frame point, the cell and the smoothstep
-    /// blend are those `row_values` computes. Elsewhere it is `row_values` itself. Answers whether
-    /// the run took the fast path.
-    fn noise_run(&self, start: u32, y: u32, out: &mut [f32], scratch: &mut Corners) -> bool {
-        // `row_values`'s affine step along the row.
-        const STRIDE: u32 = 1024;
-        let cell = self.noise.cell();
-        let (u0, v0) = self.space.pixel_units(start, y);
-        let (u1, v1) = self.space.pixel_units(start.saturating_add(STRIDE), y);
-        let span = f64::from(start.saturating_add(STRIDE) - start).max(1.0);
-        let (x, v) = (u0 / cell, v0 / cell);
-        let (dx, dv) = ((u1 - u0) / span / cell, (v1 - v0) / span / cell);
-        let last = out.len().saturating_sub(1) as f64;
-        let (x_end, v_end) = (x + dx * last, v + dv * last);
-        let inside = |t: f64| t.is_finite() && t.abs() < 1e9;
-        let row = lattice_floor(v);
-        let fast = !out.is_empty()
-            && out.len() <= GRAIN_RUN as usize
-            && [x, v, x_end, v_end].into_iter().all(inside)
-            && dx > 0.0
-            && dx <= 2.0
-            && lattice_floor(v_end) == row;
-        if !fast {
-            self.noise.row_values(&self.space, start, y, 0, out);
-            return false;
-        }
-        let Corners { hashes, cells } = scratch;
-        // The two lattice rows' corners from the first pixel's cell to past the last's, hashed
-        // once; then per cell its top-left corner and the step to the top-right one, and the same
-        // below (the differences the blend takes, made once per cell).
-        let first = lattice_floor(x);
-        let count = usize::try_from(lattice_floor(x_end) - first + 2).unwrap_or(0).min(CORNERS);
-        let [top, bottom] = hashes;
-        let (top, bottom) = (top.get_mut(..count).unwrap_or(&mut []), bottom.get_mut(..count).unwrap_or(&mut []));
-        let (j0, j1) = (row as i32, (row + 1) as i32);
-        for (k, (t, b)) in top.iter_mut().zip(bottom.iter_mut()).enumerate() {
-            let i = (first as i32).wrapping_add(k as i32);
-            *t = 2.0 * hash01(i, j0, 0, self.seed) - 1.0;
-            *b = 2.0 * hash01(i, j1, 0, self.seed) - 1.0;
-        }
-        for (c, ((t, t1), (b, b1))) in cells.iter_mut().zip(top.iter().zip(top.iter().skip(1)).zip(bottom.iter().zip(bottom.iter().skip(1)))) {
-            *c = [*t, *t1 - *t, *b, *b1 - *b];
-        }
-        let spread = fx::noise::SPREAD as f32;
-        let (first, row) = (first as f64, row as f64);
-        let smooth = |f: f32| f * f * (3.0 - 2.0 * f);
-        // The pixels step forward along the run, so each one's cell is found by stepping past
-        // the lattice lines it crossed (exact integers in `f64`: `⌊px⌋` itself).
-        let (mut at, mut next) = (0usize, first + 1.0);
-        let mut blend = |o: &mut f32, px: f64, sv: f32| {
-            while px >= next {
-                next += 1.0;
-                at += 1;
-            }
-            let su = smooth((px - (next - 1.0)) as f32);
-            let [t0, dt, b0, db] = cells.get(at).copied().unwrap_or([0.0; 4]);
-            let (t, b) = (t0 + dt * su, b0 + db * su);
-            *o = (t + (b - t) * sv) / spread;
-        };
-        if dv == 0.0 {
-            // On a row of the stored frame the run's place between the lattice rows is the same
-            // at every pixel.
-            let sv = smooth((v - row) as f32);
-            for (k, o) in out.iter_mut().enumerate() {
-                blend(o, x + dx * k as f64, sv);
-            }
-        } else {
-            for (k, o) in out.iter_mut().enumerate() {
-                let k = k as f64;
-                blend(o, x + dx * k, smooth((v + dv * k - row) as f32));
-            }
-        }
-        true
-    }
-}
-
-/// `⌊v⌋` of a finite `v` inside ±10⁹, as the noise's row sampler takes it.
-fn lattice_floor(v: f64) -> i64 {
-    let t = v as i64;
-    if (t as f64) > v { t - 1 } else { t }
 }
 
 impl Adjust for Glow {
@@ -619,15 +502,12 @@ impl Pass for GlowPass {
         };
         let Some(window) = band.before.and_then(Window::of) else { return };
         let Some(grid) = blur.rgb_weighted(window, highlight) else { return };
-        let Some(mut reader) = GridRows::new(blur, grid, band.x0, w) else { return };
+        let Some(mut reader) = blur.rows(grid, band.x0, w) else { return };
         let mixed = blur.strength() < 1.0;
         for (j, row) in band.pixels.chunks_exact_mut(w.max(1)).enumerate() {
             let y = band.y0.saturating_add(u32::try_from(j).unwrap_or(u32::MAX));
+            reader.read(y, &mut glow);
             let g = glow.as_chunks_mut::<3>().0;
-            match &mut reader {
-                GridRows::Pixels => blur.read_row(grid, band.x0, y, g),
-                GridRows::Cells(r) => r.read(blur, grid, y, g),
-            }
             if mixed {
                 // A blur under the smallest box blur is mixed in by its share.
                 for (g, p) in g.iter_mut().zip(row.iter()) {
@@ -639,78 +519,9 @@ impl Pass for GlowPass {
     }
 }
 
-/// [`GridBlur::read_row`] for every row of a band, made faster for a grid of cells: the place of
-/// each pixel between its two grid columns is found once per band, and each row lerps the two grid
-/// rows into one before reading across it (the same bilinear read, its two lerps in the other
-/// order).
-enum GridRows {
-    /// The grid is the pixels: [`GridBlur::read_row`] itself.
-    Pixels,
-    Cells(CellRows),
-}
-
-struct CellRows {
-    /// Per pixel of the row, the grid's two columns (indices into a grid row) and the weight of
-    /// the second.
-    taps: Vec<(u32, u32, f32)>,
-    /// One grid row, lerped.
-    line: Vec<[f32; 3]>,
-}
-
-impl GridRows {
-    fn new(blur: &GridBlur, grid: &fx::Plane, x0: u32, w: usize) -> Option<GridRows> {
-        if blur.cell() <= 1 {
-            return Some(GridRows::Pixels);
-        }
-        let last = i64::from(grid.width.max(1)) - 1;
-        let at = |i: i64| (i - i64::from(grid.x0)).clamp(0, last) as u32;
-        let mut taps = Vec::new();
-        taps.try_reserve_exact(w).ok()?;
-        taps.extend((0..w).map(|k| {
-            let (i, t) = cell_tap(blur.cell(), x0.saturating_add(u32::try_from(k).unwrap_or(u32::MAX)));
-            (at(i), at(i + 1), t)
-        }));
-        let mut line = Vec::new();
-        line.try_reserve_exact(grid.width as usize).ok()?;
-        line.resize(grid.width as usize, [0.0; 3]);
-        Some(GridRows::Cells(CellRows { taps, line }))
-    }
-}
-
-impl CellRows {
-    /// The blur at the pixels of the output row `y` from the band's left, into `out`.
-    fn read(&mut self, blur: &GridBlur, grid: &fx::Plane, y: u32, out: &mut [[f32; 3]]) {
-        let (j, ty) = cell_tap(blur.cell(), y);
-        let gw = grid.width as usize;
-        let last = i64::from(grid.height.max(1)) - 1;
-        let row = |j: i64| {
-            let lj = (j - i64::from(grid.y0)).clamp(0, last) as usize;
-            grid.data.get(lj * gw..(lj + 1) * gw).unwrap_or(&[])
-        };
-        for ((l, a), b) in self.line.iter_mut().zip(row(j)).zip(row(j + 1)) {
-            *l = fx::mix(*a, *b, ty);
-        }
-        for (o, &(i0, i1, t)) in out.iter_mut().zip(&self.taps) {
-            let (a, b) = (self.line.get(i0 as usize).copied().unwrap_or([0.0; 3]), self.line.get(i1 as usize).copied().unwrap_or([0.0; 3]));
-            *o = fx::mix(a, b, t);
-        }
-    }
-}
-
-/// The grid cell before the pixel coordinate `p` along one axis, for cells of `cell` pixels, and
-/// the weight of the next (as [`GridBlur::read`] places a pixel's centre).
-fn cell_tap(cell: u32, p: u32) -> (i64, f32) {
-    let u = (f64::from(p) + 0.5) / f64::from(cell.max(1)) - 0.5;
-    // `⌊u⌋` (`u` is above −0.5).
-    let i = u as i64 - i64::from(u < 0.0);
-    (i, (u - i as f64) as f32)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Recipe, render::Geometry};
-    use dalica_image::Orientation;
 
     /// A small xorshift for the tests' pictures and places.
     struct Rng(u64);
@@ -790,62 +601,14 @@ mod tests {
         }
     }
 
-    /// Film Grain's runs give bit for bit `Noise::row_values`: the fast path where a run stays on
-    /// one row of lattice cells (taken on an upright render at 1:1 and at half size), `row_values`
-    /// itself on a straightened, turned or small render.
+    /// Glow's grid is the blur of the asked sigma within 2 % (`glow_blur` picks it so), on a grid
+    /// of cells (its rows are `fx::GridRows`, tested with `fx`).
     #[test]
-    fn grain_runs_equal_the_noise_rows() {
-        let mut rng = Rng(0x2545_f491_4f6c_dd1d);
-        let cases: [(&[&str], u8, u32, u32, f64); 5] = [
-            (&[], 1, 2000, 1500, 1.0),
-            (&[], 1, 4000, 3000, 0.5),
-            (&["straighten(3)"], 1, 2000, 1500, 0.8),
-            (&["crop(0.1,0.2,0.9,0.8)"], 6, 2000, 1500, 0.5),
-            (&[], 1, 2000, 1500, 0.1),
-        ];
-        let mut fast = 0usize;
-        for (ops, o, w, h, scale) in cases {
-            let g = Geometry::new(&Recipe::parse(ops).unwrap(), Orientation::new(o).unwrap(), w, h);
-            let (ow, oh) = g.output_size(scale).unwrap();
-            let space = Space::from_geometry(&g, ow, oh).unwrap();
-            let noise = Noise::new(77, GRAIN_CELL);
-            let pass = GrainPass { space, noise, seed: 77, spread: 0.03, fading: 1.0, lighten: false };
-            let mut corners = Corners::default();
-            for _ in 0..200 {
-                let (start, y) = (rng.below(ow), rng.below(oh));
-                let n = (1 + rng.below(GRAIN_RUN)).min(ow - start) as usize;
-                let (mut got, mut want) = (vec![0.0f32; n], vec![0.0f32; n]);
-                fast += usize::from(pass.noise_run(start, y, &mut got, &mut corners));
-                pass.noise.row_values(&pass.space, start, y, 0, &mut want);
-                let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
-                assert_eq!(bits(&got), bits(&want), "{ops:?} at {scale}: ({start}, {y}) × {n}");
-            }
-        }
-        assert!(fast >= 300, "the fast path ran {fast} times");
-    }
-
-    /// Glow's grid is the blur of the asked sigma within 2 % (`glow_blur` picks it so), and its
-    /// rows read it as `GridBlur::read` does, within float rounding.
-    #[test]
-    fn glow_reads_a_grid_of_its_sigma_as_grid_blur_does() {
-        let (fw, fh) = (900u32, 600u32);
-        let data: Vec<u8> = (0..fw * fh).flat_map(|i| [(i * 7 % 251) as u8, (i * 13 % 256) as u8, (i % 9 * 28) as u8, 255]).collect();
-        let view = View { data: &data, x0: 0, y0: 0, width: fw, height: fh, full_width: fw, full_height: fh };
+    fn glow_blurs_a_grid_of_its_sigma() {
         for sigma in [7.0, 18.0, 60.0, 180.0] {
-            let blur = glow_blur(sigma, (fw, fh)).unwrap();
+            let blur = glow_blur(sigma, (900, 600)).unwrap();
             assert!((blur.sigma() / sigma - 1.0).abs() < 0.02, "{sigma}: {}", blur.sigma());
             assert!(blur.cell() > 1, "{sigma}: a grid of cells");
-            let grid = blur.rgb_weighted(Window::of(&view).unwrap(), highlight).unwrap();
-            let (x0, w) = (37u32, 700usize);
-            let Some(GridRows::Cells(mut rows)) = GridRows::new(&blur, grid, x0, w) else { panic!("{sigma}: cells") };
-            let mut got = vec![[0.0f32; 3]; w];
-            for y in [0u32, 1, 299, 599] {
-                rows.read(&blur, grid, y, &mut got);
-                for (i, g) in got.iter().enumerate() {
-                    let want = blur.read(grid, x0 + i as u32, y);
-                    assert!((0..3).all(|c| (g[c] - want[c]).abs() < 1e-6), "{sigma}: ({}, {y}) {g:?} vs {want:?}", x0 + i as u32);
-                }
-            }
         }
     }
 }
