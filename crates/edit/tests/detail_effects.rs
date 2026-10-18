@@ -1,7 +1,7 @@
 //! The detail effects of tab 3 (`editing.md` §8.2, M12.7): Sharpen, Film Grain and Glow. Each has a
 //! fingerprint at its defaults (`fingerprints/detail-*.json`, a 1:1 window of a large photo, where
-//! sharpening and grain show) and renders the same at two sizes after a downscale and in a region
-//! as in the whole render. Invariants: Sharpen 0 and Grain 0 are the identity; Sharpen leaves a
+//! sharpening and grain show, and `detail-*-large.json`, a whole 1200 × 800 render) and renders the
+//! same at two sizes after a downscale and in a region as in the whole render. Invariants: Sharpen 0 and Grain 0 are the identity; Sharpen leaves a
 //! flat patch alone and raises an edge's contrast; Grain keeps the mean luma within one level,
 //! adds nothing to R − G and, with Lighten, never darkens; Glow never darkens a pixel and leaves a
 //! dark flat patch alone.
@@ -49,6 +49,17 @@ fn each_effect_at_its_defaults_matches_its_fingerprint_and_a_region_equals_the_w
         assert!(part == window(&whole, x, y, w, h), "{op}: the region differs from the whole render");
         assert!(part != window(&img, x, y, w, h), "{op} changes the picture");
         check_fingerprint(case, &part, 0.5);
+    }
+}
+
+/// A whole 1200 × 800 render of each effect at its defaults, large enough that Glow's blur runs on
+/// a grid and the rows' fast paths are taken (the window above is too small for that), matches its
+/// `detail-*-large` fingerprint, blessed from the M12 code before M13.36 made them faster.
+#[test]
+fn each_effect_at_its_defaults_matches_its_large_fingerprint() {
+    let img = scene(12, 1200, 800);
+    for (case, op) in DEFAULTS {
+        check_fingerprint(&format!("{case}-large"), &run(&img, &[op]), 0.5);
     }
 }
 
