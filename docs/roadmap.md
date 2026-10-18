@@ -7265,7 +7265,7 @@ a maintainer decision mid-run.
     too long even at 9 pt is still cut with "…"; the changed fingerprints blessed with their diff
     images on the PR; a 1400 × 900 and a 900 × 600 screenshot of tab 4 on the PR;
     `cargo xtask ci`.
-- ⬜ **M12.31 `ui-kit`: the CPU rasterizer leaves no gap between two triangles of a quad**
+- ✅ **M12.31 `ui-kit`: the CPU rasterizer leaves no gap between two triangles of a quad**
   - after: M12.27
   - files: `crates/ui-kit/src/raster.rs`
   - scope: a fix task from the M12.R review screenshots. A Border'd photo's cell in the Recently
