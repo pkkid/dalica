@@ -260,6 +260,13 @@ cargo run --release -p dalica -- --control 7990 --demo
 | An empty recipe: the final on the 2560 × 1600 screen (p95); the 24 MP Save render (median) | ≤ 12 ms; ≤ 55 ms |
 | An effect's slider draft and final on the 2560 × 1600 screen (p95) | printed; ≤ 16 ms and ≤ 100 ms are M13's per-effect speed tasks |
 | An effect tab's tiles of a 24 MP photo, from opening it to the last tile (median) | ≤ 355 ms (tab 3), 350 ms (tab 4), 360 ms (tab 5) |
+| Face detection on a 640 px picture, a network of the candidate detector's shape (median) | ≤ 62.5 ms |
+| One face embedded, a network of SFace's shape; of AuraFace's (median) | ≤ 68 ms; ≤ 350 ms |
+| The face scan over 1 000 photos of 2048 px at the idle pace: faces embedded per second | ≥ 7.3 |
+| The face scan: memory per photo in progress (resident, above the loaded models) | ≤ 105 MiB |
+| The face scan: the owner thread's time per frame while it runs (p95; never above 16 ms) | ≤ 0.5 ms |
+| The Unnamed grid opening with 10 000 faces (median); scrolled (a frame's p95) | ≤ 32.5 ms; ≤ 1 ms |
+| The Places pane over 10 000 geotagged photos opening (median); panned, its markers grouped (p95) | ≤ 2 ms; ≤ 2 ms |
 
 **At the review, the save, export and search budgets, and the import's first screenful and
 listing, are judged against a base on the same runner** (maintainer decisions, 2026-10-15, and for
@@ -380,6 +387,45 @@ the tile grids and Saves rounded up to 5 ms, the empty final to 1 ms, the upload
   4.51 ms (the runs 4.51, 6.47 under load, and 2.92 ms; earlier the same day 3.95, 2.99 and
   3.59 ms), so 6.8 ms, never above 16 ms.
 
+M13's budgets (M13.31) follow the same rule: 1.5 × the first measurement (rates ÷ 1.5, rounded
+down to 0.1; times rounded up to 0.5 ms, AuraFace's and the memory to 5), plus a frame within 16 ms
+at p95 while the face scan runs, whatever the first numbers. The first measurement is the median of
+three runs in one sitting, release on two hardware threads, 2026-10-18, the same workstation (an
+Intel i7-13700K: CPUs 0 and 1 are the two threads of one performance core, which is what
+`taskset -c 0,1` has always measured here; load average 3 to 13). Runs while another agent's bench
+was pinned to the same two threads took 1.5 to 1.9 times as long and were set aside (detection
+73–87 ms, AuraFace 368–384 ms, the Unnamed grid 31–41 ms); the third quiet run of `inference` and
+`people_places` ran on CPUs 2 and 3, a performance core alike, and matched the first two within
+10 %. Reserved decision 5 has not chosen a model, so the networks are seeded ones of the candidates'
+shapes (`dalica_faces::synthetic`: `yunet_shaped`, `sface_shaped`, `auraface_shaped`): each
+candidate's input, outputs, operators and layer pattern with about its weights (YuNet's 69 k against
+76 k, SFace's 9.59 M against 9.67 M, AuraFace's 65.16 M against 65.17 M), noise for weights; no
+model is downloaded for a bench. When the decision is recorded, the chosen models' shapes stay the
+budgets' (a real model of that shape costs the same on this interpreter).
+- **Inference** (the `inference` bench, `dalica-faces`, one thread): detection of a 640 × 427
+  photo-like picture letterboxed into the detector's 640 px (0.54 G multiply-adds) 41.3 ms (the runs
+  40.2, 45.3, 41.3); one aligned face embedded by SFace's shape (an IResNet of 1, 2, 2 and 1 blocks,
+  2.14 G) 45.2 ms (42.9, 47.4, 45.2) and by AuraFace's (IResNet-100, 12.09 G) 230.3 ms (223.5,
+  242.9, 230.3). For comparison, LightCraft measured the real SFace at about 35 ms and AuraFace at
+  233–252 ms on a Ryzen 9 7945HX (`faces.md` §8).
+- **The face scan** (the `faces_scan` bench, `dalica-engine`): 1 000 `scenes` JPEGs of 2048 px
+  (the most the scan decodes) scanned into a new library, then the face scan with YuNet's shape
+  (two faces planted on every photo) and SFace's at the idle pace, which on two threads is one
+  photo at a time: 2 000 faces in 180.9 s, 11.06 faces/s (the runs 11.22, 11.03, 11.06; 5.5 photos
+  per second: a decode, a detection and two embeddings each); 67.1 MiB per photo in progress
+  (66.9, 67.1, 67.1: the resident memory's peak above its value with the models loaded, 127 MiB),
+  well inside the 192 MiB the scan reserves (`faces_scan::WORKER_BYTES`); the owner thread's time
+  per frame at 60 frames a second (the activity report and `Session::poll`) 0.201 ms at p95 (0.201,
+  0.204, 0.195; the largest frame 3.8–4.6 ms, where a photo's faces are written).
+- **The people and places views** (the `people_places` bench, `dalica-ui`): 10 000 photos of the
+  index-only synthetic library, each with an unnamed face and a geotag, in the headless app at
+  1400 × 900. The frame that opens Unnamed (the faces listed, 518 planted groups made and laid
+  out, the visible ones drawn) 21.5 ms at the median (21.1, 23.1, 21.5); a frame while the wheel
+  scrolls the grid 0.481 ms at p95 (0.455, 0.496, 0.481); the frame after all 10 000 photos are
+  selected with the Places pane open (1 900 places worked out, grouped into 31 markers at zoom 4 over
+  Europe) 1.05 ms (1.05, 1.11, 1.04); a frame while the map pans, grouping the markers again,
+  1.12 ms at p95 (1.09, 1.17, 1.12).
+
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
 **The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` once per milestone,
@@ -412,7 +458,13 @@ inside its headroom); `--plant-ms 15` misses all three. Since M12 the slideshow'
 holds an upload frame's p95 to its budget, and the job runs the `effects` bench (each effect's Save
 render and the empty recipe; a planted slowdown added once per render) and the `effect_tiles`
 bench (each tab's median, a planted slowdown added once per sample); `--plant-ms 8` misses the
-empty recipe's final, not the Saves or the tiles. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+empty recipe's final, not the Saves or the tiles. Since M13 it also runs the `inference` bench
+(each median, a planted slowdown added once per run), the `faces_scan` bench (faces per second, a
+planted slowdown counted once per face; the memory per worker; a frame's p95 while the scan runs, a
+planted slowdown added) and the `people_places` bench (the openings' medians and the frames' p95, a
+planted slowdown added to each); `--plant-ms 8` misses the scan's frame and the people and places
+frames and the Places opening, not inference, the scan's rate (16 s more over 2 000 faces) or the
+Unnamed opening (21.5 + 8 ms is inside 32.5), and the largest planted slowdown misses all of them. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
 review (maintainer decision, 2026-10-15); *Run workflow* on the Actions tab runs the job on any
 branch, with a planted slowdown (`plant_ms`) if asked. The same check locally:
 
@@ -780,8 +832,8 @@ budgeted, baseline-compared run that feeds the scorecard.
 **Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
 `harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
 `first_thumbnails`, `edit_preview`, `save_export`, `search`, `scan_throughput`, `import` and
-`batch_edit` and `effect_tiles` (`dalica-engine`), `cold_start` and `slideshow` (`dalica-ui`),
-and `effects` (`dalica-edit`).
+`batch_edit`, `effect_tiles` and `faces_scan` (`dalica-engine`), `cold_start`, `slideshow` and
+`people_places` (`dalica-ui`), `effects` (`dalica-edit`) and `inference` (`dalica-faces`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -911,6 +963,38 @@ scans it (not timed), then `open_preview` at `--fit` (2560 × 1600) and `request
 tiles`, `tab 4 tiles`, `tab 5 tiles` (p50/p95/max, `first_p50_ms`, `tiles`). It exits non-zero
 when a tile is missing or the photo was decoded more than once; `--check` judges the medians.
 Without `--bench` it runs a 600 × 400 photo, one sample per tab.
+
+`inference` (M13.31, `dalica-faces`) builds seeded networks of the candidate models' shapes
+(`dalica_faces::synthetic`), writes each as an ONNX file and loads it back with its candidate's
+manifest (`load_ms`, printed), then times, `--samples` (21) times each on one thread: `detect 640`
+(`Detector::detect` of a 640 × 427 picture; the network reports two planted faces), `embed sface`
+and `embed auraface` (`Embedder::embed` of one 112 × 112 face). Rows carry `p50_ms`, `p95_ms`,
+`max_ms`, `budget_ms`, `weights` and `gmacs`; `--no-auraface` leaves the largest out. `--check`
+judges the medians itself, `--plant-ms N` adds N ms to each. Without `--bench` it runs a 160 px
+detector and SFace's shape once.
+
+`faces_scan` (M13.31, `dalica-engine`) writes `--photos` `scenes` JPEGs (1 000, `--side` 2048 px,
+mixed aspects, folders of about 100; about 0.1 GB) under `--dir` and a models folder holding
+YuNet's shape at 640 px (two faces planted on every photo) and SFace's (`--recogniser auraface`
+for AuraFace's, its own series), scans the photos into a new library (thumbnails off; not timed),
+then gives the session its models folder while the window reports input, so the models load before
+any photo starts, reads the resident memory, moves the session's virtual clock past the three idle
+seconds and runs frames at 60 per second of real time (`user_activity(Idle)` and `poll`, the clock
+moved with real time) until every face found is embedded. Rows: `scan <n>` (`faces`, `scan_s`,
+`faces_per_s`, `photos_per_s`, `workers`, `rss_base_mib`, `rss_peak_mib`, `per_worker_mib`;
+memory on Linux only) and `frame while scanning` (p50/p95/max). It fails when a face is not found
+or not embedded; `--check` judges the budgets. Without `--bench` it runs 12 photos of 640 px.
+
+`people_places` (M13.31, `dalica-ui`) writes the index-only synthetic library of `--photos`
+(10 000) photos with an unnamed face and a geotag each (each folder a trip of 20 places in Europe)
+as an index snapshot, opens it in the real app in the headless driver at 1400 × 900 and plants the
+faces' groups (1 500 ÷ k faces in group k). Rows: `unnamed open` (the frame that opens Unnamed, the
+grid made again each time; `--samples`, 11), `unnamed scroll` (frames of the wheel scrolling the
+grid; `--frames`, 120), `places open` (the frame after every photo is selected with the Places pane
+open, in a new order each time so the places are worked out again) and `places pan` (frames while
+`map.pan` moves the map at zoom 4, its markers grouped each frame). Frames are timed whole
+(`Driver::step`). `--check` judges the openings' medians and the frames' p95. Without `--bench` it
+runs 1 000 photos, two samples and ten frames.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

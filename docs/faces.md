@@ -250,12 +250,19 @@ when M13 lands. Deleting a person returns their faces to Unnamed; deleting a pho
 
 ## 8. Performance
 
-Budgets are added to `perf/budgets.toml` when M13 starts, as `not_measurable` until a bench exists
-(`development.md` §13): faces embedded per second during a background scan, UI frame time while the
-scan runs (must stay within the normal frame budget), People view open time with 10 k unnamed faces,
-memory per worker. Reference figures from LightCraft's measurements of the same engine (one thread,
-standard release build, Ryzen 9 7945HX, 40 aligned crops): SFace about 34–36 ms per face, AuraFace
-about 233–252 ms per face. They are not Dalica numbers; Dalica records its own.
+The budgets are in [`development.md`](development.md) §8 (M13.31), each with its bench
+(`development.md` §13): `inference` (detection on a 640 px picture and one embedding per candidate
+recogniser), `faces_scan` (faces embedded per second during a background scan, memory per worker,
+the owner thread's frame time while the scan runs, never above 16 ms at p95) and `people_places`
+(the Unnamed grid opening with 10 000 faces, the Places pane with 10 000 geotagged photos, its
+markers grouped). `cargo xtask budgets` judges them at each review. Until reserved decision 5 is
+recorded they run seeded networks of the candidates' shapes (`synthetic::yunet_shaped`,
+`sface_shaped`, `auraface_shaped`: each candidate's input, outputs, operators and layer pattern
+with about its weights), never a downloaded model. On one thread of the reference workstation
+(2026-10-18): detection 41 ms, SFace's shape 45 ms and AuraFace's 230 ms per face; the scan at the
+idle pace on two threads 11 faces per second with about 67 MiB per photo in progress. LightCraft's
+measurements of the real models on the same engine (one thread, Ryzen 9 7945HX, 40 aligned crops):
+SFace about 34–36 ms per face, AuraFace about 233–252 ms.
 
 ## 9. Commands
 

@@ -281,6 +281,30 @@ pub const BUDGETS: &[Budget] = &[
         judge: crate::bench::judge_effect_tiles,
         relative: None,
     },
+    Budget {
+        milestone: 13,
+        name: "face inference",
+        what: "inference: on seeded networks of the candidate models' shapes, detection on a 640 px picture and one embedding of each candidate recogniser (SFace's and AuraFace's shapes), medians within 1.5 × their first measurement",
+        cargo: &["bench", "-p", "dalica-faces", "--bench", "inference", "--", "--json"],
+        judge: crate::bench::judge_inference,
+        relative: None,
+    },
+    Budget {
+        milestone: 13,
+        name: "face scan",
+        what: "faces_scan: the background face scan over 1 000 photos of 2048 px at the idle pace (YuNet's and SFace's shapes, two faces a photo): faces embedded per second, memory per worker, and the owner's frame time while it runs (p95, never above 16 ms), each within 1.5 × its first measurement (writes about 0.1 GB, removed after)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "faces_scan", "--", "--json"],
+        judge: crate::bench::judge_faces_scan,
+        relative: None,
+    },
+    Budget {
+        milestone: 13,
+        name: "people and places",
+        what: "people_places: in the headless app at 1400 × 900, the Unnamed grid opening with 10 000 faces (median) and scrolled (p95), and the Places pane over 10 000 geotagged photos opening (median) and panned with its markers grouped (p95), each within 1.5 × its first measurement",
+        cargo: &["bench", "-p", "dalica-ui", "--bench", "people_places", "--", "--json"],
+        judge: crate::bench::judge_people_places,
+        relative: None,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -1381,6 +1405,12 @@ mod tests {
                             &crate::bench::tests::EFFECTS_MEASURED,
                         ),
                     )
+                } else if args.contains(&"inference") {
+                    (true, crate::bench::tests::inference_out("release", 640, &crate::bench::tests::INFERENCE_MEASURED))
+                } else if args.contains(&"faces_scan") {
+                    (true, crate::bench::tests::faces_scan_out("release", 1000, 2048, "sface", crate::bench::tests::SCAN_MEASURED))
+                } else if args.contains(&"people_places") {
+                    (true, crate::bench::tests::people_places_out("release", 10_000, crate::bench::tests::PEOPLE_PLACES_MEASURED))
                 } else if args.contains(&"effect_tiles") {
                     (true, crate::bench::tests::tiles_out("release", crate::bench::EFFECT_PHOTO, &crate::bench::tests::TILES_MEASURED))
                 } else if args.contains(&"slideshow") {
@@ -1397,12 +1427,16 @@ mod tests {
         assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
         // 8 ms planted per frame: every frame budget misses, the search queries' (a few ms), the
         // scan's (8 ms per photo), Batch Edit's, the slideshow's and the effects' empty recipe (a few
-        // ms); a first screenful well inside its second does not, nor the save and export medians
-        // well inside theirs, nor a cold start of three frames, nor the import (8 s more over
-        // 1 000 files is inside its 1.5 ×), nor the tile grids (a few hundred ms).
+        // ms), the face scan's frame and the people and places views' (a few ms); a first screenful
+        // well inside its second does not, nor the save and export medians well inside theirs, nor
+        // a cold start of three frames, nor the import (8 s more over 1 000 files is inside its
+        // 1.5 ×), nor the tile grids (a few hundred ms), nor face inference (tens of ms).
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("8 of 13 missed")
+            e.contains("10 of 16 missed")
+                && e.contains("M13 face scan: 1 of 3 missed: a frame while scanning")
+                && e.contains("M13 people and places")
+                && !e.contains("M13 face inference")
                 && e.contains("M4 light table scroll")
                 && e.contains("M4 thumb at top speed")
                 && e.contains("M5 scanned scroll")
@@ -1418,18 +1452,18 @@ mod tests {
         assert!(e.contains("M11 import: first thumbnails"), "{e}");
         // The largest planted slowdown misses every budget, the cold start's included.
         let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
-        assert!(e.contains("13 of 13 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
+        assert!(e.contains("16 of 16 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 13 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 16 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 13 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 16 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("13 of 13 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("16 of 16 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }

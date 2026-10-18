@@ -21,6 +21,11 @@
 # it, and an empty recipe; a slider's drafts and finals are printed, their 16 and 100 ms are M13's
 # speed tasks) and effect_tiles (an effect tab's tiles of a 24 MP photo from opening it to the last
 # tile), and the slideshow's upload frame (p95), each 1.5 x its first measurement (about 6 minutes).
+# Since M13 also inference (face detection at 640 px and one embedding per candidate recogniser, on
+# seeded networks of the candidate models' shapes), faces_scan (the background face scan over 1 000
+# photos: faces per second, memory per worker, the owner's frame time while it runs, never above
+# 16 ms at p95) and people_places (the Unnamed grid with 10 000 faces and the Places pane with
+# 10 000 geotagged photos), each 1.5 x its first measurement.
 # Like every test run on GitHub, it runs only at a milestone review (the pull request of a
 # `review/M<n>.R` branch) and when dispatched by hand: "Run workflow" on the Actions tab, which also
 # takes a planted slowdown to prove that a missed budget fails the run (docs/development.md §3, §8).

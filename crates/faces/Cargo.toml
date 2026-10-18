@@ -28,3 +28,8 @@ tempfile.workspace = true
 [[test]]
 name = "all"
 path = "tests/all.rs"
+
+# Face inference on seeded networks of the candidate models' shapes (`development.md` §8, M13.31).
+[[bench]]
+name = "inference"
+harness = false
