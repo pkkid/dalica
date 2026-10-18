@@ -338,6 +338,8 @@ fn a_box_drawn_by_hand_on_a_turned_photo_lands_where_it_was_drawn_after_a_restar
 #[test]
 fn two_people_selected_filter_the_light_table_and_show_all_clears_it() {
     let mut t = setup();
+    // The People group folded: its person sections (M13.25) would push the folder's off screen.
+    run(&mut t, "view.groupCollapse", json!({ "group": "people", "collapsed": true }));
     pane_on_three(&mut t);
     let thumb = |n: usize, t: &T| format!("thumb:{}", t.photos[n]);
     for n in 0..4 {

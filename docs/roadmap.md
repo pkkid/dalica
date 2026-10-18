@@ -8087,7 +8087,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     highlights its box; a box drawn by hand on a photo turned 90° and named lands where it was
     drawn after a restart; two people selected filter the light table and Show All clears it; at
     900 × 600 the pane fits; fingerprints of the pane and of the face boxes at 1400 × 900.
-- ⬜ **M13.25 `ui`: the People group in the tree, person sections and the person menu**
+- ✅ **M13.25 `ui`: the People group in the tree, person sections and the person menu**
   - after: M13.4, M13.5, M13.15, M13.21
   - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/commands/people.rs`, `crates/ui/src/dialogs/people.rs`, `crates/ui/tests/people_tree.rs`, `crates/ui/tests/fingerprints/people-tree-*.json`, `crates/ui/tests/fingerprints/person-section-*.json`, `docs/organizing.md`, `docs/ui-layout.md`
   - scope: `ui-layout.md` §4 and `organizing.md` §6.2–§6.3: the People group between Albums and

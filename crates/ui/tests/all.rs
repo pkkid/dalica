@@ -62,6 +62,7 @@ mod options_dialog;
 mod options_tabs;
 mod peek;
 mod people_pane;
+mod people_tree;
 mod photo_menu;
 mod places_pane;
 mod properties_pane;

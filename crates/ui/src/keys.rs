@@ -54,7 +54,8 @@ pub fn route(app: &App, key: &Key, bound: Option<String>) -> Option<String> {
 
 /// What Delete and Ctrl+Delete run (`menus-and-shortcuts.md` §2.2), unless the user bound them to
 /// another command: Delete in an album section is Remove from Album (`album.remove`), elsewhere
-/// Delete from Disk (`photo.delete`); Ctrl+Delete is always Delete from Disk. While the Unnamed
+/// Delete from Disk (`photo.delete`); in a person's section it is Remove from Person
+/// (`people.removeFaces`); Ctrl+Delete is always Delete from Disk. While the Unnamed
 /// grid shows with faces selected, Delete ignores them (`faces.ignoreSelected`, `organizing.md`
 /// §6.2) and Ctrl+Delete does nothing. `None` for other keys and for a Delete key the user gave
 /// another command.
@@ -68,7 +69,12 @@ pub fn delete_route(app: &App, key: &Key, bound: Option<&str>) -> Option<&'stati
     if unnamed.open {
         return (plain && !unnamed.selection.is_empty()).then_some(FACES_DELETE);
     }
-    let in_album = app.state().selection.section.is_some_and(crate::state::Section::is_album);
+    let section = app.state().selection.section;
+    // In a person's section Delete sends their faces on the photos back to Unnamed (M13.25).
+    if plain && section.is_some_and(|s| s.person().is_some()) {
+        return Some(crate::commands::people::REMOVE_FACES);
+    }
+    let in_album = section.is_some_and(crate::state::Section::is_album);
     Some(if plain && in_album { "album.remove" } else { "photo.delete" })
 }
 

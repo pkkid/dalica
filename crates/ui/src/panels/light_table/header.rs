@@ -46,6 +46,16 @@
 //! the album's name (there is no file to locate). The header of the selected album has the accent
 //! bar; a folder's header has it while its folder is the selected one and no album is.
 //!
+//! **Person sections** (`organizing.md` §6.3) show the person's thumbnail face in the icon's place
+//! (the plain bust until the picture arrives; its tooltip is their name), their name, the newest
+//! photo's date, and their own button row: **Play** and **Collage** ("Arrives with Collage." until
+//! Collage is made), | **Zoom to Faces** (`/zoomToFaces`, `people.zoomToFaces`: active while the
+//! cells show the person's faces; then its tooltip is Show Whole Photos), | **Set as Person
+//! Thumbnail** (`/thumbnail`, `people.thumbnail` with the person's face on the focused photo
+//! selected in the section; disabled until one is). There is no description row; a right-click
+//! selects the section and opens the person menu (Rename…, Merge Into ▸, Delete Person,
+//! `crate::commands::people::show_menu`).
+//!
 //! **Buttons** are live only when their command is registered (a UI command or one the session
 //! has) and its `enabled` accepts the parameters a click passes; Select Starred also needs a starred
 //! photo in the section, Save an unsaved edit. A disabled button says why in its tooltip.
@@ -60,11 +70,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use dalica_core::{AlbumId, Date, FolderId, PhotoId};
+use dalica_core::{AlbumId, Date, FolderId, PersonId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::fonts;
-use dalica_ui_kit::icons::{self, AlbumIcon, Icon, OutputIcon};
+use dalica_ui_kit::icons::{self, AlbumIcon, Icon, OutputIcon, PeopleIcon};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target, TextField};
 use egui::text::{LayoutJob, TextWrapping};
@@ -132,11 +142,17 @@ pub enum Button {
     SelectStarred,
     Save,
     Export,
+    /// A person section's Zoom to Faces / Show Whole Photos toggle.
+    ZoomToFaces,
+    /// A person section's Set as Person Thumbnail.
+    Thumbnail,
 }
 
 impl Button {
-    /// The row, left to right.
+    /// The row of a folder's or an album's section, left to right.
     pub const ALL: [Button; 5] = [Button::Play, Button::Collage, Button::SelectStarred, Button::Save, Button::Export];
+    /// The row of a person's section.
+    pub const PERSON: [Button; 4] = [Button::Play, Button::Collage, Button::ZoomToFaces, Button::Thumbnail];
 
     /// Its part of the header's id: `section:<id>/<part>`.
     pub fn part(self) -> &'static str {
@@ -146,6 +162,8 @@ impl Button {
             Button::SelectStarred => "selectStarred",
             Button::Save => "save",
             Button::Export => "export",
+            Button::ZoomToFaces => "zoomToFaces",
+            Button::Thumbnail => "thumbnail",
         }
     }
 
@@ -157,6 +175,8 @@ impl Button {
             Button::SelectStarred => "select.starred",
             Button::Save => "photo.save",
             Button::Export => "output.export",
+            Button::ZoomToFaces => "people.zoomToFaces",
+            Button::Thumbnail => "people.thumbnail",
         }
     }
 
@@ -168,6 +188,18 @@ impl Button {
             Button::SelectStarred => "Select the starred photos in this folder",
             Button::Save => "Save edited photos to disk",
             Button::Export => "Export these photos to a folder",
+            Button::ZoomToFaces => ZOOM_TO_FACES,
+            Button::Thumbnail => "Set as Person Thumbnail",
+        }
+    }
+
+    /// Its tooltip in a person's section, zoomed to their faces or not.
+    pub fn person_tooltip(self, zoomed: bool) -> &'static str {
+        match self {
+            Button::Play => "Play a slideshow of this person's photos",
+            Button::Collage => "Make a collage from this person's photos",
+            Button::ZoomToFaces if zoomed => WHOLE_PHOTOS,
+            _ => self.tooltip(),
         }
     }
 
@@ -175,11 +207,19 @@ impl Button {
     fn group(self) -> u8 {
         match self {
             Button::Play | Button::Collage => 0,
-            Button::SelectStarred => 1,
-            Button::Save | Button::Export => 2,
+            Button::SelectStarred | Button::ZoomToFaces => 1,
+            Button::Save | Button::Export | Button::Thumbnail => 2,
         }
     }
 }
+
+/// The Zoom to Faces toggle's tooltip while the cells show whole photos, and while they show faces.
+pub const ZOOM_TO_FACES: &str = "Zoom to Faces";
+pub const WHOLE_PHOTOS: &str = "Show Whole Photos";
+/// Why a person section's Collage is greyed.
+pub const COLLAGE_LATER: &str = "Arrives with Collage.";
+/// Why Set as Person Thumbnail is greyed with no photo of the person selected.
+pub const NO_FACE: &str = "Select a photo of this person first.";
 
 /// Whether a header button takes clicks: its command is `live` (registered, and its `enabled`
 /// accepts the click's parameters), Select Starred also needs a starred photo, Save an unsaved
@@ -256,6 +296,7 @@ impl Owner {
 /// albums' books.
 pub fn paint_section_icon(painter: &Painter, rect: Rect, section: state::Section, color: Color32) {
     match section {
+        state::Section::Album(state::AlbumSection::Person(_)) => icons::paint_people(painter, rect, PeopleIcon::Person, color),
         state::Section::Folder(_) => icons::paint(painter, rect, Icon::Folder, color),
         state::Section::Album(state::AlbumSection::User(_)) => icons::paint(painter, rect, Icon::Album, color),
         state::Section::Album(state::AlbumSection::Starred) => icons::paint_album(painter, rect, AlbumIcon::Starred, color),
@@ -333,6 +374,11 @@ impl Headers {
                         }
                         None => (section.title.clone(), None, String::new(), String::new()),
                     },
+                    // A person's: their name, and their newest photo's date.
+                    (None, None) if section.id.person().is_some() => {
+                        let date = section.photos.iter().filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p))).max();
+                        (section.title.clone(), date.map(|d| d.date()), String::new(), String::new())
+                    }
                     (None, None) => (section.title.clone(), None, String::new(), String::new()),
                 };
                 Facts {
@@ -407,6 +453,8 @@ pub struct HeaderOut {
     pub select: Option<state::Section>,
     /// The header's responses that open the section menu on a right-click.
     pub menus: Vec<Response>,
+    /// A person's section: their menu opens in place of the section menu.
+    pub person: Option<PersonId>,
 }
 
 /// Whether command `id` is registered here and accepts `params`.
@@ -435,21 +483,26 @@ fn one_line(painter: &Painter, text: &str, font: FontId, color: Color32, max: f3
     painter.layout_job(job)
 }
 
-/// Paints a header button's glyph: an icon of the set, the disk of Save.
+/// Paints a header button's glyph: an icon of the set, the disk of Save, the bust of Set as Person
+/// Thumbnail.
 fn paint_glyph(painter: &Painter, rect: Rect, b: Button, color: Color32) {
     let icon = match b {
         Button::Play => Icon::Slideshow,
         Button::Collage => Icon::Collage,
         Button::SelectStarred => Icon::Star,
         Button::Export => Icon::Export,
+        Button::ZoomToFaces => Icon::Faces,
         Button::Save => return icons::paint_output(painter, rect, OutputIcon::Save, color),
+        Button::Thumbnail => return icons::paint_people(painter, rect, PeopleIcon::Person, color),
     };
     icons::paint(painter, rect, icon, color);
 }
 
-/// A 26 × 22 header button: `hover × 0.7` hovered, `pressed` held (radius 4), the glyph `icon` at
-/// rest, `text` hovered, `text_disabled` disabled; the tooltip (and why, when disabled).
-fn button(ui: &mut Ui, t: &Tokens, id: &str, egui_id: Id, rect: Rect, b: Button, enabled: Result<(), &str>) -> Response {
+/// A 26 × 22 header button: `hover × 0.7` hovered, `pressed` held (radius 4) or on (a toggle that
+/// is on, `pressed × 0.6`), the glyph `icon` at rest, `text` hovered, `text_disabled` disabled; the
+/// tooltip `tip` (and why, when disabled).
+#[allow(clippy::too_many_arguments)]
+fn button(ui: &mut Ui, t: &Tokens, id: &str, egui_id: Id, rect: Rect, b: Button, tip: &str, toggled: bool, enabled: Result<(), &str>) -> Response {
     let on = enabled.is_ok();
     let r = ui.interact(rect, egui_id, if on { Sense::click() } else { Sense::hover() });
     let p = ui.painter();
@@ -457,6 +510,8 @@ fn button(ui: &mut Ui, t: &Tokens, id: &str, egui_id: Id, rect: Rect, b: Button,
         p.rect_filled(rect, t.radius, t.pressed);
     } else if on && r.hovered() {
         p.rect_filled(rect, t.radius, t.hover.gamma_multiply(0.7));
+    } else if toggled {
+        p.rect_filled(rect, t.radius, t.pressed.gamma_multiply(0.6));
     }
     widgets::focus_ring(p, t, &r, rect, t.radius);
     let color = if !on {
@@ -467,33 +522,63 @@ fn button(ui: &mut Ui, t: &Tokens, id: &str, egui_id: Id, rect: Rect, b: Button,
         t.icon
     };
     paint_glyph(p, Rect::from_center_size(rect.center(), Vec2::splat(GLYPH)), b, color);
-    widgets::register(ui.ctx(), id, Role::IconButton, b.tooltip(), Target::Widget(&r), false);
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, b.tooltip()));
-    widgets::tooltip(r, t, b.tooltip(), enabled.err())
+    widgets::register(ui.ctx(), id, Role::IconButton, tip, Target::Widget(&r), toggled);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
+    widgets::tooltip(r, t, tip, enabled.err())
 }
 
 /// The rects of the button row of a block whose top-left is `origin` (buttons `height` high), left
 /// to right, and the dividers between its groups.
 pub fn button_rects(origin: egui::Pos2, height: f32) -> ([(Button, Rect); 5], [Rect; 2]) {
+    let (row, dividers) = button_row(origin, height, &Button::ALL);
+    let mut out = [(Button::Play, Rect::NOTHING); 5];
+    for (slot, b) in out.iter_mut().zip(row) {
+        *slot = b;
+    }
+    let mut lines = [Rect::NOTHING; 2];
+    for (slot, d) in lines.iter_mut().zip(dividers) {
+        *slot = d;
+    }
+    (out, lines)
+}
+
+/// The rects of the row of `buttons` of a block whose top-left is `origin` (buttons `height` high),
+/// left to right, and the dividers between their groups.
+pub fn button_row(origin: egui::Pos2, height: f32, buttons: &[Button]) -> (Vec<(Button, Rect)>, Vec<Rect>) {
     let mut x = origin.x + PADDING;
     let y = origin.y + BUTTONS_TOP;
-    let mut out = [(Button::Play, Rect::NOTHING); 5];
-    let mut dividers = [Rect::NOTHING; 2];
-    let mut group = 0;
-    for (slot, b) in out.iter_mut().zip(Button::ALL) {
+    let mut out = Vec::with_capacity(buttons.len());
+    let mut dividers = Vec::with_capacity(2);
+    let mut group = buttons.first().map_or(0, |b| b.group());
+    for &b in buttons {
         if b.group() != group {
             // The divider sits in the middle of the group gap.
             let d = (x - BUTTON_GAP + GROUP_GAP / 2.0).round();
-            if let Some(div) = dividers.get_mut(usize::from(group)) {
-                *div = Rect::from_min_size(pos2(d, y + 4.0), vec2(1.0, (height - 8.0).max(1.0)));
-            }
+            dividers.push(Rect::from_min_size(pos2(d, y + 4.0), vec2(1.0, (height - 8.0).max(1.0))));
             x += GROUP_GAP - BUTTON_GAP;
             group = b.group();
         }
-        *slot = (b, Rect::from_min_size(pos2(x, y), vec2(BUTTON_W, height)));
+        out.push((b, Rect::from_min_size(pos2(x, y), vec2(BUTTON_W, height))));
         x += BUTTON_W + BUTTON_GAP;
     }
     (out, dividers)
+}
+
+/// The face of `person` on `photo` (their first there), if it holds one.
+pub fn face_on(library: &dalica_library::Library, photo: PhotoId, person: &PersonId) -> Option<state::FaceRef> {
+    let index = library.faces(photo).iter().position(|f| f.person.person() == Some(person))?;
+    Some(state::FaceRef { photo, index: u16::try_from(index).ok()? })
+}
+
+/// The face Set as Person Thumbnail takes in `person`'s section: theirs on the focused photo
+/// selected there, else on the first selected that holds one.
+fn thumbnail_face(f: &Frame<'_>, section: &Section, person: &PersonId) -> Option<state::FaceRef> {
+    let sel = &f.state.selection;
+    if sel.section != Some(section.id) {
+        return None;
+    }
+    let library = f.session.library();
+    sel.anchor.into_iter().chain(sel.ids.iter().copied()).find_map(|id| face_on(library, id, person))
 }
 
 /// Paints `section`'s header in `rect` (see the module's boundary).
@@ -580,8 +665,22 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     }
 
     // The icon: Locate on Disk on a click (once the OS integration lands); its tooltip is the path.
-    // An album's icon shows its name.
-    paint_section_icon(&painter, icon, section.id, t.icon);
+    // An album's icon shows its name; a person's is their thumbnail face, once it has arrived.
+    let person = section.id.person();
+    let face = person.as_ref().and_then(|id| {
+        let library = f.session.library();
+        let r = library.person_thumbnail(id)?;
+        let face = state::FaceRef { photo: r.photo, index: u16::try_from(r.index).ok()? };
+        let side = crate::panels::people_pane::pictures::side_px(ui.ctx(), icon.width());
+        crate::panels::people_pane::pictures::picture(ui.ctx(), face, library.face(r)?.rect, side)
+    });
+    match face {
+        Some(pic) => {
+            painter.image(pic.texture, icon, pic.uv, Color32::WHITE);
+        }
+        None => paint_section_icon(&painter, icon, section.id, t.icon),
+    }
+    out.person = person.clone();
     if section.folder.is_none() {
         if takes_input(icon) {
             let r = ui.interact(icon, egui_id("icon"), Sense::hover());
@@ -640,29 +739,39 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         painter.galley(pos2(text_x, y).round(), g, t.text_dim);
     }
 
-    // The button row.
-    let (buttons, dividers) = button_rects(rect.min, t.metrics.section_button_h);
+    // The button row: a person's own, else the folder's and album's.
+    let row: &[Button] = if person.is_some() { &Button::PERSON } else { &Button::ALL };
+    let (buttons, dividers) = button_row(rect.min, t.metrics.section_button_h, row);
     for d in dividers {
         painter.rect_filled(d, 0, t.button_border);
     }
+    let zoomed = person.as_ref().is_some_and(|p| f.state.people.zoom_to_faces.contains(p));
+    let thumb = person.as_ref().and_then(|p| thumbnail_face(f, section, p));
     let mut row_params: Option<Value> = None;
     for (b, r) in buttons {
         if !takes_input(r) {
             paint_glyph(&painter, Rect::from_center_size(r.center(), Vec2::splat(GLYPH)), b, t.text_disabled);
             continue;
         }
-        // Select Starred acts on the section alone, Save on its photos with unsaved edits; the
-        // others also on a selection inside it.
+        // Select Starred acts on the section alone, Save on its photos with unsaved edits, a
+        // person's toggle on the person, Set as Person Thumbnail on their face on the photo
+        // selected; the others also on a selection inside it.
         let p = match b {
             Button::SelectStarred => json!({ "section": section.id }),
             Button::Save => save_params(&unsaved),
+            Button::ZoomToFaces => json!({ "person": person }),
+            Button::Thumbnail => json!({ "face": thumb }),
             _ => row_params.get_or_insert_with(|| params(f, section)).clone(),
         };
         let enabled = match b {
             Button::Save => save_state.as_ref().map(|_| ()).map_err(String::as_str),
+            Button::Collage if person.is_some() => Err(COLLAGE_LATER),
+            Button::Thumbnail if thumb.is_none() => Err(NO_FACE),
             _ => button_enabled(b, live(f.session, b.command(), || p.clone()), facts.starred, 0),
         };
-        let resp = button(ui, t, &part_id(b.part()), egui_id(b.part()), r, b, enabled);
+        let tip = if person.is_some() { b.person_tooltip(zoomed) } else { b.tooltip() };
+        let toggled = b == Button::ZoomToFaces && zoomed;
+        let resp = button(ui, t, &part_id(b.part()), egui_id(b.part()), r, b, tip, toggled, enabled);
         if resp.clicked() {
             out.commands.push((b.command().to_string(), p));
         }
@@ -815,6 +924,11 @@ pub fn apply(app: &mut App, out: HeaderOut) {
         let _ = app.run(&id, &params);
     }
     if let Some(r) = out.menus.iter().find(|r| r.secondary_clicked() || r.context_menu_opened()) {
+        // A person's header opens the person menu.
+        if let Some(person) = &out.person {
+            crate::commands::people::show_menu(r, app, person);
+            return;
+        }
         let nodes = menus::section_menu(app, menus::Platform::current());
         let _ = menus::context_menu(r, app, &nodes);
     }

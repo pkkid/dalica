@@ -4,15 +4,18 @@
 //!
 //! - **Items** stack from the top: a group header (30) per group, then its rows: album rows (24:
 //!   the search results while searching, Starred Photos, Recently Updated, then the user albums),
-//!   folder and directory rows (24) and, in flat mode sorted by date, year dividers (18). The
-//!   Albums group comes first, when it has rows. Each item knows its
+//!   the People group's rows (28: Unnamed, then the people, [`super::people`]), folder and
+//!   directory rows (24) and, in flat mode sorted by date, year dividers (18). The Albums group
+//!   comes first, when it has rows, then People, when the library has people or unnamed faces.
+//!   Each item knows its
 //!   content offset, so the rows a frame draws are found by binary search ([`Model::visible`]): a
 //!   frame's work is the rows on screen, never the library's.
 //! - **Docked headers:** the collapsed groups after the last open one ([`Model::docked`]) sit at the
 //!   bottom of the pane while everything fits in it, and follow the list once it is taller.
 //! - **Ids** (`control-protocol.md` §7): `tree:group:<group>`, `tree:album:<AlbumId>` for a user
 //!   album's row (`tree:album:starred`, `tree:album:recent`, `tree:album:search` for the automatic
-//!   ones), `tree:folder:<FolderId>` for a library folder's row, and for a directory between a watched root and its folders (no library
+//!   ones), `tree:person:<PersonId>` for a person's row and `tree:person:unnamed` for Unnamed,
+//!   `tree:folder:<FolderId>` for a library folder's row, and for a directory between a watched root and its folders (no library
 //!   folder of its own) `tree:dir:<hash>`, sixteen hex digits of the FNV-1a hash of its path
 //!   ([`dir_id`]); their disclosure triangles `tree:disclosure:<FolderId>` and
 //!   `tree:disclosure:dir:<hash>`.
@@ -34,30 +37,35 @@ use std::path::{Path, PathBuf};
 use dalica_core::FolderId;
 use dalica_library::{AlbumTree, Group, Row as TreeRow, Tree, TreeMode};
 
+use super::people::{PeopleGroup, UNNAMED};
 use crate::panels::light_table::album_section;
-use crate::state::{AlbumSection, Section};
+use crate::state::{AlbumSection, FaceRef, Section};
 
 /// The heights of the pane's items and the indent per tree level (`design-system.md` §4).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Heights {
     pub header: f32,
     pub row: f32,
+    /// The People group's rows (a 20 pt face in a 28 high row).
+    pub person: f32,
     pub year: f32,
     pub indent: f32,
 }
 
 impl Default for Heights {
     fn default() -> Heights {
-        let m = dalica_ui_kit::theme::Metrics::DEFAULT;
-        Heights { header: m.group_header_h, row: m.tree_row_h, year: m.year_divider_h, indent: m.tree_indent }
+        Heights::from_metrics(&dalica_ui_kit::theme::Metrics::DEFAULT)
     }
 }
 
 impl Heights {
     pub fn from_metrics(m: &dalica_ui_kit::theme::Metrics) -> Heights {
-        Heights { header: m.group_header_h, row: m.tree_row_h, year: m.year_divider_h, indent: m.tree_indent }
+        Heights { header: m.group_header_h, row: m.tree_row_h, person: m.person_row_h, year: m.year_divider_h, indent: m.tree_indent }
     }
 }
+
+/// The id of the Unnamed row.
+pub const UNNAMED_ID: &str = "tree:person:unnamed";
 
 /// A folder, directory or album row.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +93,12 @@ pub struct Row {
     /// A row of the Projects group (an export folder, a folder under the projects directory):
     /// drawn with the project icon.
     pub project: bool,
+    /// The People group's Unnamed row: a click shows the Unnamed grid.
+    pub unnamed: bool,
+    /// A person's row: their thumbnail face (drawn 20 pt) and the suggestions waiting for them
+    /// (the "?" badge while any).
+    pub face: Option<FaceRef>,
+    pub pending: usize,
 }
 
 /// The marker an offline row carries.
@@ -95,6 +109,36 @@ impl Row {
     /// are what scripts match on); the pane's model ([`super::current_model`]) carries the flag.
     pub fn label(&self) -> String {
         format!("{} ({})", self.name, self.count)
+    }
+
+    /// A row of nothing yet: `name` with `count`, widget `id`, no folder, album or section.
+    fn plain(id: String, name: String, count: usize) -> Row {
+        Row {
+            folder: None,
+            album: None,
+            path: PathBuf::new(),
+            name,
+            count,
+            depth: 0,
+            has_children: false,
+            expanded: false,
+            section: None,
+            id,
+            disclosure: None,
+            offline: false,
+            project: false,
+            unnamed: false,
+            face: None,
+            pending: 0,
+        }
+    }
+
+    /// The person of a person's row.
+    pub fn person(&self) -> Option<crate::state::PersonKey> {
+        match self.album {
+            Some(AlbumSection::Person(k)) => Some(k),
+            _ => None,
+        }
     }
 }
 
@@ -180,7 +224,14 @@ impl Model {
     /// The items of `albums` (the Albums group, first) and `tree` with heights `h`; `search`: in
     /// search mode.
     pub fn with_albums(tree: &Tree, albums: &AlbumTree, search: bool, h: Heights) -> Model {
-        let rows = albums.rows.len() + tree.groups.iter().map(|g| g.rows.len() + 1).sum::<usize>();
+        Model::with_groups(tree, albums, &PeopleGroup::default(), search, h)
+    }
+
+    /// The items of `albums` (the Albums group, first), `people` (the People group, next, unless
+    /// the library has neither people nor unnamed faces) and `tree` with heights `h`; `search`: in
+    /// search mode.
+    pub fn with_groups(tree: &Tree, albums: &AlbumTree, people: &PeopleGroup, search: bool, h: Heights) -> Model {
+        let rows = albums.rows.len() + people.rows.len() + 2 + tree.groups.iter().map(|g| g.rows.len() + 1).sum::<usize>();
         let mut items = Vec::with_capacity(rows + 1);
         let mut by_folder = HashMap::new();
         let mut y = 0.0f32;
@@ -208,8 +259,30 @@ impl Model {
                     disclosure: None,
                     offline: false,
                     project: false,
+                    unnamed: false,
+                    face: None,
+                    pending: 0,
                 };
                 push(&mut items, Kind::Row(row), h.row);
+            }
+        }
+        if !people.is_empty() {
+            let header = Kind::Header { group: Group::People, title: group_title(Group::People, people.people), collapsed: people.collapsed };
+            push(&mut items, header, h.header);
+            if !people.collapsed {
+                let unnamed = Row { unnamed: true, ..Row::plain(UNNAMED_ID.into(), UNNAMED.into(), people.unnamed) };
+                push(&mut items, Kind::Row(unnamed), h.person);
+                for p in &people.rows {
+                    let album = AlbumSection::Person(p.key);
+                    let row = Row {
+                        album: Some(album),
+                        section: (p.count > 0).then_some(Section::Album(album)),
+                        face: p.face,
+                        pending: p.pending,
+                        ..Row::plain(format!("tree:person:{}", p.id), p.name.clone(), p.count)
+                    };
+                    push(&mut items, Kind::Row(row), h.person);
+                }
             }
         }
         for g in &tree.groups {
@@ -243,6 +316,9 @@ impl Model {
                             disclosure: f.has_children.then_some(disclosure),
                             offline: false,
                             project: g.group == Group::Projects,
+                            unnamed: false,
+                            face: None,
+                            pending: 0,
                         };
                         push(&mut items, Kind::Row(row), h.row);
                     }

@@ -11,13 +11,17 @@
 //! colour) while it is not the selected row. In search mode a group header shows a magnifier in
 //! place of its disclosure triangle ([`search_header`]), otherwise as ui-kit's `section_header`.
 //!
+//! The People group's rows are 28 high: Unnamed has the viewfinder bust (`PeopleIcon::Unnamed`); a
+//! person's row their thumbnail face, 20 pt (the plain bust, `PeopleIcon::Person`, until the
+//! picture arrives), and after the count the `caution` "?" badge while suggestions wait for them.
+//!
 //! An offline row (under a watched root whose volume is offline, `data-model.md` §7) is dimmed —
 //! its icon, name and count in `text_disabled` — and carries the "offline" marker at its right end,
 //! 11 pt in `caution` (`design-system.md` §2); the name gives way to it.
 
-use dalica_ui_kit::icons::{self, AlbumIcon, Icon, OutputIcon};
+use dalica_ui_kit::icons::{self, AlbumIcon, Icon, OutputIcon, PeopleIcon};
 use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, Target};
+use dalica_ui_kit::widgets::{self, FacePicture, SUGGESTION_BADGE, Target};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{FontId, Id, Painter, Rect, Response, Sense, Ui, pos2, vec2};
@@ -38,6 +42,8 @@ const RIGHT: f32 = 8.0;
 const MARKER_GAP: f32 = 8.0;
 /// The width of the focus bar at a focused list's selected row.
 const FOCUS_BAR: f32 = 2.0;
+/// The side of a person's face in their row.
+pub const FACE: f32 = 20.0;
 /// Where a year divider's label starts and the gap before its rule.
 const YEAR_LEFT: f32 = 12.0;
 const YEAR_GAP: f32 = 6.0;
@@ -83,8 +89,8 @@ pub fn elide_middle(painter: &Painter, text: &str, font: &FontId, max_w: f32) ->
     cut(lo)
 }
 
-/// Paints `row` in `rect`.
-pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tree_mode: bool) {
+/// Paints `row` in `rect`; `face` is a person's face picture, once it has arrived.
+pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tree_mode: bool, face: Option<FacePicture>) {
     let search_album = row.album == Some(AlbumSection::Search);
     if search_album && !look.selected {
         painter.rect_filled(rect, 0, t.filter_banner);
@@ -103,7 +109,8 @@ pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tre
         let glyph = Rect::from_center_size(r.center(), vec2(DISCLOSURE, DISCLOSURE));
         icons::paint(painter, glyph, if row.expanded { Icon::ChevronDown } else { Icon::ChevronRight }, t.icon);
     }
-    let icon_size = t.metrics.icon_menu;
+    let person = row.person().is_some();
+    let icon_size = if person { FACE } else { t.metrics.icon_menu };
     let icon = Rect::from_min_size(pos2(rect.min.x + ICON_LEFT + indent, rect.center().y - icon_size / 2.0), vec2(icon_size, icon_size));
     let (icon_color, name_color, count_color) = if row.offline {
         (t.text_disabled, t.text_disabled, t.text_disabled)
@@ -115,6 +122,13 @@ pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tre
         Some(AlbumSection::Starred) => icons::paint_album(painter, icon, AlbumIcon::Starred, icon_color),
         Some(AlbumSection::Recent) => icons::paint_album(painter, icon, AlbumIcon::Recent, icon_color),
         Some(AlbumSection::Search) => icons::paint_album(painter, icon, AlbumIcon::Search, icon_color),
+        Some(AlbumSection::Person(_)) => match face {
+            Some(f) => {
+                painter.image(f.texture, icon, f.uv, egui::Color32::WHITE);
+            }
+            None => icons::paint_people(painter, icon, PeopleIcon::Person, icon_color),
+        },
+        None if row.unnamed => icons::paint_people(painter, icon, PeopleIcon::Unnamed, icon_color),
         None if row.project => icons::paint_output(painter, icon, OutputIcon::Project, icon_color),
         None => icons::paint(painter, icon, Icon::Folder, icon_color),
     }
@@ -130,13 +144,20 @@ pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tre
     }
     let count = painter.layout_no_wrap(format!("({})", row.count), fonts::regular(t.count), count_color);
     let x = icon.max.x + ICON_GAP;
-    let room = (right - x - count.size().x - COUNT_GAP).max(1.0);
+    // The "?" badge follows the count; the name gives way to it too.
+    let badge = if row.pending > 0 { SUGGESTION_BADGE + COUNT_GAP } else { 0.0 };
+    let room = (right - x - count.size().x - COUNT_GAP - badge).max(1.0);
     let font = fonts::regular(t.body);
     let name = elide_middle(painter, &row.name, &font, room);
     let name = painter.layout_no_wrap(name, font, name_color);
     let name_w = name.size().x;
     painter.galley(pos2(x, rect.center().y - name.size().y / 2.0).round(), name, name_color);
+    let count_w = count.size().x;
     painter.galley(pos2(x + name_w + COUNT_GAP, rect.center().y - count.size().y / 2.0).round(), count, count_color);
+    if row.pending > 0 {
+        let at = pos2(x + name_w + COUNT_GAP + count_w + COUNT_GAP + SUGGESTION_BADGE / 2.0, rect.center().y);
+        widgets::suggestion_badge(painter, t, Rect::from_center_size(at, vec2(SUGGESTION_BADGE, SUGGESTION_BADGE)));
+    }
 }
 
 /// A group header in search mode, `rect` (30 high, the pane's width): as ui-kit's `section_header`

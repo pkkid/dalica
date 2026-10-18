@@ -166,8 +166,8 @@ fn a_hovered_filter_shows_its_tooltip_in_the_caption() {
 }
 
 /// Controls without a command are present and disabled, and a click on them changes nothing (the
-/// Faces filter waits for faces); ▾ opens its popup, whose rows are listed: the folder sorts live
-/// (`view.folderSort`), the rest disabled until their commands exist.
+/// Faces filter waits for faces); ▾ opens its popup, whose rows are listed: the folder and people
+/// sorts live (`view.folderSort`, `view.peopleSort`), the rest disabled until their commands exist.
 #[test]
 fn controls_without_a_command_are_disabled_and_the_view_options_popup_opens() {
     let dir = tempfile::tempdir().unwrap();
@@ -189,7 +189,7 @@ fn controls_without_a_command_are_disabled_and_the_view_options_popup_opens() {
     let rows: Vec<String> = toolbar::VIEW_OPTIONS_ROWS.iter().filter_map(toolbar::ViewOption::widget_id).collect();
     for id in &rows {
         let row = widget(&d, id);
-        let live = id.starts_with("menuitem:view.folderSort/");
+        let live = id.starts_with("menuitem:view.folderSort/") || id.starts_with("menuitem:view.peopleSort/");
         assert_eq!(row.enabled, live, "`{id}` is live only once its command exists");
         assert!(row.rect[1] >= TOP + HEIGHT - 1.0, "`{id}` opens below the toolbar: {:?}", row.rect);
     }

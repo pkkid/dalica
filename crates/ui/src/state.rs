@@ -55,18 +55,21 @@ impl fmt::Display for AlbumKey {
 }
 
 /// The album sections (`control-protocol.md` §5.4): a user album, Starred Photos, Recently
-/// Updated, and the temporary search-results album.
+/// Updated, the temporary search-results album, and a person's album (the photos holding their
+/// faces, `organizing.md` §6.3), which is written `person:<PersonId>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AlbumSection {
     User(AlbumKey),
     Starred,
     Recent,
     Search,
+    Person(PersonKey),
 }
 
-/// A section of the light table: the photos of one folder or one album. In the protocol it is
-/// written as in its widget id, `"folder:12"`, `"album:a91c0e"`, `"album:starred"`,
-/// `"album:recent"`, `"album:search"` (`control-protocol.md` §5.4, §7).
+/// A section of the light table: the photos of one folder or one album (a person's included). In
+/// the protocol it is written as in its widget id, `"folder:12"`, `"album:a91c0e"`,
+/// `"album:starred"`, `"album:recent"`, `"album:search"`, `"person:p7f3a2c"` (`control-protocol.md`
+/// §5.4, §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Section {
     Folder(FolderId),
@@ -82,9 +85,17 @@ impl Section {
         }
     }
 
-    /// Whether this is an album section (a user album or an automatic one).
+    /// Whether this is an album section (a user album, an automatic one, or a person's).
     pub fn is_album(self) -> bool {
         matches!(self, Section::Album(_))
+    }
+
+    /// The person of a person's section; `None` for the others.
+    pub fn person(self) -> Option<PersonId> {
+        match self {
+            Section::Album(AlbumSection::Person(k)) => k.id(),
+            _ => None,
+        }
     }
 
     /// The user album of an album section; `None` for a folder and the automatic albums.
@@ -104,6 +115,7 @@ impl fmt::Display for Section {
             Section::Album(AlbumSection::Starred) => f.write_str("album:starred"),
             Section::Album(AlbumSection::Recent) => f.write_str("album:recent"),
             Section::Album(AlbumSection::Search) => f.write_str("album:search"),
+            Section::Album(AlbumSection::Person(k)) => write!(f, "person:{k}"),
         }
     }
 }
@@ -114,7 +126,7 @@ impl FromStr for Section {
     fn from_str(s: &str) -> Result<Section, String> {
         let bad = || {
             format!(
-                "`{}` is not a section; sections are written `folder:<FolderId>`, `album:<AlbumId>`, `album:starred`, `album:recent` or `album:search`",
+                "`{}` is not a section; sections are written `folder:<FolderId>`, `album:<AlbumId>`, `album:starred`, `album:recent`, `album:search` or `person:<PersonId>`",
                 s.chars().take(40).collect::<String>()
             )
         };
@@ -124,6 +136,7 @@ impl FromStr for Section {
             Some(("album", "recent")) => Ok(Section::Album(AlbumSection::Recent)),
             Some(("album", "search")) => Ok(Section::Album(AlbumSection::Search)),
             Some(("album", id)) => AlbumId::parse(id).map(|a| Section::Album(AlbumSection::User(AlbumKey::of(&a)))).map_err(|_| bad()),
+            Some(("person", id)) => PersonId::parse(id).map(|p| Section::Album(AlbumSection::Person(PersonKey::of(&p)))).map_err(|_| bad()),
             _ => Err(bad()),
         }
     }
@@ -3955,7 +3968,8 @@ mod tests {
             "album:a12",
             "album:91c0e0",
             "album:Starred",
-            "person:p1234",
+            "person:a1234",
+            "person:unnamed",
             format!("album:a{}", "f".repeat(17)).as_str(),
         ] {
             assert!(bad.parse::<Section>().is_err(), "{bad:?}");
@@ -3971,6 +3985,11 @@ mod tests {
         assert_ne!(a, "album:a00012".parse::<Section>().unwrap(), "leading zeros make another album");
         assert_eq!(a.user_album().map(|id| id.as_str().to_string()).as_deref(), Some("a0012"));
         assert_eq!(Section::Album(AlbumSection::Starred).user_album(), None);
+        // A person's section (M13.25): an album section of no user album, naming its person.
+        let p: Section = "person:p00a1".parse().unwrap();
+        assert_eq!((p.to_string(), p.is_album(), p.user_album(), p.folder()), ("person:p00a1".to_string(), true, None, None));
+        assert_eq!(p.person().map(|id| id.to_string()).as_deref(), Some("p00a1"));
+        assert_eq!(serde_json::from_value::<Section>(serde_json::to_value(p).unwrap()).unwrap(), p);
         assert_eq!(s.folder(), Some(FolderId::new(12)));
         assert!(!s.is_album());
         assert!(serde_json::from_value::<Section>(serde_json::json!(12)).is_err());
