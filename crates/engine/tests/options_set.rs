@@ -94,7 +94,7 @@ fn each_option_round_trips_through_set_and_list_with_unknown_keys_kept() {
     // Of several changes, those that apply at the next launch are listed apart.
     let v = set(&mut s, &[("interface.tooltips", json!(true)), ("interface.systemTitleBar", json!(false))]).unwrap();
     assert_eq!((&v["changed"], &v["restart"]), (&json!(["interface.tooltips", "interface.systemTitleBar"]), &json!(["interface.systemTitleBar"])));
-    assert!(matches!(s.execute("options.list", &json!({ "tab": "network" })), Err(CmdError::BadParams(m)) if m.contains("\"general\"")));
+    assert!(matches!(s.execute("options.list", &json!({ "tab": "shortcuts" })), Err(CmdError::BadParams(m)) if m.contains("\"general\"")));
 }
 
 #[test]
