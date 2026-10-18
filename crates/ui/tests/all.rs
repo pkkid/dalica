@@ -31,6 +31,7 @@ mod edit_navigation;
 mod edit_panel;
 mod edit_tray;
 mod edited_cells;
+mod effect_crosshair;
 mod effect_panel;
 mod effect_tiles;
 mod export_dialog;
