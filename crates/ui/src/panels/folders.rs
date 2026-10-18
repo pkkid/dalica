@@ -94,6 +94,8 @@ struct ModelKey {
     dirs: BTreeSet<PathBuf>,
     heights: Heights,
     people: PeopleSort,
+    /// The suggestions' copy the "?" badges were lit from (`crate::commands::suggestions`).
+    suggested: u64,
 }
 
 /// The pane's state between frames.
@@ -211,6 +213,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     // The people's faces: the tiles made since the last frame.
     pictures::begin(app, &ctx);
+    let suggested = crate::commands::suggestions::current(app);
     let Some(session) = app.session() else { return };
     let mut pane = ctx.data_mut(|d| d.remove_temp::<Pane>(pane_id())).unwrap_or_default();
 
@@ -228,6 +231,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         dirs: pane.dirs.clone(),
         heights,
         people: state.people.sort,
+        suggested: suggested.generation,
     };
     let rebuilt = pane.key.as_ref() != Some(&key);
     if rebuilt {
@@ -237,7 +241,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             key.folded.iter().filter_map(|id| library.folder(*id)).map(|f| f.path.clone()).chain(key.dirs.iter().cloned()).collect();
         let tree = Tree::build(library, &key.roots, &options);
         let albums = AlbumTree::build(library, &options);
-        let people = people::PeopleGroup::build(library, key.people, options.collapsed_groups.contains(&Group::People));
+        let mut people = people::PeopleGroup::build(library, key.people, options.collapsed_groups.contains(&Group::People));
+        people.set_pending(&suggested.pending);
         let mut model = Model::with_groups(&tree, &albums, &people, options.filter.is_some(), heights);
         if !options.offline_roots.is_empty() {
             model.mark_offline(|path| options.is_offline(path));

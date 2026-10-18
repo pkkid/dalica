@@ -8167,7 +8167,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     table and status line; row `SYS-MCP`.
   - done when: `cargo test -p dalica-mcp` runs W13 and W14 green; `cargo xtask stats` prints
     14 / 14 passing and `stats --check` fails below that.
-- ⬜ **M13.30 `ui`: suggestions in the window**
+- ✅ **M13.30 `ui`: suggestions in the window**
   - after: M13.24, M13.25, M13.26
   - files: `crates/ui/src/panels/light_table/suggestions.rs`, `crates/ui/src/panels/people_pane/suggestions.rs`, `crates/ui/src/panels/faces/suggestions.rs`, `crates/ui/src/commands/suggestions.rs`, `crates/ui/tests/suggestions_ui.rs`, `crates/ui/tests/fingerprints/suggestions-*.json`
   - scope: `organizing.md` §6.3–§6.4: in a person's section the strip "Suggestions:" with [Confirm
