@@ -8390,8 +8390,31 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     after in the PR, Saves not above their budgets); `crates/edit/tests/canvas.rs` and
     `mats.rs`: the `canvas-widescreen-large` fingerprint blessed from the M12 code matches, the
     existing fingerprints and region tests pass unchanged; `cargo xtask ci`.
+- ⬜ **M13.47 `edit`: speed margin for every effect: the renderer's band conversion and one home for the shared samplers**
+  - after: M13.39, M13.41
+  - files: `crates/edit/src/render.rs`, `crates/edit/src/fx.rs`, `crates/edit/src/fx/**`, `crates/edit/src/ops/detail.rs`, `crates/edit/src/ops/canvas.rs`, `crates/edit/src/ops/looks.rs`, `crates/edit/src/ops/soften.rs`, `crates/edit/src/ops/focal.rs`, `crates/edit/tests/fx.rs`, `crates/edit/tests/render.rs`, `crates/edit/README.md`
+  - scope: from the effect tasks' reports (M13.36–M13.42). (1) About 33–40 ms of every
+    neighbourhood effect's final at 24 MP (6 MP rendered) is `render.rs`'s own band conversion,
+    `run_bands`' u8 → f32 read and f32 → u8 write around the passes (a Soften that returns at once
+    still takes 40 ms; B&W's final alone is about 33 ms): make it cheap (no per-band allocation,
+    loops the compiler vectorises, tables where a branch is now taken per value) with the same
+    output bit for bit; `render.rs`'s unit tests of the 8-bit conversions stay exact. (2) The
+    grain run sampler copied into `detail.rs` (`GrainPass::noise_run`), `canvas.rs`
+    (`FilmGrain::run_values`) and `looks.rs` (Plastic Lens's `Grain`) moves into
+    `fx::Noise::row_values` (or a run form beside it), bit-equal to the copies (their equality
+    tests exist and move with it). (3) The grid row readers copied into `detail.rs` (`GridRows`,
+    Glow), `soften.rs` (`GridRows`), `focal.rs` (`grid_row`) and `looks.rs` (`Lines`, if it is
+    the same read) move into `fx::GridBlur::read_row` with the columns' taps worked out once per
+    band. (4) `GridBlur`'s weighted means divide each byte by 255 per pixel: a table (the same
+    values). (5) `crates/edit/README.md`'s lines for `detail`, `focal`, `looks`, `soften` and `fx`
+    brought up to date. `stylize.rs` (M13.41) holds none of the copies today; M13.41 goes first
+    so its own work lands on the code this moves.
+  - done when: every existing edit fingerprint and `*-large` baseline passes without re-blessing;
+    `cargo xtask bench effects` before and after for B&W, Glow, Soften, HDR Look and Widescreen
+    Film on `taskset -c 0,1` shows every final at least 15 ms faster at p95 and no effect's draft
+    or final slower (both tables in the PR); `cargo xtask ci`.
 - ⬜ **M13.43 `edit` + `xtask`: every effect's draft and final become budgets**
-  - after: M13.35, M13.36, M13.37, M13.38, M13.39, M13.40, M13.41, M13.42
+  - after: M13.35, M13.36, M13.37, M13.38, M13.39, M13.40, M13.41, M13.42, M13.47
   - files: `crates/edit/benches/effects.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `docs/development.md`
   - scope: `development.md` §8: M12.21 printed the effects' drafts and finals without judging
     them; now that every effect meets the caps, they join the budgets. Measure all 27 (the median
@@ -8426,8 +8449,30 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     and Boost's tiles show the frame's colour at the middle of all four sides; a default
     Border's tile shows its outer band at least 2 px wide on every side; tiles of photos without
     a frame are byte for byte unchanged; `cargo xtask ci`.
+- ⬜ **M13.46 `engine`: the viewer star test compares the starred photos as a set**
+  - after: M12.R
+  - files: `crates/engine/tests/viewer.rs`
+  - scope: a flake from a task gate (passed on three reruns):
+    `viewer::starring_a_photo_of_an_unwatched_folder_adds_it_as_scan_once_and_one_undo_removes_both`
+    got `["IMG_0003.jpg", "IMG_0002.jpg"]` where it wants `["IMG_0002.jpg", "IMG_0003.jpg"]`. The
+    cause is the test, not the product: it collects the starred names from
+    `Library::photos_in`, which is the folder's display order (`organizing.md` §10: sort date, then
+    name, then id), and the test's photos have no capture date, so their sort date is the file
+    time in whole seconds. `downloads()` writes `IMG_0004` … `IMG_0001` in reverse, so whenever a
+    second boundary falls between writing `IMG_0003` and `IMG_0002` the folder's order (rightly)
+    puts `IMG_0003` first. Reproduced: 0 of 200 plain runs fail (the test takes about 10 ms), 6 of
+    40 fail when started 5 ms before a second boundary, every failure this exact one. The
+    product's orders are deterministic: the viewer's list sorts by name (`viewer.rs`) and the
+    display order is a total order. Fix the test without weakening it: compare the starred names
+    sorted (which photos are starred is what it proves; the display order is the `library`
+    crate's to test), and pin the four photos' file times with `File::set_modified` as
+    `recently_updated.rs` does, `IMG_0003` a second older than `IMG_0002`, so the order that used
+    to flake is the one every run takes. The viewer's own name-order checks stay as they are.
+  - done when: the test, with the pinned file times and the old list comparison, fails every run
+    (said in the PR), and with the fix passes 200 runs in a loop under `taskset -c 0` and 40 runs
+    started just before a second boundary; `cargo xtask ci`.
 - ⬜ **M13.32 `accept M13`**
-  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44
+  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44, M13.46
   - files: `tests/acceptance/m13.rs`, `tests/acceptance/m13_*.rs`, `tests/acceptance/m13.md`, `tests/acceptance/fingerprints/m13-*.json`
   - scope: every *Done when* of M13's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a synthetic model installed from a local file after the
@@ -8515,7 +8560,8 @@ it never shares except M13.43 with M13.31):
 speed 1  M13.34 fx: box passes, grid blur, noise rows, tables  ‖  M13.35 engine: frames' drafts from the base
 speed 2  M13.36 detail  ‖  M13.37 focal  ‖  M13.38 remap + colour  ‖  M13.39 looks  ‖  M13.40 soften
          ‖  M13.41 stylize  ‖  M13.42 canvas + mats (also after M13.35)
-speed 3  M13.43 effect budgets (after M13.31 on the board: shared files) → M13.32
+speed 3  M13.47 band conversion + shared samplers (after M13.39, M13.41)
+speed 4  M13.43 effect budgets (after M13.31 on the board: shared files) → M13.32
 ```
 
 ### M14 — Collage and legacy sidecars
