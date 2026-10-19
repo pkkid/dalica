@@ -66,22 +66,44 @@ fn main() -> ExitCode {
 
 fn dispatch(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
-        Some("--version" | "-V") => println!("{}", version_line()),
-        Some("--help" | "-h" | "help") => println!("{USAGE}"),
-        Some("commands") => println!("{}", commands()),
-        Some("run") => return run::main(args.get(1..).unwrap_or_default()),
-        Some("inspect") => return inspect::main(args.get(1..).unwrap_or_default()),
-        Some("snapshot") => return snapshot::main(args.get(1..).unwrap_or_default()),
+        Some("--version" | "-V") => print(&version_line()),
+        Some("--help" | "-h" | "help") => print(USAGE),
+        Some("commands") => print(&commands()),
+        Some("run") => run::main(args.get(1..).unwrap_or_default()),
+        Some("inspect") => inspect::main(args.get(1..).unwrap_or_default()),
+        Some("snapshot") => snapshot::main(args.get(1..).unwrap_or_default()),
         Some(other) => {
             eprintln!("dalica-cli: unknown command `{other}`\n\n{USAGE}");
-            return ExitCode::from(2);
+            ExitCode::from(2)
         }
         None => {
             eprintln!("{USAGE}");
-            return ExitCode::from(2);
+            ExitCode::from(2)
         }
     }
-    ExitCode::SUCCESS
+}
+
+/// Writes `text` and a newline to `out` and flushes it: the one output path of every subcommand
+/// (the standard print macros panic when standard output is closed). A closed reader (`BrokenPipe`, as
+/// `dalica-cli commands | head` leaves it) is a quiet, successful end: `Err(0)` with nothing on
+/// standard error. Any other write error is reported on standard error: `Err(1)`.
+pub(crate) fn emit(out: &mut impl std::io::Write, text: &str) -> Result<(), ExitCode> {
+    match writeln!(out, "{text}").and_then(|()| out.flush()) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Err(ExitCode::SUCCESS),
+        Err(e) => {
+            eprintln!("dalica-cli: cannot write the output: {e}");
+            Err(ExitCode::from(1))
+        }
+    }
+}
+
+/// [`emit`] to standard output, then exit 0 (or the code `emit` gave).
+pub(crate) fn print(text: &str) -> ExitCode {
+    match emit(&mut std::io::stdout().lock(), text) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(code) => code,
+    }
 }
 
 /// The thumbnail cache: `$DALICA_CACHE_DIR`, else `data/cache/thumbs` beside the executable when a
@@ -316,6 +338,28 @@ mod tests {
         assert_eq!(v, format!("dalica-cli {}", dalica_core::build::version_string()));
         assert!(v.starts_with(&format!("dalica-cli {} (", env!("CARGO_PKG_VERSION"))), "{v}");
         assert_eq!(dispatch(&strings(&["--version"])), ExitCode::SUCCESS);
+    }
+
+    /// A writer whose every write fails with `kind`.
+    struct Failing(std::io::ErrorKind);
+
+    impl std::io::Write for Failing {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(self.0.into())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A closed pipe ends quietly with exit 0; another write error is exit 1; a write is a line.
+    #[test]
+    fn emit_ends_quietly_on_a_closed_pipe() {
+        assert_eq!(emit(&mut Failing(std::io::ErrorKind::BrokenPipe), "x"), Err(ExitCode::SUCCESS));
+        assert_eq!(emit(&mut Failing(std::io::ErrorKind::PermissionDenied), "x"), Err(ExitCode::from(1)));
+        let mut out = Vec::new();
+        assert_eq!(emit(&mut out, "a"), Ok(()));
+        assert_eq!(out, b"a\n");
     }
 
     #[test]

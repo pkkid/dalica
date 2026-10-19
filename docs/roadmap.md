@@ -10606,7 +10606,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     the fold: place it where `ui-layout.md` puts it.
   - done when: one test per fix, each failing without it; screenshots at 1400 × 900 and
     900 × 600 on the PR; any moved fingerprint re-blessed with its image and reason.
-- ⬜ **M15.45 `dalica-cli`: a closed stdout ends the command quietly, never a panic**
+- ✅ **M15.45 `dalica-cli`: a closed stdout ends the command quietly, never a panic**
   - after: M14.R
   - files: `apps/dalica-cli/src/main.rs`, `apps/dalica-cli/src/inspect.rs`, `apps/dalica-cli/src/run.rs`, `apps/dalica-cli/src/snapshot.rs`, `apps/dalica-cli/src/mcp.rs`, `apps/dalica-cli/tests/cli.rs`
   - scope: bug found while updating the website for 0.9.0 (2026-10-19): `dalica-cli commands |

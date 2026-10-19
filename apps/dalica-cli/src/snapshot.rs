@@ -107,8 +107,7 @@ pub fn main(args: &[String]) -> ExitCode {
         "ok": true, "path": out, "width": shot.width, "height": shot.height, "scale": scale,
         "frames": frames, "ms": started.elapsed().as_millis() as u64,
     });
-    println!("{summary}");
-    ExitCode::SUCCESS
+    crate::print(&summary.to_string())
 }
 
 fn read_script(path: &Path) -> Result<Vec<Value>, String> {

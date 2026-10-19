@@ -12,6 +12,9 @@
 //! control method: `ui.*`, `library.inspect`, …). Each step prints `{"ok", "command" | "method",
 //! "result" | "code" + "error" (+ "prompt"), "ms"}`. The first failure stops the run with exit
 //! status 1; with `--keep-going` every step runs and the status is 1 when any failed.
+//!
+//! A closed standard output (`run … | head -1`) stops the run at the next result line, quietly and
+//! with exit status 0 ([`crate::emit`]); in library mode the session is still flushed.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -58,14 +61,24 @@ pub fn main(args: &[String]) -> ExitCode {
     };
     let mut out = std::io::stdout().lock();
     let mut failed = false;
-    let code = if let Some(id) = single {
-        failed |= !step(&mut session, &id, &params.unwrap_or(Value::Null), &mut out);
-        None
+    let mut code = if let Some(id) = single {
+        match step(&mut session, &id, &params.unwrap_or(Value::Null), &mut out) {
+            Ok(ok) => {
+                failed |= !ok;
+                None
+            }
+            Err(c) => Some(c),
+        }
     } else {
         run_script(&mut session, script, &mut out, &mut failed)
     };
     if let Err(e) = session.flush() {
-        let _ = writeln!(out, "{}", json!({ "ok": false, "code": e.code(), "error": e.to_string() }));
+        let line = json!({ "ok": false, "code": e.code(), "error": e.to_string() }).to_string();
+        // Output already closed: the failed save still goes to standard error, with exit 1.
+        if crate::emit(&mut out, &line).is_err() {
+            eprintln!("dalica-cli run: {line}");
+            code = Some(ExitCode::from(1));
+        }
         failed = true;
     }
     match code {
@@ -94,7 +107,8 @@ fn script_arg(args: &[String]) -> Option<PathBuf> {
     None
 }
 
-/// Runs every line; returns `Some(2)` at a bad line (after printing why).
+/// Runs every line; returns `Some(2)` at a bad line (after printing why), or the code
+/// [`crate::emit`] gave when the output could not be written.
 fn run_script(s: &mut Session, script: Option<PathBuf>, out: &mut impl Write, failed: &mut bool) -> Option<ExitCode> {
     let reader: Box<dyn BufRead> = match &script {
         Some(path) => match std::fs::File::open(path) {
@@ -131,22 +145,25 @@ fn run_script(s: &mut Session, script: Option<PathBuf>, out: &mut impl Write, fa
         if request.as_object().is_some_and(|o| o.keys().any(|k| k != "command" && k != "params")) {
             return bad("only \"command\" and \"params\" are allowed".into());
         }
-        *failed |= !step(s, id, request.get("params").unwrap_or(&Value::Null), out);
+        match step(s, id, request.get("params").unwrap_or(&Value::Null), out) {
+            Ok(ok) => *failed |= !ok,
+            Err(code) => return Some(code),
+        }
     }
     None
 }
 
-/// Runs one command, waits for its background work and prints its result line.
-fn step(s: &mut Session, id: &str, params: &Value, out: &mut impl Write) -> bool {
+/// Runs one command, waits for its background work and prints its result line; whether it
+/// succeeded, or the exit code when the line could not be written ([`crate::emit`]).
+fn step(s: &mut Session, id: &str, params: &Value, out: &mut impl Write) -> Result<bool, ExitCode> {
     let result = s.execute(id, params);
     s.wait_idle();
     let line = match &result {
         Ok(v) => json!({ "ok": true, "command": id, "result": v }),
         Err(e) => json!({ "ok": false, "command": id, "code": e.code(), "error": e.to_string() }),
     };
-    let _ = writeln!(out, "{line}");
-    let _ = out.flush();
-    result.is_ok()
+    crate::emit(out, &line.to_string())?;
+    Ok(result.is_ok())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -242,13 +259,11 @@ fn connect(options: &Options, args: &[String]) -> ExitCode {
     if let Some((id, params)) = parsed.single {
         let request = json!({ "command": id, "params": params });
         return match connect_step(&request) {
-            Ok(step) => {
-                if send(&mut app, step, &mut out) {
-                    ExitCode::SUCCESS
-                } else {
-                    ExitCode::from(1)
-                }
-            }
+            Ok(step) => match send(&mut app, step, &mut out) {
+                Ok(true) => ExitCode::SUCCESS,
+                Ok(false) => ExitCode::from(1),
+                Err(code) => code,
+            },
             Err(e) => {
                 eprintln!("dalica-cli run: {e}");
                 ExitCode::from(2)
@@ -284,7 +299,11 @@ fn connect(options: &Options, args: &[String]) -> ExitCode {
             Ok(s) => s,
             Err(e) => return bad(e),
         };
-        if !send(&mut app, step, &mut out) {
+        let ok = match send(&mut app, step, &mut out) {
+            Ok(ok) => ok,
+            Err(code) => return code,
+        };
+        if !ok {
             failed = true;
             if !parsed.keep_going {
                 break;
@@ -294,8 +313,9 @@ fn connect(options: &Options, args: &[String]) -> ExitCode {
     if failed { ExitCode::from(1) } else { ExitCode::SUCCESS }
 }
 
-/// Sends one step and prints its result line; whether it succeeded.
-fn send(app: &mut Connect, (key, name, method, params): (&'static str, String, String, Value), out: &mut impl Write) -> bool {
+/// Sends one step and prints its result line; whether it succeeded, or the exit code when the line
+/// could not be written ([`crate::emit`]).
+fn send(app: &mut Connect, (key, name, method, params): (&'static str, String, String, Value), out: &mut impl Write) -> Result<bool, ExitCode> {
     let start = Instant::now();
     let result = app.call(&method, params, &mut NoProgress);
     let ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -309,9 +329,8 @@ fn send(app: &mut Connect, (key, name, method, params): (&'static str, String, S
             o
         }
     };
-    let _ = writeln!(out, "{line}");
-    let _ = out.flush();
-    result.is_ok()
+    crate::emit(out, &line.to_string())?;
+    Ok(result.is_ok())
 }
 
 #[cfg(test)]
