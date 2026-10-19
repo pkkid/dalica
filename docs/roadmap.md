@@ -9355,6 +9355,21 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     load and fix the race (product or test synchronisation, never a looser check).
   - done when: one test per item, each failing without its fix; the flaky test passes 200 runs
     under `taskset -c 0`.
+- ⬜ **M14.27 `fs` + `store`: a file created under its exact name, never replacing one**
+  - after: M14.12
+  - files: `crates/fs/src/create.rs`, `crates/fs/src/lib.rs`, `crates/fs/tests/create.rs`, `crates/fs/README.md`, `crates/store/src/legacy.rs`, `crates/store/tests/legacy.rs`
+  - scope: found at M14.12: a legacy folder's first `.dalica.json` is written with
+    `fs::replace(Expect::Absent)`, which checks the name is free at the start and again just before
+    the rename, so a `.dalica.json` another program creates in between could still be replaced.
+    Add to `fs` a create under an exact name that never replaces a file (write and verify a temp,
+    then commit it with a no-replace step: a hard link of the temp to the name, which fails if the
+    name exists, then remove the temp; or the OS's rename-without-replace where it has one), with
+    its fault points enumerated like the other `fs` writes, refusing links and `..`; and make the
+    store's first legacy write use it.
+  - done when: an `fs` test where the name appears between the check and the commit keeps that
+    file byte-identical and returns the new error, on every system; the crash points leave either
+    no file or the whole verified bytes; the store's first-write test plants a `.dalica.json` at the
+    commit point and it survives; every existing `fs` and `store` test passes.
 - ⬜ **M14.26 `xtask` + `ui` + `engine`: the M13.R review's macOS and Windows failures**
   - after: M13.R
   - files: `.github/workflows/ci.yml`, `xtask/src/ci.rs`, `crates/engine/tests/map_tiles.rs`, `crates/engine/src/geocode.rs`, `crates/ui/src/picker.rs`, `crates/ui/src/control/picker.rs`, `tests/acceptance/m11_live.rs`, `tests/acceptance/fingerprints/m11-1400x900-slideshow-wipe.json`, `tests/acceptance/m13_common.rs`, `tests/acceptance/m13_faces.rs`, `docs/development.md`
@@ -9374,7 +9389,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
   - done when: a test for each fix that fails without it (the picker on a short Windows path, the
     spacing); the review gate's GitHub run green on macOS and Windows within its time limit.
 - ⬜ **M14.23 `accept M14`**
-  - after: M14.15, M14.20, M14.21, M14.22, M14.25, M14.26
+  - after: M14.15, M14.20, M14.21, M14.22, M14.25, M14.26, M14.27
   - files: `tests/acceptance/m14.rs`, `tests/acceptance/m14_*.rs`, `tests/acceptance/m14.md`, `tests/acceptance/fingerprints/m14-*.json`
   - scope: every *Done when* of M14's two areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a collage opened from the tray, a folder header and a
@@ -9445,7 +9460,7 @@ wave 1   M14.1 model: collages + legacy  ‖  M14.2 legacy reader  ‖  M14.3 le
          (once M13.R is closed)
 wave 2   M14.8 pile, grid, sheet, exposure  ‖  M14.9 mosaics  ‖  M14.10 collage render
          ‖  M14.11 legacy on scan  ‖  M14.12 legacy first write  ‖  M14.14 legacy originals
-wave 3   M14.13 legacy in the session  ‖  M14.16 collage session
+wave 3   M14.13 legacy in the session  ‖  M14.16 collage session  ‖  M14.27 exact-name create
 wave 4   M14.15 legacy in the window  ‖  M14.17 Create, Save Draft, Edit Collage
          ‖  M14.18 Collage room  ‖  M14.19 collage canvas
 wave 5   M14.20 Collage entry points  ‖  M14.21 W15, W16  ‖  M14.22 M14 budgets
