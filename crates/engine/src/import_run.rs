@@ -40,6 +40,7 @@
 //! The owner thread never touches the disk: every file call runs on the jobs' threads.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
@@ -53,6 +54,7 @@ use dalica_fs::trash::{self, Sent};
 use dalica_library::{ContentDigest, Folder, Op, Photo, Recipe};
 use serde_json::{Value, json};
 
+use crate::camera::{self, CameraFile, CopyError};
 use crate::error::CmdError;
 use crate::filejobs::{Applied, Done, FileItem, FileJob, ItemFailure, Notice, Tally, default_message};
 use crate::fileops::{Batch, Direction};
@@ -94,12 +96,30 @@ pub enum FolderName {
 /// (a test hook: [`Session::set_import_gate`]).
 pub type Gate = Arc<dyn Fn(usize) + Send + Sync>;
 
+/// Where a copied file came from, as it was when it was copied.
+#[derive(Clone, Debug)]
+enum Origin {
+    /// A file on a card, a drive or a folder, with its identity.
+    File(Identity),
+    /// An object on a camera, with the session that reaches it.
+    Camera(CameraFile),
+}
+
+impl Origin {
+    fn size(&self) -> u64 {
+        match self {
+            Origin::File(id) => id.size(),
+            Origin::Camera(f) => f.object.size,
+        }
+    }
+}
+
 /// One file an import copied, as the undo step and the removal know it now.
 #[derive(Clone, Debug)]
 struct Copied {
-    /// The file on the source and its identity when it was copied.
+    /// The file on the source (for a camera, its path below the source's) and where it came from.
     source: PathBuf,
-    source_identity: Identity,
+    origin: Origin,
     /// Where it went: `<destination>/<folder>/<name>`.
     destination: PathBuf,
     folder: String,
@@ -186,6 +206,10 @@ struct Last {
     excluded: usize,
     failures: Vec<ItemFailure>,
     removal: Option<Removal>,
+    /// Bytes a camera sent (its copies are not counted by `progress`).
+    received: Arc<AtomicU64>,
+    /// Why the import stopped before its end (the camera could no longer be reached).
+    lost: Arc<Mutex<Option<String>>>,
 }
 
 /// The import running or last finished in this session.
@@ -245,6 +269,8 @@ struct CopyItem {
     digest: String,
     /// Redo: its place in the ledger.
     index: usize,
+    /// The object, when the source is a camera.
+    camera: Option<CameraFile>,
 }
 
 impl FileItem for CopyItem {
@@ -258,8 +284,10 @@ impl FileItem for CopyItem {
 struct Got {
     name: String,
     copy: Identity,
-    source_identity: Identity,
+    origin: Origin,
     facts: Facts,
+    /// The digest of what a camera sent.
+    digest: Option<String>,
 }
 
 fn fs_err(e: dalica_fs::Error) -> String {
@@ -270,11 +298,8 @@ fn shown(p: &Path) -> String {
     p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())
 }
 
-/// Copies `item` (on the job's thread); see the module docs.
-fn copy_one(item: &CopyItem, progress: &Progress) -> Result<Got, String> {
-    let (Some(from), Some(name)) = (item.source.parent(), item.source.file_name().and_then(|n| n.to_str())) else {
-        return Err(format!("{} has no name Dalica can copy", item.source.display()));
-    };
+/// The folder `item` is copied into, made when it is new.
+fn folder_for(item: &CopyItem) -> Result<PathBuf, String> {
     if dalica_fs::stat(&item.destination).map_err(fs_err)?.is_none() {
         dalica_fs::create_dir_all(&item.destination).map_err(fs_err)?;
     }
@@ -287,6 +312,26 @@ fn copy_one(item: &CopyItem, progress: &Progress) -> Result<Got, String> {
             Outcome::Done(()) | Outcome::Exists => {}
         },
     }
+    Ok(dir)
+}
+
+/// Copies `item` from the camera (on the job's thread): `camera::copy_object`, then the copy's
+/// facts. `received` counts the bytes the camera sent.
+fn copy_camera(item: &CopyItem, file: &CameraFile, received: &AtomicU64) -> Result<Got, CopyError> {
+    let dir = folder_for(item).map_err(CopyError::File)?;
+    let copied = camera::copy_object(file, &dir, item.exact.as_deref(), &|n| {
+        received.fetch_add(n, Ordering::Relaxed);
+    })?;
+    let facts = facts_of(&dir.join(&copied.name), copied.copy).map_err(CopyError::File)?;
+    Ok(Got { name: copied.name, copy: copied.copy, origin: Origin::Camera(file.clone()), facts, digest: Some(copied.digest) })
+}
+
+/// Copies `item` (on the job's thread); see the module docs.
+fn copy_one(item: &CopyItem, progress: &Progress) -> Result<Got, String> {
+    let (Some(from), Some(name)) = (item.source.parent(), item.source.file_name().and_then(|n| n.to_str())) else {
+        return Err(format!("{} has no name Dalica can copy", item.source.display()));
+    };
+    let dir = folder_for(item)?;
     let identity = dalica_fs::identity(&item.source).map_err(fs_err)?.ok_or_else(|| format!("{name} is no longer on the source"))?;
     match item.expect {
         Some(expect) if expect != identity => return Err(format!("{name} changed on the source since it was imported, so it is not copied again")),
@@ -301,7 +346,7 @@ fn copy_one(item: &CopyItem, progress: &Progress) -> Result<Got, String> {
         match transfer::import_copy(from, name, identity, &dir, &new_name, progress).map_err(fs_err)? {
             Imported::Copied(copy) => {
                 let facts = facts_of(&dir.join(&new_name), copy)?;
-                return Ok(Got { name: new_name, copy, source_identity: identity, facts });
+                return Ok(Got { name: new_name, copy, origin: Origin::File(identity), facts, digest: None });
             }
             Imported::Exists if item.exact.is_none() => {}
             Imported::Exists => return Err(format!("{} already has a file named {new_name}", shown(&dir))),
@@ -354,15 +399,24 @@ fn uncopy(item: &UncopyItem) -> Result<(), String> {
     }
 }
 
-/// One source file to remove from the card.
+/// One source file to remove from the card (or the camera).
 #[derive(Clone, Debug)]
 struct RemoveItem {
     index: usize,
     root: PathBuf,
     source: PathBuf,
-    expect: Identity,
+    origin: Origin,
     copy: PathBuf,
     copy_identity: Identity,
+}
+
+/// Removes `item`'s source (on the job's thread): from a card or a drive through `dalica-fs`,
+/// from a camera by DeleteObject.
+fn remove_one(item: &RemoveItem) -> Result<Removed, String> {
+    match &item.origin {
+        Origin::File(expect) => remove::remove_copied(&item.root, &item.source, *expect, &item.copy, item.copy_identity).map_err(fs_err),
+        Origin::Camera(file) => camera::delete_copied(file, &item.copy, item.copy_identity).map(|()| Removed::Deleted),
+    }
 }
 
 impl FileItem for RemoveItem {
@@ -523,6 +577,7 @@ impl Session {
                 turns: c.turns,
                 digest: c.digest.clone(),
                 index: 0,
+                camera: self.import.camera_file(c),
             })
             .collect();
         let mut planned: Vec<String> = Vec::new();
@@ -540,6 +595,8 @@ impl Session {
         let total = items.len();
         let ledger: Shared = Arc::new(Mutex::new(Ledger::default()));
         let progress = Arc::new(Progress::new());
+        let received = Arc::new(AtomicU64::new(0));
+        let lost: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         // Noted before the job starts: a job that cannot start ends inside `start_file_job`.
         self.import_run.last = Some(Last {
             job: 0,
@@ -556,16 +613,38 @@ impl Session {
             excluded,
             failures: Vec::new(),
             removal: None,
+            received: Arc::clone(&received),
+            lost: Arc::clone(&lost),
         });
         let (gate, applied) = (self.import_run.gate.clone(), Arc::clone(&ledger));
         let job = FileJob::new(JobKind::Import, "Copying", items, move |item: CopyItem| {
-            let got = copy_one(&item, &progress)?;
+            // A camera that can no longer be reached stops the import after the file it failed on.
+            if lock(&lost).is_some() {
+                return Ok(Done { changes: Vec::new(), value: None });
+            }
+            let got = match &item.camera {
+                Some(file) => match copy_camera(&item, file, &received) {
+                    Ok(got) => got,
+                    Err(CopyError::Lost(why)) => {
+                        *lock(&lost) = Some(why.clone());
+                        return Err(why);
+                    }
+                    Err(CopyError::File(why)) => return Err(why),
+                },
+                None => copy_one(&item, &progress)?,
+            };
             if let Some(gate) = &gate {
                 gate(item.order);
             }
-            Ok(Done { changes: Vec::new(), value: (item, got) })
+            Ok(Done { changes: Vec::new(), value: Some((item, got)) })
         })
-        .on_applied(move |s: &mut Session, a: Applied<(CopyItem, Got)>| s.import_enter(&applied, a.value).map(|_| Vec::new()))
+        .on_applied(move |s: &mut Session, a: Applied<Option<(CopyItem, Got)>>| match a.value {
+            Some(v) => s.import_enter(&applied, v).map(|_| Vec::new()),
+            None => {
+                s.import_stop();
+                Ok(Vec::new())
+            }
+        })
         .on_finish(move |s: &mut Session, tally: &Tally| s.import_finished(tally));
         let id = self.start_file_job(job);
         self.import_run.job = Some(id);
@@ -576,8 +655,11 @@ impl Session {
         self.change_settings(|st| {
             let mut i = st.import();
             i.after = after;
-            i.recent_sources.retain(|p| *p != source.path);
-            i.recent_sources.insert(0, source.path.clone());
+            // A camera is no folder to list again.
+            if source.kind != SourceKind::Camera {
+                i.recent_sources.retain(|p| *p != source.path);
+                i.recent_sources.insert(0, source.path.clone());
+            }
             i.recent_destinations.retain(|p| *p != destination);
             i.recent_destinations.insert(0, destination.clone());
             if let FolderName::Text(t) = &folder {
@@ -634,15 +716,16 @@ impl Session {
         if let Some(op) = batch(ops) {
             self.apply_own(op).map_err(|e| format!("{} was copied, but the library could not take it: {e}", got.name))?;
         }
-        if !item.digest.is_empty() {
-            let digest = ContentDigest { size: f.size, mtime: f.mtime, digest: item.digest.clone() };
+        let digest = if item.digest.is_empty() { got.digest.clone().unwrap_or_default() } else { item.digest.clone() };
+        if !digest.is_empty() {
+            let digest = ContentDigest { size: f.size, mtime: f.mtime, digest: digest.clone() };
             if let Err(e) = self.apply_derived(Op::SetDigests { digests: vec![(photo, Some(digest))] }) {
                 log::warn!("the digest of the imported {} was not kept: {e}", got.name);
             }
         }
         lock(ledger).files.push(Copied {
             source: item.source,
-            source_identity: got.source_identity,
+            origin: got.origin,
             destination: item.destination,
             folder: item.folder,
             name: got.name,
@@ -650,7 +733,7 @@ impl Session {
             photo,
             star: item.star,
             turns: item.turns,
-            digest: item.digest,
+            digest,
             copy: Some(got.copy),
             kept: None,
             removed: false,
@@ -662,7 +745,8 @@ impl Session {
     fn import_finished(&mut self, tally: &Tally) -> Notice {
         let Some(last) = self.import_run.last.as_mut() else { return Notice::default() };
         last.seconds = Some(last.started.elapsed().as_secs_f64());
-        last.state = if tally.cancelled { State::Cancelled } else { State::Done };
+        let stopped = lock(&last.lost).clone();
+        last.state = if tally.cancelled || stopped.is_some() { State::Cancelled } else { State::Done };
         last.failures = tally.failures.clone();
         let ledger = Arc::clone(&last.ledger);
         let total = last.total;
@@ -679,7 +763,22 @@ impl Session {
                 running: None,
             });
         }
-        Notice { message: finished_message(copied, total, &folders, tally), folder: folders.first().cloned() }
+        let message = match stopped {
+            Some(why) => format!("Import stopped: {copied} of {} copied. {why}.", pictures(total)),
+            None => finished_message(copied, total, &folders, tally),
+        };
+        Notice { message, folder: folders.first().cloned() }
+    }
+
+    /// A camera lost during the import: its job stops (the file that failed is reported, those
+    /// after it are not started).
+    fn import_stop(&mut self) {
+        let now = self.clock.now();
+        if let Some(job) = self.import_run.job
+            && let Err(e) = self.jobs.cancel(Some(job), now)
+        {
+            log::warn!("the import could not be stopped: {e}");
+        }
     }
 
     /// Undoes (`dir` Undo) or redoes the files `indices` of `ledger` as a file job; ends file step
@@ -739,24 +838,34 @@ impl Session {
                     .enumerate()
                     .filter_map(|(order, i)| {
                         let c = files.get(*i)?;
+                        let (expect, camera) = match &c.origin {
+                            Origin::File(id) => (Some(*id), None),
+                            Origin::Camera(f) => (None, Some(f.clone())),
+                        };
                         Some(CopyItem {
                             order,
                             source: c.source.clone(),
-                            size: c.source_identity.size(),
+                            size: c.origin.size(),
                             destination: c.destination.clone(),
                             folder: c.folder.clone(),
                             exact: Some(c.name.clone()),
-                            expect: Some(c.source_identity),
+                            expect,
                             star: c.star,
                             turns: c.turns,
                             digest: c.digest.clone(),
                             index: *i,
+                            camera,
                         })
                     })
                     .collect();
-                let progress = Progress::new();
+                let (progress, received) = (Progress::new(), AtomicU64::new(0));
                 let job = FileJob::new(JobKind::Import, "Redo Import", items, move |item: CopyItem| {
-                    let got = copy_one(&item, &progress)?;
+                    let got = match &item.camera {
+                        Some(file) => copy_camera(&item, file, &received).map_err(|e| match e {
+                            CopyError::Lost(why) | CopyError::File(why) => why,
+                        })?,
+                        None => copy_one(&item, &progress)?,
+                    };
                     Ok(Done { changes: Vec::new(), value: (item, got) })
                 })
                 .on_applied(move |s: &mut Session, a: Applied<(CopyItem, Got)>| {
@@ -869,7 +978,7 @@ impl Session {
                         index,
                         root: root.clone(),
                         source: f.source.clone(),
-                        expect: f.source_identity,
+                        origin: f.origin.clone(),
                         copy: f.dir().join(&f.name),
                         copy_identity: f.copy?,
                     })
@@ -880,7 +989,7 @@ impl Session {
         let total = items.len();
         let applied = Arc::clone(&ledger);
         let job = FileJob::new(JobKind::Import, "Removing from the card", items, |item: RemoveItem| {
-            let removed = remove::remove_copied(&item.root, &item.source, item.expect, &item.copy, item.copy_identity).map_err(fs_err)?;
+            let removed = remove_one(&item)?;
             Ok(Done { changes: Vec::new(), value: (item.index, removed) })
         })
         .on_applied(move |s: &mut Session, a: Applied<(usize, Removed)>| {
@@ -924,10 +1033,10 @@ impl Session {
         let Some(last) = &self.import_run.last else { return json!({ "state": null }) };
         let done = self.job(last.job).map_or(0, |j| j.progress.done);
         let seconds = last.seconds.unwrap_or_else(|| last.started.elapsed().as_secs_f64());
-        let speed = speed_text(last.progress.bytes(), seconds);
+        let speed = speed_text(last.progress.bytes().saturating_add(last.received.load(Ordering::Relaxed)), seconds);
         let l = lock(&last.ledger);
         let copied = l.files.len();
-        let bytes: u64 = l.files.iter().map(|f| f.source_identity.size()).sum();
+        let bytes: u64 = l.files.iter().map(|f| f.origin.size()).sum();
         let status = match (last.state, &speed) {
             (State::Copying, Some(s)) => format!("Copying {done} of {} at {s}", last.total),
             (State::Copying, None) => format!("Copying {done} of {}", last.total),
@@ -958,6 +1067,7 @@ impl Session {
             "removable": last.source.kind != SourceKind::Folder,
             "undoBlocked": l.blocked,
             "removal": removal,
+            "stopped": lock(&last.lost).clone(),
         })
     }
 }

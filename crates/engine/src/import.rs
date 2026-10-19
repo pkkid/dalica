@@ -5,7 +5,8 @@
 //!
 //! - **Sources** come from `dalica-scan`'s cached device list (cards and drives, refreshed off the
 //!   calling thread at most every 2 s) and the recent sources in the settings: asking never waits
-//!   on the disk.
+//!   on the disk. A camera's storage is a source too (`camera.open`, `crate::camera`): its
+//!   candidates name objects on the camera, not files, and its listing reads them over PTP.
 //! - **The listing** runs on a worker thread of its own ([`worker`]): `dalica-scan`'s bounded
 //!   listing of an untrusted tree, each picture checked for duplicates as it comes. What it finds
 //!   lands in a shared state the owner reads under a short lock when a command asks, so the owner
@@ -36,6 +37,7 @@ use dalica_scan::devices::{Device, DeviceKind, DeviceWatch};
 use dalica_scan::import::{Group, ListOptions, TimeSource};
 use serde_json::{Value, json};
 
+use crate::camera::{CameraFile, CameraObject, Link};
 use crate::error::CmdError;
 use crate::session::Session;
 
@@ -64,6 +66,8 @@ pub enum SourceKind {
     Drive,
     /// A folder chosen with Folder… or a recent source.
     Folder,
+    /// A camera or phone over PTP/MTP (one storage of it, or all), read through its session.
+    Camera,
 }
 
 impl SourceKind {
@@ -72,6 +76,7 @@ impl SourceKind {
             SourceKind::Card => "card",
             SourceKind::Drive => "drive",
             SourceKind::Folder => "folder",
+            SourceKind::Camera => "camera",
         }
     }
 }
@@ -82,7 +87,8 @@ pub struct Source {
     pub kind: SourceKind,
     /// What the room's "Import from:" shows.
     pub name: String,
-    /// The folder listed: a card's `DCIM` folder, a drive's root or the chosen folder.
+    /// The folder listed: a card's `DCIM` folder, a drive's root or the chosen folder; for a
+    /// camera, `camera:<id>:<storage>` (no folder on disk: [`crate::camera::source_path`]).
     pub path: PathBuf,
 }
 
@@ -163,6 +169,8 @@ pub struct ImportSession {
     view: View,
     /// The device list asked (`None`: `dalica-scan`'s own, of this system).
     devices: Option<Arc<DeviceWatch>>,
+    /// The camera being listed, when the source is one.
+    camera: Option<Arc<Link>>,
 }
 
 impl std::fmt::Debug for ImportSession {
@@ -196,6 +204,8 @@ pub struct Candidate {
     pub starred: bool,
     /// Quarter turns clockwise chosen in the room (0–3).
     pub turns: u8,
+    /// The object on the camera, when the source is one.
+    pub camera: Option<CameraObject>,
 }
 
 impl ImportSession {
@@ -242,6 +252,10 @@ impl ImportSession {
         if let Some(t) = lock(&listing.thumbs).get(id) {
             return Some(t);
         }
+        // A camera's thumbnail is made by its listing only (its candidates name no file).
+        if self.camera.is_some() {
+            return None;
+        }
         let path = lock(&listing.shared).found.get(usize::try_from(id).ok()?)?.candidate.path.clone();
         thumbs::remake(&listing.thumbs, id, path, dalica_scan::import::THUMBNAIL);
         None
@@ -264,7 +278,14 @@ impl ImportSession {
             excluded: self.choices.excluded(id),
             starred: self.choices.starred.get(&id).copied().unwrap_or(false),
             turns: self.choices.turns.get(&id).copied().unwrap_or(0),
+            camera: f.camera.clone(),
         }
+    }
+
+    /// The camera object of candidate `c` with the session that reaches it, when the source is a
+    /// camera.
+    pub(crate) fn camera_file(&self, c: &Candidate) -> Option<CameraFile> {
+        Some(CameraFile { link: Arc::clone(self.camera.as_ref()?), object: c.camera.clone()? })
     }
 
     /// The cards and drives from the cached list (never waits on the disk).
@@ -420,17 +441,56 @@ impl Session {
             }
             _ => return Err(CmdError::BadParams("give either `device` (a card or drive from import.sources) or `path` (a folder)".into())),
         };
+        let source_root = source.path.clone();
+        let types = self.settings().file_types();
+        self.import_start_listing(source, None, move |plan, cancel, shared, thumbs| {
+            let root = source_root;
+            let options = ListOptions { types, cancel: Some(cancel), ..ListOptions::default() };
+            worker::run(root, options, plan, shared, thumbs);
+        })
+    }
+
+    /// `camera.open`: lists the camera `id` (its storage `storage`, else every storage) in the
+    /// Import room, dropping the listing before it. Never talks to the camera on the owner thread:
+    /// the listing's worker opens its session.
+    pub(crate) fn import_open_camera(&mut self, id: &str, storage: Option<u32>) -> Result<Value, CmdError> {
+        self.keep_import_digests();
+        let (camera, link) = self.camera_link(id).map_err(CmdError::Disabled)?;
+        let name = match storage {
+            Some(st) => match camera.storages.iter().find(|s| s.id == st) {
+                Some(s) if camera.storages.len() > 1 => format!("{} ({})", camera.name(), s.name),
+                Some(_) => camera.name(),
+                None => return Err(CmdError::NotFound(format!("the camera has no storage {st} (camera.list lists them)"))),
+            },
+            None => camera.name(),
+        };
+        let path = crate::camera::source_path(id, storage);
+        let source = Source { kind: SourceKind::Camera, name, path: path.clone() };
+        let types = self.settings().file_types();
+        let worker_link = Arc::clone(&link);
+        self.import_start_listing(source, Some(link), move |plan, cancel, shared, thumbs| {
+            let src = worker::CameraSource { link: worker_link, storage, types, root: path, cancel };
+            worker::run_camera(src, plan, shared, thumbs);
+        })
+    }
+
+    /// Drops the listing before it and starts `run` on a worker for `source`.
+    fn import_start_listing(
+        &mut self,
+        source: Source,
+        camera: Option<Arc<Link>>,
+        run: impl FnOnce(Plan, Arc<AtomicBool>, Arc<Mutex<Shared>>, Arc<Mutex<thumbs::ThumbCache>>) + Send + 'static,
+    ) -> Result<Value, CmdError> {
         // The listing before goes first: its worker stops after its current file.
         self.import.listing = None;
+        self.import.camera = None;
         let cancel = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(Mutex::new(Shared::default()));
         let cache = Arc::new(Mutex::new(thumbs::ThumbCache::default()));
-        let options = ListOptions { types: self.settings().file_types(), cancel: Some(Arc::clone(&cancel)), ..ListOptions::default() };
         let plan = self.import_plan();
-        let (root, worker_shared, worker_thumbs) = (source.path.clone(), Arc::clone(&shared), Arc::clone(&cache));
-        let spawned = std::thread::Builder::new()
-            .name("dalica-import-list".into())
-            .spawn(move || worker::run(root, options, plan, worker_shared, worker_thumbs));
+        let (worker_cancel, worker_shared, worker_thumbs) = (Arc::clone(&cancel), Arc::clone(&shared), Arc::clone(&cache));
+        let spawned =
+            std::thread::Builder::new().name("dalica-import-list".into()).spawn(move || run(plan, worker_cancel, worker_shared, worker_thumbs));
         if let Err(e) = spawned {
             return Err(CmdError::Internal(format!("cannot start the import listing: {e}")));
         }
@@ -438,6 +498,7 @@ impl Session {
         let imp = &mut self.import;
         imp.generation = imp.generation.saturating_add(1);
         imp.listing = Some(Listing { shared, thumbs: cache, cancel });
+        imp.camera = camera;
         imp.choices = Choices::default();
         imp.view = View::default();
         imp.source = Some(source.clone());

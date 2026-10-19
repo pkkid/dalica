@@ -162,9 +162,11 @@ files load.
 
 Layout, top to bottom:
 
-1. **"Import from:"** dropdown (top-left): removable volumes ("Removable drive (E:)" / volume name), **"Folder…"** (opens a folder picker),
-   recent sources. Cameras and phones over MTP/PTP are added in the OS-integration milestone
-   (`product.md` → Scope).
+1. **"Import from:"** dropdown (top-left): removable volumes ("Removable drive (E:)" / volume name), cameras and phones over
+   MTP/PTP (one item per storage, "Canon EOS R6 (SD1)" when it has several; one another program
+   holds is greyed out with its reason), **"Folder…"** (opens a folder picker), recent sources.
+   A card or a camera plugged in while the room is open is listed and opened; with nothing open
+   the first card is, else the first camera.
 2. **Import tray** (left/main area, the full width minus the preview): a status line ("Loading 112
    of 340 files…", "340 files", "No pictures found"), a checkbox **"Exclude duplicates"**
    (tooltip "Skip pictures that are already in your library"; default from Options →
@@ -243,6 +245,46 @@ status line; Cancel stops after the current file (already-copied files stay). Th
   never runs it. After copying "delete" removes nothing by itself: the room asks, then runs it.
   From its start Undo Import waits, and once a file left the card Undo Import is disabled with "The
   originals were removed from the card."
+
+**Cameras and phones** (built in M15.19: `crates/engine/src/camera.rs`, `cmd/camera.rs`, the
+listing in `crates/engine/src/import/worker.rs`; the PTP/MTP reader is `dalica-scan`'s, M15.9):
+
+- `camera.list` gives the cameras and phones connected (the device list cached and refreshed off
+  the owner thread), each with its storages, or, when another program or a driver holds it, or
+  this user may not open it, that reason: such a camera is shown and never opened, and Dalica never
+  takes a device from its holder. `camera.open {id, storage?}` makes one storage (or every
+  storage) the room's source. A camera takes one session at a time: the listing, the import and
+  the removal share one, opened on the first call from a worker and dropped when nothing uses it.
+- The listing describes every object of the storage, folders left out: pictures, and videos with
+  the Video file type on, each with the camera's own thumbnail (GetThumb), so the tray fills
+  before any picture's bytes are read. Then the objects whose bytes the duplicate check needs (a
+  library photo, or another object, of the same size) and those without a thumbnail of the
+  camera's are read (at most 64 MiB each) for their digest and thumbnail; a duplicate is one with
+  the same size, MD5 digest and bytes, as for a card. The capture date is the camera's (its wall
+  clock, the date it gives the object), else its modification date.
+- Each copy is read from the camera in chunks into a new temporary file through `dalica-fs`
+  inside a private staging folder in the destination folder (`.dalica-camera-…`, which scans
+  skip), `fsync`ed and committed there, given the camera's date as its time (read as UTC, as every
+  date Dalica takes from a file time), read back and checked against the MD5 digest of what the
+  camera sent, and only then moved to its name by a rename that never replaces a file (a taken
+  name gets `-001`). Its digest is kept in the index. A camera is never a recent source.
+- A camera unplugged (or silent past its timeout) during an import stops it after the file being
+  copied: what was copied stays and is one undo step, that file is listed as failed, and
+  `import.status` gives the reason in `stopped` ("Import stopped: 11 of 40 pictures copied. The
+  camera was disconnected."). A listing that loses the camera ends with that reason in its status.
+- "Delete copied files from the card" is `import.removeFromSource` as for a card: after the
+  question, DeleteObject for each object that import copied and checked, and only while the
+  camera still gives the size and dates it had when it was listed and the copy is still the
+  verified one; never over automation. Redo of Undo Import copies again from the camera on the
+  same terms.
+- What each system lets Dalica reach (measured in M15.9, `crates/scan/README.md`): on Linux a
+  camera or phone no other program holds, over USB; one the desktop's own MTP service holds
+  (GNOME's gvfs, KDE's kio) is listed as held, and its mount is a drive in the list, imported as a
+  folder. On Windows the portable-device driver holds cameras and phones: they are listed as held
+  with the system's reason and not reached (a camera that also shows as a card or a drive is
+  imported as one). On macOS
+  no USB path is built yet (`camera.list` answers `usb: false`), and the image-capture service
+  claims cameras as they connect. Which of these 1.0 reaches is a question for the M15 review.
 
 ## 4. Albums
 

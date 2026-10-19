@@ -10224,7 +10224,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     wrong token, an oversized request and 65 paths are refused and nothing opens; a first Dalica
     that hangs makes the second start on its own after its time; Esc after a hand-off leaves the
     library window where it was; the viewer's existing engine and `ui` tests stay green.
-- ⬜ **M15.19 `engine` + `ui`: cameras in the Import room**
+- ✅ **M15.19 `engine` + `ui`: cameras in the Import room**
   - after: M15.4, M15.5, M15.9, M11.8, M11.20
   - files: `crates/engine/src/cmd/camera.rs`, `crates/engine/src/camera.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/import/worker.rs`, `crates/engine/tests/import_camera.rs`, `crates/ui/src/panels/import/source.rs`, `crates/ui/tests/import_camera.rs`, `docs/organizing.md`
   - scope: `organizing.md` §3: cameras and phones in Import from (name and storage) beside cards and
