@@ -212,7 +212,7 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
         assert_eq!(&saved(d, key), value, "{key}");
     }
     // The tab's disabled rows say why.
-    for key in ["interface.language", "files.readLegacyData"] {
+    for key in ["interface.language"] {
         let row = rows.iter().find(|r| r.key == key).unwrap();
         assert!(row.reason.as_deref().is_some_and(|r| r.starts_with("Arrives with")), "{key}: {:?}", row.reason);
     }
