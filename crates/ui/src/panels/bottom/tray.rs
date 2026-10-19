@@ -18,6 +18,11 @@
 //! `album.new`), then the user albums, the most recent first, each adding the tray's photos
 //! (`album.add`). An album section selected as a unit is one token like a folder's ("Album
 //! selected — 40 photos") with the album's cover ([`token_cover`]).
+//!
+//! While the Collage room's Get More is on (`creating.md` §3), **Back to Collage**
+//! (`button:tray.backToCollage`, [`back_to_collage`]) sits in the box's top-right corner, over
+//! the minis: it brings the room back with the tray's photos added to its Clips
+//! (`collage.backToCollage`).
 
 use std::collections::HashSet;
 
@@ -175,13 +180,45 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
         menu = Some((bg, targets));
     }
 
+    if back_to_collage(app, ui, &t, rect) {
+        actions.push(("collage.backToCollage", json!({})));
+    }
     for (command, params) in actions {
-        let _ = app.run(command, &params);
+        if let Err(e) = app.run(command, &params)
+            && command == "collage.backToCollage"
+        {
+            app.toast(&e.to_string(), widgets::ToastKind::Caution);
+        }
     }
     if let Some((response, targets)) = menu {
         let nodes = context_nodes(app, &targets);
         menus::context_menu(&response, app, &nodes);
     }
+}
+
+/// Back to Collage's automation id and label.
+pub const BACK_TO_COLLAGE_ID: &str = "button:tray.backToCollage";
+pub const BACK_TO_COLLAGE: &str = "Back to Collage";
+/// Its distance from the box's top-right corner.
+const BACK_INSET: f32 = 6.0;
+
+/// While Get More is on: Back to Collage in the top-right corner of the tray box `rect`; whether
+/// it was clicked.
+pub fn back_to_collage(app: &App, ui: &mut Ui, t: &Tokens, rect: Rect) -> bool {
+    let state = app.state();
+    if !(state.collage.get_more && state.rooms.contains(&crate::state::Room::Collage)) {
+        return false;
+    }
+    let w = (ui.painter().layout_no_wrap(BACK_TO_COLLAGE.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
+    let h = t.metrics.button_h;
+    let at = Rect::from_min_size(pos2(rect.max.x - BACK_INSET - w, rect.min.y + BACK_INSET), Vec2::new(w, h)).intersect(rect);
+    if !at.is_positive() {
+        return false;
+    }
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt("tray.backToCollage").max_rect(at));
+    widgets::text_button(&mut child, t, BACK_TO_COLLAGE_ID, BACK_TO_COLLAGE, false)
+        .on_hover_text("Add the photos in the tray to the collage and go back to it")
+        .clicked()
 }
 
 /// The photo the token shows: a user album's cover when it is selected, else the section's first
