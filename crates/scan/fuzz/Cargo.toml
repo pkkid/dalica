@@ -1,0 +1,32 @@
+# The fuzz target of `dalica-scan`'s PTP/MTP reader (`docs/security.md` §7.1): a separate
+# cargo-fuzz workspace, outside the product graph and excluded from the root workspace, because
+# cargo-fuzz needs nightly Rust and sanitizer instrumentation. Run: `cargo +nightly fuzz run ptp`
+# from this directory.
+[package]
+name = "dalica-scan-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# Without the USB transport: `nusb` does not build under `--cfg fuzzing`.
+dalica-scan = { path = "..", default-features = false }
+libfuzzer-sys = "0.4"
+
+# Its own workspace, so the root manifest's members and lockfile are untouched.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "ptp"
+path = "fuzz_targets/ptp.rs"
+test = false
+doc = false
+bench = false

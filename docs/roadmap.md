@@ -9944,7 +9944,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     of a Japanese, a Simplified and a Traditional Chinese string and of each script the manifest
     lists has a face, in the order the script asks; `CRAFT_FONTS_REQUIRED=1` without the directory
     fails with a message naming it (a build-script unit test).
-- ⬜ **M15.9 `scan`: cameras and phones over MTP/PTP**
+- ✅ **M15.9 `scan`: cameras and phones over MTP/PTP**
   - after: M11.5, M14.R
   - files: `crates/scan/src/ptp.rs`, `crates/scan/src/ptp/**`, `crates/scan/src/devices.rs`, `crates/scan/tests/ptp.rs`, `crates/scan/fuzz/**`, `crates/scan/README.md`, `.github/workflows/fuzz.yml`
   - scope: `organizing.md` §3, with our own reader written from the public PIMA 15740 (PTP) and
