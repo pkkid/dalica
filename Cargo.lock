@@ -1033,6 +1033,7 @@ name = "dalica-create"
 version = "0.8.0"
 dependencies = [
  "ab_glyph",
+ "allocation-counter",
  "dalica-core",
  "dalica-edit",
  "dalica-fs",
