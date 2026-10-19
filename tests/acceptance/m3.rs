@@ -696,7 +696,15 @@ fn window_shell() {
     // A pane opened on purpose in the narrow window stays open; the tree makes room first (200).
     c.act("ui.clickWidget", json!({ "id": "toggle:pane.people" }));
     check_window(&mut c, w, h, 200.0, Some(("people", 280.0)), "900×600, People opened on purpose");
+    // The first open of People in a run offers the face model dialog (`faces.md` §3.1: finding
+    // faces is on and no model is installed); Cancel closes it, and only then does × reach the pane.
+    let dialogs = c.state()["dialogs"].clone();
+    let kinds: Vec<&str> = dialogs.as_array().unwrap().iter().filter_map(|d| d["kind"].as_str()).collect();
+    assert_eq!(kinds, ["faceModel"], "opening People the first time offers the face model dialog: {dialogs}");
+    c.act("ui.dialog.cancel", json!({}));
+    assert_eq!(c.state()["dialogs"], json!([]), "Cancel closed the face model dialog");
     c.act("ui.clickWidget", json!({ "id": "button:pane.close" }));
+    assert_eq!(c.state()["pane"], Value::Null, "× closed the People pane");
     c.act("ui.key", json!({ "key": "F11" }));
     check_window(&mut c, w, h, 240.0, None, "900×600, full screen");
     c.act("ui.key", json!({ "key": "F11" }));
