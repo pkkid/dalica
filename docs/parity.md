@@ -190,7 +190,7 @@ and DATA-FMT-JPEG-FAST (P2).
 | OUT-EMAIL | Email via default app / save attachments | OOS | 🚫 | dropped 2026-10-09 (dated feature); share by exporting |
 | OUT-PRINT | Print room: layouts, fit, borders/text, review, copies | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | OUT-CONTACT | Printed contact sheet | OOS | 🚫 | dropped 2026-10-09 (dated feature); the collage room keeps its Contact Sheet style |
-| OUT-COLLAGE | Collage room: 6 styles, settings, clips, canvas, output | P1 | ⬜ | ref 07 §1; moved here by the P0 audit (M10.26): the section header's and the bottom bar's Collage buttons, collages in the Projects group (LIB-LT-HEADER, LIB-ACTIONS, LIB-TREE-GROUPS) |
+| OUT-COLLAGE | Collage room: 6 styles, settings, clips, canvas, output | P1 | ⬜ | ref 07 §1; moved here by the P0 audit (M10.26): the section header's and the bottom bar's Collage buttons, collages in the Projects group (LIB-LT-HEADER, LIB-ACTIONS, LIB-TREE-GROUPS); the collage document, its page formats (the Crop tool's ratios plus Current Display), its seeded generator, Scramble and Shuffle as document changes and the `.dalica-collage` recipe (M14.4: `crates/create/src/collage.rs`, `crates/create/tests/collage_doc.rs`; the styles lay out as a stand-in grid until M14.8 and M14.9) |
 | OUT-MOVIE | Movie maker, face movie | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | OUT-WEB | Export as web page | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | OUT-GIFT | Gift folder | OOS | 🚫 | dropped 2026-10-09 (dated feature) |

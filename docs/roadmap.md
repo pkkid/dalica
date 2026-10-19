@@ -9002,7 +9002,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     order; two crops give the last one; a crop on a photo with each of the eight orientations
     covers the same pixels as the legacy rectangle on the stored pixels; proptest: no token list
     panics.
-- ⬜ **M14.4 `create`: the collage document, page formats and the `.dalica-collage` recipe**
+- ✅ **M14.4 `create`: the collage document, page formats and the `.dalica-collage` recipe**
   - after: M8.10, M11.4, M13.R
   - files: `crates/create/src/collage.rs`, `crates/create/src/collage/doc.rs`, `crates/create/src/collage/page.rs`, `crates/create/src/collage/recipe.rs`, `crates/create/src/collage/seed.rs`, `crates/create/src/collage/layout.rs`, `crates/create/src/collage/layout/pile.rs`, `crates/create/src/collage/layout/grid.rs`, `crates/create/src/collage/layout/sheet.rs`, `crates/create/src/collage/layout/exposure.rs`, `crates/create/src/collage/layout/mosaic.rs`, `crates/create/src/collage/layout/frame.rs`, `crates/create/src/collage/render.rs`, `crates/create/tests/collage_doc.rs`, `crates/create/README.md`, `docs/creating.md`, `NOTICE`
   - scope: `creating.md` §3 and the decisions above: the document (style, settings, page format

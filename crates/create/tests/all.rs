@@ -5,6 +5,7 @@
 
 mod common;
 
+mod collage_doc;
 mod export;
 mod output;
 mod save;

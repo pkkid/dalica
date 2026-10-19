@@ -1043,6 +1043,8 @@ dependencies = [
  "md5",
  "moxcms 0.9.1",
  "proptest",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "zune-jpeg",
