@@ -100,7 +100,10 @@ fn every_m8_field_is_mapped() {
     let SavedAs { name: _, recipe: _ } = SavedAs::default();
     assert_eq!(SAVED_AS_FIELDS, [("name", Source::Sidecar("savedAs")), ("recipe", Source::Sidecar("savedAs"))]);
     match Project::Exported {
-        Project::Exported => assert_eq!(mapping::project_text(Project::Exported), "exported"),
+        Project::Exported | Project::Collages => {
+            assert_eq!(mapping::project_text(Project::Exported), "exported");
+            assert_eq!(mapping::project_text(Project::Collages), "collages");
+        }
     }
     assert_eq!(PHOTO_DATA_M8, [("saved", Source::Fields("SAVED_FIELDS")), ("savedAs", Source::Fields("SAVED_AS_FIELDS"))]);
     assert_eq!(FOLDER_DATA_M8, [("project", Source::FolderSidecar("project"))]);

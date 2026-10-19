@@ -8944,7 +8944,7 @@ your previous photo program in %d folders. …" [OK], `organizing.md` §1) shows
 plus the canvas frame with 100 pictures within 16 ms at p95, and are never loosened. No step of
 M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at M14.R for M15.
 
-- ⬜ **M14.1 `library`: the Collages project, legacy ids and legacy facts in the model**
+- ✅ **M14.1 `library`: the Collages project, legacy ids and legacy facts in the model**
   - after: M9.8, M13.1, M13.R
   - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/albums.rs`, `crates/library/src/people.rs`, `crates/library/src/tree.rs`, `crates/library/tests/legacy.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
   - scope: per the decisions above: `Project::Collages` beside `Exported` (the tree's Projects

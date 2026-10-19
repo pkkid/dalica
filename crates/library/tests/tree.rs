@@ -753,6 +753,23 @@ fn exported_folders_list_in_projects_wherever_they_are() {
     assert_eq!(lines(&flat(&fx), Group::Folders), ["Lisbon (2)", "Trip (2)"]);
 }
 
+/// A folder marked Collages lists in Projects wherever it is, as an Exported one does, and the mark
+/// says which kind of project it is (the window draws the collage icon from it).
+#[test]
+fn a_collages_folder_lists_in_projects() {
+    let (mut fx, options) = every_group();
+    let collages = fx.folder("Trip/Collages");
+    fx.photos(collages, &[p(2026, 5, 1)]);
+    let flat = |fx: &Fx| fx.tree(&[base()], &options);
+    assert_eq!(lines(&flat(&fx), Group::Projects), ["Exported (1)"]);
+    let undo = fx.lib.apply(Op::SetProjects { projects: vec![(collages, Some(dalica_library::Project::Collages))] }).unwrap();
+    assert_eq!(lines(&flat(&fx), Group::Projects), ["Collages (1)", "Exported (1)"]);
+    assert_eq!(lines(&flat(&fx), Group::Folders), ["Trip (2)"]);
+    assert_eq!(fx.lib.project(collages), Some(dalica_library::Project::Collages));
+    fx.lib.apply(undo).unwrap();
+    assert_eq!(lines(&flat(&fx), Group::Folders), ["Collages (1)", "Trip (2)"]);
+}
+
 // M9: the Albums group, album sections, the section filter of search mode and section photos.
 
 fn aid(s: &str) -> AlbumId {

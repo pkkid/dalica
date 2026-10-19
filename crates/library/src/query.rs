@@ -26,7 +26,7 @@ use std::time::Duration;
 use dalica_core::geo::LatLon;
 use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 
-use crate::model::{Folder, Library, Photo, PhotoSort, Saved, SortBy};
+use crate::model::{Folder, FolderSidecar, LegacyOriginal, Library, Photo, PhotoSort, Saved, SortBy};
 use crate::people::{Face, FacePerson, FaceRef, Geo, PeopleSort, Person};
 use crate::tags::fold;
 
@@ -196,6 +196,116 @@ impl Library {
     pub fn unrenderable(&self, id: PhotoId, renders: impl Fn(&str) -> bool) -> Option<&str> {
         let saved = self.saved(id).map(|s| s.recipe.as_slice()).unwrap_or_default();
         saved.iter().chain(&self.info(id).edits).map(String::as_str).find(|op| !renders(op))
+    }
+}
+
+/// M14's queries over legacy data (`data-model.md` §9): lookups by legacy id, the folders whose
+/// data came from a legacy sidecar, what only legacy data named, and the photos offered a legacy
+/// Undo Save. Each walks its own small map; none is cached, so the derived facts ops (which bump
+/// no revision) never leave a stale answer.
+impl Library {
+    /// The album holding legacy id `legacy`, if any.
+    pub fn album_by_legacy(&self, legacy: &str) -> Option<&AlbumId> {
+        self.by_legacy_album.get(legacy)
+    }
+
+    /// Album `id`'s legacy id, if it has one.
+    pub fn album_legacy(&self, id: &AlbumId) -> Option<&str> {
+        self.model.album_legacy.get(id).map(String::as_str)
+    }
+
+    /// Every album's legacy id, by album id.
+    pub fn album_legacies(&self) -> impl Iterator<Item = (&AlbumId, &str)> {
+        self.model.album_legacy.iter().map(|(a, l)| (a, l.as_str()))
+    }
+
+    /// The person holding legacy id `legacy`, if any.
+    pub fn person_by_legacy(&self, legacy: &str) -> Option<&PersonId> {
+        self.by_legacy_person.get(legacy)
+    }
+
+    /// Person `id`'s legacy id, if they have one.
+    pub fn person_legacy(&self, id: &PersonId) -> Option<&str> {
+        self.model.person_legacy.get(id).map(String::as_str)
+    }
+
+    /// Every person's legacy id, by person id.
+    pub fn person_legacies(&self) -> impl Iterator<Item = (&PersonId, &str)> {
+        self.model.person_legacy.iter().map(|(p, l)| (p, l.as_str()))
+    }
+
+    /// The sidecar in effect for folder `id` ([`FolderSidecar::None`] when none was recorded).
+    pub fn folder_sidecar(&self, id: FolderId) -> FolderSidecar {
+        self.model.folder_sidecars.get(&id).copied().unwrap_or_default()
+    }
+
+    /// Every folder's recorded sidecar in effect, by folder id.
+    pub fn folder_sidecars(&self) -> impl Iterator<Item = (FolderId, FolderSidecar)> + '_ {
+        self.model.folder_sidecars.iter().map(|(id, s)| (*id, *s))
+    }
+
+    /// The folders whose data came from a legacy sidecar ([`FolderSidecar::has_legacy`]), each
+    /// once, by id: their number is the first-run notice's count.
+    pub fn legacy_folders(&self) -> Vec<FolderId> {
+        self.model.folder_sidecars.iter().filter(|(_, s)| s.has_legacy()).map(|(id, _)| *id).collect()
+    }
+
+    /// Whether every one of `photos` is in a folder whose only sidecar is the legacy one (true for
+    /// none at all).
+    fn all_legacy_only(&self, mut photos: impl Iterator<Item = PhotoId>) -> bool {
+        photos.all(|p| self.model.photos.get(&p).is_some_and(|p| self.folder_sidecar(p.folder) == FolderSidecar::Legacy))
+    }
+
+    /// The albums only legacy data named (the option to read it turned off): those with a legacy
+    /// id whose members all sit in folders whose only sidecar is the legacy one. An album Dalica
+    /// made, or one with a member in a folder Dalica's own sidecar describes, is left out. By id.
+    pub fn legacy_only_albums(&self) -> Vec<AlbumId> {
+        self.model
+            .album_legacy
+            .keys()
+            .filter(|a| self.all_legacy_only(self.model.members.get(*a).into_iter().flat_map(|m| m.keys().copied())))
+            .cloned()
+            .collect()
+    }
+
+    /// The people only legacy data named, as [`Library::legacy_only_albums`]: those with a legacy
+    /// id whose faces all sit in folders whose only sidecar is the legacy one. By id.
+    pub fn legacy_only_people(&self) -> Vec<PersonId> {
+        self.model.person_legacy.keys().filter(|id| self.all_legacy_only(self.photos_of_person(id))).cloned().collect()
+    }
+
+    /// Photo `id`'s legacy original, if the scan found one.
+    pub fn legacy_original(&self, id: PhotoId) -> Option<&LegacyOriginal> {
+        self.model.legacy_originals.get(&id)
+    }
+
+    /// Every legacy original, by photo id.
+    pub fn legacy_originals(&self) -> impl Iterator<Item = (PhotoId, &LegacyOriginal)> {
+        self.model.legacy_originals.iter().map(|(id, o)| (*id, o))
+    }
+
+    /// Whether photo `id` is offered a legacy Undo Save and Revert: it has a legacy original, no
+    /// record of Dalica's own (which takes precedence), and its bytes differ from the original's:
+    /// another size, or, at the same size, a known digest of the file as it is now that differs
+    /// from the original's. At the same size with either digest unknown it is not offered (Dalica
+    /// cannot tell yet).
+    pub fn can_undo_legacy_save(&self, id: PhotoId) -> bool {
+        let (Some(original), Some(photo)) = (self.model.legacy_originals.get(&id), self.model.photos.get(&id)) else { return false };
+        if self.model.saved.contains_key(&id) {
+            return false;
+        }
+        if photo.size != original.size {
+            return true;
+        }
+        match self.content_digest(id) {
+            Some(now) => !original.digest.is_empty() && now != original.digest,
+            None => false,
+        }
+    }
+
+    /// The photos offered a legacy Undo Save ([`Library::can_undo_legacy_save`]), by id.
+    pub fn legacy_undo_saves(&self) -> Vec<PhotoId> {
+        self.model.legacy_originals.keys().copied().filter(|&id| self.can_undo_legacy_save(id)).collect()
     }
 }
 

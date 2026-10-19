@@ -34,6 +34,13 @@
 //! [`Op::SetPersonThumbnail`]). Removing a photo takes its faces and geotag; deleting or merging
 //! away a person takes them out of every face, and the inverse puts the person back first, then
 //! the faces.
+//!
+//! M14's ops: the legacy ids of albums and people ([`Op::SetLegacyIds`], kept in `albums.json`
+//! and `people.json`, so an ordinary op), and two derived facts the scan sets, each folder's
+//! sidecar in effect ([`Op::SetFolderSidecars`]) and each photo's legacy original
+//! ([`Op::SetLegacyOriginals`]). Deleting an album or a person, or merging one away, takes its
+//! legacy id; removing a folder takes its sidecar fact and removing a photo its legacy original;
+//! the inverse puts them back.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
@@ -42,8 +49,8 @@ use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Timest
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, MAX_FILE_NAME, Photo, PhotoInfo, PhotoSort, Project, Recipe, Saved, SavedAs,
-    Sketch, Synced,
+    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, FolderSidecar, LegacyOriginal, Library, MAX_FILE_NAME, Photo, PhotoInfo, PhotoSort, Project,
+    Recipe, Saved, SavedAs, Sketch, Synced, check_legacy_id,
 };
 use crate::people::{Face, FaceKey, Geo, Person};
 use crate::tags::{self, fold};
@@ -253,6 +260,25 @@ pub enum Op {
         id: PersonId,
         thumbnail: Option<FaceKey>,
     },
+    /// Legacy ids of albums and people (`None` forgets one), applied in order (M14): each id
+    /// clean ([`crate::MAX_LEGACY_ID`]) and, once the op applied, held by one album and one person
+    /// at most.
+    SetLegacyIds {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        albums: Vec<(AlbumId, Option<String>)>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        people: Vec<(PersonId, Option<String>)>,
+    },
+    /// The sidecar in effect per folder ([`FolderSidecar::None`] clears it), applied in order.
+    /// Derived data (the scan's finding): see [`Op::is_derived`].
+    SetFolderSidecars {
+        folders: Vec<(FolderId, FolderSidecar)>,
+    },
+    /// Legacy originals of photos (`None` clears one), applied in order. Derived data (the scan's
+    /// finding): see [`Op::is_derived`].
+    SetLegacyOriginals {
+        originals: Vec<(PhotoId, Option<LegacyOriginal>)>,
+    },
     /// Several ops as one: all or nothing, one revision.
     Batch {
         ops: Vec<Op>,
@@ -261,9 +287,10 @@ pub enum Op {
 
 impl Op {
     /// Whether the op changes only derived data (sketches, synced hashes, saved records, search
-    /// facts, digests, first-indexed and last-changed times): [`Op::SetSketches`],
-    /// [`Op::SetSynced`], [`Op::SetSaved`], [`Op::SetFacts`], [`Op::SetDigests`],
-    /// [`Op::SetFirstIndexed`], [`Op::SetLastChanged`], or a non-empty batch of nothing else. Such
+    /// facts, digests, first-indexed and last-changed times, the sidecar in effect, legacy
+    /// originals): [`Op::SetSketches`], [`Op::SetSynced`], [`Op::SetSaved`], [`Op::SetFacts`],
+    /// [`Op::SetDigests`], [`Op::SetFirstIndexed`], [`Op::SetLastChanged`],
+    /// [`Op::SetFolderSidecars`], [`Op::SetLegacyOriginals`], or a non-empty batch of nothing else. Such
     /// an op bumps neither [`Library::revision`] nor any folder revision (one with sketches bumps
     /// [`Library::thumbnail_revision`]), and its inverse is derived too. It is journaled like any
     /// op but never goes on an undo stack: undo is for what the user did.
@@ -275,7 +302,9 @@ impl Op {
             | Op::SetFacts { .. }
             | Op::SetDigests { .. }
             | Op::SetFirstIndexed { .. }
-            | Op::SetLastChanged { .. } => true,
+            | Op::SetLastChanged { .. }
+            | Op::SetFolderSidecars { .. }
+            | Op::SetLegacyOriginals { .. } => true,
             Op::Batch { ops } => !ops.is_empty() && ops.iter().all(Op::is_derived),
             _ => false,
         }
@@ -352,6 +381,9 @@ impl Library {
                 }
                 if let Some(sort) = self.model.folder_sorts.remove(&id) {
                     ops.insert(1, Op::SetFolderSorts { sorts: vec![(id, sort)] });
+                }
+                if let Some(sidecar) = self.model.folder_sidecars.remove(&id) {
+                    ops.insert(1, Op::SetFolderSidecars { folders: vec![(id, sidecar)] });
                 }
                 fx.touched.insert(id);
                 Ok(if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } })
@@ -646,8 +678,11 @@ impl Library {
                         return Err(Error::UnknownAlbum(id.clone()));
                     }
                 }
-                let (mut infos, mut members, mut covers) = (Vec::new(), Vec::new(), Vec::new());
+                let (mut infos, mut members, mut covers, mut legacy) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
                 for id in ids {
+                    if let Some(old) = self.take_album_legacy(&id) {
+                        legacy.push((id.clone(), Some(old)));
+                    }
                     if let Some(cover) = self.model.covers.remove(&id) {
                         covers.push((id.clone(), Some(cover)));
                     }
@@ -666,6 +701,9 @@ impl Library {
                 }
                 if !covers.is_empty() {
                     ops.push(Op::SetCovers { covers });
+                }
+                if !legacy.is_empty() {
+                    ops.push(Op::SetLegacyIds { albums: legacy, people: Vec::new() });
                 }
                 Ok(if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } })
             }
@@ -805,6 +843,28 @@ impl Library {
             Op::MergePeople { from, into } => self.merge_people(from, into, touched),
             Op::DeletePerson { id } => self.delete_person(id, touched),
             Op::SetPersonThumbnail { id, thumbnail } => self.set_person_thumbnail(id, thumbnail),
+            Op::SetLegacyIds { albums, people } => self.set_legacy_ids(albums, people),
+            Op::SetFolderSidecars { folders } => {
+                self.check_folders(folders.iter().map(|(id, _)| *id))?;
+                let mut undo = Vec::with_capacity(folders.len());
+                for (id, sidecar) in folders {
+                    let old = if sidecar == FolderSidecar::None {
+                        self.model.folder_sidecars.remove(&id)
+                    } else {
+                        self.model.folder_sidecars.insert(id, sidecar)
+                    };
+                    undo.push((id, old.unwrap_or_default()));
+                }
+                undo.reverse();
+                Ok(Op::SetFolderSidecars { folders: undo })
+            }
+            Op::SetLegacyOriginals { originals } => {
+                self.check_photos(originals.iter().map(|(id, _)| *id))?;
+                for o in originals.iter().filter_map(|(_, o)| o.as_ref()) {
+                    o.check()?;
+                }
+                Ok(Op::SetLegacyOriginals { originals: set_all(&mut self.model.legacy_originals, originals) })
+            }
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
                 for op in ops {
@@ -828,7 +888,7 @@ impl Library {
 
     /// Removes the photos `ids` (all known, no repeats) with their info, synced hashes, saved
     /// records, copies saved beside, sketches, search facts, digests, times, album memberships and
-    /// the covers they were, faces and geotags, and returns the ops that put them back, in order:
+    /// the covers they were, faces, geotags and legacy originals, and returns the ops that put them back, in order:
     /// [`Op::AddPhotos`] first, then only what there was (memberships before covers).
     fn remove_photos(&mut self, ids: &[PhotoId], fx: &mut Effects) -> Vec<Op> {
         let sketches: Vec<(PhotoId, Option<Sketch>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.sketches.remove(id)?)))).collect();
@@ -842,6 +902,8 @@ impl Library {
         fx.times |= !indexed.is_empty() || !changed.is_empty();
         let faces: Vec<(PhotoId, Vec<Face>)> = ids.iter().filter_map(|id| Some((*id, self.model.faces.remove(id)?))).collect();
         let geo: Vec<(PhotoId, Option<Geo>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.geo.remove(id)?)))).collect();
+        let legacy: Vec<(PhotoId, Option<LegacyOriginal>)> =
+            ids.iter().filter_map(|id| Some((*id, Some(self.model.legacy_originals.remove(id)?)))).collect();
         let gone: HashSet<PhotoId> = ids.iter().copied().collect();
         let mut covers = Vec::new();
         self.model.covers.retain(|album, photo| {
@@ -871,7 +933,7 @@ impl Library {
         let infos: Vec<(PhotoId, PhotoInfo)> = ids.iter().filter_map(|id| Some((*id, self.put_info(*id, PhotoInfo::default())?))).collect();
         let photos: Vec<Photo> = ids.iter().filter_map(|id| self.remove_photo(*id)).collect();
         fx.touched.extend(photos.iter().map(|p| p.folder));
-        let mut ops = Vec::with_capacity(14);
+        let mut ops = Vec::with_capacity(15);
         ops.push(Op::AddPhotos { photos });
         if !facts.is_empty() {
             ops.push(Op::SetFacts { facts });
@@ -908,6 +970,9 @@ impl Library {
         }
         if !saved_as.is_empty() {
             ops.push(Op::SetSavedAs { saved_as });
+        }
+        if !legacy.is_empty() {
+            ops.push(Op::SetLegacyOriginals { originals: legacy });
         }
         if !sketches.is_empty() {
             fx.sketches = true;
@@ -1136,6 +1201,84 @@ impl Library {
         }
         key
     }
+}
+
+/// M14's legacy ids.
+impl Library {
+    /// [`Op::SetLegacyIds`]: every album and person known, every id clean, and no id held by two
+    /// albums or two people once all of it applied; nothing changes otherwise.
+    fn set_legacy_ids(&mut self, albums: Vec<(AlbumId, Option<String>)>, people: Vec<(PersonId, Option<String>)>) -> Result<Op> {
+        for (id, legacy) in &albums {
+            if !self.model.albums.contains_key(id) {
+                return Err(Error::UnknownAlbum(id.clone()));
+            }
+            legacy.as_deref().map_or(Ok(()), check_legacy_id)?;
+        }
+        for (id, legacy) in &people {
+            if !self.model.people.contains_key(id) {
+                return Err(Error::UnknownPerson(id.clone()));
+            }
+            legacy.as_deref().map_or(Ok(()), check_legacy_id)?;
+        }
+        let album_after = after_legacy(&self.model.album_legacy, &albums, "album legacy id")?;
+        let people_after = after_legacy(&self.model.person_legacy, &people, "person legacy id")?;
+        let mut undo_albums = Vec::with_capacity(albums.len());
+        for (id, legacy) in albums {
+            undo_albums.push((id.clone(), self.model.album_legacy.get(&id).cloned()));
+            match legacy {
+                Some(l) => self.model.album_legacy.insert(id, l),
+                None => self.model.album_legacy.remove(&id),
+            };
+        }
+        let mut undo_people = Vec::with_capacity(people.len());
+        for (id, legacy) in people {
+            undo_people.push((id.clone(), self.model.person_legacy.get(&id).cloned()));
+            match legacy {
+                Some(l) => self.model.person_legacy.insert(id, l),
+                None => self.model.person_legacy.remove(&id),
+            };
+        }
+        if album_after {
+            self.by_legacy_album = self.model.album_legacy.iter().map(|(a, l)| (l.clone(), a.clone())).collect();
+        }
+        if people_after {
+            self.by_legacy_person = self.model.person_legacy.iter().map(|(p, l)| (l.clone(), p.clone())).collect();
+        }
+        undo_albums.reverse();
+        undo_people.reverse();
+        Ok(Op::SetLegacyIds { albums: undo_albums, people: undo_people })
+    }
+
+    /// Removes album `id`'s legacy id (it is being deleted); returns it.
+    pub(crate) fn take_album_legacy(&mut self, id: &AlbumId) -> Option<String> {
+        let old = self.model.album_legacy.remove(id)?;
+        self.by_legacy_album.remove(&old);
+        Some(old)
+    }
+
+    /// Removes person `id`'s legacy id (they are being deleted or merged away); returns it.
+    pub(crate) fn take_person_legacy(&mut self, id: &PersonId) -> Option<String> {
+        let old = self.model.person_legacy.remove(id)?;
+        self.by_legacy_person.remove(&old);
+        Some(old)
+    }
+}
+
+/// Checks that `changes` applied in order to `map` leave no legacy id held twice; returns whether
+/// anything changes (so the lookup is rebuilt).
+fn after_legacy<K: Ord + Clone>(map: &BTreeMap<K, String>, changes: &[(K, Option<String>)], what: &'static str) -> Result<bool> {
+    if changes.is_empty() {
+        return Ok(false);
+    }
+    let mut after = map.clone();
+    for (id, legacy) in changes {
+        match legacy {
+            Some(l) => after.insert(id.clone(), l.clone()),
+            None => after.remove(id),
+        };
+    }
+    let mut seen = HashSet::with_capacity(after.len());
+    if after.values().all(|l| seen.insert(l.as_str())) { Ok(true) } else { Err(Error::BadText { what, why: "a legacy id another one holds" }) }
 }
 
 /// Sets or clears each entry of `map` in order; returns the entries that undo it.

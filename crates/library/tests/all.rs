@@ -5,6 +5,7 @@ mod common;
 mod seed;
 
 mod albums;
+mod legacy;
 mod m6_fields;
 mod m8_fields;
 mod m9_fields;
