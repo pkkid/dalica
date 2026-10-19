@@ -358,7 +358,7 @@ fn a_legacy_original_is_found_with_its_recipe_and_one_equal_to_its_photo_is_not_
 fn a_legacy_folder_that_cannot_be_read_changes_nothing_and_is_left_as_it_is() {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path().join("photos");
-    let (_saved, original) = legacy_folder(&d);
+    legacy_folder(&d);
     let (mut lib, f, ids) = library(&d);
     lib.apply(originals::legacy_ops(&lib, f, &originals::read(&d, NOW)).unwrap()).unwrap();
     assert!(lib.legacy_original(ids[0]).is_some());
@@ -380,7 +380,7 @@ fn a_legacy_folder_that_cannot_be_read_changes_nothing_and_is_left_as_it_is() {
     {
         put(&sidecar, b"[a.jpg]\nfilters=sepia=1;\n");
         let elsewhere = dir.path().join("elsewhere.jpg");
-        put(&elsewhere, &original);
+        put(&elsewhere, &std::fs::read(legacy_dir(&d).join("a.jpg")).unwrap());
         std::fs::remove_file(legacy_dir(&d).join("a.jpg")).unwrap();
         std::os::unix::fs::symlink(&elsewhere, legacy_dir(&d).join("a.jpg")).unwrap();
         let found = originals::read(&d, NOW);
