@@ -63,7 +63,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Photo History",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId, "variant"?:bool (false)}: the photo's recipe ("edits") and redo list, whether each way is possible, and the button labels ("Undo Crop", "Redo Tuning"; "Undo" / "Redo" when there is nothing); a saved photo with no newer edits answers "undoLabel": "Undo Save", "canUndo": true and "undoSave": true (its Undo runs photo.undoSave); with variant, the open A│A variant's history, with "variant": true (disabled when none is open)"#,
+            params: r#"{"id":PhotoId, "variant"?:bool (false)}: the photo's recipe ("edits") and redo list, whether each way is possible, and the button labels ("Undo Crop", "Redo Tuning"; "Undo" / "Redo" when there is nothing); a saved photo with no newer edits (Dalica's save, or the previous organizer's with its original kept) answers "undoLabel": "Undo Save", "canUndo": true and "undoSave": true (its Undo runs photo.undoSave); with variant, the open A│A variant's history, with "variant": true (disabled when none is open)"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -204,8 +204,10 @@ fn state(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let h = history_of(s, id)?;
     let mut v = state_json(id, &h);
     // A saved photo without newer edits: Undo reads "Undo Save" and runs `photo.undoSave`
-    // (`editing.md` §5.1), which `photo.history.undo` does not.
-    if h.edits.is_empty() && s.library().can_undo_save(id) {
+    // (`editing.md` §5.1), which `photo.history.undo` does not. A photo the previous organizer
+    // saved, with no record of Dalica's, the same (its legacy original, M14.13).
+    let lib = s.library();
+    if h.edits.is_empty() && (lib.can_undo_save(id) || lib.can_undo_legacy_save(id)) {
         v["canUndo"] = json!(true);
         v["undoLabel"] = json!(UNDO_SAVE);
         v["undoSave"] = json!(true);
@@ -258,5 +260,20 @@ mod tests {
         assert_eq!(s.library().model(), &model);
         s.execute("photo.history.apply", &json!({ "id": ids[0], "op": "rotate(90)" })).unwrap();
         assert_eq!(s.library().info(ids[0]).edits.last().map(String::as_str), Some("rotate(180)"));
+    }
+
+    /// A photo the previous organizer saved (its original kept, at another size) with no record
+    /// of Dalica's offers Undo Save as a saved one does (M14.13).
+    #[test]
+    fn a_legacy_original_offers_undo_save() {
+        let (_dirs, mut s, ids) = library(2);
+        let state = |s: &mut crate::Session, id| s.execute("photo.history.state", &json!({ "id": id })).unwrap();
+        assert_eq!(state(&mut s, ids[0])["undoSave"], json!(null));
+        let size = s.library().photo(ids[0]).unwrap().size.saturating_add(1);
+        let original = dalica_library::LegacyOriginal { size, digest: String::new(), recipe: vec!["sepia()".into()] };
+        s.apply_derived(dalica_library::Op::SetLegacyOriginals { originals: vec![(ids[0], Some(original))] }).unwrap();
+        let v = state(&mut s, ids[0]);
+        assert_eq!((v["undoSave"].clone(), v["canUndo"].clone(), v["undoLabel"].clone()), (json!(true), json!(true), json!(super::UNDO_SAVE)));
+        assert_eq!(state(&mut s, ids[1])["undoSave"], json!(null), "a photo without one is not offered it");
     }
 }

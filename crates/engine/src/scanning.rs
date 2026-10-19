@@ -105,6 +105,14 @@
 //!   application) in the op that updates it (`with_file_faces`): with no undo step, never written
 //!   back.
 //!
+//! - **The previous organizer's data** (M14.13, `data-model.md` §9; [`crate::legacy`]): scans
+//!   read legacy sidecars while `files.readLegacyData` is on (`Options::legacy`); a folder's fact
+//!   (the sidecar in effect) rides in the op that adds it, the faces and memberships of a legacy
+//!   folder's new photos by legacy id in the ops that add them (`with_sidecar`), and a known
+//!   folder whose source changed (the option turned, a `.dalica.json` that appeared before the
+//!   first write) is read again before its diff's ops; nothing a scan brings is written into a
+//!   legacy-only folder. A finished scan gives the first-run notice its count.
+//!
 //! Seams: [`crate::watching`] starts the periodic verification through
 //! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
 //! ([`Session::busy`] and [`Session::wait_idle`] include them); M5.16 replaces the amortised
@@ -128,6 +136,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::jobs::{JobId, JobKind, JobProgress, Outcome};
+use crate::legacy::Defs;
 use crate::metadata::{Field, Fields};
 use crate::session::{Msg, Session};
 use crate::undo::Step;
@@ -683,6 +692,8 @@ impl Session {
             failures: self.scanning.failures.clone(),
             types: self.settings().file_types(),
             metadata,
+            // Options → General → "Read photo data left by the previous organizer" (M14.13).
+            legacy: self.settings().legacy().read_legacy_data,
             ..dalica_scan::Options::default()
         };
         if let Some(reader) = &self.scanning.reader {
@@ -999,10 +1010,13 @@ impl Session {
                 let with = job.current.as_ref().and_then(|folder| {
                     let target = job.fresh.as_ref().unwrap_or(&self.library);
                     match job.kind {
-                        ScanKind::Rebuild => with_sidecar(target, &op, folder, job.albums.as_ref(), &|_| false, job.people.as_ref()),
+                        ScanKind::Rebuild => {
+                            let defs = Defs { albums: job.albums.as_ref(), people: job.people.as_ref() };
+                            with_sidecar(target, &op, folder, job.albums.as_ref(), &|_| false, job.people.as_ref(), defs)
+                        }
                         ScanKind::Merge => {
                             let file = &self.scanning.albums_file;
-                            with_sidecar(target, &op, folder, file.defs.as_ref(), &|a| file.deleted(target, a), None)
+                            with_sidecar(target, &op, folder, file.defs.as_ref(), &|a| file.deleted(target, a), None, Defs::default())
                         }
                     }
                 });
@@ -1011,7 +1025,11 @@ impl Session {
                         Ok(()) => Ok(()),
                         Err(e) => {
                             self.scan_warnings.push(format!("album memberships, faces or geotags not applied: {e}"));
-                            self.apply_scan_op(job, op)
+                            // The folder's fact still comes with it, so a legacy-only folder is
+                            // never written by a scan (`legacy.rs`).
+                            let target = job.fresh.as_ref().unwrap_or(&self.library);
+                            let fact = job.current.as_ref().and_then(|f| crate::legacy::with_fact(target, &op, f));
+                            self.apply_scan_op(job, fact.unwrap_or(op))
                         }
                     },
                     None => self.apply_scan_op(job, op),
@@ -1068,7 +1086,7 @@ impl Session {
                 }
                 _ => Vec::new(),
             };
-            let ops = match &mut job.fresh {
+            let mut ops = match &mut job.fresh {
                 Some(fresh) => dalica_scan::diff(fresh, &scan),
                 None if !gone.is_empty() => match scan.folders.first() {
                     Some(found) => dalica_scan::diff_found(&mut self.library, found, &gone),
@@ -1076,6 +1094,16 @@ impl Session {
                 },
                 None => dalica_scan::diff(&mut self.library, &scan),
             };
+            // A known folder whose sidecar in effect changed: its fact, and when the data's source
+            // changed its photos read again, before the diff's ops (`legacy.rs`, M14.13).
+            if let Some(found) = scan.folders.first() {
+                let reread = job.fresh.is_none() && self.legacy_reread(&found.path);
+                let target = job.fresh.as_ref().unwrap_or(&self.library);
+                let defs = Defs { albums: job.albums.as_ref(), people: job.people.as_ref() };
+                if let Some(op) = crate::legacy::transition(target, found, reread, defs) {
+                    ops.insert(0, op);
+                }
+            }
             let folder = scan.folders.into_iter().next();
             job.revision = self.library.revision();
             if ops.is_empty() {
@@ -1106,7 +1134,9 @@ impl Session {
         let mut out: Option<Op> = None;
         for folder in folders {
             let current = out.as_ref().unwrap_or(op);
-            if let Some(with) = with_sidecar(&self.library, current, folder, file.defs.as_ref(), &|a| file.deleted(&self.library, a), None) {
+            if let Some(with) =
+                with_sidecar(&self.library, current, folder, file.defs.as_ref(), &|a| file.deleted(&self.library, a), None, Defs::default())
+            {
                 out = Some(with);
             }
         }
@@ -1243,6 +1273,8 @@ impl Session {
             }
         }
         self.sync_thumbnails();
+        // The first-run notice of legacy data (`legacy.rs`).
+        self.legacy_after_scan();
         let found = job.walker.found.max(job.indexed);
         self.scanning.last = ScanProgress { running: false, folders_queued: 0, found, indexed: job.indexed };
         let result = json!({
@@ -1461,8 +1493,9 @@ fn with_albums(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&Album
 }
 
 /// `op` with what `folder`'s sidecar says that the model does not know yet: albums and the photo
-/// sort ([`with_albums`]), then faces, geotags and people ([`with_people`]); `None` when it says
-/// nothing the op needs.
+/// sort ([`with_albums`]), then faces, geotags and people ([`with_people`]), then the folder's
+/// fact and what a legacy sidecar says of albums and faces (`crate::legacy::with_legacy`, by
+/// legacy id; `defs` a rebuild's readings); `None` when it says nothing the op needs.
 fn with_sidecar(
     lib: &Library,
     op: &Op,
@@ -1470,10 +1503,12 @@ fn with_sidecar(
     albums: Option<&AlbumsReading>,
     skip: &dyn Fn(&AlbumId) -> bool,
     people: Option<&PeopleReading>,
+    defs: Defs<'_>,
 ) -> Option<Op> {
     let with = with_albums(lib, op, folder, albums, skip);
     let with = with_people(lib, with.as_ref().unwrap_or(op), folder, people).or(with);
-    with_file_faces(lib, with.as_ref().unwrap_or(op), folder).or(with)
+    let with = with_file_faces(lib, with.as_ref().unwrap_or(op), folder).or(with);
+    crate::legacy::with_legacy(lib, with.as_ref().unwrap_or(op), folder, defs).or(with)
 }
 
 /// `op`, one of the ops a scan applies for `folder`, with what the folder's sidecar says about the

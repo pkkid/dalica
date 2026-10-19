@@ -44,6 +44,7 @@ mod import_remove;
 mod import_run;
 mod jobs;
 mod keymap;
+mod legacy;
 mod legacy_originals;
 mod lessons_m9;
 mod library_inspect;
