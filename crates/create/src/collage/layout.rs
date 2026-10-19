@@ -12,7 +12,7 @@ mod frame;
 mod grid;
 mod mosaic;
 mod pile;
-mod sheet;
+pub mod sheet;
 
 use dalica_core::{PhotoId, Rect01};
 

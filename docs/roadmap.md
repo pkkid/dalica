@@ -9081,7 +9081,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     angle; `crates/ui-kit/tests/icons_collage.rs`: each new icon stays in its grid at 12, 16, 20 and
     28 px in rest, hover and disabled colours; gallery and icon fingerprints; `widget_ids`,
     contrast, `cargo xtask assets` and `cargo xtask names` pass.
-- ⬜ **M14.8 `create`: Picture Pile, Grid, Contact Sheet and Multiple Exposure**
+- ✅ **M14.8 `create`: Picture Pile, Grid, Contact Sheet and Multiple Exposure**
   - after: M14.4
   - files: `crates/create/src/collage/layout/pile.rs`, `crates/create/src/collage/layout/grid.rs`, `crates/create/src/collage/layout/sheet.rs`, `crates/create/src/collage/layout/exposure.rs`, `crates/create/tests/collage_layouts.rs`
   - scope: `creating.md` §3 and the decisions above: the pile (pictures scattered over the page,

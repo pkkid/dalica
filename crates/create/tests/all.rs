@@ -6,6 +6,7 @@
 mod common;
 
 mod collage_doc;
+mod collage_layouts;
 mod export;
 mod output;
 mod save;
