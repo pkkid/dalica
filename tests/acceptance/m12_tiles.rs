@@ -7,7 +7,7 @@
 //!   as the catalogue labels them;
 //! - the window never waits for the previews: frame after frame is drawn while `ui.settle` still
 //!   reports the tiles on their way, and no frame drawn while they are on their way (the frames
-//!   that lay out the opened photo aside) comes near the time the grid takes to fill in UI time
+//!   that lay out the opened photo before a tile arrives aside) comes near the time the grid takes to fill in UI time
 //!   (`ui.inspect` → `perf.maxFrameMs`);
 //! - once settled every tile holds its preview: most of its preview box is no longer the
 //!   `gray 38` placeholder;
@@ -31,7 +31,7 @@ const GREY: [u8; 3] = [38, 38, 38];
 /// A tile's preview: 78 × 48 points, 3 points under the tile's top, centred.
 const PREVIEW: (f64, f64) = (78.0, 48.0);
 const PREVIEW_TOP: f64 = 3.0;
-/// The frames a step to another photo takes to lay it out (egui may lay a new view out twice).
+/// The frames a step to another photo may take to lay it out (egui may lay a new view out twice).
 const OPENING_FRAMES: u64 = 3;
 
 /// The share of a tile's preview box that is not the placeholder.
@@ -50,39 +50,54 @@ fn filled(shot: &live::Shot, rect: [f64; 4]) -> f64 {
     f64::from(not_grey) / f64::from(w * h)
 }
 
+/// The tiles still on their way after a `ui.settle` (`effect tiles: <n>` in `busy`; 0 when none).
+fn tiles_pending(settled: &Value) -> u64 {
+    settled["busy"].as_array().unwrap().iter().filter_map(|b| b.as_str()?.strip_prefix("effect tiles: ")?.parse().ok()).next().unwrap_or(0)
+}
+
 /// Opens photo `id` in the edit view while effect tab `name` shows (another photo open on it
 /// first), as a user stepping to a photo on that tab does: its tiles wait behind its preview. Then
 /// lets the grid fill one frame at a time until it settles. Returns (frames drawn while the tiles
 /// were on their way, the fill's wall time in ms, the largest UI time of a frame meanwhile in ms).
 ///
-/// The frames that lay out the newly opened photo ([`OPENING_FRAMES`]) are left out of the largest
-/// frame: they wait for nothing, but they are the dearest frames of the step, and with the tiles'
-/// workers on every core a busy runner stretches them past half of a short fill (macOS and Windows
-/// CI, 50 of 95 ms and 68 of 132 ms). The fill's time still runs from the step.
+/// Every frame from the step on counts for the first and the second. The largest frame leaves out
+/// the frames that lay out the newly opened photo (at most [`OPENING_FRAMES`]) while no tile has
+/// arrived yet: they are the dearest frames of the step, and with the tiles' workers on every core
+/// a busy runner stretches them past half of a short fill (macOS and Windows CI, 50 of 95 ms and 68
+/// of 132 ms). They cannot have waited for a tile: a frame that waits for one ends with it in. The
+/// frame in which the first tile arrives always counts, so a fast runner, whose tiles come within
+/// the opening frames, is measured from that frame on.
 fn fill(c: &mut Client, name: &str, other: &Value, id: &Value) -> (u64, f64, f64) {
     run(c, "view.edit", json!({ "id": other }));
     run(c, "edit.tab", json!({ "tab": name }));
+    c.ok("ui.inspect", json!({ "resetPerf": true }));
     let started = Instant::now();
     c.exec("view.edit", json!({ "id": id }));
     assert_eq!(c.state()["edit"]["tab"], name, "the edit view stays on the tab");
-    let opening = c.ok("ui.settle", json!({ "timeoutMs": 17 * OPENING_FRAMES }));
-    let busy = opening["busy"].as_array().unwrap();
-    assert!(
-        busy.iter().any(|b| b.as_str().is_some_and(|b| b.starts_with("effect tiles:"))),
-        "{name}: the tiles are still on their way after the opening frames: {opening}"
-    );
-    // A reset keeps the last frame drawn as the largest; one more frame makes that one a frame of
-    // the fill, not the opening.
-    c.ok("ui.settle", json!({ "timeoutMs": 17 }));
-    c.ok("ui.inspect", json!({ "resetPerf": true }));
     let mut pending_frames = 0;
-    loop {
-        let s = c.ok("ui.settle", json!({ "timeoutMs": 17 }));
-        let busy: Vec<String> = s["busy"].as_array().unwrap().iter().map(|b| b.as_str().unwrap().to_string()).collect();
-        if busy.iter().any(|b| b.starts_with("effect tiles:")) {
+    // One frame per settle (16 ms is one frame), until a tile arrives or the opening frames are
+    // drawn; then one more, so the reset (which keeps the last frame drawn as the largest) keeps a
+    // frame of the fill: the one a tile arrived in, or the first after the opening.
+    let mut most = 0;
+    for _ in 0..=OPENING_FRAMES {
+        let s = c.ok("ui.settle", json!({ "timeoutMs": 16 }));
+        let n = tiles_pending(&s);
+        if n > 0 {
             pending_frames += s["frames"].as_u64().unwrap_or(0);
         }
-        if busy.is_empty() {
+        let arrived = n < most;
+        most = most.max(n);
+        if arrived {
+            break;
+        }
+    }
+    c.ok("ui.inspect", json!({ "resetPerf": true }));
+    loop {
+        let s = c.ok("ui.settle", json!({ "timeoutMs": 17 }));
+        if tiles_pending(&s) > 0 {
+            pending_frames += s["frames"].as_u64().unwrap_or(0);
+        }
+        if s["busy"].as_array().unwrap().is_empty() {
             break;
         }
         assert!(started.elapsed().as_secs() < 300, "{name}: the grid never filled: {s}");
