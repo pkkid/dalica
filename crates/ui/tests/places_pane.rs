@@ -5,7 +5,8 @@
 //!   go, as one undo step, and the map shows one marker of 3; dropping photos that have a location
 //!   asks "Move %d photos here?";
 //! - Remove Location in a marker's bubble clears its photos, asking first past 5; Show These Photos
-//!   selects them;
+//!   selects them; a marker drawn as a group of places speaks and acts for all their photos
+//!   (M14.29), and one zoom level in its places part again;
 //! - typed coordinates in "Search for a place:" move the pin and the map there, and the pin's OK
 //!   puts the selection there;
 //! - Tools ▸ Geotag ▸ Copy Location and Paste Location work from the menu, and Clear Location…
@@ -36,6 +37,9 @@ struct T {
 /// Lisbon and Porto.
 const LISBON: [f64; 2] = [38.7116, -9.1389];
 const PORTO: [f64; 2] = [41.1579, -8.6291];
+/// A point 0.44° east of Lisbon: about 20 points from it at zoom 6 (one marker of the two), 40 at
+/// zoom 7 (two markers).
+const EAST: [f64; 2] = [38.7116, -8.70];
 
 /// A library of eight photos in one folder at `w × h`, the Places pane open on the map of Portugal.
 fn setup((w, h): (u32, u32)) -> T {
@@ -182,6 +186,44 @@ fn remove_location_asks_past_five_and_show_these_photos_selects_them() {
     click(&mut t, "button:places.removeLocation");
     assert!(t.d.state().dialogs.is_empty() && !located(&t, porto));
     assert_eq!(widget(&t.d, "text:places.status").label, "No places in the selection");
+}
+
+#[test]
+fn a_grouped_markers_bubble_counts_shows_and_removes_every_photo_it_counts() {
+    let mut t = setup(LARGE);
+    let (a, b) = (t.ids[0], t.ids[1]);
+    put(&mut t, &[a], LISBON);
+    put(&mut t, &[b], EAST);
+    let all = t.ids.clone();
+    select(&mut t, &all);
+    assert_eq!(widget(&t.d, "text:places.status").label, "2 places in the selection");
+    // At zoom 6 the two places are one marker of 2; its bubble agrees.
+    assert_eq!(markers(&t), [("marker:0".to_string(), "2".to_string())]);
+    run(&mut t, "places.bubble", json!({ "marker": 0 }));
+    assert_eq!(widget(&t.d, "map:places/bubble").label, "2 photos here");
+    shot(&t.d, "places-grouped-bubble-1400x900");
+    click(&mut t, "button:places.showPhotos");
+    assert_eq!(t.d.state().selection.ids, vec![a, b], "Show These Photos selects both");
+    assert_eq!(t.d.state().places.bubble, None);
+    // One zoom level in, the two single markers each say 1.
+    select(&mut t, &all);
+    run(&mut t, "map.pan", json!({ "centre": [38.7, -8.9], "zoom": 7 }));
+    assert_eq!(markers(&t), [("marker:0".to_string(), "1".to_string()), ("marker:1".to_string(), "1".to_string())]);
+    for m in ["marker:0", "marker:1"] {
+        click(&mut t, m);
+        assert_eq!(widget(&t.d, "map:places/bubble").label, "1 photo here", "{m}");
+    }
+    // Back out: Remove Location clears both, without a question (2 is not past 5).
+    run(&mut t, "places.bubble", json!({}));
+    run(&mut t, "map.pan", json!({ "centre": [38.7, -8.9], "zoom": 6 }));
+    run(&mut t, "places.bubble", json!({ "marker": 0 }));
+    assert_eq!(widget(&t.d, "map:places/bubble").label, "2 photos here");
+    click(&mut t, "button:places.removeLocation");
+    assert!(t.d.state().dialogs.is_empty() && !located(&t, a) && !located(&t, b));
+    assert!(markers(&t).is_empty());
+    // One undo step.
+    run(&mut t, "edit.undo", json!({}));
+    assert!(located(&t, a) && located(&t, b));
 }
 
 #[test]

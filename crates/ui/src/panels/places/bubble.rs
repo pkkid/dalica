@@ -7,7 +7,8 @@
 //! - the pin's: the same for the selection ("Select the photos to put here." and [Cancel] alone
 //!   while nothing is selected);
 //! - a marker's: "3 photos here", their stack, [Show These Photos] `button:places.showPhotos`
-//!   [Remove Location] `button:places.removeLocation`.
+//!   [Remove Location] `button:places.removeLocation`; a marker the map draws as a group of places
+//!   speaks for all of them (the count its badge shows), and its buttons act on all of them.
 //!
 //! The stack's pictures are the photos' thumbnails the session holds in memory (asked for at the
 //! visible priority when missing, never read from the disk here), at most three textures kept for
@@ -15,10 +16,10 @@
 
 use dalica_core::PhotoId;
 use dalica_engine::thumbs::{Size, Thumb};
-use dalica_ui_kit::widgets::{BUBBLE_STACK, BUBBLE_STACK_MAX, BubbleAnchor, BubbleButton, BubbleThumb};
+use dalica_ui_kit::widgets::{BUBBLE_STACK, BUBBLE_STACK_MAX, BubbleAnchor, BubbleButton, BubbleThumb, MarkerGroup};
 use egui::{Context, Id, TextureHandle, vec2};
 
-use super::markers::{Place, photos_text};
+use super::markers::{Place, grouped, photos_text};
 use crate::app::App;
 use crate::commands::places as cmd;
 use crate::state::Bubble;
@@ -54,9 +55,9 @@ pub fn here_text(n: usize) -> String {
     format!("{} here", photos_text(n))
 }
 
-/// The bubble the view state has open, among `places`; `None` for none, or for a marker that is
-/// not on the map.
-pub fn shown(app: &App, places: &[Place]) -> Option<Shown> {
+/// The bubble the view state has open, among `places` drawn as `groups`; `None` for none, or for
+/// a marker that is not on the map.
+pub fn shown(app: &App, places: &[Place], groups: &[MarkerGroup]) -> Option<Shown> {
     let state = &app.state().places;
     match state.bubble? {
         Bubble::Drop => {
@@ -75,7 +76,7 @@ pub fn shown(app: &App, places: &[Place]) -> Option<Shown> {
         }
         Bubble::Marker(n) => {
             let i = usize::try_from(n).ok()?;
-            let place = places.get(i)?;
+            let place = grouped(places, groups, i)?;
             Some(Shown { anchor: BubbleAnchor::Marker(i), ids: place.ids.clone(), text: here_text(place.ids.len()), buttons: vec![SHOW, REMOVE] })
         }
     }
@@ -128,19 +129,19 @@ mod tests {
         assert_eq!(here_text(9), "9 photos here");
         let (_dir, s, ids) = session_with_photos(3);
         let mut app = App::new(Some(s));
-        assert_eq!(shown(&app, &[]), None);
+        assert_eq!(shown(&app, &[], &[]), None);
         app.run("places.drop", &json!({ "ids": [ids[0], ids[1]], "at": [1, 2] })).unwrap();
-        let b = shown(&app, &[]).unwrap();
+        let b = shown(&app, &[], &[]).unwrap();
         assert_eq!((b.text.as_str(), b.anchor, b.buttons.len()), ("Put 2 photos here?", BubbleAnchor::Pin, 2));
         app.run("photo.geo.set", &json!({ "ids": [ids[1]], "geo": [3, 4] })).unwrap();
-        assert_eq!(shown(&app, &[]).unwrap().text, "Move 2 photos here?");
+        assert_eq!(shown(&app, &[], &[]).unwrap().text, "Move 2 photos here?");
         app.run("places.pin", &json!({ "at": [5, 6] })).unwrap();
-        assert_eq!(shown(&app, &[]).unwrap().text, SELECT_TEXT);
+        assert_eq!(shown(&app, &[], &[]).unwrap().text, SELECT_TEXT);
         app.run("select.set", &json!({ "ids": ids })).unwrap();
         let places = markers::places(&app);
         app.run("places.bubble", &json!({ "marker": 0 })).unwrap();
-        let b = shown(&app, &places).unwrap();
+        let b = shown(&app, &places, &[]).unwrap();
         assert_eq!((b.text.as_str(), b.anchor, b.buttons[0].id), ("1 photo here", BubbleAnchor::Marker(0), SHOW_ID));
-        assert_eq!(shown(&app, &[]), None, "a marker no longer on the map");
+        assert_eq!(shown(&app, &[], &[]), None, "a marker no longer on the map");
     }
 }
