@@ -10,6 +10,8 @@
 mod albums_file;
 pub mod automation;
 pub mod cmd;
+pub mod collage;
+pub mod collage_output;
 pub mod demo;
 pub mod duplicates;
 pub mod effect_tiles;
@@ -28,6 +30,7 @@ pub mod import;
 pub mod import_run;
 pub mod jobs;
 pub mod keymap;
+pub mod legacy;
 pub mod map_tiles;
 pub mod metadata;
 pub mod metadata_cache;

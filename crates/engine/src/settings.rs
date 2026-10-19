@@ -110,6 +110,20 @@
 //!   proxy's host (empty) and port (8080), and `"errors"`, `"requests"` or `"details"`
 //!   ([`NetworkLogLevel`]; errors).
 //!
+//! M14 adds, merged key by key the same way (M14.5; `creating.md` §3, `data-model.md` §9,
+//! `organizing.md` §1):
+//!
+//! - `"files"` → `readLegacyData` (Options → General → Files → "Read photo data left by the
+//!   previous organizer"; on) and `legacyNoticeShown` (the first-run notice of legacy data
+//!   answered; off) ([`LegacySettings`]).
+//! - `"collage"`: the Collage room's last style and settings ([`CollageSettings`]): `{style,
+//!   borders, gridSpacing, shadows, captions, pageFormat, orientation, backgroundColor}`: Picture
+//!   Pile (`"pile"`, one of the six [`CollageStyle`]s), `"white"` borders (`"none"`, `"white"` or
+//!   `"instant"`), no grid spacing (percent of the page's short side, in [`GRID_SPACING_RANGE`]),
+//!   shadows on, captions off, the page format by the Crop panel's ratio name or `"Current
+//!   Display"` ([`COLLAGE_PAGE_FORMAT_DEFAULT`], 16:9), `"landscape"` or `"portrait"` (landscape)
+//!   and a `"#rrggbb"` background (black).
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -927,6 +941,182 @@ impl Default for NetworkSettings {
             log_level: NetworkLogLevel::Errors,
         }
     }
+}
+
+/// The previous organizer's data (`"files"` → `readLegacyData` and `legacyNoticeShown` in
+/// `settings.json`; `data-model.md` §9, `organizing.md` §1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LegacySettings {
+    /// Options → General → Files → "Read photo data left by the previous organizer"
+    /// (`readLegacyData`; on).
+    pub read_legacy_data: bool,
+    /// The first-run notice of legacy data was answered (`legacyNoticeShown`; off): it is not shown
+    /// again.
+    pub legacy_notice_shown: bool,
+}
+
+impl Default for LegacySettings {
+    fn default() -> Self {
+        LegacySettings { read_legacy_data: true, legacy_notice_shown: false }
+    }
+}
+
+/// A collage's style (`creating.md` §3), stored by its id.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CollageStyle {
+    /// Picture Pile.
+    #[default]
+    Pile,
+    Mosaic,
+    FrameMosaic,
+    Grid,
+    ContactSheet,
+    MultipleExposure,
+}
+
+impl CollageStyle {
+    pub const ALL: [CollageStyle; 6] = [
+        CollageStyle::Pile,
+        CollageStyle::Mosaic,
+        CollageStyle::FrameMosaic,
+        CollageStyle::Grid,
+        CollageStyle::ContactSheet,
+        CollageStyle::MultipleExposure,
+    ];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            CollageStyle::Pile => "pile",
+            CollageStyle::Mosaic => "mosaic",
+            CollageStyle::FrameMosaic => "frameMosaic",
+            CollageStyle::Grid => "grid",
+            CollageStyle::ContactSheet => "contactSheet",
+            CollageStyle::MultipleExposure => "multipleExposure",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<CollageStyle> {
+        CollageStyle::ALL.into_iter().find(|s| s.id() == id)
+    }
+}
+
+/// The collage's picture borders (Picture Pile and Contact Sheet; `creating.md` §3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PictureBorder {
+    None,
+    /// White, 3 % of the picture's short side.
+    #[default]
+    White,
+    /// An instant print's: 5 %, with 20 % at the bottom.
+    Instant,
+}
+
+impl PictureBorder {
+    pub const ALL: [PictureBorder; 3] = [PictureBorder::None, PictureBorder::White, PictureBorder::Instant];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            PictureBorder::None => "none",
+            PictureBorder::White => "white",
+            PictureBorder::Instant => "instant",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<PictureBorder> {
+        PictureBorder::ALL.into_iter().find(|b| b.id() == id)
+    }
+}
+
+/// The collage page's orientation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PageOrientation {
+    #[default]
+    Landscape,
+    Portrait,
+}
+
+impl PageOrientation {
+    pub const ALL: [PageOrientation; 2] = [PageOrientation::Landscape, PageOrientation::Portrait];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            PageOrientation::Landscape => "landscape",
+            PageOrientation::Portrait => "portrait",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<PageOrientation> {
+        PageOrientation::ALL.into_iter().find(|o| o.id() == id)
+    }
+}
+
+/// Grid spacing in percent of the page's short side (none to 5 %; `creating.md` §3).
+pub const GRID_SPACING_RANGE: std::ops::RangeInclusive<f64> = 0.0..=5.0;
+/// The page format by default: the Crop panel's name for 16:9 (`editing.md` §6.1).
+pub const COLLAGE_PAGE_FORMAT_DEFAULT: &str = "16:9 (HD video)";
+/// The page format that follows the screen's size (`creating.md` §3).
+pub const CURRENT_DISPLAY: &str = "Current Display";
+
+/// The Collage room's last style and settings (`"collage"` in `settings.json`; `creating.md` §3,
+/// `roadmap.md` M14's decisions): a new collage starts from them, and Reset goes back to
+/// [`CollageSettings::default`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollageSettings {
+    /// The style (`style`; Picture Pile).
+    pub style: CollageStyle,
+    /// Picture borders (`borders`; white).
+    pub borders: PictureBorder,
+    /// Grid spacing (`gridSpacing`; none), in percent of the page's short side, in
+    /// [`GRID_SPACING_RANGE`].
+    pub grid_spacing: f64,
+    /// Draw shadows (`shadows`; on).
+    pub shadows: bool,
+    /// Show captions (`captions`; off).
+    pub captions: bool,
+    /// The page format (`pageFormat`): a ratio by the Crop panel's name for it (a custom ratio's
+    /// name too) or [`CURRENT_DISPLAY`]; [`COLLAGE_PAGE_FORMAT_DEFAULT`]; trimmed, at most
+    /// [`MAX_RATIO_NAME`] bytes. A name no longer listed is the session's to replace.
+    pub page_format: String,
+    /// The page's orientation (`orientation`; landscape).
+    pub orientation: PageOrientation,
+    /// The solid background colour (`backgroundColor`, `"#rrggbb"`; black).
+    pub background_color: [u8; 3],
+}
+
+impl Default for CollageSettings {
+    fn default() -> Self {
+        CollageSettings {
+            style: CollageStyle::Pile,
+            borders: PictureBorder::White,
+            grid_spacing: 0.0,
+            shadows: true,
+            captions: false,
+            page_format: COLLAGE_PAGE_FORMAT_DEFAULT.into(),
+            orientation: PageOrientation::Landscape,
+            background_color: [0, 0, 0],
+        }
+    }
+}
+
+/// `rgb` as `"#rrggbb"`.
+pub fn color_hex(rgb: [u8; 3]) -> String {
+    format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2])
+}
+
+/// `"#rrggbb"` (either case) as its colour.
+pub fn parse_color_hex(text: &str) -> Option<[u8; 3]> {
+    let hex = text.strip_prefix('#').filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))?;
+    let byte = |i: usize| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
+    Some([byte(0)?, byte(2)?, byte(4)?])
+}
+
+/// `name` as a page format is kept: trimmed, not empty, at most [`MAX_RATIO_NAME`] bytes.
+fn page_format_text(name: &str) -> Option<&str> {
+    let t = name.trim();
+    (!t.is_empty() && t.len() <= MAX_RATIO_NAME).then_some(t)
 }
 
 /// The UI scale's range and step in percent (Options → General → Interface).
@@ -1810,6 +2000,98 @@ impl Settings {
         );
     }
 
+    /// Reading the previous organizer's data and its first-run notice; a value of the wrong type is
+    /// its default.
+    pub fn legacy(&self) -> LegacySettings {
+        self.read_legacy(&mut Vec::new())
+    }
+
+    /// Stores both under `"files"`; the metadata write options and other keys are kept.
+    pub fn set_legacy(&mut self, l: &LegacySettings) {
+        self.merge("files", &[("readLegacyData", Some(json!(l.read_legacy_data))), ("legacyNoticeShown", Some(json!(l.legacy_notice_shown)))]);
+    }
+
+    /// The Collage room's last style and settings; a value of the wrong type or out of its range is
+    /// its default.
+    pub fn collage(&self) -> CollageSettings {
+        self.read_collage(&mut Vec::new())
+    }
+
+    /// Stores the Collage room's settings under `"collage"` (a spacing out of its range, or a page
+    /// format that is not kept text, as its default); other keys are kept.
+    pub fn set_collage(&mut self, c: &CollageSettings) {
+        let d = CollageSettings::default();
+        let spacing = if GRID_SPACING_RANGE.contains(&c.grid_spacing) { c.grid_spacing } else { d.grid_spacing };
+        let format = page_format_text(&c.page_format).unwrap_or(COLLAGE_PAGE_FORMAT_DEFAULT);
+        self.merge(
+            "collage",
+            &[
+                ("style", Some(json!(c.style.id()))),
+                ("borders", Some(json!(c.borders.id()))),
+                ("gridSpacing", Some(json!(spacing))),
+                ("shadows", Some(json!(c.shadows))),
+                ("captions", Some(json!(c.captions))),
+                ("pageFormat", Some(json!(format))),
+                ("orientation", Some(json!(c.orientation.id()))),
+                ("backgroundColor", Some(json!(color_hex(c.background_color)))),
+            ],
+        );
+    }
+
+    fn read_legacy(&self, problems: &mut Vec<String>) -> LegacySettings {
+        let mut l = LegacySettings::default();
+        let Some(obj) = self.object("files", problems) else { return l };
+        l.read_legacy_data = Settings::flag(obj, "files", "readLegacyData", true, problems);
+        l.legacy_notice_shown = Settings::flag(obj, "files", "legacyNoticeShown", false, problems);
+        l
+    }
+
+    fn read_collage(&self, problems: &mut Vec<String>) -> CollageSettings {
+        let mut c = CollageSettings::default();
+        let Some(obj) = self.object("collage", problems) else { return c };
+        // A choice: kept when it is one of the ids, else reported by key.
+        fn choice<T>(obj: &Map<String, Value>, key: &str, ids: &str, from_id: fn(&str) -> Option<T>, slot: &mut T, problems: &mut Vec<String>) {
+            match obj.get(key) {
+                None => {}
+                Some(v) => match v.as_str().and_then(from_id) {
+                    Some(x) => *slot = x,
+                    None => problems.push(format!("collage.{key} is not {ids}; the default is used")),
+                },
+            }
+        }
+        choice(obj, "style", "a collage style", CollageStyle::from_id, &mut c.style, problems);
+        choice(obj, "borders", "\"none\", \"white\" or \"instant\"", PictureBorder::from_id, &mut c.borders, problems);
+        choice(obj, "orientation", "\"landscape\" or \"portrait\"", PageOrientation::from_id, &mut c.orientation, problems);
+        match obj.get("gridSpacing") {
+            None => {}
+            Some(v) => match v.as_f64().filter(|s| GRID_SPACING_RANGE.contains(s)) {
+                Some(s) => c.grid_spacing = s,
+                None => problems.push(format!(
+                    "collage.gridSpacing is not a number from {} to {}; the default (none) is used",
+                    GRID_SPACING_RANGE.start(),
+                    GRID_SPACING_RANGE.end()
+                )),
+            },
+        }
+        c.shadows = Settings::flag(obj, "collage", "shadows", true, problems);
+        c.captions = Settings::flag(obj, "collage", "captions", false, problems);
+        match obj.get("pageFormat") {
+            None => {}
+            Some(v) => match v.as_str().and_then(page_format_text) {
+                Some(f) => c.page_format = f.to_string(),
+                None => problems.push(format!("collage.pageFormat is not a page format name; the default ({COLLAGE_PAGE_FORMAT_DEFAULT}) is used")),
+            },
+        }
+        match obj.get("backgroundColor") {
+            None => {}
+            Some(v) => match v.as_str().and_then(parse_color_hex) {
+                Some(rgb) => c.background_color = rgb,
+                None => problems.push("collage.backgroundColor is not a colour \"#rrggbb\"; the default (black) is used".into()),
+            },
+        }
+        c
+    }
+
     fn read_people(&self, problems: &mut Vec<String>) -> PeopleSettings {
         let mut p = PeopleSettings::default();
         let Some(obj) = self.object("people", problems) else { return p };
@@ -2006,6 +2288,8 @@ impl Settings {
         self.read_compare(&mut out);
         self.read_people(&mut out);
         self.read_network(&mut out);
+        self.read_legacy(&mut out);
+        self.read_collage(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
     }
 

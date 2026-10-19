@@ -226,6 +226,19 @@ commands change nothing and record no undo step.
 | `faces.confirm` / `faces.confirmAll` / `faces.reject` | confirm suggestions (`{faces}`; each a reference from then on; one undo step), all of a person's (`{person}`, one undo step), or reject them (`{faces, person?}`: the suggested person, or the one given for a face Find More listed; the pair is never suggested again, kept in `people.json`; no undo step) (M13.26) |
 | `faces.findMore` | query: unnamed faces near a person's (`{person}`), most similar first, also while Suggest names is off (M13.26) |
 | `faces.evaluate` | query: per confidence step, the suggestions that would be made on the user's named faces and how many are right (`faces.md` §5) (M13.26) |
+| `create.collage` | Create ▸ Picture Collage…: open the Collage room with photos (`{ids \| section}`); one room at a time, opening it again adds the new pictures to its Clips (M14.16) |
+| `collage.inspect` | query: the open collage: its document, the placements and the page size for the canvas, the clips with their thumbnail ids (M14.16) |
+| `collage.set` | the Settings tab (`{style?, borders?, gridSpacing?, shadows?, captions?, pageFormat?, orientation?, backgroundColor?}`); the last style and settings are kept in `settings.json` → `collage` (M14.16) |
+| `collage.clips.add` / `.clips.remove` / `collage.place` / `.unplace` | the Clips tab's + and −, Get More's Back to Collage, and a picture put on the page or taken off it (Delete; it stays in the Clips) (`{ids}`) (M14.16) |
+| `collage.move` / `collage.swap` / `collage.order` | the canvas: move, turn and scale a pile's picture (`{item, centre?, scale?, angle?}`), swap two cells of a mosaic or grid (`{a, b}`), Bring to Top / Send to Bottom (`{item, top \| bottom}`) (M14.16) |
+| `collage.background` / `collage.frameCenter` | Set as Background (`{id \| null}`) and Set as Frame Center (`{id}`) (M14.16) |
+| `collage.scramble` / `collage.shuffle` / `collage.reset` | Scramble Collage (a new seed, the user's placements dropped), Shuffle Pictures (the same slots, a new assignment), Reset (the defaults) (M14.16) |
+| `collage.undo` / `collage.redo` | the room's own history (Ctrl+Z, Ctrl+Y in the Collage context, §2.4); never the library's undo stack (M14.16) |
+| `collage.close` | Close (`{discard?}`; with unsaved changes `needs_confirm` without `discard`: Save Draft, Discard, Cancel) (M14.16) |
+| `collage.create` / `collage.saveDraft` | Create Collage (`{path?, display?}`) and Save Draft: a `collage` job writing the JPEG and its `.dalica-collage` recipe into the projects directory's `Collages` folder; Create opens it in the edit view (M14.17) |
+| `collage.edit` / `collage.canEdit` | Edit Collage: reopen the room from a photo's recipe (`{id}`), and the query the edit view's top bar asks (M14.17) |
+| `legacy.inspect` | query: the previous organizer's data per folder: which file is in effect (`dalica`, `legacy`, `both`, `none`) and what it held (`{folders?}`) (M14.13) |
+| `legacy.noticeShown` | the first-run notice of legacy data answered: `files.legacyNoticeShown` set, so it is not shown again (M14.13) |
 | `photo.inspect` | query: everything known about photos (`{ids}`) |
 | `library.query` | query: search with the search-box grammar, filters and paging |
 | `library.inspect` | query: the library's state for agents (`control-protocol.md` §6.4: counts, tree, sections, search, undo, unsaved edits, pending writes, problems; `{photos?, section?, offset?, limit?}`) |
@@ -362,12 +375,21 @@ See [`editing.md`](editing.md) §12. Ctrl+Shift+B is B&W (`edit.bw`) in the Edit
 the library leaves it unbound, and Black and White there is Picture ▸ Batch Edit ▸ Black and
 White, which has no key. Effects have no Shift variants.
 
-### 2.4 Slideshow, photo viewer, video, import
+### 2.4 Slideshow, photo viewer, video, import, collage
 
 See [`viewing.md`](viewing.md) §1.4 and §3.2, [`editing.md`](editing.md) §11, and in import: **X**
 toggles exclude on the selected items (include again when every one is excluded), Enter imports selected,
 the arrows move the selection from the item in the preview (Up and Down by the tray's columns) and
 with Shift extend it from the focused item, Ctrl+A selects every item listed.
+
+In the Collage room (the **Collage** context, active while the room is in front; `creating.md` §3):
+
+| Key | Action |
+|---|---|
+| Delete | take the selected pictures off the page; they stay in the Clips (`collage.unplace`) |
+| Ctrl+A | select every picture on the page |
+| Esc | select none |
+| Ctrl+Z / Ctrl+Y | undo / redo the room's own changes (`collage.undo`, `collage.redo`; macOS Cmd+Shift+Z for Redo); the library's undo stack is never reached |
 
 ### 2.5 Hidden extras
 
@@ -433,7 +455,7 @@ disagree.
 | | Update file modification time on metadata changes | `files.updateModificationTime` | off |
 | | Write XMP sidecars for RAW files | `files.writeRawXmpSidecars` | off |
 | | Write date changes to files (`xmp-interop.md` §2) | `files.writeDates` | on |
-| | Read photo data left by the previous organizer (`data-model.md` §9; arrives with it) | `files.readLegacyData` | on |
+| | Read photo data left by the previous organizer (`data-model.md` §9; a change rescans the watched folders) | `files.readLegacyData` | on |
 | Import | Save imported pictures in (the Import room's "Import to:" starts from it) | `import.folder` | ~/Pictures |
 
 ### File Types

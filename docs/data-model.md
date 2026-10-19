@@ -412,7 +412,7 @@ value), when the library opens. The objects:
 | `scrolling` | `{thumbExponent, thumbTopSpeed}`: the speed-control thumb's curve, read only | M4 |
 | `fileTypes` | Options → File Types: `png`, `gif`, `bmp`, `tiff`, `webp`, `heif`, `avif`, `jxl`, `psd`, `raw`, `video` (each on unless `false`; JPEG always on), and from M10 `smallPictureThreshold` (64 px, 16–1024) | M5, M10 |
 | `cache` | `{thumbnailBytes}` (2 GiB) | M5 |
-| `files` | Options → General → Files: `writeCaptionsTagsPlaces` (on), `writeStarsAsRatings` (off), `updateModificationTime` (off), `writeRawXmpSidecars` (off), `writeDates` (on) | M6 |
+| `files` | Options → General → Files: `writeCaptionsTagsPlaces` (on), `writeStarsAsRatings` (off), `updateModificationTime` (off), `writeRawXmpSidecars` (off), `writeDates` (on); from M14 `readLegacyData` ("Read photo data left by the previous organizer", on; §9) and `legacyNoticeShown` (the first-run notice of legacy data answered, off; `organizing.md` §1) | M6, M14 |
 | `tags` | `{quick, useRecent, recent}`: the quick tags and the recently used tags | M6 |
 | `edit` | `{cropRatios, lastCropRatio, photoSizes, singleClickLeaves}` (the last is Options → General → "Single click on the photo returns to the library", off) | M7 |
 | `save` | `{explain, lastFolder, lastFormat}` (§6) | M8 |
@@ -424,10 +424,11 @@ value), when the library opens. The objects:
 | `compare` | what "Don't ask again" remembers in compare (`editing.md` §4): `askBeforeApplying` (on) and `keep` (`"ask"`, `"left"` or `"right"`; ask) | M11 |
 | `people` | Options → People (`faces.md` §3–§5, `organizing.md` §6.1): `findFaces` (on), `suggestNames` (on), `suggestionConfidence` and `groupingConfidence` (85, 50–95 in steps of 5), `storeNamesInPhotos` (off), `model`, the recogniser chosen with Use (a model id: 1–64 lowercase letters, digits, `.`, `_` or `-`, starting with a letter or digit; none: the newest installed), and `askBeforeIgnoring` (on; Ignore Faces' "Don't ask again" turns it off, M13.21) | M13 |
 | `network` | Options → Network (`organizing.md` §7): `allowMapTiles` (off), `tileServer` (an address template with `{z}`, `{x}`, `{y}`; OpenStreetMap's tiles), `tileAttribution` (© OpenStreetMap contributors), `geocoder` (an address template with `{query}`; OpenStreetMap's Nominatim search), each text of at most 2 048 bytes (the attribution 256), `proxy` (`"system"` or `"manual"`; system), `proxyHost` (empty, at most 253 bytes), `proxyPort` (8080, 1–65535), `logLevel` (`"errors"`, `"requests"` or `"details"`; errors), and `tilesAsked` (off; the Places pane's question "Show map tiles from …?" answered, or tiles once allowed: it is not asked again, M13.28) | M13 |
+| `collage` | the Collage room's last style and settings (`creating.md` §3): `style` (`"pile"`, `"mosaic"`, `"frameMosaic"`, `"grid"`, `"contactSheet"`, `"multipleExposure"`; pile), `borders` (`"none"`, `"white"`, `"instant"`; white), `gridSpacing` (percent of the page's short side, 0–5; 0), `shadows` (on), `captions` (off), `pageFormat` (a ratio by the Crop panel's name for it, a custom ratio's too, or `"Current Display"`, at most 256 bytes; `"16:9 (HD video)"`), `orientation` (`"landscape"` or `"portrait"`; landscape), `backgroundColor` (`"#rrggbb"`; `"#000000"`) | M14 |
 
 The Options dialog's rows name these keys (`menus-and-shortcuts.md` §5). An option whose feature
-arrives later (`files.readLegacyData`, `interface.language`, `slideshow.music`,
-`slideshow.musicFolder`, `slideshow.videoSound`) is never written by the Options dialog until that
+arrives later (`interface.language`, `slideshow.music`, `slideshow.musicFolder`,
+`slideshow.videoSound`) is never written by the Options dialog until that
 feature reads it; `viewer.defaultViewer` is the catalogue's row for the Photo Viewer's file types
 and has no key of its own until the OS integration. The Network tab's options wait on reserved
 decisions 4 and 9 (the map tile provider and the network stack) and `network.logLevel` on the

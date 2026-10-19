@@ -304,6 +304,12 @@ pub struct Session {
     pub(crate) places: crate::places::Places,
     /// Map tiles, and whether the Places pane is open (`map_tiles.rs`).
     pub(crate) map_tiles: crate::map_tiles::MapTiles,
+    /// The open collage and the room's history (`collage.rs`).
+    pub(crate) collage: crate::collage::Collage,
+    /// Create Collage and Save Draft (`collage_output.rs`).
+    pub(crate) collage_output: crate::collage_output::CollageOutput,
+    /// The previous organizer's data and its notice (`legacy.rs`).
+    pub(crate) legacy: crate::legacy::Legacy,
     /// Nothing is written (see the module's notes).
     read_only: bool,
     _lock: LibraryLock,
@@ -428,6 +434,9 @@ impl Session {
             suggestions: crate::suggestions::Suggestions::default(),
             places: crate::places::Places::default(),
             map_tiles: crate::map_tiles::MapTiles::default(),
+            collage: crate::collage::Collage::default(),
+            collage_output: crate::collage_output::CollageOutput::default(),
+            legacy: crate::legacy::Legacy::default(),
             read_only,
             _lock: lock,
         };

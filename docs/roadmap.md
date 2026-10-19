@@ -9025,7 +9025,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     Current Display the given size; the generator gives fixed numbers for fixed seeds; hostile
     recipes (`NaN`, a huge clip list, depth 100, a clip id twice, a frame centre not in the clips)
     are refused without a panic (proptest).
-- ⬜ **M14.5 `engine`: M14's command modules, settings and options row**
+- ✅ **M14.5 `engine`: M14's command modules, settings and options row**
   - after: M13.3, M13.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/collage.rs`, `crates/engine/src/cmd/collage_output.rs`, `crates/engine/src/cmd/legacy.rs`, `crates/engine/src/collage.rs`, `crates/engine/src/collage_output.rs`, `crates/engine/src/legacy.rs`, `crates/engine/src/session.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M14 so M14.13, M14.16 and M14.17 never share a file: empty
