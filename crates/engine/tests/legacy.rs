@@ -3,8 +3,9 @@
 //! writes nothing; the first change writes `.dalica.json` and the folder's source turns `both`;
 //! "Read photo data left by the previous organizer" off takes the legacy-only data out and on
 //! brings it back, writing nothing; the notice's count comes once; `legacy.inspect` reports each
-//! source; the commands' graceful failures; the owner thread makes no `fs` call. The fixtures are
-//! written here from the documented format, their names from `dalica-sidecar`'s constant.
+//! source, and `photo.inspect` each photo's `legacyEdits`; the commands' graceful failures; the
+//! owner thread makes no `fs` call. The fixtures are written here from the documented format,
+//! their names from `dalica-sidecar`'s constant.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -71,7 +72,14 @@ impl Lib {
         garden.extend([format!("[{}]", folder_section()), "description=Planting".into()]);
         garden.extend(album());
         legacy(&root.join("Garden"), &garden);
-        let mut lake = vec!["[a.jpg]".into(), "keywords=water".into(), face, format!("albums={ALBUM}"), "geotag=33.770556,-84.293055".into()];
+        let mut lake = vec![
+            "[a.jpg]".into(),
+            "keywords=water".into(),
+            face,
+            format!("albums={ALBUM}"),
+            "geotag=33.770556,-84.293055".into(),
+            "filters=sepia=1;redeye=1;".into(),
+        ];
         lake.extend(album());
         legacy(&root.join("Lake"), &lake);
         let home = json!({ "dalica": { "version": 1 }, "photos": { "a.jpg": { "star": true } } });
@@ -165,6 +173,10 @@ fn two_legacy_folders_give_one_album_and_one_person_and_the_option_takes_them_ou
     assert!(model.geotag(la).is_some());
     assert_eq!(lib.s.undo_stack().len(), 0, "no undo step");
     assert_eq!(lib.files(), before, "the scan wrote nothing");
+    // `photo.inspect` counts the recipe's entries kept as `legacy:` (M14.28).
+    let shown = lib.s.execute("photo.inspect", &json!({ "ids": [la, ga] })).unwrap();
+    assert_eq!((shown[0]["recipe"]["edits"].clone(), shown[0]["legacyEdits"].clone()), (json!(["sepia()", "legacy:redeye(1)"]), json!(1)));
+    assert_eq!(shown[1]["legacyEdits"], json!(0));
 
     // The sources, and the notice once.
     let sources: BTreeMap<String, String> = lib.inspect(json!({})).into_iter().map(|(k, v)| (k, v["source"].as_str().unwrap().to_string())).collect();

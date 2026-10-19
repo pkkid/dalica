@@ -9388,7 +9388,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     canonicalise before comparing) and finish the faces test on Windows.
   - done when: a test for each fix that fails without it (the picker on a short Windows path, the
     spacing); the review gate's GitHub run green on macOS and Windows within its time limit.
-- ⬜ **M14.28 `scan` + `engine` + `ui` + docs: loose ends left by M14's tasks**
+- ✅ **M14.28 `scan` + `engine` + `ui` + docs: loose ends left by M14's tasks**
   - after: M14.13, M14.15, M14.18, M14.19
   - files: `crates/scan/src/walk.rs`, `crates/scan/tests/originals.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/tests/legacy.rs`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/collage_room.rs`, `docs/control-protocol.md`, `docs/data-model.md`
   - scope: found while M14 ran (dev log): (1) the scan reads the previous organizer's kept

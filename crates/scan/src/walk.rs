@@ -94,8 +94,8 @@ pub struct FoundFolder {
     pub info: FolderInfo,
     /// The folder's project mark, from its sidecar ([`originals::project`]).
     pub project: Option<Project>,
-    /// The folder's originals record, read on the scan's thread ([`originals::read`]): the
-    /// photos' saved records.
+    /// The folder's originals record, read on the scan's thread ([`originals::read_with`], the
+    /// legacy originals folder only with [`Options::legacy`] on): the photos' saved records.
     pub originals: Originals,
     /// The folder's photo sort from its sidecar ([`folder_sort`], M9; the default when it says
     /// none, or one Dalica cannot sort by).
@@ -692,7 +692,7 @@ impl Scanner<'_> {
             }
             // The originals record too (the walk never enters `.dalica-originals`): the saved
             // records come in with the photos, in the same pass.
-            kept = originals::read(dir, SystemClock.now());
+            kept = originals::read_with(dir, SystemClock.now(), self.options.legacy);
             self.originals_warnings(dir, &kept);
             photos.sort_by(|a, b| a.name.cmp(&b.name));
             self.summary.progress.found = self.summary.progress.found.saturating_add(photos.len());
