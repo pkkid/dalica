@@ -6,7 +6,8 @@
 //! - each effect tab (3, 4, 5) lists `effect:<name>` tiles in `effect.list`'s order, labelled
 //!   as the catalogue labels them;
 //! - the window never waits for the previews: frame after frame is drawn while `ui.settle` still
-//!   reports the tiles on their way, and no frame's UI time comes near the time the grid takes to fill
+//!   reports the tiles on their way, and no frame drawn while they are on their way (the frames
+//!   that lay out the opened photo aside) comes near the time the grid takes to fill in UI time
 //!   (`ui.inspect` → `perf.maxFrameMs`);
 //! - once settled every tile holds its preview: most of its preview box is no longer the
 //!   `gray 38` placeholder;
@@ -30,6 +31,8 @@ const GREY: [u8; 3] = [38, 38, 38];
 /// A tile's preview: 78 × 48 points, 3 points under the tile's top, centred.
 const PREVIEW: (f64, f64) = (78.0, 48.0);
 const PREVIEW_TOP: f64 = 3.0;
+/// The frames a step to another photo takes to lay it out (egui may lay a new view out twice).
+const OPENING_FRAMES: u64 = 3;
 
 /// The share of a tile's preview box that is not the placeholder.
 fn filled(shot: &live::Shot, rect: [f64; 4]) -> f64 {
@@ -51,13 +54,27 @@ fn filled(shot: &live::Shot, rect: [f64; 4]) -> f64 {
 /// first), as a user stepping to a photo on that tab does: its tiles wait behind its preview. Then
 /// lets the grid fill one frame at a time until it settles. Returns (frames drawn while the tiles
 /// were on their way, the fill's wall time in ms, the largest UI time of a frame meanwhile in ms).
+///
+/// The frames that lay out the newly opened photo ([`OPENING_FRAMES`]) are left out of the largest
+/// frame: they wait for nothing, but they are the dearest frames of the step, and with the tiles'
+/// workers on every core a busy runner stretches them past half of a short fill (macOS and Windows
+/// CI, 50 of 95 ms and 68 of 132 ms). The fill's time still runs from the step.
 fn fill(c: &mut Client, name: &str, other: &Value, id: &Value) -> (u64, f64, f64) {
     run(c, "view.edit", json!({ "id": other }));
     run(c, "edit.tab", json!({ "tab": name }));
-    c.ok("ui.inspect", json!({ "resetPerf": true }));
     let started = Instant::now();
     c.exec("view.edit", json!({ "id": id }));
     assert_eq!(c.state()["edit"]["tab"], name, "the edit view stays on the tab");
+    let opening = c.ok("ui.settle", json!({ "timeoutMs": 17 * OPENING_FRAMES }));
+    let busy = opening["busy"].as_array().unwrap();
+    assert!(
+        busy.iter().any(|b| b.as_str().is_some_and(|b| b.starts_with("effect tiles:"))),
+        "{name}: the tiles are still on their way after the opening frames: {opening}"
+    );
+    // A reset keeps the last frame drawn as the largest; one more frame makes that one a frame of
+    // the fill, not the opening.
+    c.ok("ui.settle", json!({ "timeoutMs": 17 }));
+    c.ok("ui.inspect", json!({ "resetPerf": true }));
     let mut pending_frames = 0;
     loop {
         let s = c.ok("ui.settle", json!({ "timeoutMs": 17 }));
