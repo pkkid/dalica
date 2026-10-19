@@ -44,6 +44,7 @@ mod list_row;
 mod map;
 mod marks;
 mod overlay_bar;
+mod scrubber;
 mod slider;
 mod splitter;
 mod stepper;
@@ -54,6 +55,7 @@ mod toggle_group;
 mod tool_button;
 mod tooltip;
 mod transform_handle;
+mod volume;
 
 pub use age_slider::{AGE_MAX_DAYS, age_days, age_label, age_position, age_slider, age_snapped};
 pub use autocomplete::{AutocompleteOut, MAX_SUGGESTIONS, VISIBLE_SUGGESTIONS, autocomplete, autocomplete_matches};
@@ -115,6 +117,10 @@ pub use map::{
 pub use overlay_bar::{
     OVERLAY_BOTTOM, OVERLAY_BUTTON, OVERLAY_FADE_SECS, OVERLAY_GLYPH, OVERLAY_PAD, OverlayFade, overlay_bar, overlay_bar_rect, overlay_button,
 };
+pub use scrubber::{
+    PLAYHEAD_R, SCRUB_DEFAULT_STEP, SCRUB_MIN_W, SCRUB_RULER_ROW, SCRUB_TRACK, SCRUB_TRACK_ROW, Scrubber, ScrubberOut, TRIM_GRAB, TRIM_TAB,
+    clock_text, scrubber, scrubber_readout, trim_end_to, trim_start_to,
+};
 pub use slider::{
     STOP_SNAP, STOPS_FIELD_W, STOPS_TRACK_MIN, SliderOut, SliderScale, SliderSpec, StopsSlider, TUNING_NUDGE, edit_slider_value, effect_slider,
     next_stop, nudged, scale_fraction, scale_nudged, scale_value, slider, snap_to_stop, stops_slider, tuning_nudged, tuning_slider, typed_value,
@@ -138,6 +144,9 @@ pub use tooltip::{TOOLTIP_WIDTH, tooltip};
 pub use transform_handle::{
     TRANSFORM_MAX_SCALE, TRANSFORM_MIN_SCALE, TRANSFORM_OUTLINE, TRANSFORM_WHEEL, TransformHandle, TransformOut, transform_corners, transform_handle,
     transform_handle_pos, turn_and_scale,
+};
+pub use volume::{
+    VOLUME_BUTTON, VOLUME_GAP, VOLUME_GLYPH, VOLUME_SLIDER_W, VOLUME_STEP, VOLUME_UNMUTED, VolumeOut, volume, volume_level, volume_toggled,
 };
 
 /// What an automation id is attached to.

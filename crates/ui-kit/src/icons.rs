@@ -16,7 +16,9 @@
 //! [`ViewingIcon`] ([`paint_viewing`]; `icons/viewing.rs`), the effect tabs', [`EffectIcon`]
 //! ([`paint_effect`]; `icons/effects.rs`), and people's and places', [`PeopleIcon`]
 //! ([`paint_people`]; `icons/people.rs`), and the Collage room's, [`CollageIcon`]
-//! ([`paint_collage`]; `icons/collage.rs`). [`Glyph`] names a glyph of any set, for widgets that take
+//! ([`paint_collage`]; `icons/collage.rs`), and the video player's, [`VideoIcon`] ([`paint_video`];
+//! `icons/video.rs`), and the system's file hand-offs', [`OsIcon`] ([`paint_os`]; `icons/os.rs`).
+//! [`Glyph`] names a glyph of any set, for widgets that take
 //! glyphs from more than one ([`paint_glyph`]).
 
 mod albums;
@@ -26,9 +28,11 @@ mod effects;
 mod folder_modes;
 mod glyphs;
 mod options;
+mod os;
 mod output;
 mod pen;
 mod people;
+mod video;
 mod viewing;
 
 pub use albums::{AlbumIcon, paint_album};
@@ -37,8 +41,10 @@ pub use edit::{EditIcon, paint_edit};
 pub use effects::{EffectIcon, paint_effect};
 pub use folder_modes::{FolderIcon, INHERITED_OPACITY, paint_folder, state_color};
 pub use options::{OptionsIcon, paint_options};
+pub use os::{OsIcon, paint_os};
 pub use output::{OutputIcon, paint_output};
 pub use people::{PeopleIcon, paint_people};
+pub use video::{VideoIcon, paint_video};
 pub use viewing::{ViewingIcon, paint_viewing};
 
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};
@@ -233,6 +239,10 @@ pub enum Glyph {
     People(PeopleIcon),
     /// A glyph of the Collage room.
     Collage(CollageIcon),
+    /// A glyph of the video player.
+    Video(VideoIcon),
+    /// A glyph of the system's file hand-offs.
+    Os(OsIcon),
 }
 
 impl From<Icon> for Glyph {
@@ -271,6 +281,18 @@ impl From<CollageIcon> for Glyph {
     }
 }
 
+impl From<VideoIcon> for Glyph {
+    fn from(icon: VideoIcon) -> Glyph {
+        Glyph::Video(icon)
+    }
+}
+
+impl From<OsIcon> for Glyph {
+    fn from(icon: OsIcon) -> Glyph {
+        Glyph::Os(icon)
+    }
+}
+
 /// Paints `glyph` in `color`, centred in the largest square that fits `rect`, with its set's
 /// painter. An empty or non-finite rect paints nothing.
 pub fn paint_glyph(painter: &Painter, rect: Rect, glyph: Glyph, color: Color32) {
@@ -281,6 +303,8 @@ pub fn paint_glyph(painter: &Painter, rect: Rect, glyph: Glyph, color: Color32) 
         Glyph::Effect(icon) => paint_effect(painter, rect, icon, color),
         Glyph::People(icon) => paint_people(painter, rect, icon, color),
         Glyph::Collage(icon) => paint_collage(painter, rect, icon, color),
+        Glyph::Video(icon) => paint_video(painter, rect, icon, color),
+        Glyph::Os(icon) => paint_os(painter, rect, icon, color),
     }
 }
 
