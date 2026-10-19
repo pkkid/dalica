@@ -12,18 +12,15 @@
 //!    ([`FirstWrite::Appeared`]).
 //! 2. The model's state is printed into a new sidecar, parsed back and the state applied to the
 //!    copy again: the bytes must come out the same, or nothing is written.
-//! 3. The file is created through `fs`'s atomic replace expecting no file (`Expect::Absent`):
-//!    the absence is checked when the replace starts and again right before its rename, so a file
-//!    created before that second check is never replaced ([`FirstWrite::Appeared`]). `fs` has no
-//!    exact-name create that never replaces, so a file created in the microseconds between the
-//!    second check and the rename would be replaced; the library lock keeps other Dalica
-//!    processes out, and the review decides whether `fs` needs that primitive.
+//! 3. The file is created under its exact name by `fs`'s create that never replaces
+//!    ([`dalica_fs::exact_file`]): a verified temporary file committed in one step the OS makes
+//!    exclusive, so a `.dalica.json` that appears at any moment before the commit is kept byte for
+//!    byte ([`FirstWrite::Appeared`]); a crash leaves no file or the whole verified one.
 //!
 //! The legacy sidecar itself is never opened here: legacy files are read-only (never written,
 //! renamed or deleted), and it stays byte-identical with its time.
 
 use dalica_core::Timestamp;
-use dalica_fs::Expect;
 use dalica_library::MAX_LEGACY_ID;
 use dalica_sidecar::{FILE_NAME, Limits, Sidecar};
 
@@ -72,9 +69,9 @@ pub fn first_write(state: &FolderState, _now: Timestamp) -> FirstWrite {
     if let Err(why) = reads_back(state, &bytes) {
         return FirstWrite::Failed(format!("{}: the converted data did not read back ({why}); nothing was written", path.display()));
     }
-    match dalica_fs::replace(&path, &bytes, Expect::Absent) {
+    match dalica_fs::exact_file(&state.path, FILE_NAME, &bytes) {
         Ok(_) => FirstWrite::Converted,
-        Err(dalica_fs::Error::Changed(_) | dalica_fs::Error::Link(_)) => FirstWrite::Appeared,
+        Err(dalica_fs::Error::Exists(_) | dalica_fs::Error::Link(_)) => FirstWrite::Appeared,
         Err(e) => FirstWrite::Failed(e.to_string()),
     }
 }

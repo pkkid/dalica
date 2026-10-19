@@ -151,12 +151,12 @@ fn a_dalica_json_made_by_another_program_is_never_replaced() {
     assert_eq!(w.take_legacy().into_iter().collect::<Vec<_>>(), [(f, LegacyWrite::Appeared)]);
     assert!(!w.is_dirty(f) && !w.converted(f), "not retried: the folder is read again");
 
-    // Made while the write runs, after its first look and before its last check.
+    // Made while the write runs, at the very commit (after every check `fs` makes).
     let dir = tempfile::tempdir().unwrap();
     let (lib, f, _, _) = legacy_folder(dir.path());
     let late = dir.path().join(FILE_NAME);
     let planted = late.clone();
-    run_at(points::FSYNC, move || std::fs::write(&planted, b"{}\n").unwrap());
+    run_at(points::NEW_COMMIT, move || std::fs::write(&planted, b"{}\n").unwrap());
     let state = mapping::folder_state(&lib, f).unwrap();
     assert_eq!(legacy::first_write(&state, NOW), FirstWrite::Appeared);
     disarm_all();
@@ -176,7 +176,7 @@ fn a_crash_before_the_commit_leaves_no_file_and_one_after_it_the_whole_file() {
     assert_eq!(legacy::first_write(&FolderState { path: twin.path().to_path_buf(), ..state.clone() }, NOW), FirstWrite::Converted);
     let whole = std::fs::read(twin.path().join(FILE_NAME)).unwrap();
 
-    arm(points::WRITE, Fault::Crash);
+    arm(points::NEW_WRITE, Fault::Crash);
     assert!(matches!(write_folder(&state, NOW), Outcome::Failed(_)));
     disarm_all();
     assert!(!dir.path().join(FILE_NAME).exists(), "before the commit: no .dalica.json");
@@ -184,7 +184,7 @@ fn a_crash_before_the_commit_leaves_no_file_and_one_after_it_the_whole_file() {
     for t in temps(dir.path()) {
         std::fs::remove_file(dir.path().join(t)).unwrap();
     }
-    arm(points::FSYNC_DIR, Fault::Crash);
+    arm(points::NEW_FSYNC_DIR, Fault::Crash);
     assert!(matches!(write_folder(&state, NOW), Outcome::Failed(_)));
     disarm_all();
     let after = std::fs::read(dir.path().join(FILE_NAME)).unwrap();

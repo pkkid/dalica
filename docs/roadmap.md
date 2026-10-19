@@ -9355,7 +9355,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     load and fix the race (product or test synchronisation, never a looser check).
   - done when: one test per item, each failing without its fix; the flaky test passes 200 runs
     under `taskset -c 0`.
-- ⬜ **M14.27 `fs` + `store`: a file created under its exact name, never replacing one**
+- ✅ **M14.27 `fs` + `store`: a file created under its exact name, never replacing one**
   - after: M14.12
   - files: `crates/fs/src/create.rs`, `crates/fs/src/lib.rs`, `crates/fs/tests/create.rs`, `crates/fs/README.md`, `crates/store/src/legacy.rs`, `crates/store/tests/legacy.rs`
   - scope: found at M14.12: a legacy folder's first `.dalica.json` is written with
