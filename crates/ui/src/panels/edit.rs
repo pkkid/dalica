@@ -39,6 +39,7 @@ pub mod soften_brush;
 pub mod straighten;
 pub mod top_bar;
 pub mod tuning;
+pub mod video;
 pub mod zoom;
 
 use egui::{Ui, UiBuilder, vec2};

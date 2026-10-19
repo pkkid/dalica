@@ -9855,7 +9855,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     the new rows with defaults equal to their accessors', Language listing the languages given;
     the recording `Os` keeps each call in order; every existing engine test and `panic_hunt` pass
     unchanged.
-- ⬜ **M15.5 `ui`: M15's view state, UI commands and the stub video panel**
+- ✅ **M15.5 `ui`: M15's view state, UI commands and the stub video panel**
   - after: M14.6, M14.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/video.rs`, `crates/ui/src/commands/os.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/default_viewer.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M15 field of `UiState` in one go: the video in the edit view (playing, position,

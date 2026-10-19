@@ -6,7 +6,8 @@
 //!   [`person_menu`], and M14's [`collage_menu`]) is the catalog with the app's state applied: an
 //!   item is *live* when its command is registered (a UI command or an engine command; an item
 //!   that opens a dialog also needs that dialog; an opener's item, `crate::commands::OPENERS`,
-//!   is live with its dialog), *enabled* when live and its command's `enabled`
+//!   is live with its dialog; greyed "Not available yet." until then, the OS integration's rows with
+//!   `crate::commands::os::LATER`), *enabled* when live and its command's `enabled`
 //!   accepts the parameters a click would pass, and shows the shortcut in effect. The same model
 //!   feeds the menus drawn here, `ui.menu.tree` / `ui.menu.invoke` (`control-protocol.md` §6.10)
 //!   and the native macOS menu bar.
@@ -402,7 +403,8 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     let live = registered && (dialog.is_some() || !i.label.ends_with('…') || ROOM_OPENERS.contains(&id));
     let refuse = |why: &str| (false, Some(why.to_string()));
     let (enabled, reason) = if !live {
-        refuse("Not available yet.")
+        // The OS integration's rows say what they wait for (M15.22 makes them live).
+        refuse(crate::commands::os::awaited(id).unwrap_or("Not available yet."))
     } else if album && i.folder_only {
         refuse("Not available for albums.")
     } else {
@@ -991,7 +993,13 @@ mod tests {
         let menus = bar(&app, Platform::Other);
         let all: Vec<&ItemNode> = menus.iter().flat_map(|m| items(&m.children)).collect();
         for i in all.iter().filter(|i| !i.live) {
-            assert!(!i.enabled && i.reason.as_deref() == Some("Not available yet."), "{}", i.widget);
+            let want = crate::commands::os::awaited(i.id).unwrap_or("Not available yet.");
+            assert!(!i.enabled && i.reason.as_deref() == Some(want), "{}", i.widget);
+        }
+        // The OS integration's rows are wired to the engine's commands and greyed until it has them.
+        for id in ["photo.locate", "folder.locate", "photo.openExternal"] {
+            let row = find(&menus, &Lookup::Id { id: id.into(), params: Value::Null }).unwrap();
+            assert_eq!((row.live, row.reason.as_deref()), (false, Some(crate::commands::os::LATER)), "{id}");
         }
         // Rebuild Library… is registered but asks first, and its dialog is not built yet.
         let rebuild = find(&menus, &Lookup::Id { id: "library.rebuild".into(), params: Value::Null }).unwrap();

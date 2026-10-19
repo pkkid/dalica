@@ -35,6 +35,7 @@ pub const REGIONS: &[&str] = &[
     "people",
     "places",
     "collage",
+    "video",
 ];
 
 /// `ui.screenshot {region: "<name>"}`: the region's widget (`region:<name>`) to crop to;
@@ -108,15 +109,16 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
         return Err(call.bad(format!("`{field}` cannot be set here; use {use_instead}")));
     }
     let sets_tree = changes.contains_key("treeWidth");
+    let sets_video = changes.contains_key("video");
     let mut merged = state_json(call)?;
     if let Some(obj) = merged.as_object_mut() {
         for (key, value) in changes {
             // `edit`, `export`, `options`, `import`, M13's `unnamed`, `people`, `peoplePane` and
-            // `places` and M14's `collage` merge field by field (`{"edit": {"zoom": 2}}` keeps the
-            // photo and the tab); every other field is replaced whole.
+            // `places`, M14's `collage` and M15's `video` merge field by field (`{"edit": {"zoom":
+            // 2}}` keeps the photo and the tab); every other field is replaced whole.
             match (key.as_str(), value, obj.get_mut(&key)) {
                 (
-                    "edit" | "export" | "options" | "import" | "unnamed" | "people" | "peoplePane" | "places" | "collage",
+                    "edit" | "export" | "options" | "import" | "unnamed" | "people" | "peoplePane" | "places" | "collage" | "video",
                     Value::Object(fields),
                     Some(Value::Object(current)),
                 ) => current.extend(fields),
@@ -126,7 +128,17 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
             }
         }
     }
-    let new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
+    let mut new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
+    // The player's view state belongs to a video shown in the edit view: a change that leaves no
+    // video shown (back to the library, another photo) leaves it idle; one that sets `video`
+    // without a video shown is refused.
+    let video_shown = new.edit_photo_shown()
+        && new.edit.photo.is_some_and(|p| call.host.app().session().is_some_and(|s| s.library().photo(p).is_some() && s.library().facts(p).video));
+    if !sets_video {
+        new.video.sanitize(video_shown);
+    } else if new.edit_photo_shown() && !video_shown && new.video != new.video.idle() {
+        return Err(call.bad("`video` plays, seeks, trims or fills the screen only while the edit view shows a video, and its photo is no video"));
+    }
     if !(new.thumb_size.is_finite() && (THUMB_MIN..=THUMB_MAX).contains(&new.thumb_size)) {
         return Err(call.bad(format!("`thumbSize` is {THUMB_MIN} … {THUMB_MAX}, not {}", new.thumb_size)));
     }
@@ -146,6 +158,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     new.check_m11().map_err(|e| call.bad(e))?;
     new.check_m13().map_err(|e| call.bad(e))?;
     new.check_m14().map_err(|e| call.bad(e))?;
+    new.check_m15().map_err(|e| call.bad(e))?;
     let tray = &new.tray;
     if tray.held.len() > MAX_IDS || tray.selected.len() > MAX_IDS || new.collapsed_folders.len() > MAX_IDS {
         return Err(Error::new(Code::Limit, format!("`tray.held`, `tray.selected` and `collapsedFolders` take at most {MAX_IDS} ids each")));
@@ -187,7 +200,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     {
         return Err(Error::new(Code::NotFound, format!("no photo {id}")));
     }
-    if let Some(id) = new.m13_photos().chain(new.m14_photos()).find(|id| !library.is_some_and(|l| l.photo(*id).is_some())) {
+    if let Some(id) = new.m13_photos().chain(new.m14_photos()).chain(new.m15_photos()).find(|id| !library.is_some_and(|l| l.photo(*id).is_some())) {
         return Err(Error::new(Code::NotFound, format!("no photo {id}")));
     }
     // The commands the shortcut editor's draft names must be ones the keymap knows.

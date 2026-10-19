@@ -50,6 +50,14 @@
 //!   swapping, M14.19). Their ids are the UI's own (`collage.open`, `collage.tab`,
 //!   `collageCanvas.*`, …): `create.collage` and the `collage.*` of the engine's collage session
 //!   stay the engine's.
+//! - M15's areas, stubs until the tasks that fill them, so those tasks never share a file:
+//!   [`video`] (the video player in the edit view: play and pause, the playhead, the trim, the
+//!   volume, full screen, Save Frame as Picture and Export Clip, M15.26) and [`os`] (the OS
+//!   integration in the window: which photo Locate on Disk, Open With, Open in External Editor and
+//!   Copy Path act on, the Open With ▸ submenu, Show Folder, Show in File Manager and the
+//!   default-viewer question, M15.22 and M15.24). Their ids are the UI's own (`player.*`,
+//!   `openWith.*`, …): the engine's `video.*`, `photo.locate`, `folder.locate`, `photo.openWith`,
+//!   `photo.openExternal`, `photo.copyPath`, … stay the engine's, and the menu rows run them.
 //!
 //! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
 //! (`photo.rename {ids, name}`, `photo.moveToNewFolder`, `folder.move`) opens its dialog in the UI,
@@ -90,6 +98,7 @@ pub mod import;
 pub mod info;
 pub mod map;
 pub mod options;
+pub mod os;
 pub mod peek;
 pub mod people;
 pub mod people_pane;
@@ -105,6 +114,7 @@ pub mod slideshow;
 pub mod suggestions;
 pub mod tools;
 pub mod tray;
+pub mod video;
 pub mod view;
 pub mod viewer;
 pub mod zoom;
@@ -172,6 +182,8 @@ const AREAS: &[&[UiCommand]] = &[
     map::COMMANDS,
     collage::COMMANDS,
     collage_canvas::COMMANDS,
+    video::COMMANDS,
+    os::COMMANDS,
 ];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it
@@ -203,6 +215,8 @@ const CHECKS: &[&[(&str, Check)]] = &[
     map::CHECKS,
     collage::CHECKS,
     collage_canvas::CHECKS,
+    video::CHECKS,
+    os::CHECKS,
 ];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
