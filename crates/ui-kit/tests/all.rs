@@ -11,6 +11,7 @@ mod effect_widgets;
 mod face_widgets;
 mod feedback;
 mod fields;
+mod fonts;
 mod form_widgets;
 mod gallery;
 mod icons;

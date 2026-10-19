@@ -117,14 +117,22 @@ Every binary reports its version, commit and build date: `dalica --version`,
 `DALICA_BUILD_DATE`; a plain `cargo build` reports `<version> (dev build)`.
 
 Release builds check out [craft-fonts](https://github.com/storytold/craft-fonts) at a pinned commit
-and build with `CRAFT_FONTS_DIR` and `CRAFT_FONTS_REQUIRED=1`, so they fail rather than ship
-without the CJK fallback faces. Packages carry each font's licence as `OFL-<family>.txt`. Bump the
-pin deliberately, together with the one in `ci.yml`, whenever a shipped language needs a face the
-old pin lacks: a stale pin still builds, it just shows boxes instead of glyphs. The pin is
-`CRAFT_FONTS_REF` at the top of `release.yml`; `ci.yml` gets its own when CI's font tests run with
-the fonts. Until `crates/ui/build.rs` embeds them (not built yet), the release jobs check out the pin
-and ship its licences, and `CRAFT_FONTS_REQUIRED` has nothing to enforce. Before a release,
-run the i18n glyph-coverage test with `CRAFT_FONTS_DIR` set ([`localization.md`](localization.md)).
+and build with `CRAFT_FONTS_DIR` and `CRAFT_FONTS_REQUIRED=1`: `crates/ui-kit/build.rs` embeds every
+face of its manifest, and fails the build, naming what is missing, when the directory, a face or a
+required UI face is absent (BIZ UDPGothic Regular for Japanese, Noto Sans CJK SC Regular for
+Chinese, Noto Sans Thai Regular for Thai), so a release never ships without the fallback faces
+([`assets.md`](assets.md) §4). Packages carry each embedded family's licence as
+`OFL-<family>.txt`, copied from the checkout's `fonts/*/OFL.txt`; `dalica_ui_kit::fonts::licences()`
+lists the families and licence files the binary embeds. Bump the pin deliberately, whenever a
+shipped language needs a face the old pin lacks: a stale pin still builds, it just shows boxes
+instead of glyphs. The pin is `CRAFT_FONTS_REF` at the top of `release.yml` and again at the top
+of `ci.yml`, whose review-gate jobs (tests and accept, on every system) build with the fonts and
+`CRAFT_FONTS_REQUIRED=1`, so `crates/ui-kit/tests/fonts.rs` checks every glyph of the Japanese,
+Chinese, Thai and other manifest scripts' samples there; bump both together. The pin
+(`3d9ab3a`, 2026-10-19) carries the Japanese, Simplified Chinese, Arabic and Thai faces. Before a
+release, run the glyph tests with `CRAFT_FONTS_DIR` set
+(`CRAFT_FONTS_DIR=../craft-fonts cargo test -p dalica-ui-kit --test all fonts::`, and the i18n
+coverage test of [`localization.md`](localization.md)).
 
 Every package ships `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE` and `ATTRIBUTION.md`.
 
