@@ -1,4 +1,4 @@
-//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1, M13.3;
+//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1, M13.3, M14.5;
 //! `data-model.md` §4 and §6, `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1 and
 //! §4, `creating.md` §2, `organizing.md` §3, §4, §6.1, §7 and §9, `viewing.md` §1.5 and §3.3,
 //! `faces.md` §3–§5), each a row of [`rows`]: nothing stored means its default; every
@@ -7,8 +7,9 @@
 //! opens, the file left as the user wrote it. Then what is particular to some of them: tags and
 //! crop ratios trimmed and capped, values out of range never stored, a section that is not an
 //! object, the photo sizes by region, the export location, the recent imports and the
-//! slideshow's display time bounded, and the confidences, model id, addresses and port of the
-//! People and Network tabs kept in their ranges.
+//! slideshow's display time bounded, the confidences, model id, addresses and port of the
+//! People and Network tabs kept in their ranges, and the Collage room's spacing, page format and
+//! colour too.
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +21,10 @@ use dalica_engine::settings::{
     MAX_RECENT_TAGS, MAX_TAG_BYTES, MAX_TEMPLATE_BYTES, MAX_WATERMARK_BYTES, MetadataWrites, NetworkLogLevel, NetworkSettings, OrganizeSettings,
     PROXY_PORT_DEFAULT, PeopleSettings, PhotoSizes, ProxyMode, QuickTags, RECENT_DAYS_DEFAULT, RECENT_DAYS_RANGE, SMALL_PICTURE_DEFAULT, SaveFormat,
     SaveSettings, Settings, SlideshowSettings, Transition, UiScaleSetting, ViewerSettings, WheelAction, default_export_location,
+};
+use dalica_engine::settings::{
+    COLLAGE_PAGE_FORMAT_DEFAULT, CURRENT_DISPLAY, CollageSettings, CollageStyle, GRID_SPACING_RANGE, LegacySettings, PageOrientation, PictureBorder,
+    color_hex, parse_color_hex,
 };
 use dalica_fs::Expect;
 use serde_json::{Value, json};
@@ -125,11 +130,23 @@ fn rows(dir: &Path) -> Vec<Row> {
         row("network.proxyHost", json!("proxy.example.org"), json!("secret".repeat(50)), json!(""), |s| json!(s.network().proxy_host)),
         row("network.proxyPort", json!(3128), json!(0), json!(PROXY_PORT_DEFAULT), |s| json!(s.network().proxy_port)),
         row("network.logLevel", json!("details"), json!("verbose"), json!("errors"), |s| json!(s.network().log_level.id())),
+        row("files.readLegacyData", json!(false), json!("no"), json!(true), |s| json!(s.legacy().read_legacy_data)),
+        row("files.legacyNoticeShown", json!(true), json!(1), json!(false), |s| json!(s.legacy().legacy_notice_shown)),
+        row("collage.style", json!("frameMosaic"), json!("secret-style"), json!("pile"), |s| json!(s.collage().style.id())),
+        row("collage.borders", json!("instant"), json!("polaroid"), json!("white"), |s| json!(s.collage().borders.id())),
+        row("collage.gridSpacing", json!(2.5), json!(6.0), json!(0.0), |s| json!(s.collage().grid_spacing)),
+        row("collage.shadows", json!(false), json!("off"), json!(true), |s| json!(s.collage().shadows)),
+        row("collage.captions", json!(true), json!(1), json!(false), |s| json!(s.collage().captions)),
+        row("collage.pageFormat", json!(CURRENT_DISPLAY), json!(["secret-format"]), json!(COLLAGE_PAGE_FORMAT_DEFAULT), |s| {
+            json!(s.collage().page_format)
+        }),
+        row("collage.orientation", json!("portrait"), json!("square"), json!("landscape"), |s| json!(s.collage().orientation.id())),
+        row("collage.backgroundColor", json!("#1a2b3c"), json!("secret"), json!("#000000"), |s| json!(color_hex(s.collage().background_color))),
     ]
 }
 
 /// The sections of the rows.
-const SECTIONS: [&str; 14] = [
+const SECTIONS: [&str; 15] = [
     "files",
     "tags",
     "edit",
@@ -144,6 +161,7 @@ const SECTIONS: [&str; 14] = [
     "compare",
     "people",
     "network",
+    "collage",
 ];
 
 /// A `settings.json` holding `value(row)` for every row, an unknown key in every section and one at
@@ -195,6 +213,7 @@ fn nothing_stored_means_the_defaults() {
         (SlideshowSettings::default(), ViewerSettings::default(), ImportSettings::default(), CompareSettings::default())
     );
     assert_eq!((s.settings().people(), s.settings().network()), (PeopleSettings::default(), NetworkSettings::default()));
+    assert_eq!((s.settings().legacy(), s.settings().collage()), (LegacySettings::default(), CollageSettings::default()));
     assert_eq!(s.settings().edit().photo_sizes(), PhotoSizes::system());
     assert!(s.notices().is_empty(), "{:?}", s.notices());
 }
@@ -228,6 +247,8 @@ fn every_setting_round_trips_with_unknown_keys_kept() {
         st.set_compare(&wanted.compare());
         st.set_people(&wanted.people());
         st.set_network(&wanted.network());
+        st.set_legacy(&wanted.legacy());
+        st.set_collage(&wanted.collage());
     });
     s.flush().unwrap();
     drop(ui);
@@ -289,6 +310,7 @@ fn a_section_that_is_not_an_object_is_reported_once_and_replaced_on_the_next_wri
         json!(null),
         json!(85),
         json!("offline"),
+        json!(["pile"]),
     ];
     for (section, bad) in SECTIONS.iter().zip(bad) {
         written[section] = bad;
@@ -739,4 +761,55 @@ fn the_people_and_network_values_stay_in_their_ranges() {
         assert_eq!(NetworkLogLevel::from_id(log_level.id()), Some(log_level));
     }
     assert_eq!(st.get("network").unwrap()["futureKey"], json!(2));
+}
+
+/// The Collage room's settings: every style, border and orientation survives a write; a spacing out
+/// of its range and a blank or overlong page format are never stored; a colour is `#rrggbb`.
+#[test]
+fn the_collage_values_stay_in_their_ranges() {
+    let mut st = Settings::parse(br#"{"collage": {"futureKey": 1}}"#).unwrap();
+    for style in CollageStyle::ALL {
+        for borders in PictureBorder::ALL {
+            for orientation in PageOrientation::ALL {
+                let c = CollageSettings { style, borders, orientation, ..CollageSettings::default() };
+                st.set_collage(&c);
+                assert_eq!(Settings::parse(&st.print()).unwrap().collage(), c);
+            }
+        }
+    }
+    let edge = CollageSettings {
+        grid_spacing: *GRID_SPACING_RANGE.end(),
+        page_format: "x".repeat(MAX_RATIO_NAME),
+        background_color: [255, 128, 0],
+        ..CollageSettings::default()
+    };
+    st.set_collage(&edge);
+    assert_eq!(Settings::parse(&st.print()).unwrap().collage(), edge);
+    for (spacing, format) in [(-0.5, "   "), (5.01, ""), (f64::NAN, &*"y".repeat(MAX_RATIO_NAME + 1)), (f64::INFINITY, "16:9 (HD video)")] {
+        st.set_collage(&CollageSettings { grid_spacing: spacing, page_format: format.into(), ..CollageSettings::default() });
+        let back = Settings::parse(&st.print()).unwrap();
+        assert_eq!(back.collage(), CollageSettings::default(), "{spacing} {format:?}");
+        assert!(back.problems().is_empty(), "{:?}", back.problems());
+    }
+    // A page format is trimmed; a stored colour reads in either case and is written in lower case.
+    st.set_collage(&CollageSettings { page_format: "  Panorama ".into(), ..CollageSettings::default() });
+    assert_eq!(Settings::parse(&st.print()).unwrap().collage().page_format, "Panorama");
+    for (text, want) in
+        [("#FFaa00", Some([255, 170, 0])), ("#000000", Some([0, 0, 0])), ("ffaa00", None), ("#ffaa0", None), ("#ggaa00", None), ("#ffaa000", None)]
+    {
+        assert_eq!(parse_color_hex(text), want, "{text}");
+    }
+    assert_eq!(color_hex([255, 170, 0]), "#ffaa00");
+    for (value, want) in [(json!(0), 0.0), (json!(5), 5.0), (json!(1.25), 1.25), (json!(-1), 0.0), (json!("2"), 0.0)] {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "collage": { "gridSpacing": value } })).unwrap()).unwrap();
+        assert_eq!(st.collage().grid_spacing, want, "{value}");
+    }
+    assert_eq!(st.get("collage").unwrap()["futureKey"], json!(1));
+    // The legacy settings share "files" with the metadata writes and keep them.
+    let mut st = Settings::default();
+    st.set_metadata_writes(&MetadataWrites { dates: false, ..MetadataWrites::default() });
+    st.set_legacy(&LegacySettings { read_legacy_data: false, legacy_notice_shown: true });
+    let back = Settings::parse(&st.print()).unwrap();
+    assert_eq!(back.legacy(), LegacySettings { read_legacy_data: false, legacy_notice_shown: true });
+    assert!(!back.metadata_writes().dates);
 }

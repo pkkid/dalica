@@ -5,6 +5,8 @@ pub mod albums;
 pub mod app;
 pub mod batch;
 pub mod caption;
+pub mod collage;
+pub mod collage_output;
 pub mod compare;
 pub mod crop;
 pub mod dates;
@@ -29,6 +31,7 @@ pub mod import_run;
 pub mod info;
 pub mod inspect;
 pub mod keymap;
+pub mod legacy;
 pub mod library;
 pub mod map;
 pub mod options;
@@ -116,6 +119,10 @@ pub fn specs() -> Vec<CommandSpec> {
         suggest::specs(),
         places::specs(),
         map::specs(),
+        // M14: empty until M14.13 (legacy), M14.16 (collage) and M14.17 (collage_output).
+        collage::specs(),
+        collage_output::specs(),
+        legacy::specs(),
     ]
     .concat();
     #[cfg(test)]

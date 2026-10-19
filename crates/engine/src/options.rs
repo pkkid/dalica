@@ -9,17 +9,18 @@
 //! that existed before M10 (`fileTypes`, the `files` group, M7's `edit.singleClickLeaves`, M8's
 //! export and M9's ask-first settings) are rows here, never second copies of their settings.
 //!
-//! An option whose feature does not exist yet (Language until localisation, reading the previous
-//! organizer's data until it can, the slideshow's music and video sound until Dalica plays sound,
-//! the photo viewer's file types until the OS integration, the network log until it exists) is
-//! listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
+//! An option whose feature does not exist yet (Language until localisation, the slideshow's music
+//! and video sound until Dalica plays sound, the photo viewer's file types until the OS integration,
+//! the network log until it exists) is listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
 //! once its feature reads it, so `options.set` refuses it until then and its value is its default.
 //! The map rows and the proxy of the Network tab waited on reserved decisions 4 and 9 until M13.20
 //! (their reasons, [`crate::map_tiles::TILES_UNAVAILABLE`] and
 //! [`crate::map_tiles::PROXY_UNAVAILABLE`], are now `None`: OpenStreetMap's tiles and Nominatim,
 //! off until allowed, both addresses editable). The People tab's face model (its status, Download…, Remove
 //! and Use) is the face model dialog's, through `faces.models.*`, not a row here; the model in use
-//! is `people.model` ([`crate::settings::PeopleSettings::model`]).
+//! is `people.model` ([`crate::settings::PeopleSettings::model`]). "Read photo data left by the
+//! previous organizer" can be changed from M14.5 (`files.readLegacyData`, read by
+//! [`Settings::legacy`]); a change rescans the watched folders.
 //!
 //! [`OptionSpec::check`] is the one validation of a value, [`OptionSpec::store`] the one way a
 //! value is written (a merge into its object, unknown keys kept) and [`OptionSpec::to_json`] the
@@ -444,11 +445,10 @@ static CATALOGUE: &[OptionSpec] = &[
     row("files.writeDates", Tab::General, "Files", "Write date changes to files", Kind::Bool, Initial::Bool(true), |s| {
         json!(s.metadata_writes().dates)
     }),
-    row("files.readLegacyData", Tab::General, "Files", "Read photo data left by the previous organizer", Kind::Bool, Initial::Bool(true), |_| {
-        json!(true)
+    row("files.readLegacyData", Tab::General, "Files", "Read photo data left by the previous organizer", Kind::Bool, Initial::Bool(true), |s| {
+        json!(s.legacy().read_legacy_data)
     })
-    .applies(Applies::Rescan)
-    .later("Arrives with the previous organizer's data"),
+    .applies(Applies::Rescan),
     // General → Import.
     row("import.folder", Tab::General, "Import", "Save imported pictures in", Kind::Folder, Initial::Null, |s| json!(s.import().folder))
         .hint("The Pictures folder unless chosen."),

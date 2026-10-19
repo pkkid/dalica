@@ -1,17 +1,18 @@
-//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1, M13.3) against
+//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1, M13.3, M14.5) against
 //! `menus-and-shortcuts.md` §5: the eight tabs shown are the catalogue's seven and the shortcut
 //! editor; every option of the General, File Types, Slideshow, Network, People, Photo Viewer and
 //! Export tables is in the catalogue once, on its tab, and nothing else is; keys are unique; each
 //! default is what its setting's accessor reads from an empty file (and a bool's is the table's
 //! on / off, a number's the table's number); each option that can be changed, stored under its key
 //! with each of its choices, is read back by that accessor; and the People rows and the Network
-//! rows of reserved decision 4 (M13.20) can be changed, the network log level still waiting.
+//! rows of reserved decision 4 (M13.20) can be changed, the network log level still waiting; and
+//! "Read photo data left by the previous organizer" can be changed (M14.5).
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use dalica_engine::map_tiles::{PROXY_UNAVAILABLE, TILES_UNAVAILABLE};
-use dalica_engine::options::{Initial, Kind, OptionSpec, Tab, catalogue, find, on_tab};
+use dalica_engine::options::{Applies, Initial, Kind, OptionSpec, Tab, catalogue, find, on_tab};
 use dalica_engine::settings::Settings;
 use serde_json::{Value, json};
 
@@ -104,9 +105,7 @@ fn each_default_is_its_accessors_and_each_option_is_read_back_from_its_key() {
     }
     // The options whose feature is still to come say why, and the HEIC row follows the build.
     let reasons: Vec<(&str, &str)> = catalogue().iter().filter_map(|o| o.unavailable.map(|r| (o.key, r))).collect();
-    for key in
-        ["interface.language", "files.readLegacyData", "slideshow.music", "slideshow.musicFolder", "slideshow.videoSound", "viewer.defaultViewer"]
-    {
+    for key in ["interface.language", "slideshow.music", "slideshow.musicFolder", "slideshow.videoSound", "viewer.defaultViewer"] {
         assert!(reasons.iter().any(|(k, r)| *k == key && r.starts_with("Arrives with")), "{key}: {reasons:?}");
     }
     for key in ["import.detectDuplicates", "import.folder"] {
@@ -169,4 +168,18 @@ fn the_people_and_network_rows_can_be_changed_but_the_network_log() {
     let mut st = Settings::default();
     st.merge("network", &[("allowMapTiles", Some(json!(true)))]);
     assert_eq!((find("network.allowMapTiles").unwrap().read)(&st), json!(true));
+}
+
+/// M14: the legacy row of General ▸ Files can be changed, its default is its accessor's, a change
+/// rescans, and a stored value reads through `Settings::legacy`.
+#[test]
+fn the_legacy_row_can_be_changed() {
+    let o = find("files.readLegacyData").unwrap();
+    assert_eq!((o.tab, o.group, o.available(), o.applies), (Tab::General, "Files", true, Applies::Rescan));
+    assert_eq!(o.default_value(), json!(Settings::default().legacy().read_legacy_data));
+    let mut st = Settings::default();
+    o.store(&mut st, &json!(false)).unwrap();
+    assert!(!st.legacy().read_legacy_data);
+    assert_eq!((o.read)(&st), json!(false));
+    assert!(o.store(&mut st, &json!("off")).is_err());
 }
