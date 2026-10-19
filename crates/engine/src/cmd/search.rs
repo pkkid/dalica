@@ -7,7 +7,9 @@
 //!   as it was (each filter too). `withholdNames` is per call: people's names and nicknames take
 //!   no part in this search (`person:` matches nothing and is `unavailable`, plain words skip
 //!   them); left out, names match. An automation surface without the people permission sets it on
-//!   every call (`automation::NAME_SEARCHES`). No undo step. The
+//!   every call (`automation::NAME_SEARCHES`); with no text the switch alone changes nothing (only
+//!   the text matches names), so such a `search.set {}` keeps Find Duplicates' groups. No undo
+//!   step. The
 //!   query runs once the debounce has passed ([`crate::search::DEBOUNCE`] on the session clock),
 //!   on the worker; the reply is `library.inspect` → `search` at once (`pending` until the result
 //!   is applied by `poll`). A query asking for nothing leaves search mode.

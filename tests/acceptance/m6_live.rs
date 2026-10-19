@@ -112,6 +112,12 @@ fn token(path: &Path, app: &mut App) -> String {
 /// Starts `dalica --headless` on the library `home/library` (created when missing), with
 /// automation reading inside `home`, and connects to it.
 pub fn start(exe: &Path, home: &Path) -> (App, Client) {
+    start_args(exe, home, &[])
+}
+
+/// [`start`] with `extra` arguments after the usual ones (a permission such as
+/// `--automation-allow-external`).
+pub fn start_args(exe: &Path, home: &Path, extra: &[&str]) -> (App, Client) {
     let port = free_port();
     let token_file = home.join("agent.token");
     let _ = std::fs::remove_file(&token_file);
@@ -128,6 +134,7 @@ pub fn start(exe: &Path, home: &Path) -> (App, Client) {
         "--automation-read-root",
         &read_root,
     ];
+    let args: Vec<&str> = args.iter().chain(extra).copied().collect();
     let mut app = App { child: dalica(exe, home, &args).spawn().unwrap() };
     let token = token(&token_file, &mut app);
     let mut c = Client::connect(port);
