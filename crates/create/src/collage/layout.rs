@@ -5,7 +5,8 @@
 //! [`layout`] puts the pictures on the page in slot order ([`Collage::assignment`]), asks the
 //! style's module (one per style, under `layout/`) for one [`Slot`] per picture, then applies the
 //! user's placements: a pile's moves (centre, scale, angle) and everyone's layer (Bring to Top,
-//! Send to Bottom). Until M14.8 and M14.9 every style answers [`simple_grid`].
+//! Send to Bottom). The mosaics' slots are made for the pictures before the user's swaps
+//! ([`Ctx::slot_aspects`]), so a swap exchanges two pictures' slots.
 
 mod exposure;
 mod frame;
@@ -58,6 +59,9 @@ pub struct Ctx<'a> {
     pub page_ratio: f64,
     /// The pictures' aspect ratios (width over height) in slot order.
     pub aspects: &'a [f64],
+    /// The aspect ratio each slot was made for: its picture's before the user's swaps, so a swap
+    /// exchanges two pictures' slots and moves no other.
+    pub slot_aspects: &'a [f64],
     /// The arrangement's seed.
     pub seed: u64,
     pub settings: &'a Settings,
@@ -72,7 +76,15 @@ pub fn layout(doc: &Collage, aspects: &[f64]) -> Vec<Placement> {
     let order = doc.assignment();
     let ratios: Vec<f64> = order.iter().map(|&i| sane_aspect(aspects.get(i).copied())).collect();
     let frame_centre = doc.frame_centre.and_then(|id| order.iter().position(|&i| doc.clips.get(i).is_some_and(|c| c.id == id)));
-    let ctx = Ctx { page_ratio: sane_aspect(Some(doc.page.ratio())), aspects: &ratios, seed: doc.seed, settings: &doc.settings, frame_centre };
+    let slot_ratios = before_swaps(doc, &order, &ratios);
+    let ctx = Ctx {
+        page_ratio: sane_aspect(Some(doc.page.ratio())),
+        aspects: &ratios,
+        slot_aspects: &slot_ratios,
+        seed: doc.seed,
+        settings: &doc.settings,
+        frame_centre,
+    };
     let slots = match doc.style {
         Style::Pile => pile::layout(&ctx),
         Style::Mosaic => mosaic::layout(&ctx),
@@ -99,6 +111,20 @@ pub fn layout(doc: &Collage, aspects: &[f64]) -> Vec<Placement> {
     // Stable: equal layers keep the slot order.
     placed.sort_by_key(|(layer, _)| *layer);
     placed.into_iter().enumerate().map(|(z, (_, p))| Placement { z, ..p }).collect()
+}
+
+/// `ratios` (in slot order `order`) as they stood before the document's swaps: the swaps undone
+/// in reverse (each is its own inverse).
+fn before_swaps(doc: &Collage, order: &[usize], ratios: &[f64]) -> Vec<f64> {
+    let (mut order, mut ratios) = (order.to_vec(), ratios.to_vec());
+    for [a, b] in doc.swaps.iter().rev() {
+        let pos = |order: &[usize], id: PhotoId| order.iter().position(|&i| doc.clips.get(i).is_some_and(|c| c.id == id));
+        if let (Some(x), Some(y)) = (pos(&order, *a), pos(&order, *b)) {
+            order.swap(x, y);
+            ratios.swap(x, y);
+        }
+    }
+    ratios
 }
 
 /// An aspect ratio a layout can use: finite and within [`MAX_ASPECT`] either way, else 1.
@@ -129,8 +155,8 @@ pub fn fill(aspect: f64, cell: f64) -> Rect01 {
 }
 
 /// Rows and columns of equal cells, the pictures in reading order, each filling its cell, with
-/// the grid spacing between the cells and round the edge: the stand-in every style answers until
-/// its own layout lands.
+/// the grid spacing between the cells and round the edge: the Grid's fallback when its own cells
+/// cannot be made.
 pub fn simple_grid(ctx: &Ctx) -> Vec<Slot> {
     let n = ctx.aspects.len();
     if n == 0 {

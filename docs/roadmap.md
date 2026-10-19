@@ -9098,7 +9098,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     pictures; grid cells are equal, never overlap and keep the spacing; a contact sheet's names
     never overlap the next row; proptest: any count from 0 to 1 000 and any page ratio give finite
     placements without a panic.
-- ⬜ **M14.9 `create`: Mosaic and Frame Mosaic**
+- ✅ **M14.9 `create`: Mosaic and Frame Mosaic**
   - after: M14.4
   - files: `crates/create/src/collage/layout/mosaic.rs`, `crates/create/src/collage/layout/frame.rs`, `crates/create/tests/collage_mosaic.rs`
   - scope: `creating.md` §3 and the decisions above: the mosaic, our own seeded guillotine
