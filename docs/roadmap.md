@@ -10182,7 +10182,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     why; Batch Edit, an effect, Crop and Save on the clip
     are refused with the reason and nothing is written; the face scan never decodes it; the owner
     thread made no `fs` call; `panic_hunt` green.
-- ⬜ **M15.17 `engine`: Locate on Disk, Open With, the external editor and the system clipboard**
+- ✅ **M15.17 `engine`: Locate on Disk, Open With, the external editor and the system clipboard**
   - after: M15.4, M8.10
   - files: `crates/engine/src/cmd/os.rs`, `crates/engine/src/os.rs`, `crates/engine/tests/os.rs`
   - scope: `organizing.md` §9 and `security.md` §5.11 through M15.4's `Os`: `photo.locate {id}`

@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(awaited("photo.locate"), Some(LATER));
         assert_eq!(awaited("photo.star.toggle"), None);
 
-        assert!(matches!(app.run("openWith.list", &json!({})), Err(CmdError::Disabled(m)) if m == LATER));
+        assert_eq!(app.run("openWith.list", &json!({})).unwrap(), json!({ "photo": ids[0] }), "the engine lists them");
         assert!(matches!(app.run("openWith.list", &json!({ "id": 999_999 })), Err(CmdError::NotFound(_))));
         assert!(matches!(app.run("toast.showFolder", &json!({ "path": "relative" })), Err(CmdError::BadParams(_))));
         let abs = std::env::temp_dir();
