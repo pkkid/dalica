@@ -9063,7 +9063,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     `ui.set` (bad values are `bad_params`, nothing changes); `create.collage` opens the Collage
     tab and the strip shows it; a Collage-context key does nothing in the library; every command's
     graceful-failure test; `panic_hunt` and `widget_ids` stay green.
-- ⬜ **M14.7 `ui-kit`: style rows, image toggles, the turn-and-scale handle and the collage icons**
+- ✅ **M14.7 `ui-kit`: style rows, image toggles, the turn-and-scale handle and the collage icons**
   - after: M12.4, M13.5, M13.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/dropdown.rs`, `crates/ui-kit/src/widgets/toggle_group.rs`, `crates/ui-kit/src/widgets/transform_handle.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/collage.rs`, `crates/ui-kit/tests/collage_widgets.rs`, `crates/ui-kit/tests/icons_collage.rs`, `crates/ui-kit/tests/fingerprints/collage-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-collage*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: `design-system.md` §4–§6 and `creating.md` §3: the dropdown's rich rows (an icon, a

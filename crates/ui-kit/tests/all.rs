@@ -2,6 +2,7 @@
 //! `cargo test -p dalica-ui-kit --test all <file>::` runs one file.
 
 mod badges;
+mod collage_widgets;
 mod common;
 mod contrast;
 mod datetime;
@@ -13,6 +14,7 @@ mod fields;
 mod form_widgets;
 mod gallery;
 mod icons;
+mod icons_collage;
 mod icons_effects;
 mod icons_options;
 mod icons_people;
