@@ -759,6 +759,7 @@ fn saved_as(f: Field<dalica_sidecar::SavedAs>, notes: &mut Vec<String>) -> Readi
 pub fn project_text(project: Project) -> &'static str {
     match project {
         Project::Exported => "exported",
+        Project::Collages => "collages",
     }
 }
 
@@ -767,6 +768,7 @@ fn project(f: Field<String>, notes: &mut Vec<String>) -> Reading<Option<Project>
     match f {
         Field::Absent => Reading::Usable(None),
         Field::Value(s) if s == project_text(Project::Exported) => Reading::Usable(Some(Project::Exported)),
+        Field::Value(s) if s == project_text(Project::Collages) => Reading::Usable(Some(Project::Collages)),
         Field::Value(s) => {
             notes.push(format!("the folder's project kind {s:?} is not one Dalica knows: kept in the file, not used"));
             Reading::Unusable

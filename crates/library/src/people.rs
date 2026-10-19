@@ -316,8 +316,9 @@ impl Library {
             })
             .collect();
         let restore = self.set_faces(moved, touched)?;
+        let legacy = self.take_person_legacy(&from);
         let Some(info) = self.model.people.remove(&from) else { return Err(Error::UnknownPerson(from)) };
-        Ok(with_faces(Op::AddPerson { id: from, person: info }, restore))
+        Ok(with_faces(with_legacy(Op::AddPerson { id: from.clone(), person: info }, from, legacy), restore))
     }
 
     /// [`Op::DeletePerson`]: its faces go back to Unnamed.
@@ -333,8 +334,9 @@ impl Library {
             })
             .collect();
         let restore = self.set_faces(unnamed, touched)?;
+        let legacy = self.take_person_legacy(&id);
         let Some(info) = self.model.people.remove(&id) else { return Err(Error::UnknownPerson(id)) };
-        Ok(with_faces(Op::AddPerson { id, person: info }, restore))
+        Ok(with_faces(with_legacy(Op::AddPerson { id: id.clone(), person: info }, id, legacy), restore))
     }
 
     /// [`Op::SetPersonThumbnail`].
@@ -365,9 +367,21 @@ impl Library {
 
 /// `add` then `restore` (the faces as they were) as one op, or `add` alone when no face changed.
 fn with_faces(add: Op, restore: Op) -> Op {
-    match &restore {
-        Op::SetFaces { faces } if faces.is_empty() => add,
-        _ => Op::Batch { ops: vec![add, restore] },
+    match (&restore, add) {
+        (Op::SetFaces { faces }, add) if faces.is_empty() => add,
+        (_, Op::Batch { mut ops }) => {
+            ops.push(restore);
+            Op::Batch { ops }
+        }
+        (_, add) => Op::Batch { ops: vec![add, restore] },
+    }
+}
+
+/// `add` (the person back) followed by their legacy id, when they had one (M14).
+fn with_legacy(add: Op, id: PersonId, legacy: Option<String>) -> Op {
+    match legacy {
+        Some(l) => Op::Batch { ops: vec![add, Op::SetLegacyIds { albums: Vec::new(), people: vec![(id, Some(l))] }] },
+        None => add,
     }
 }
 

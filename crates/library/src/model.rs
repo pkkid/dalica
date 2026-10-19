@@ -229,13 +229,88 @@ impl SavedAs {
 }
 
 /// What kind of project folder a folder is (`organizing.md` §10, `creating.md` §2): the tree lists
-/// marked folders in Projects wherever they are. Kept in the folder sidecar
-/// (`"project": "exported"`), so the mark survives moves and rebuilds.
+/// marked folders in Projects wherever they are, and the window draws each with its kind's icon
+/// ([`Library::project`]). Kept in the folder sidecar (`"project": "exported"`,
+/// `"project": "collages"`), so the mark survives moves and rebuilds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Project {
     /// A folder an export made.
     Exported,
+    /// The projects directory's `Collages` folder, where Create Collage and Save Draft write
+    /// (M14, `creating.md`).
+    Collages,
+}
+
+/// The most bytes of a legacy id (an album token or contact id read from the previous organizer's
+/// sidecar, `data-model.md` §9): such ids are short, and input-derived text is capped.
+pub const MAX_LEGACY_ID: usize = 256;
+
+/// Which sidecar is in effect for a folder (M14, `data-model.md` §9): Dalica's own `.dalica.json`,
+/// the one the previous organizer left, both (Dalica's own record wins field by field), or none.
+/// Set by the scan as a derived fact ([`Op::SetFolderSidecars`](crate::Op::SetFolderSidecars): no
+/// undo step, no revision bump); the default (none) is not stored.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FolderSidecar {
+    #[default]
+    None,
+    Dalica,
+    Legacy,
+    Both,
+}
+
+impl FolderSidecar {
+    /// Whether some of the folder's data came from a legacy sidecar (`Legacy` or `Both`).
+    pub fn has_legacy(self) -> bool {
+        matches!(self, FolderSidecar::Legacy | FolderSidecar::Both)
+    }
+
+    /// Whether Dalica's own sidecar is there (`Dalica` or `Both`).
+    pub fn has_dalica(self) -> bool {
+        matches!(self, FolderSidecar::Dalica | FolderSidecar::Both)
+    }
+}
+
+/// An original the previous organizer kept for a photo it saved (M14, `data-model.md` §9): the
+/// file in the folder's legacy originals folder, its digest, and the recipe that folder's sidecar
+/// gives (the raw operations, as [`PhotoInfo::edits`]). Set by the scan as a derived fact
+/// ([`Op::SetLegacyOriginals`](crate::Op::SetLegacyOriginals)); a photo with one and no
+/// [`Saved`] record of Dalica's is offered Undo Save and Revert while its bytes differ
+/// ([`Library::legacy_undo_saves`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LegacyOriginal {
+    /// The kept original's bytes on disk.
+    pub size: u64,
+    /// The kept original's digest, as text (opaque here; the same kind as a
+    /// [`ContentDigest::digest`]), at most [`MAX_DIGEST`] bytes; empty when not made yet.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub digest: String,
+    /// The recipe the legacy originals folder's sidecar holds for it (operation strings).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub recipe: Vec<String>,
+}
+
+impl LegacyOriginal {
+    pub(crate) fn check(&self) -> crate::Result<()> {
+        if self.digest.len() > MAX_DIGEST {
+            return Err(crate::Error::TooLong { what: "digest", max: MAX_DIGEST });
+        }
+        crate::tags::check_list(&self.recipe)
+    }
+}
+
+/// Checks a legacy id: not empty, at most [`MAX_LEGACY_ID`] bytes, no control characters or
+/// surrounding white space.
+pub(crate) fn check_legacy_id(id: &str) -> crate::Result<()> {
+    if id.len() > MAX_LEGACY_ID {
+        return Err(crate::Error::TooLong { what: "legacy id", max: MAX_LEGACY_ID });
+    }
+    if id.is_empty() || id.trim() != id || id.chars().any(char::is_control) {
+        return Err(crate::Error::BadText { what: "legacy id", why: "empty, untrimmed or with control characters" });
+    }
+    Ok(())
 }
 
 /// The most bytes of an album name (UTF-8).
@@ -544,6 +619,16 @@ pub struct Model {
     pub(crate) geo: BTreeMap<PhotoId, Geo>,
     /// People (M13; `people.json`, names mirrored per folder): names unique ignoring case.
     pub(crate) people: BTreeMap<PersonId, Person>,
+    /// Albums' legacy ids (M14; `albums.json`): only albums in `albums`, each id held by one album.
+    pub(crate) album_legacy: BTreeMap<AlbumId, String>,
+    /// People's legacy ids (M14; `people.json`): only people in `people`, each id held by one
+    /// person.
+    pub(crate) person_legacy: BTreeMap<PersonId, String>,
+    /// The sidecar in effect per folder (M14; index-only, derived): only folders in `folders`,
+    /// never [`FolderSidecar::None`].
+    pub(crate) folder_sidecars: BTreeMap<FolderId, FolderSidecar>,
+    /// Legacy originals (M14; index-only, derived): only photos in `photos`.
+    pub(crate) legacy_originals: BTreeMap<PhotoId, LegacyOriginal>,
 }
 
 /// The library: the model, its revision counters and the next free ids.
@@ -557,6 +642,10 @@ pub struct Library {
     /// Each album's members by (position key, photo), kept in step with `model.members` by every
     /// op, so a drop finds its neighbours without sorting the album.
     pub(crate) by_key: HashMap<AlbumId, BTreeSet<(PosKey, PhotoId)>>,
+    /// Legacy id → album and → person, kept in step with `model.album_legacy` and
+    /// `model.person_legacy` by every op.
+    pub(crate) by_legacy_album: HashMap<String, AlbumId>,
+    pub(crate) by_legacy_person: HashMap<String, PersonId>,
     pub(crate) revision: u64,
     pub(crate) thumbnail_revision: u64,
     pub(crate) folder_revisions: HashMap<FolderId, u64>,

@@ -344,7 +344,10 @@ impl Touched {
                 | Op::SetMemberKeys { .. }
                 | Op::SetCovers { .. }
                 | Op::SetDigests { .. }
-                | Op::SetPersonThumbnail { .. } => {}
+                | Op::SetPersonThumbnail { .. }
+                | Op::SetLegacyIds { .. }
+                | Op::SetFolderSidecars { .. }
+                | Op::SetLegacyOriginals { .. } => {}
             }
         }
     }

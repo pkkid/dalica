@@ -40,8 +40,8 @@ mod tree;
 
 pub use albums::{Anchor, album_id_from, clean_album_name};
 pub use model::{
-    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, MAX_ALBUM_NAME, MAX_CAMERA, MAX_DIGEST, MAX_FILE_NAME, MAX_SKETCH, Model, Photo,
-    PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved, SavedAs, Sketch, SortBy, Synced,
+    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, FolderSidecar, LegacyOriginal, Library, MAX_ALBUM_NAME, MAX_CAMERA, MAX_DIGEST,
+    MAX_FILE_NAME, MAX_LEGACY_ID, MAX_SKETCH, Model, Photo, PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved, SavedAs, Sketch, SortBy, Synced,
 };
 pub use op::Op;
 pub use people::{
