@@ -145,7 +145,7 @@ fn every_bottom_area_id_is_registered_at_its_spec_size_at_both_window_sizes() {
             let b = widget(&d, id);
             assert_eq!(size(&b), [64.0, 56.0], "{case}: `{id}`");
             assert!(inside(b.rect, row), "{case}: `{id}` at {:?} is outside the action row", b.rect);
-            assert_eq!(b.enabled, id == "action:more" || id == "action:slideshow", "{case}: `{id}` is live only once its command exists");
+            assert_eq!(b.enabled, id != "action:export", "{case}: `{id}` is live once its command exists (Export needs a tray)");
         }
     }
 }
@@ -168,7 +168,11 @@ fn more_holds_the_action_buttons_at_900_by_600() {
         assert!(item.rect[1] + item.rect[3] <= more.rect[1] + 0.01, "`{id}` at {:?} is above More… at {:?}", item.rect, more.rect);
         assert!(item.rect[1] >= last_bottom - 0.01, "`{id}` is under the row before it: a vertical menu");
         assert!(item.rect[0] >= 0.0 && item.rect[0] + item.rect[2] <= 900.0, "`{id}` is inside the window");
-        assert_eq!(item.enabled, id == "action:slideshow", "`{id}` waits for its command (Slideshow plays, M11.19)");
+        assert_eq!(
+            item.enabled,
+            id != "action:export",
+            "`{id}` is live (Slideshow plays, M11.19; Collage opens the room, M14.16); Export needs a tray"
+        );
         last_bottom = item.rect[1] + item.rect[3];
     }
     assert!(matches!(d.click("action:export"), Err(DriverError::Disabled(_))));
@@ -267,10 +271,10 @@ fn the_pane_toggles_open_switch_and_close_the_side_pane() {
 fn the_star_acts_on_the_selection_and_the_waiting_buttons_refuse_clicks() {
     let dir = tempfile::tempdir().unwrap();
     let mut d = driver(dir.path(), SIZES[0]);
-    // Slideshow plays a slideshow (M11.19, `slideshow.rs`).
+    // Slideshow plays a slideshow (M11.19, `slideshow.rs`); Collage opens the room (M14.16).
     for id in ["button:tray.hold", "button:tray.clear", "button:tray.addToAlbum", "button:rotate.ccw", "button:rotate.cw", "button:loupe"]
         .iter()
-        .chain(ACTIONS.iter().filter(|id| **id != "action:slideshow"))
+        .chain(ACTIONS.iter().filter(|id| !["action:slideshow", "action:collage"].contains(*id)))
     {
         assert!(matches!(d.click(id), Err(DriverError::Disabled(_))), "`{id}` refuses a click");
     }
@@ -337,7 +341,7 @@ fn export_is_live_with_a_tray_and_opens_the_export_dialog() {
         assert_eq!(tray.len(), 1);
         open_more(&mut d);
         assert!(widget(&d, "action:export").enabled, "{w}: live with a tray");
-        assert!(!widget(&d, "action:collage").enabled && widget(&d, "action:slideshow").enabled, "{w}: Collage still waits, Slideshow plays");
+        assert!(widget(&d, "action:collage").enabled && widget(&d, "action:slideshow").enabled, "{w}: Collage and Slideshow are live");
         d.click("action:export").unwrap();
         d.settle(FRAMES).unwrap();
         assert!(widgets(&d).contains_key("dialog:export"), "{w}: the Export dialog");

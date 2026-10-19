@@ -133,8 +133,8 @@ fn rows(dir: &Path) -> Vec<Row> {
         row("files.readLegacyData", json!(false), json!("no"), json!(true), |s| json!(s.legacy().read_legacy_data)),
         row("files.legacyNoticeShown", json!(true), json!(1), json!(false), |s| json!(s.legacy().legacy_notice_shown)),
         row("collage.style", json!("frameMosaic"), json!("secret-style"), json!("pile"), |s| json!(s.collage().style.id())),
-        row("collage.borders", json!("instant"), json!("polaroid"), json!("white"), |s| json!(s.collage().borders.id())),
-        row("collage.gridSpacing", json!(2.5), json!(6.0), json!(0.0), |s| json!(s.collage().grid_spacing)),
+        row("collage.borders", json!("instant"), json!("polaroid"), json!("none"), |s| json!(s.collage().borders.id())),
+        row("collage.gridSpacing", json!(2.5), json!(6.0), json!(1.0), |s| json!(s.collage().grid_spacing)),
         row("collage.shadows", json!(false), json!("off"), json!(true), |s| json!(s.collage().shadows)),
         row("collage.captions", json!(true), json!(1), json!(false), |s| json!(s.collage().captions)),
         row("collage.pageFormat", json!(CURRENT_DISPLAY), json!(["secret-format"]), json!(COLLAGE_PAGE_FORMAT_DEFAULT), |s| {
@@ -800,7 +800,7 @@ fn the_collage_values_stay_in_their_ranges() {
         assert_eq!(parse_color_hex(text), want, "{text}");
     }
     assert_eq!(color_hex([255, 170, 0]), "#ffaa00");
-    for (value, want) in [(json!(0), 0.0), (json!(5), 5.0), (json!(1.25), 1.25), (json!(-1), 0.0), (json!("2"), 0.0)] {
+    for (value, want) in [(json!(0), 0.0), (json!(5), 5.0), (json!(1.25), 1.25), (json!(-1), 1.0), (json!("2"), 1.0)] {
         let st = Settings::parse(&serde_json::to_vec(&json!({ "collage": { "gridSpacing": value } })).unwrap()).unwrap();
         assert_eq!(st.collage().grid_spacing, want, "{value}");
     }

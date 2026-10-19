@@ -233,6 +233,7 @@ commands change nothing and record no undo step.
 | `collage.move` / `collage.swap` / `collage.order` | the canvas: move, turn and scale a pile's picture (`{item, centre?, scale?, angle?}`), swap two cells of a mosaic or grid (`{a, b}`), Bring to Top / Send to Bottom (`{item, top \| bottom}`) (M14.16) |
 | `collage.background` / `collage.frameCenter` | Set as Background (`{id \| null}`) and Set as Frame Center (`{id}`) (M14.16) |
 | `collage.scramble` / `collage.shuffle` / `collage.reset` | Scramble Collage (a new seed, the user's placements dropped), Shuffle Pictures (the same slots, a new assignment), Reset (the defaults) (M14.16) |
+| `collage.formats.remove` | the Page format's delete button: deletes a custom ratio (`{name}`), shared with the Crop panel, so it leaves both lists; a page on it goes to 16:9 (M14.16) |
 | `collage.undo` / `collage.redo` | the room's own history (Ctrl+Z, Ctrl+Y in the Collage context, §2.4); never the library's undo stack (M14.16) |
 | `collage.close` | Close (`{discard?}`; with unsaved changes `needs_confirm` without `discard`: Save Draft, Discard, Cancel) (M14.16) |
 | `collage.create` / `collage.saveDraft` | Create Collage (`{path?, display?}`) and Save Draft: a `collage` job writing the JPEG and its `.dalica-collage` recipe into the projects directory's `Collages` folder; Create opens it in the edit view (M14.17) |

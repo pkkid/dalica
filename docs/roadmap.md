@@ -9226,7 +9226,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     first change; the edit panel counts two `legacy:` entries; Revert from the menu restores the
     legacy original; at 900 × 600 the notice and the line fit; fingerprints of the notice and the
     edit panel's line at 1400 × 900.
-- ⬜ **M14.16 `engine`: the collage session**
+- ✅ **M14.16 `engine`: the collage session**
   - after: M14.4, M14.5, M14.8, M14.9
   - files: `crates/engine/src/cmd/collage.rs`, `crates/engine/src/collage.rs`, `crates/engine/tests/collage.rs`
   - scope: `creating.md` §3 and the decisions above: `create.collage {ids | section}` (one open
