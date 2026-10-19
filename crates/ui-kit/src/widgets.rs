@@ -50,8 +50,10 @@ mod stepper;
 mod suggest_marks;
 mod swatch;
 mod tabs;
+mod toggle_group;
 mod tool_button;
 mod tooltip;
+mod transform_handle;
 
 pub use age_slider::{AGE_MAX_DAYS, age_days, age_label, age_position, age_slider, age_snapped};
 pub use autocomplete::{AutocompleteOut, MAX_SUGGESTIONS, VISIBLE_SUGGESTIONS, autocomplete, autocomplete_matches};
@@ -76,7 +78,10 @@ pub use drag_pill::{
     DragOp, DragPill, MARKER_CAP, MARKER_W, PILL_H, PILL_MARGIN, PILL_MAX_W, PILL_OFFSET, PILL_THUMB, PillThumb, drag_pill, drag_pill_rect,
     drag_pill_text, drop_target, insertion_marker,
 };
-pub use dropdown::{DROPDOWN_ITEM_MAX_W, DROPDOWN_ITEM_MIN_W, dropdown, dropdown_item, dropdown_popup_id};
+pub use dropdown::{
+    DROPDOWN_ITEM_MAX_W, DROPDOWN_ITEM_MIN_W, RICH_ITEM_MIN_W, RICH_ROW_H, RICH_ROW_ICON, RICH_ROW_PAD, RichRow, RichRowText, dropdown,
+    dropdown_item, dropdown_popup_id, rich_dropdown, rich_item, rich_row_min_width, rich_row_text,
+};
 pub use effect_tile::{
     EFFECT_BADGE, EFFECT_GRID_COLUMNS, EFFECT_GRID_ROWS, EFFECT_LABEL_MIN, EFFECT_TILE_GAP, EffectGridOut, EffectTile, effect_grid, effect_grid_size,
     effect_tile, effect_tile_id, effect_tile_label,
@@ -127,8 +132,13 @@ pub use tabs::{
     TEXT_TAB_PAD, Tab, TabFit, TabItem, TabsOut, TextTab, TextTabsOut, fit as fit_tabs, room_tab_close_id, room_tabs, tab_page, tabs,
     tabs_overflow_id, text_tabs, text_tabs_height,
 };
+pub use toggle_group::{ImageToggle, TOGGLE_GLYPH_SHARE, TOGGLE_GROUP_GAP, ToggleGroupOut, toggle_group, toggle_step};
 pub use tool_button::{TOOL_BUTTON_H, tool_button, tool_button_width};
 pub use tooltip::{TOOLTIP_WIDTH, tooltip};
+pub use transform_handle::{
+    TRANSFORM_MAX_SCALE, TRANSFORM_MIN_SCALE, TRANSFORM_OUTLINE, TRANSFORM_WHEEL, TransformHandle, TransformOut, transform_corners, transform_handle,
+    transform_handle_pos, turn_and_scale,
+};
 
 /// What an automation id is attached to.
 #[derive(Clone, Copy)]
