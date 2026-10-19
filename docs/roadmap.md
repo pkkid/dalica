@@ -10,8 +10,27 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-18, M13.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-19, M14.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-19 (M14.R, the Release 0.9 gate).* M14 is done: `cargo xtask accept M14` passes (130 s; 137 s with the
+release budgets), and the tests on `main` went from 4 158 to 4 329 (`ci --full` 18.7 min, every milestone's
+acceptance M0–M14 green). Collage: the Collage room opens from the tray, the Create menu, a folder header and a person
+section; six styles laid out the same for the same seed on every run and system (our own mosaics; the grid and
+contact sheet ported from LightCraft), a canvas that moves, turns, sizes and swaps pictures with its own undo, Create
+Collage writing a 3000 px JPEG and a `.dalica-collage` recipe into the Collages project without ever replacing a file,
+Edit Collage reopening it, Save Draft. Legacy sidecars: the previous organizer's per-folder files are read on the first
+scan (stars, captions, tags, edits mapped where their units are known and kept as `legacy:` entries otherwise,
+albums, people, places, the folder's facts) with a once-only note; the first change writes `.dalica.json` while the old
+file stays byte-identical, created under its exact name so it can never replace another program's file; Undo Save and
+Revert work from the originals it kept; the option turns it all off and on without writing. W15 and W16 over MCP
+(workflows 16 / 16). Accept M14 found a security bug (a click on the room's Create Collage wrote outside the automation
+write roots), fixed before the review. Not done: the canvas doesn't draw captions or names; five small look issues
+seen in the review's screenshots (M15.44); M14's budgets are absolute and judged on the workstation (M15.43); the
+checks by hand. `main` went red for 5 hours after the merges (older milestones' fingerprints moved by the lit Collage
+button, a Windows-only warning, a timing check tight first for slow runners and then for fast ones, an old Windows
+rename test), so merges stopped until four fix PRs passed on all three systems. 29 tasks merged with 7 workers.
+Parity ✅ 174 · 🟡 47 · ⬜ 27 · 🚫 17. M14.R is the 0.9 release gate (version 0.9.0).
 
 *2026-10-18 (M13.R, the Release 0.8 gate).* M13 is done: `cargo xtask accept M13` passes (64 s warm), and the tests
 on `main` went from 3 749 to 4 158. People: a pure-Rust ONNX interpreter (fuzzed, with hard limits) runs YuNet, SFace
@@ -349,7 +368,7 @@ waits for.)
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ✅ |
 | | M12 | Effects | effect tiles, parameter panels and all 27 effects | ✅ |
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ✅ |
-| | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ⬜ |
+| | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ✅ |
 | Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ⬜ |
 | After 1.0 | M16 | Post-1.0 enhancements | what comes after the honest 1.0, starting with switchable themes | ⬜ |
 
@@ -9453,7 +9472,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
   - done when: a `places_pane.rs` test with two photos at two places grouped at a low zoom: the
     badge and the bubble agree on 2, Show These Photos selects both and Remove Location clears
     both; it fails without the fix; one zoom level in, the two single markers each say 1.
-- ⬜ **M14.R Release 0.9 gate**
+- ✅ **M14.R Release 0.9 gate**
   - after: M14.23, M14.29
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -9733,6 +9752,16 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     their reason); (3) the first languages (`localization.md`), and whether a CJK language is among
     them (M15.8's faces in release builds then matter); (4) who reviews each catalog as a fluent
     speaker at M15.R (machine-assisted drafts are marked for that review).
+    **Answers at M14.R (2026-10-19, the maintainer):** (1) reserved decision 2: **pure-Rust decoders**
+    for H.264 and HEVC (candidates found at the review: `rust_h264`, `rusty_h264` without default
+    features, `rusty_h265`, `rust_h265`; young, their claims not yet run on real phone files):
+    M15 starts with a spike on real phone files, and a codec that fails falls back to tiles only;
+    (2) sound: **pure-Rust output per OS** (a PulseAudio-protocol client on Linux, WASAPI through
+    the `windows` crate, CoreAudio through `objc2-core-audio`, each through `cargo xtask deps`);
+    (3) the first languages: **English and Thai for 1.0, if Thai can be done** (Thai needs shaping
+    for its stacked vowels and tone marks and dictionary line breaking, both to be proven pure-Rust
+    in a spike; if not, 1.0 ships English only and Thai follows); (4) **the maintainer's wife
+    reviews the Thai catalog** at M15.R.
   - done when: `cargo xtask tasks sync --check` parses the fitted blocks, `tasks sync --dry-run`
     lists them, and *Reserved decisions* item 2 carries its date.
 - ⬜ **M15.2 `image`: video files recognised by content and probed**
@@ -10412,6 +10441,31 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     automation and one started by a click each leave no person's name in `ui.inspect`,
     `library.query` or the job's reply without the permission, and show it with the permission);
     the two tests pass 200 runs under `taskset -c 0`.
+- ⬜ **M15.43 `xtask`: M14's budgets judged against a base on the same runner**
+  - after: M14.R
+  - files: `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: the maintainer's answer at M14.R (2026-10-19, Q5): M14.22's budgets (collage layouts
+    and the render, the legacy scans, the canvas drag frame) were set as absolute numbers on the
+    workstation's performance cores; judge them as M13's are, relative to M14.22's merge commit
+    (2f68af57) built and run on the same runner, interleaved, so a slower runner or an
+    efficiency core does not fail them; the workstation numbers stay as the record.
+  - done when: the Budgets workflow and `cargo xtask budgets` judge every M14 row against the base
+    on the same machine; `--plant-ms` still fails each row; a run on the 2-vCPU runner passes
+    with the numbers in the PR body.
+- ⬜ **M15.44 `ui`: five small look fixes from the M14.R screenshots**
+  - after: M14.R
+  - files: `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/titlebar.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/collage_room.rs`, `crates/ui/tests/options_dialog.rs`
+  - scope: the maintainer's answer at M14.R (2026-10-19, Q7), from the review's screenshots: (1)
+    with a room's tab strip open, the edit view at 900 × 600 cuts off the Fill Light slider under
+    Undo/Redo (the strip's 28 px): the panel fits or scrolls; (2) the window title names the
+    library folder while a collage from the Collages folder is open in the edit view: it names
+    the photo's own folder; (3) the status line says "No selection" in the Collage room while a
+    canvas picture is selected: it describes the room's selection; (4) at 900 × 600 the bottom
+    bar folds Collage into More… (check against `ui-layout.md` §6 and keep or change with the
+    reason); (5) Options ▸ General's "Read photo data left by the previous organizer" sits below
+    the fold: place it where `ui-layout.md` puts it.
+  - done when: one test per fix, each failing without it; screenshots at 1400 × 900 and
+    900 × 600 on the PR; any moved fingerprint re-blessed with its image and reason.
 - ⬜ **M15.36 `docs`: the 1.0 parity and security audit**
   - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34, M15.41, M15.42
   - files: `docs/parity.md`, `docs/product.md`, `docs/security.md`
@@ -10454,7 +10508,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     target; the advisory check passes on `main` with the recorded exception and fails on a planted
     unrecorded advisory; a release dry run attaches the SBOMs.
 - ⬜ **M15.37 `accept M15`**
-  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.43, M15.44
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
@@ -10520,7 +10574,7 @@ waits on reserved decision 2 through M15.1):
 wave 1   M15.1 lead: M14.R's answers  ‖  M15.2 video probe  ‖  M15.3 model: videos + M14.1's ops
          ‖  M15.4 engine modules + Os + Sound  ‖  M15.5 ui state + stubs  ‖  M15.6 ui-kit video + icons
          ‖  M15.7 i18n core  ‖  M15.8 fallback faces  ‖  M15.9 PTP reader  ‖  M15.10 Windows signing
-         ‖  M15.41 M14's loose ends
+         ‖  M15.41 M14's loose ends  ‖  M15.43 M14 budgets on one runner  ‖  M15.44 look fixes
          (once M14.R is closed)
 wave 2   M15.11 videos on scan  ‖  M15.12 platform services  ‖  M15.13 macOS signing
          ‖  M15.14 ui-kit AccessKit  ‖  M15.15 video frames (2)  ‖  M15.17 OS commands
