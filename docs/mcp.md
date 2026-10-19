@@ -3,7 +3,7 @@
 Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mcp.md` (revision
 59684266); MIT OR Apache-2.0.
 
-> **Status: In progress (M13).** Built (M10.4): the server's core in `crates/mcp` (the framing,
+> **Status: In progress (M14).** Built (M10.4): the server's core in `crates/mcp` (the framing,
 > `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
 > `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7); one tool
@@ -18,7 +18,10 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > W11, the effects stacked (Sepia, Vignette, Border), and the floor at all twelve workflows (M12.20);
 > `set_metadata {geo}` live, `photo_info` with the geotag and the faces, people data withheld
 > without `--automation-allow-people` on every reply that carries it, W13 (geotags) and W14
-> (people), and the floor at all fourteen workflows (M13.29).
+> (people), and the floor at all fourteen workflows (M13.29); collages and a legacy library over
+> MCP: `collage.create` and `collage.saveDraft` written only inside a write root or a watched
+> folder headless, the default `<Pictures>/Dalica/Collages` included, W15 (collage) and W16
+> (legacy library), and the floor at all sixteen workflows (M14.21).
 
 `dalica-cli mcp` exposes Dalica to AI agents through the
 [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0 over stdio
@@ -251,7 +254,10 @@ with one addition: **client roots**.
   `--automation-write-root` flags only; client roots are never write roots. Without a write root
   the defaults are the OS temporary directory and `<cache>/Dalica/automation/`.
 - Never inside a watched folder or `.dalica-originals/`; never over an existing file; exports use
-  `-001` names. In-library operations (star, caption, Save with backup, move, delete to trash) need no
+  `-001` names. A collage (`collage.create`, `collage.saveDraft`) is written as an export is: the
+  folder the engine would write it in (`path`, else the folder of the collage the room was
+  reopened from, else `<Pictures>/Dalica/Collages`) must be inside a write root or a watched
+  folder, or the command is refused with `path_denied` before it runs, nothing made. In-library operations (star, caption, Save with backup, move, delete to trash) need no
   root; destructive ones need `confirm: true`.
 - Effects outside Dalica (`control-protocol.md` §5.6) are refused without
   `--automation-allow-external`; people names and face regions are withheld without
@@ -386,6 +392,8 @@ Initial workflows (each becomes required in the milestone shown):
 | W12 | **Destructive commands ask**: `cmd_photo_delete` without `confirm` → `needs_confirm`, file still there → with `confirm` → file in the OS trash (a test trash directory), sidecar section kept in the undo record | M9 |
 | W13 | **Geotags**: `set_metadata {geo}` on 3 photos of 5 (one undo step) → GPS in each of their files read back, none in the others → `photo_info` and `query_photos {geotagged: true}` report them → `set_metadata {geo: null}` → GPS gone from the files → one `cmd_edit_undo` restores it in the library and the files | M13 |
 | W14 | **People**, with `--automation-allow-people` and Store people names in photos on: faces planted in 5 photos (the folder's sidecar) → 4 named Ana by one `cmd_faces_name` → `query_photos {query: "person:Ana"}` returns those 4 → the MWG regions named Ana in their files, none in the others → a session without the permission reads names `null` and no rectangles (`cmd_people_list`, `cmd_faces_list`, `photo_info`), counts kept, and a person's export folder not named after them | M13 |
+| W15 | **Collage**: `cmd_create_collage` on 8 photos → `cmd_collage_set {style: "grid"}` → `cmd_collage_create` with a path in the write root (`<Pictures>/Dalica/Collages`) → a JPEG of the page's ratio at 3000 px on its long side and its `.dalica-collage` recipe beside it (grid, the 8 clips), the photos untouched → the folder, scanned when the job ends, is in the projects group, marked `collages`, and `photo_info` lists the collage there → `cmd_collage_edit` reopens the room with the 8 clips | M14 |
+| W16 | **Legacy library**: `scan_folder` on a folder with only the previous organizer's sidecar (written by the test) → `photo_info` shows its stars, captions, a recipe with a `legacy:` entry, the album and the person (with `--automation-allow-people`), nothing written → `set_metadata` stars one → `.dalica.json` holds every photo, the legacy file and the photos byte-identical → `cmd_legacy_inspect` says `both`. Headless applies the scan's legacy results and the first write's report through the session's poll, as the app does each frame | M14 |
 
 New user-visible features add a workflow when they add a user task; a bug report that reproduces as
 a workflow lands with it (it fails before the fix).

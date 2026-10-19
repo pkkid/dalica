@@ -408,6 +408,17 @@ impl Headless {
             "export.run" => path("dir")?.map_or(Ok(()), |p| self.roots.check_output(&p, "dir", &watched, Output::Folder).map(|_| ())),
             "photo.saveTo" => path("path")?.map_or(Ok(()), |p| self.roots.check_output(&p, "path", &watched, Output::File).map(|_| ())),
             "import.run" => path("destination")?.map_or(Ok(()), |p| self.roots.check_output(&p, "destination", &watched, Output::Folder).map(|_| ())),
+            // A collage is written into `path`, else beside the collage the room reopened, else
+            // `<Pictures>/Dalica/Collages`: the folder the engine names is checked as an export's
+            // `dir` is, the default too. A path the engine itself refuses is the command's own
+            // refusal (as the control channel does, `control-protocol.md` §5.7).
+            "collage.create" | "collage.saveDraft" => {
+                let given = path("path")?;
+                match self.session.collage_destination(given.as_deref()) {
+                    Ok(folder) => self.roots.check_output(&folder, "path", &watched, Output::Folder).map(|_| ()),
+                    Err(_) => Ok(()),
+                }
+            }
             "folders.add" | "faces.models.inspect" | "faces.models.install" => {
                 path("path")?.map_or(Ok(()), |p| self.roots.check_read(&p, "path", &watched).map(|_| ()))
             }
@@ -745,6 +756,28 @@ mod tests {
         assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": [] }))), "limit");
         assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": steps, "label": "Anything" }))), "bad_params");
         assert_eq!(code(call(&mut h, "tray.state", json!({ "x": 1 }))), "bad_params");
+    }
+
+    /// A collage is written over MCP only inside a write root or a watched folder
+    /// (`control-protocol.md` §5.7): the default `<Pictures>/Dalica/Collages` and a `path`
+    /// elsewhere are refused before the command runs, nothing made; a `path` in a write root is
+    /// written.
+    #[test]
+    fn a_collage_is_written_only_inside_the_write_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let allowed = dir.path().join("allowed");
+        std::fs::create_dir_all(&allowed).unwrap();
+        let mut h = Headless::open_with(Source::Demo, &[], Policy::with_roots(&[], std::slice::from_ref(&allowed)), false).unwrap();
+        h.session_mut().set_pictures_dir(Some(dir.path().join("Pictures")));
+        run(&mut h, "create.collage", json!({ "ids": [1, 2] })).unwrap();
+        assert_eq!(code(run(&mut h, "collage.create", json!({}))), "path_denied", "Pictures is no write root");
+        assert_eq!(code(run(&mut h, "collage.saveDraft", json!({ "path": dir.path().join("elsewhere") }))), "path_denied");
+        assert_eq!(code(run(&mut h, "collage.create", json!({ "path": "relative" }))), "bad_params", "the command's own refusal");
+        assert_eq!(code(run(&mut h, "collage.create", json!({ "path": 3 }))), "bad_params");
+        assert!(!dir.path().join("Pictures").exists() && !dir.path().join("elsewhere").exists(), "nothing was made");
+        let done = run(&mut h, "collage.create", json!({ "path": allowed.join("Collages") })).unwrap();
+        assert_eq!(done["state"], "done", "{done}");
+        assert_eq!(std::fs::read_dir(allowed.join("Collages")).unwrap().count(), 2, "the JPEG and its recipe: {done}");
     }
 
     /// A headless session looks for face models where the app and the CLI do.

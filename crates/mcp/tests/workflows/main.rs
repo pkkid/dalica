@@ -25,3 +25,5 @@ mod w11_effects_stack;
 mod w12_destructive_asks;
 mod w13_geotags;
 mod w14_people;
+mod w15_collage;
+mod w16_legacy;

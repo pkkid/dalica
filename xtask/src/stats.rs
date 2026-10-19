@@ -13,11 +13,12 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-/// The workflows passing on `main` when the floor was last raised: M13.29, all fourteen workflows
-/// (`mcp.md` §9: W13, geotags, and W14, people, joined the twelve of M12.20; W11, the effects
-/// stacked, had joined the eleven M11 required at M11.22; W07 and W10 had joined the nine P0
-/// workflows of M10.19, and M10.20 had set five before them).
-pub const FLOOR: usize = 14;
+/// The workflows passing on `main` when the floor was last raised: M14.21, all sixteen workflows
+/// (`mcp.md` §9: W15, a collage, and W16, a legacy library, joined the fourteen of M13.29, where
+/// W13, geotags, and W14, people, had joined the twelve of M12.20; W11, the effects stacked, had
+/// joined the eleven M11 required at M11.22; W07 and W10 had joined the nine P0 workflows of
+/// M10.19, and M10.20 had set five before them).
+pub const FLOOR: usize = 16;
 /// The package and test target holding the workflows.
 pub const PACKAGE: &str = "dalica-mcp";
 pub const TARGET: &str = "workflows";
