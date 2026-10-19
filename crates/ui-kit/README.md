@@ -11,7 +11,11 @@
     painted). Among the tokens, `crosshair` and `crosshair_outer` paint an effect's crosshair on
     the photo and its dark outline (M12.4).
   - `fonts`: Inter, installed in code (`install`, `definitions`, `regular`, `semibold`,
-    `SEMIBOLD_FAMILY`).
+    `SEMIBOLD_FAMILY`, `INTER_REGULAR`, `INTER_SEMIBOLD`), and the fallback faces by script from
+    the optional craft-fonts build input (M15.8: `CRAFT_FONTS` + `CraftFont`, embedded by
+    `build.rs` from `CRAFT_FONTS_DIR`, required with `CRAFT_FONTS_REQUIRED=1`; `script_of`,
+    `is_cjk_script`, `DEFAULT_SCRIPT`, `ui_fallback`, `definitions_for`, `script`, `set_script`,
+    `set_language(code)`, `licences`).
   - `icons`: `Icon` (+ `Icon::ALL`, `name`, `from_name`), `paint`, `paint_activity` (the activity
     spinner at a phase), `stroke_width`; the folder-tree marks `FolderIcon`, `paint_folder`,
     `state_color`, `INHERITED_OPACITY`; the edit view's glyphs `EditIcon` (+ `EditIcon::ALL`,
@@ -21,8 +25,12 @@
     `paint_output`; the slideshow's and the viewer's `ViewingIcon` + `paint_viewing`, the albums'
     `AlbumIcon` + `paint_album`, the Options dialog's `OptionsIcon` + `paint_options`, and the
     effect panels' `EffectIcon` (`Brush` and `Eraser` for Soften, `Crosshair`, `OneClick` for the
-    "1-click" badge; + `EffectIcon::ALL`, `name`, `from_name`, M12.4) + `paint_effect`; `Glyph`
-    (any of these sets) + `paint_glyph`.
+    "1-click" badge; + `EffectIcon::ALL`, `name`, `from_name`, M12.4) + `paint_effect`, people's and places'
+    `PeopleIcon` + `paint_people`, the Collage room's `CollageIcon` (+ `CollageIcon::ALL`, `name`,
+    `from_name`, M14.7) + `paint_collage`, the video player's `VideoIcon` (+ `VideoIcon::ALL`,
+    `name`, `from_name`, `shared`, `for_volume`, M15.6) + `paint_video` and the system's file
+    hand-offs' `OsIcon` (+ `OsIcon::ALL`, `name`, `from_name`, `shared`, M15.6) + `paint_os`;
+    `Glyph` (any of these sets) + `paint_glyph`.
   - `input` (M7.5, the edit canvas's pointer input, ported from PhotoCraft): `wheel` (`Wheel`,
     `read` for one frame's wheel input: a notch zooms ×`NOTCH` around the pointer, a trackpad
     pans, a pinch zooms; `configure`, `fold_legacy_pinch` / `legacy_pinch_to_zoom` for Windows'
@@ -74,8 +82,16 @@
     `crosshair_handle_id`, `handle_angle`: a draggable centre, an optional radius circle and
     second handle, in coordinates normalised to the photo shown). Also: `age_slider`,
     `filter_banner`, `checkbox_row`, `group_header`, `list_row` (+ `list_columns`, `list_text`),
-    `key_cell` (the shortcut editor's), and the drag pill (`drag_pill`, `drop_target`,
-    `insertion_marker`).
+    `key_cell` (the shortcut editor's), the drag pill (`drag_pill`, `drop_target`,
+    `insertion_marker`). The Collage room's (M14.7): `rich_dropdown` and `rich_item` (+ `RichRow`,
+    `RichRowText`, `rich_row_text`, `rich_row_min_width`, `RICH_ROW_H`), `toggle_group` (+
+    `ImageToggle`, `ToggleGroupOut`, `toggle_step`) and `transform_handle` (+ `TransformHandle`,
+    `TransformOut`, `transform_corners`, `transform_handle_pos`, `turn_and_scale`). The video
+    player's (M15.6): `scrubber` (+ `Scrubber`, `ScrubberOut`, `scrubber_readout`, `clock_text`,
+    `trim_start_to`, `trim_end_to`, `SCRUB_TRACK_ROW`, `SCRUB_RULER_ROW`, `PLAYHEAD_R`,
+    `TRIM_GRAB`: the playhead, the trim ruler and the readout in milliseconds) and `volume` (+
+    `VolumeOut`, `volume_toggled`, `volume_level`, `VOLUME_BUTTON`, `VOLUME_SLIDER_W`: a speaker
+    toggle that mutes and restores, and a short slider).
   - `registry`: `register`, `widgets`, `find`, `unregistered` (+ `Unregistered`), `is_valid_id`,
     `WidgetInfo`, `Role`.
   - `raster`: `Rasterizer`, `Image`, `RasterError`, `MAX_SIDE`, `MAX_PIXELS`; and at the root

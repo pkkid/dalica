@@ -9877,7 +9877,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `ui.set` (bad values are `bad_params`, nothing changes); a video key does nothing in the library
     or on a still photo; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay
     green.
-- ⬜ **M15.6 `ui-kit`: the video controls and M15's icons**
+- ✅ **M15.6 `ui-kit`: the video controls and M15's icons**
   - after: M14.7, M14.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/scrubber.rs`, `crates/ui-kit/src/widgets/volume.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/video.rs`, `crates/ui-kit/src/icons/os.rs`, `crates/ui-kit/tests/video_widgets.rs`, `crates/ui-kit/tests/icons_video.rs`, `crates/ui-kit/tests/fingerprints/video-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-video*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/README.md`, `docs/design-system.md`
   - scope: `design-system.md` §4–§6, `editing.md` §11 and `viewing.md` §4: `scrubber` (a track
