@@ -9,6 +9,7 @@
 
 mod albums_file;
 pub mod automation;
+pub mod camera;
 pub mod cmd;
 pub mod collage;
 pub mod collage_output;
@@ -36,6 +37,7 @@ pub mod metadata;
 pub mod metadata_cache;
 pub mod offline;
 pub mod options;
+pub mod os;
 mod people_file;
 pub mod places;
 pub mod preview;
@@ -45,11 +47,14 @@ pub mod scanning;
 pub mod search;
 pub mod session;
 pub mod settings;
+pub mod sound;
 pub mod suggestions;
 pub mod synthetic;
 pub mod thumbs;
 pub mod undo;
 pub mod variant;
+pub mod video;
+pub mod video_output;
 pub mod viewer;
 pub mod watching;
 

@@ -240,6 +240,16 @@ commands change nothing and record no undo step.
 | `collage.edit` / `collage.canEdit` | Edit Collage: reopen the room from a photo's recipe (`{id}`), and the query the edit view's top bar asks (M14.17) |
 | `legacy.inspect` | query: the previous organizer's data per folder: which file is in effect (`dalica`, `legacy`, `both`, `none`) and what it held (`{folders?}`) (M14.13) |
 | `legacy.noticeShown` | the first-run notice of legacy data answered: `files.legacyNoticeShown` set, so it is not shown again (M14.13) |
+| `photo.locate` / `folder.locate` | File ▸ Locate on Disk (Ctrl+Enter) and the folder menu's: the file or folder selected in the system's file manager (`{id}`; an offline folder disabled with its reason; an album's photo located in its folder); refused over automation (M15.17) |
+| `photo.openWithList` / `photo.openWith` | query: the applications that open a photo's type, Dalica left out (`{id}`); open it with one (`{id, handler}`; refused over automation); the Open With ▸ submenu (M15.17) |
+| `photo.openExternal` | File ▸ Open in External Editor (Ctrl+Shift+O): the photos in `files.externalEditor`, else the system's editor (`{ids}`; more than 20 asks first; refused over automation) (M15.17) |
+| `photo.copyToSystem` / `photo.copyPath` | put the files on the system clipboard, with `picture` and one photo its picture with its edits (`{ids, picture?}`); Copy Path, one path per line (`{ids}`); `unavailable` in a headless session (M15.17) |
+| `viewer.fileTypes` / `viewer.setDefault` | query: each type Dalica can be the default viewer for with its current handler; make Dalica the default viewer for some types (`{types}`; none: "Don't use Dalica as a viewer") (M15.24) |
+| `video.inspect` | query: a video's facts, whether Dalica can play it, and its trim (`{id}`) (M15.16) |
+| `video.open` / `video.play` / `video.pause` / `video.seek` / `video.step` | the edit view's video: open it, play, pause, go to a time (`{ms}`), step frames (`{frames}`, negative back) (M15.25) |
+| `video.setStart` / `video.setEnd` / `video.volume` | trim at the time shown (one step of the video's history) and the volume (`{volume}`, 0–100, kept in `video.volume`) (M15.25) |
+| `video.saveFrame` / `video.exportClip` | Save Frame as Picture (a JPEG into the Video Frames project) and Export Clip (`{path?}`; over automation only inside the write roots) (M15.25) |
+| `camera.list` / `camera.*` | the cameras and phones connected over MTP/PTP as import sources, beside cards and drives (M15.19) |
 | `photo.inspect` | query: everything known about photos (`{ids}`) |
 | `library.query` | query: search with the search-box grammar, filters and paging |
 | `library.inspect` | query: the library's state for agents (`control-protocol.md` §6.4: counts, tree, sections, search, undo, unsaved edits, pending writes, problems; `{photos?, section?, offset?, limit?}`) |
@@ -383,6 +393,14 @@ toggles exclude on the selected items (include again when every one is excluded)
 the arrows move the selection from the item in the preview (Up and Down by the tray's columns) and
 with Shift extend it from the focused item, Ctrl+A selects every item listed.
 
+In the edit view with a video open ([`editing.md`](editing.md) §11; the keys are active only while a
+video is open, M15.5):
+
+| Key | Action |
+|---|---|
+| / or Space | play / pause (`video.toggle`) |
+| , / . | step one frame back / forward (`video.step`); held, rewind / fast-forward |
+
 In the Collage room (the **Collage** context, active while the room is in front; `creating.md` §3):
 
 | Key | Action |
@@ -447,7 +465,7 @@ disagree.
 | | Single click on the photo returns to the library | `edit.singleClickLeaves` | off |
 | | UI scale (Auto, 75–300 % in steps of 25) | `interface.uiScale` | Auto |
 | | UI font size (Small, Medium, Large) | `interface.fontSize` | Small |
-| | Language (arrives with translations; applies at next launch) | `interface.language` | System |
+| | Language (System, then the languages the app offers; applies at once) | `interface.language` | System |
 | Files | Detect duplicates while importing (the Import room's "Exclude duplicates" starts from it) | `import.detectDuplicates` | on |
 | | Delete from disk without asking | `organize.deleteWithoutAsking` | off |
 | | Remove from albums without asking | `organize.removeFromAlbumsWithoutAsking` | off |
@@ -540,7 +558,7 @@ with OS integration") until then.
 
 | Group | Option | Key | Default |
 |---|---|---|---|
-| File Types | Use Dalica as the default viewer for these file types (arrives with OS integration) | `viewer.defaultViewer` | off |
+| File Types | Use Dalica as the default viewer for these file types (a list of types; arrives with OS integration) | `viewer.defaultViewer` | none |
 | Interface | Mouse wheel (zooms, hold Ctrl to navigate; or moves through photos, hold Ctrl to zoom) | `viewer.wheel` | zooms |
 | | Hide controls automatically | `viewer.hideControls` | on |
 | | Translucent background | `viewer.translucent` | on |

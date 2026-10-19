@@ -9,9 +9,9 @@
 //! that existed before M10 (`fileTypes`, the `files` group, M7's `edit.singleClickLeaves`, M8's
 //! export and M9's ask-first settings) are rows here, never second copies of their settings.
 //!
-//! An option whose feature does not exist yet (Language until localisation, the slideshow's music
-//! and video sound until Dalica plays sound, the photo viewer's file types until the OS integration,
-//! the network log until it exists) is listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
+//! An option whose feature does not exist yet (the slideshow's music and video sound until Dalica
+//! plays sound, the photo viewer's file types until the OS integration, the network log until it
+//! exists) is listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
 //! once its feature reads it, so `options.set` refuses it until then and its value is its default.
 //! The map rows and the proxy of the Network tab waited on reserved decisions 4 and 9 until M13.20
 //! (their reasons, [`crate::map_tiles::TILES_UNAVAILABLE`] and
@@ -21,6 +21,13 @@
 //! is `people.model` ([`crate::settings::PeopleSettings::model`]). "Read photo data left by the
 //! previous organizer" can be changed from M14.5 (`files.readLegacyData`, read by
 //! [`Settings::legacy`]); a change rescans the watched folders.
+//!
+//! M15.4: Language can be changed and applies at once; its choices are the languages the app gave
+//! the session ([`Settings::languages`], [`OptionSpec::given`]), System first. General ▸ Files'
+//! "External editor" (`files.externalEditor`, [`Settings::external_editor`]) joins the catalogue
+//! with the window's text field (M15.22). The Photo
+//! Viewer's File Types row (`viewer.defaultViewer`) is a list of file types ([`OptionSpec::many`]:
+//! any of its choices, each once), still waiting on the OS integration (M15.24).
 //!
 //! [`OptionSpec::check`] is the one validation of a value, [`OptionSpec::store`] the one way a
 //! value is written (a merge into its object, unknown keys kept) and [`OptionSpec::to_json`] the
@@ -142,6 +149,8 @@ pub enum Initial {
     Bool(bool),
     Int(u32),
     Str(&'static str),
+    /// A list of choice ids (a [`OptionSpec::many`] row's).
+    List(&'static [&'static str]),
     /// No value stored: the default folder (the Pictures folder, `<Pictures>/Dalica/Exports`).
     Null,
 }
@@ -152,10 +161,14 @@ impl Initial {
             Initial::Bool(b) => json!(b),
             Initial::Int(n) => json!(n),
             Initial::Str(s) => json!(s),
+            Initial::List(l) => json!(l),
             Initial::Null => Value::Null,
         }
     }
 }
+
+/// Choices a session gives, `(id, label)`, read from its settings.
+pub type Choices = fn(&Settings) -> Vec<(String, String)>;
 
 /// One option of the Options dialog.
 #[derive(Clone, Copy)]
@@ -178,6 +191,12 @@ pub struct OptionSpec {
     pub unavailable: Option<&'static str>,
     /// The value in effect, through the setting's typed accessor.
     pub read: fn(&Settings) -> Value,
+    /// A [`Kind::Choice`] whose value is a list of its choices, each once, in the choices' order
+    /// (`options.list` gives its type as `"list"`), rather than one of them.
+    pub many: bool,
+    /// The choices the session gives in place of the kind's, `(id, label)` (Language's: the
+    /// languages the app offers, [`Settings::languages`]).
+    pub given: Option<Choices>,
 }
 
 impl std::fmt::Debug for OptionSpec {
@@ -196,7 +215,21 @@ const fn row(
     default: Initial,
     read: fn(&Settings) -> Value,
 ) -> OptionSpec {
-    OptionSpec { key, tab, group, label, hint: "", kind, default, applies: Applies::Now, platforms: &Platform::ALL, unavailable: None, read }
+    OptionSpec {
+        key,
+        tab,
+        group,
+        label,
+        hint: "",
+        kind,
+        default,
+        applies: Applies::Now,
+        platforms: &Platform::ALL,
+        unavailable: None,
+        read,
+        many: false,
+        given: None,
+    }
 }
 
 impl OptionSpec {
@@ -220,6 +253,24 @@ impl OptionSpec {
         OptionSpec { unavailable: reason, ..self }
     }
 
+    const fn many(self) -> OptionSpec {
+        OptionSpec { many: true, ..self }
+    }
+
+    const fn given(self, given: Choices) -> OptionSpec {
+        OptionSpec { given: Some(given), ..self }
+    }
+
+    /// A choice row's choices with `settings`, `(id, label)`: those the session gives, else the
+    /// kind's; none for other kinds.
+    pub fn choices(&self, settings: &Settings) -> Vec<(String, String)> {
+        match (self.given, self.kind) {
+            (Some(given), Kind::Choice(_)) => given(settings),
+            (None, Kind::Choice(choices)) => choices.iter().map(|(id, label)| ((*id).to_string(), (*label).to_string())).collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// The object of `settings.json` it lives in, and its field there.
     pub fn place(&self) -> (&'static str, &'static str) {
         self.key.split_once('.').unwrap_or((self.key, ""))
@@ -239,8 +290,14 @@ impl OptionSpec {
         self.platforms.contains(&platform)
     }
 
-    /// `value` as it is stored, or why it cannot be (naming the option, never echoing the value).
+    /// `value` as it is stored, or why it cannot be (naming the option, never echoing the value),
+    /// with the choices an empty settings file gives ([`OptionSpec::check_with`]).
     pub fn check(&self, value: &Value) -> Result<Value, String> {
+        self.check_with(value, &Settings::default())
+    }
+
+    /// [`OptionSpec::check`] with the choices `settings` gives (the languages offered).
+    pub fn check_with(&self, value: &Value, settings: &Settings) -> Result<Value, String> {
         let key = self.key;
         match self.kind {
             Kind::Bool => value.as_bool().map(Value::Bool).ok_or_else(|| format!("{key} must be true or false")),
@@ -260,10 +317,19 @@ impl OptionSpec {
                 })
                 .map(UiScaleSetting::to_json)
                 .ok_or_else(|| format!("{key} must be \"auto\" or a percentage from {min} to {max} in steps of {step}")),
-            Kind::Choice(choices) => {
-                value.as_str().filter(|v| choices.iter().any(|(id, _)| id == v)).map(|v| json!(v)).ok_or_else(|| {
-                    format!("{key} must be one of {}", choices.iter().map(|(id, _)| format!("\"{id}\"")).collect::<Vec<_>>().join(", "))
-                })
+            Kind::Choice(_) => {
+                let choices = self.choices(settings);
+                let known = |v: &str| choices.iter().any(|(id, _)| id == v);
+                let ids = || choices.iter().map(|(id, _)| format!("\"{id}\"")).collect::<Vec<_>>().join(", ");
+                if self.many {
+                    let items = value.as_array().filter(|items| items.iter().all(|i| i.as_str().is_some_and(known)));
+                    let picked: Option<Vec<&str>> = items.map(|items| items.iter().filter_map(Value::as_str).collect());
+                    picked
+                        .map(|picked| json!(choices.iter().filter(|(id, _)| picked.contains(&id.as_str())).map(|(id, _)| id).collect::<Vec<_>>()))
+                        .ok_or_else(|| format!("{key} must be a list of {}", ids()))
+                } else {
+                    value.as_str().filter(|v| known(v)).map(|v| json!(v)).ok_or_else(|| format!("{key} must be one of {}", ids()))
+                }
             }
             Kind::Text { max_bytes } => match value {
                 Value::String(t) if t.len() <= max_bytes => Ok(json!(t)),
@@ -281,7 +347,7 @@ impl OptionSpec {
     /// stored one, so the default folder is used); every other key is kept. Nothing changes on
     /// `Err`.
     pub fn store(&self, settings: &mut Settings, value: &Value) -> Result<(), String> {
-        let stored = self.check(value)?;
+        let stored = self.check_with(value, settings)?;
         let (object, field) = self.place();
         settings.merge(object, &[(field, (!stored.is_null()).then_some(stored))]);
         Ok(())
@@ -297,7 +363,7 @@ impl OptionSpec {
         row.insert("group".into(), json!(self.group));
         row.insert("label".into(), json!(self.label));
         row.insert("hint".into(), json!(self.hint));
-        row.insert("type".into(), json!(self.kind.id()));
+        row.insert("type".into(), json!(if self.many { "list" } else { self.kind.id() }));
         row.insert("default".into(), self.default_value());
         row.insert("value".into(), (self.read)(settings));
         row.insert("applies".into(), json!(self.applies.id()));
@@ -311,8 +377,8 @@ impl OptionSpec {
             Kind::Scale { min, max, step } => {
                 row.extend([("min".into(), json!(min)), ("max".into(), json!(max)), ("step".into(), json!(step)), ("unit".into(), json!("%"))]);
             }
-            Kind::Choice(choices) => {
-                row.insert("choices".into(), choices.iter().map(|(id, label)| json!({ "id": id, "label": label })).collect());
+            Kind::Choice(_) => {
+                row.insert("choices".into(), self.choices(settings).iter().map(|(id, label)| json!({ "id": id, "label": label })).collect());
             }
             Kind::Text { max_bytes } => {
                 row.insert("maxBytes".into(), json!(max_bytes));
@@ -352,7 +418,22 @@ const TRANSITIONS: &[(&str, &str)] = &[
 const WHEEL: &[(&str, &str)] =
     &[("zoom", "Mouse wheel zooms (hold Ctrl to navigate)"), ("navigate", "Mouse wheel moves through photos (hold Ctrl to zoom)")];
 const FONT_SIZES: &[(&str, &str)] = &[("small", "Small"), ("medium", "Medium"), ("large", "Large")];
-const LANGUAGES: &[(&str, &str)] = &[("system", "System")];
+/// The languages an empty settings file offers ([`Settings::languages`]): the app gives its own.
+const LANGUAGES: &[(&str, &str)] = &[("system", "System"), ("en", "English")];
+/// The Photo Viewer's file types ([`crate::settings::VIEWER_TYPES`]), by their ids.
+const VIEWER_TYPES: &[(&str, &str)] = &[
+    ("jpeg", "JPEG"),
+    ("png", "PNG"),
+    ("gif", "GIF"),
+    ("bmp", "BMP"),
+    ("tiff", "TIFF"),
+    ("webp", "WebP"),
+    ("heif", "HEIC/HEIF"),
+    ("avif", "AVIF"),
+    ("jxl", "JPEG XL"),
+    ("psd", "PSD"),
+    ("raw", "RAW formats"),
+];
 const QUALITIES: &[(&str, &str)] =
     &[("automatic", "Automatic"), ("normal", "Normal"), ("maximum", "Maximum"), ("minimum", "Minimum"), ("custom", "Custom")];
 const PROXIES: &[(&str, &str)] = &[("system", "Use the system's proxy settings"), ("manual", "Manual")];
@@ -400,8 +481,7 @@ static CATALOGUE: &[OptionSpec] = &[
     row("interface.language", Tab::General, "Interface", "Language", Kind::Choice(LANGUAGES), Initial::Str("system"), |s| {
         json!(s.interface().language)
     })
-    .applies(Applies::Restart)
-    .later("Arrives with translations"),
+    .given(Settings::languages),
     // General → Files.
     row("import.detectDuplicates", Tab::General, "Files", "Detect duplicates while importing", Kind::Bool, Initial::Bool(true), |s| {
         json!(s.import().detect_duplicates)
@@ -583,10 +663,11 @@ static CATALOGUE: &[OptionSpec] = &[
         Tab::PhotoViewer,
         "File Types",
         "Use Dalica as the default viewer for these file types",
-        Kind::Bool,
-        Initial::Bool(false),
-        |_| json!(false),
+        Kind::Choice(VIEWER_TYPES),
+        Initial::List(&[]),
+        |s| json!(s.viewer().default_viewer.iter().map(|t| t.id()).collect::<Vec<_>>()),
     )
+    .many()
     .later(OS_INTEGRATION),
     row("viewer.wheel", Tab::PhotoViewer, "Interface", "Mouse wheel", Kind::Choice(WHEEL), Initial::Str("zoom"), |s| json!(s.viewer().wheel.id())),
     row("viewer.hideControls", Tab::PhotoViewer, "Interface", "Hide controls automatically", Kind::Bool, Initial::Bool(true), |s| {

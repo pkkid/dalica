@@ -124,6 +124,22 @@
 //!   Display"` ([`COLLAGE_PAGE_FORMAT_DEFAULT`], 16:9), `"landscape"` or `"portrait"` (landscape)
 //!   and a `"#rrggbb"` background (black).
 //!
+//! M15 adds, merged key by key the same way (M15.4; `menus-and-shortcuts.md` §5, `viewing.md`
+//! §3.3, `editing.md` §11):
+//!
+//! - `"files"` → `externalEditor`: Options → General → Files → "External editor", the program
+//!   Open in External Editor starts (a name or a path, text of at most [`MAX_PATH_BYTES`]; empty,
+//!   the default: the system's edit verb or default application).
+//! - `"video"`: `{volume}`, the video player's volume (0–100 in [`VOLUME_RANGE`]; 80)
+//!   ([`VideoSettings`]).
+//! - `"viewer"` → `defaultViewer`: the file types Dalica was chosen as the default viewer for, a
+//!   list of [`FileType`] ids of [`VIEWER_TYPES`] (none). It was a flag before M15: a stored `true`
+//!   reads as every type, `false` as none; an id this version does not know is kept on a write.
+//!
+//! The languages Options → General → Language offers are not stored: the app gives them at start
+//! ([`Session::set_languages`](crate::Session::set_languages)), so the window's registry is the
+//! one list, and [`Settings::languages`] holds them beside the document.
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -645,13 +661,64 @@ pub struct ViewerSettings {
     pub hide_controls: bool,
     /// Translucent background (`translucent`; on).
     pub translucent: bool,
+    /// The file types Dalica is the default viewer for (`defaultViewer`; none), in
+    /// [`VIEWER_TYPES`]' order, each once.
+    pub default_viewer: Vec<FileType>,
 }
 
 impl Default for ViewerSettings {
     fn default() -> Self {
-        ViewerSettings { wheel: WheelAction::Zoom, hide_controls: true, translucent: true }
+        ViewerSettings { wheel: WheelAction::Zoom, hide_controls: true, translucent: true, default_viewer: Vec::new() }
     }
 }
+
+/// The file types Dalica can be the default viewer for: every still type it reads (videos are not
+/// the photo viewer's).
+pub const VIEWER_TYPES: [FileType; 11] = [
+    FileType::Jpeg,
+    FileType::Png,
+    FileType::Gif,
+    FileType::Bmp,
+    FileType::Tiff,
+    FileType::WebP,
+    FileType::Heif,
+    FileType::Avif,
+    FileType::JpegXl,
+    FileType::Psd,
+    FileType::Raw,
+];
+
+/// The longest entry of `viewer.defaultViewer` this version does not know that a write keeps, in
+/// bytes, and how many it keeps.
+const MAX_FOREIGN_TYPE_BYTES: usize = 32;
+const MAX_FOREIGN_TYPES: usize = 32;
+
+/// `types` in [`VIEWER_TYPES`]' order, each once, the ones that are not viewer types left out.
+pub fn viewer_types(types: &[FileType]) -> Vec<FileType> {
+    VIEWER_TYPES.into_iter().filter(|t| types.contains(t)).collect()
+}
+
+/// The video player's volume (`"video"` → `volume`), in percent.
+pub const VOLUME_RANGE: std::ops::RangeInclusive<u8> = 0..=100;
+pub const VOLUME_DEFAULT: u8 = 80;
+
+/// The video player's settings (`"video"` in `settings.json`; `editing.md` §11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VideoSettings {
+    /// The volume in percent (`volume`; [`VOLUME_DEFAULT`], in [`VOLUME_RANGE`]).
+    pub volume: u8,
+}
+
+impl Default for VideoSettings {
+    fn default() -> Self {
+        VideoSettings { volume: VOLUME_DEFAULT }
+    }
+}
+
+/// The most languages [`Settings::set_languages`] keeps.
+pub const MAX_LANGUAGES: usize = 64;
+/// The longest language name kept, in bytes (a longer one shows its tag).
+pub const MAX_LANGUAGE_NAME_BYTES: usize = 64;
 
 /// The most recent import sources, destinations and folder names kept, each.
 pub const MAX_RECENT_IMPORTS: usize = 8;
@@ -1354,10 +1421,18 @@ fn ratio_list<'a>(ratios: impl IntoIterator<Item = &'a CropRatio>) -> Vec<CropRa
     out
 }
 
-/// The settings document.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// The settings document, and the languages the app offers (never stored).
+#[derive(Clone, Debug, Default)]
 pub struct Settings {
     root: Map<String, Value>,
+    languages: Vec<(String, String)>,
+}
+
+/// Two settings are equal when their documents are: the languages offered are not settings.
+impl PartialEq for Settings {
+    fn eq(&self, other: &Settings) -> bool {
+        self.root == other.root
+    }
 }
 
 impl Settings {
@@ -1365,7 +1440,7 @@ impl Settings {
     pub fn parse(bytes: &[u8]) -> Result<Settings, String> {
         let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
         match serde_json::from_slice::<Value>(bytes) {
-            Ok(Value::Object(root)) => Ok(Settings { root }),
+            Ok(Value::Object(root)) => Ok(Settings { root, languages: Vec::new() }),
             Ok(_) => Err("the top level is not an object".into()),
             Err(e) => Err(e.to_string()),
         }
@@ -1907,10 +1982,27 @@ impl Settings {
     }
 
     /// Stores the photo viewer's settings under `"viewer"`; other keys are kept.
+    /// The default viewer's types are written in [`VIEWER_TYPES`]' order, followed by the entries
+    /// stored there that this version does not know (short text, at most a few, kept as they were).
     pub fn set_viewer(&mut self, v: &ViewerSettings) {
+        let foreign: Vec<Value> = match self.field("viewer", "defaultViewer") {
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter(|i| i.as_str().is_some_and(|t| t.len() <= MAX_FOREIGN_TYPE_BYTES && FileType::from_id(t).is_none()))
+                .take(MAX_FOREIGN_TYPES)
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        };
+        let types: Vec<Value> = viewer_types(&v.default_viewer).into_iter().map(|t| json!(t.id())).chain(foreign).collect();
         self.merge(
             "viewer",
-            &[("wheel", Some(json!(v.wheel.id()))), ("hideControls", Some(json!(v.hide_controls))), ("translucent", Some(json!(v.translucent)))],
+            &[
+                ("wheel", Some(json!(v.wheel.id()))),
+                ("hideControls", Some(json!(v.hide_controls))),
+                ("translucent", Some(json!(v.translucent))),
+                ("defaultViewer", Some(Value::Array(types))),
+            ],
         );
     }
 
@@ -2036,6 +2128,84 @@ impl Settings {
                 ("backgroundColor", Some(json!(color_hex(c.background_color)))),
             ],
         );
+    }
+
+    /// The languages Options → General → Language offers, `(tag, name)` with `("system",
+    /// "System")` first: those the app gave ([`Settings::set_languages`]), else System and English
+    /// (the source language, always present).
+    pub fn languages(&self) -> Vec<(String, String)> {
+        if self.languages.is_empty() {
+            return vec![("system".into(), "System".into()), ("en".into(), "English".into())];
+        }
+        self.languages.clone()
+    }
+
+    /// Sets the languages offered (not stored): `("system", "System")` first whatever was given,
+    /// then each tag [`language_ok`] takes, once, in the order given, at most [`MAX_LANGUAGES`]; a
+    /// name that is empty or longer than [`MAX_LANGUAGE_NAME_BYTES`] shows its tag.
+    pub fn set_languages(&mut self, languages: &[(&str, &str)]) {
+        let mut out: Vec<(String, String)> = vec![("system".into(), "System".into())];
+        for (tag, name) in languages {
+            if out.len() >= MAX_LANGUAGES {
+                break;
+            }
+            if !language_ok(tag) || out.iter().any(|(t, _)| t == tag) {
+                continue;
+            }
+            let name = if name.trim().is_empty() || name.len() > MAX_LANGUAGE_NAME_BYTES { tag } else { name.trim() };
+            out.push(((*tag).to_string(), name.to_string()));
+        }
+        self.languages = out;
+    }
+
+    /// Options → General → Files → External editor: the program Open in External Editor starts;
+    /// empty (the default, also for a value that is not text of at most [`MAX_PATH_BYTES`]) for the
+    /// system's.
+    pub fn external_editor(&self) -> String {
+        self.read_external_editor(&mut Vec::new())
+    }
+
+    /// Stores the external editor under `"files"` (past [`MAX_PATH_BYTES`]: empty); other keys are
+    /// kept.
+    pub fn set_external_editor(&mut self, editor: &str) {
+        let editor = if editor.len() <= MAX_PATH_BYTES { editor } else { "" };
+        self.merge("files", &[("externalEditor", Some(json!(editor)))]);
+    }
+
+    /// The video player's settings; a value of the wrong type or out of its range is its default.
+    pub fn video(&self) -> VideoSettings {
+        self.read_video(&mut Vec::new())
+    }
+
+    /// Stores the video player's settings under `"video"` (a volume past 100 as 100); other keys
+    /// are kept.
+    pub fn set_video(&mut self, v: &VideoSettings) {
+        self.merge("video", &[("volume", Some(json!(v.volume.min(*VOLUME_RANGE.end()))))]);
+    }
+
+    fn read_external_editor(&self, problems: &mut Vec<String>) -> String {
+        let Some(obj) = self.object("files", problems) else { return String::new() };
+        match obj.get("externalEditor") {
+            None => String::new(),
+            Some(Value::String(e)) if e.len() <= MAX_PATH_BYTES => e.clone(),
+            Some(_) => {
+                problems.push(format!("files.externalEditor is not text of at most {MAX_PATH_BYTES} bytes; the system's editor is used"));
+                String::new()
+            }
+        }
+    }
+
+    fn read_video(&self, problems: &mut Vec<String>) -> VideoSettings {
+        let mut v = VideoSettings::default();
+        let Some(obj) = self.object("video", problems) else { return v };
+        match obj.get("volume") {
+            None => {}
+            Some(x) => match x.as_u64().and_then(|n| u8::try_from(n).ok()).filter(|n| VOLUME_RANGE.contains(n)) {
+                Some(n) => v.volume = n,
+                None => problems.push(format!("video.volume is not a whole number from 0 to 100; the default ({VOLUME_DEFAULT}) is used")),
+            },
+        }
+        v
     }
 
     fn read_legacy(&self, problems: &mut Vec<String>) -> LegacySettings {
@@ -2205,6 +2375,16 @@ impl Settings {
         }
         v.hide_controls = Settings::flag(obj, "viewer", "hideControls", true, problems);
         v.translucent = Settings::flag(obj, "viewer", "translucent", true, problems);
+        // A list of type ids (one this version does not know is skipped); before M15 a flag.
+        match obj.get("defaultViewer") {
+            None | Some(Value::Bool(false)) => {}
+            Some(Value::Bool(true)) => v.default_viewer = VIEWER_TYPES.to_vec(),
+            Some(Value::Array(items)) if items.iter().all(Value::is_string) => {
+                let known: Vec<FileType> = items.iter().filter_map(|i| i.as_str().and_then(FileType::from_id)).collect();
+                v.default_viewer = viewer_types(&known);
+            }
+            Some(_) => problems.push("viewer.defaultViewer is not a list of file types; none is used".into()),
+        }
         v
     }
 
@@ -2290,6 +2470,8 @@ impl Settings {
         self.read_network(&mut out);
         self.read_legacy(&mut out);
         self.read_collage(&mut out);
+        self.read_external_editor(&mut out);
+        self.read_video(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
     }
 

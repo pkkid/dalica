@@ -310,6 +310,16 @@ pub struct Session {
     pub(crate) collage_output: crate::collage_output::CollageOutput,
     /// The previous organizer's data and its notice (`legacy.rs`).
     pub(crate) legacy: crate::legacy::Legacy,
+    /// The video open in the edit view and its playback (`video.rs`).
+    pub(crate) video: crate::video::Video,
+    /// Save Frame and Export Clip (`video_output.rs`).
+    pub(crate) video_output: crate::video_output::VideoOutput,
+    /// The camera sources (`camera.rs`).
+    pub(crate) cameras: crate::camera::Cameras,
+    /// The operating system's services (`os.rs`): a recording fake unless the app plugs in its own.
+    pub(crate) os: Arc<dyn crate::os::Os>,
+    /// The sound output (`sound.rs`): a silent one unless the app plugs in its own.
+    pub(crate) sound: Arc<dyn crate::sound::Sound>,
     /// Nothing is written (see the module's notes).
     read_only: bool,
     _lock: LibraryLock,
@@ -381,6 +391,7 @@ impl Session {
         let jobs = Jobs::new(clock.now());
         // Read here, off the UI thread (the XDG user-dirs file may move it).
         let pictures_dir = dalica_scan::Places::system().pictures;
+        let sound: Arc<dyn crate::sound::Sound> = Arc::new(crate::sound::Silent::new(Arc::clone(&clock)));
         let mut session = Session {
             dir: dir.to_path_buf(),
             library: opened.library,
@@ -438,6 +449,11 @@ impl Session {
             collage: crate::collage::Collage::default(),
             collage_output: crate::collage_output::CollageOutput::default(),
             legacy,
+            video: crate::video::Video::default(),
+            video_output: crate::video_output::VideoOutput::default(),
+            cameras: crate::camera::Cameras::default(),
+            os: Arc::new(crate::os::Recording::new()),
+            sound,
             read_only,
             _lock: lock,
         };
@@ -1009,6 +1025,14 @@ impl Session {
     /// The settings as loaded and changed since (`settings.json`).
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// The languages Options → General → Language offers, `(tag, name)` pairs as the window's
+    /// registry lists them (`"system"` comes first whatever is given): the choices `options.list`
+    /// gives and `options.set` takes for `interface.language` ([`Settings::set_languages`]). Never
+    /// stored; the app gives them at start.
+    pub fn set_languages(&mut self, languages: &[(&str, &str)]) {
+        self.settings.set_languages(languages);
     }
 
     /// Changes the settings (through `f`) and, if anything changed, saves `settings.json` through

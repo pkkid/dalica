@@ -197,6 +197,24 @@ file and revision in its first lines:
                                              contact sheet, crates/create/src/collage/layout/sheet.rs, uses them)
   crates/create/src/collage/render.rs        LightCraft crates/engine/src/print/compose.rs (px_rect) @ 20ccedf5 (M14.10;
                                              with crates/create/src/collage/render/**)
+  crates/ui/src/i18n.rs                      PhotoCraft crates/ui-egui/src/i18n/mod.rs @ d95fdf31 (M15.7)
+  crates/ui/src/i18n/catalog.rs              PhotoCraft crates/ui-egui/src/i18n/catalog.rs @ d95fdf31 (M15.7)
+  crates/ui/src/i18n/system.rs               PhotoCraft crates/ui-egui/src/i18n/system.rs @ d95fdf31 (M15.7)
+  xtask/src/i18n.rs                          PhotoCraft xtask/src/i18n_coverage.rs @ d95fdf31 (M15.7)
+  crates/ui-kit/build.rs                     LightCraft crates/engine/build.rs @ d999e382 (M15.8)
+  crates/ui-kit/src/fonts.rs (fallbacks)     LightCraft crates/engine/src/fonts.rs and the script table of
+                                             crates/ui-egui/src/i18n.rs @ d999e382 (M15.8)
+  crates/ui-kit/tests/fonts.rs (tests)       LightCraft crates/engine/build.rs, crates/engine/src/fonts.rs
+                                             @ d999e382 (M15.8)
+  apps/dalica/src/os/** (reveal)             LightCraft apps/lightcraft/src/main.rs (the reveal service)
+                                             @ d999e382 (M15.12)
+  apps/dalica/src/os/** (external editor)    LightCraft apps/lightcraft/src/editors.rs @ d999e382 (M15.12)
+  apps/dalica/src/os/** (clipboard)          PhotoCraft apps/photocraft/src/services.rs @ 5b087699 and
+                                             d95fdf31 (M15.12)
+  apps/dalica/src/instance.rs                PhotoCraft apps/photocraft/src/single_instance.rs @ d95fdf31
+                                             (M15.18; with apps/dalica/src/instance/**)
+  crates/ui/tests/accessibility.rs (tests)   LightCraft crates/ui-egui/tests/accessibility.rs @ 4f0b110b
+                                             (M15.29)
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

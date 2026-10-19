@@ -9826,7 +9826,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     keeps only them; `crates/library/tests/tree.rs`: a folder marked Video Frames is listed in
     Projects; the property tests generate every op, M14.1's and the video facts included; every
     existing `library` test passes unchanged.
-- ⬜ **M15.4 `engine`: M15's command modules, the `Os` and `Sound` services, settings and options rows**
+- ✅ **M15.4 `engine`: M15's command modules, the `Os` and `Sound` services, settings and options rows**
   - after: M14.5, M14.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/video.rs`, `crates/engine/src/cmd/video_output.rs`, `crates/engine/src/cmd/os.rs`, `crates/engine/src/cmd/camera.rs`, `crates/engine/src/video.rs`, `crates/engine/src/video_output.rs`, `crates/engine/src/os.rs`, `crates/engine/src/sound.rs`, `crates/engine/src/camera.rs`, `crates/engine/src/session.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`, `NOTICE`
   - scope: the engine's ground for M15 so later tasks never share a file: empty `cmd/video.rs`,
