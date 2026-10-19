@@ -10073,7 +10073,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     legacy-only folder's sidecar shows on its cell;
     `crates/store/tests/video.rs`: a starred, captioned video survives a restart and a rebuild with
     its facts; the "nothing silently dropped" mapping test knows the new facts.
-- ⬜ **M15.12 `dalica`: the platform services on each OS**
+- ✅ **M15.12 `dalica`: the platform services on each OS**
   - after: M15.4
   - files: `apps/dalica/src/os.rs`, `apps/dalica/src/os/**`, `apps/dalica/src/main.rs`, `apps/dalica/tests/os.rs`, `apps/dalica/README.md`
   - scope: the real `Os` (M15.4) for Linux, Windows and macOS, with no `unsafe` in our code and no
