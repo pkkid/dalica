@@ -10270,8 +10270,10 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     filmstrip; the Videos filter showing them; double-click and Enter open a video in the edit view
     with its poster (once M15.20 makes it) or the video tile, fitted, and for one Dalica cannot
     play "This video can't be played" with [Open With ▸] (running `photo.openWith`, live with
-    M15.22); the edit panel shows the video tab (rotate live, the rest greyed until M15.26) instead
-    of tabs 1–5, and the tools, effects and Save are greyed for a video with the reason;
+    M15.22); the edit panel shows the video tab (rotate live, the rest greyed until M15.26: its
+    controls are bound to the UI player commands `player.*`, M15.5's names, never `video.*`, which
+    are the engine's commands of M15.25; widget ids stay `video.*`) instead of tabs 1–5, and the
+    tools, effects and Save are greyed for a video with the reason;
     `ui-layout.md` records it.
   - done when: `crates/ui/tests/video_tiles.rs` (headless, by id): a folder with a clip shows its
     cell with the sprocket edge and its duration; the Videos filter leaves only it; Enter opens it
@@ -10279,7 +10281,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     cell and of the edit view on an unplayable clip at 1400 × 900.
 - ⬜ **M15.22 `ui`: Locate on Disk, Open With, the external editor and the clipboard in the window**
   - after: M15.5, M15.12, M15.17
-  - files: `crates/ui/src/commands/os.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/panels/viewer/bar.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/os_menus.rs`, `docs/organizing.md`, `docs/menus-and-shortcuts.md`
+  - files: `crates/ui/src/commands/os.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/panels/viewer/bar.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/engine/src/options.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/ui/tests/os_menus.rs`, `docs/organizing.md`, `docs/menus-and-shortcuts.md`
   - scope: `organizing.md` §9 and `menus-and-shortcuts.md` §1: the photo and tray menus' Open in
     External Editor (Ctrl+Shift+O), Open With ▸ (the handlers with their icons, asked when the
     submenu opens, "Loading…" until then, "No other applications" when none) and Locate on Disk
@@ -10287,13 +10289,19 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     the export notice's Show Folder (`creating.md` §2); the viewer's ⋯ Open With ▸ and Show in File
     Manager; Copy Path; Edit ▸ Copy also putting the files (and one photo's picture) on the system
     clipboard, Cut and Paste unchanged inside Dalica; Options ▸ General's External editor row
-    ([System default ▾] or a program chosen with [Browse…] through the picker); each "Arrives with
+    ([System default ▾] or a program chosen with [Browse…] through the picker): the row joins the
+    engine's options catalogue here (`options.rs`, General ▸ Files, `files.externalEditor` as a
+    text row) together with its text field in `general.rs`, since M15.4 left it out of the
+    catalogue (a text row drew as an empty dropdown); the setting and `Settings::external_editor`
+    already exist; each "Arrives with
     OS integration" reason removed where the feature landed and kept, with the OS's reason, where an
     OS cannot do it; `organizing.md` and `menus-and-shortcuts.md` record what landed.
   - done when: `crates/ui/tests/os_menus.rs` (headless, by id, the recording `Os`): each menu row
     and the folder icon run their command with the right ids; Open With ▸ lists the fake's handlers
     and choosing one records it; Ctrl+C in the library records the files on the system clipboard
-    and still pastes inside Dalica; Browse… sets `files.externalEditor`; an OS answering "not
+    and still pastes inside Dalica; Browse… sets `files.externalEditor`;
+    `crates/engine/tests/options_catalogue.rs`: the External editor row is listed as a text row with
+    its default equal to its accessor's; an OS answering "not
     available" greys the row with its reason; at 900 × 600 the submenu stays inside the window.
 - ⬜ **M15.23 `ui` + `dalica`: photos dragged out to other applications**
   - after: M15.12, M15.17, M15.18, M9.23
@@ -10374,7 +10382,12 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     video (play and pause, the scrubber with its readout, volume, the trim ruler with Set Start and
     Set End, Full Screen) from M15.6's widgets; the video tab (Save Frame as Picture, Export Clip
     with the save picker, rotate); `/` and Space play and pause, `,` and `.` step a frame and, held,
-    rewind or fast-forward; frames drawn from the engine's decoded frames (never a decode on the UI
+    rewind or fast-forward; the bar, the tab and the keys run the UI player commands `player.*`
+    of `commands/video.rs` (`player.play`, `.pause`, `.toggle`, `.step`, `.seek`, `.setStart`,
+    `.setEnd`, `.volume`, `.fullScreen`, `.saveFrame`, `.exportClip`: M15.5's names, so they never
+    hide the engine's `video.*` commands of M15.25, which they call), while the widget ids stay
+    `video.*` (`slider:video.position`, `button:video.saveFrame`, …); frames drawn from the engine's
+    decoded frames (never a decode on the UI
     thread); for a clip of a failed codec the edit view keeps "This video can't be played" with
     [Open With ▸] (M15.21) and the bar shows only what works on the container (the trim ruler,
     Export Clip, rotate), play, the frame steps and Save Frame greyed with the reason; a muted clip
@@ -10716,7 +10729,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     manager, a drag out, Dalica chosen as the default viewer and a photo opened from the file
     manager, a real camera or phone imported, the signed packages installed without a warning).
   - done when: `cargo xtask accept M15` passes everything in M15's *Done when*.
-- ⬜ **M15.38 Lead: task blocks for M16**
+- ✅ **M15.38 Lead: task blocks for M16**
   - after: M15.1
   - owner: lead
   - files: `docs/roadmap.md`
@@ -10747,8 +10760,9 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     messages with values left in English; Ctrl+C also filling the system clipboard; a drag out gives
     the files on disk; one Dalica per user and Esc returning to the library; Dalica sets a default
     viewer only where the OS allows; what each OS lets Dalica reach on a camera), the fluent review
-    of each catalog, whether M16.R is a release and its number, anything the reserved decisions left
-    open, the look of the video cells, the player and each language (approved with their
+    of each catalog, M16's questions (M16.1's block: whether M16 is a release and its number, and
+    whether PhotoCraft's Soft Dark and Soft Light join the themes), anything the reserved decisions
+    left open, the look of the video cells, the player and each language (approved with their
     fingerprints); *Where we stand* (the full honest assessment for 1.0) and the `status.md` numbers
     (the probe and poster times, the playing frame, camera import speed, the AccessKit and
     translation overheads, each language's coverage, the workflow pass rate, parity) on a
@@ -10782,16 +10796,377 @@ wave 7   M15.35 English + Thai (M15.47)  ‖  M15.36 1.0 parity + security audit
 wave 8   M15.37 accept M15 → M15.R          (M15.38 lead: M16 blocks, any time after M15.1)
 ```
 
-### M16 — Post-1.0 enhancements (outline)
+### M16 — Post-1.0 enhancements
 
 Improvements the maintainer wants after 1.0, beyond parity with the reference organizer. Nothing
 here starts before M15.R closes; the lead details these items into task blocks while M15 runs, and
-the maintainer adds items here as they come up (maintainer decision, 2026-10-11).
+the maintainer adds items here as they come up (maintainer decision, 2026-10-11). One milestone in
+2 feature areas (*Themes*, *Colour search*); one `cargo xtask accept M16` covers every *Done when*
+below. Whether its review is a release, and its number, is asked at M15.R (M16.1).
+
+The outline as the maintainer wrote it (2026-10-11; the M9.R answer for colour search):
 
 | # | In | Done when (sketch) |
 |---|---|---|
 | M16 Themes | switchable themes, taken from the Craft apps: today's dark theme stays the default (it is LightCraft's look, LightCraft's only theme), plus PhotoCraft's twelve: Pro (Dark), Pro (Medium Gray), Pro (Light Gray), Pro (Light), Studio (Dark), Studio (Light), Classic, Adwaita (Light), Adwaita (Dark), Solarized Dark, Breeze Light, Breeze Dark (as of `storytold/photocraft` 30bd8a55). The same architecture and implementation as PhotoCraft's `crates/ui-egui/src/theme.rs`: a `ThemeKind` enum with id, label, `from_name` and `next`, one token set per kind (`Tokens::for_kind`), the theme kept in settings, one command per theme plus `ui.set {theme}`, and a Theme choice in Options › General › Interface. PhotoCraft's palettes and code are mapped onto Dalica's `ui-kit` `Tokens`, with a header naming the source and a `NOTICE` row (`architecture.md` §9), plus the Solarized palette's `ATTRIBUTION.md` row and MIT licence text | every theme passes the `ui-kit` contrast tests; a widget-gallery fingerprint per theme; switching by command, CLI and MCP repaints without a restart and survives one; the main window screenshotted in every theme |
 | M16 Colour search | `color:` search and Tools ▸ Experimental ▸ Search for ▸ (colour) (`SRCH-COLOR`, P2; placed after 1.0 by the maintainer at M9.R) | `color:green` finds photos whose main colour is green, from a per-photo colour summary computed on scan |
+
+#### Themes
+
+- **In:** a Theme setting (`interface.theme`, default `dark`: today's look, unchanged) and thirteen
+  themes: Dark plus PhotoCraft's twelve the outline names (and Soft Dark and Soft Light if M15.R
+  says so, M16.1); `ui-kit`'s `ThemeKind` (id, label, `from_name`, `next`, `ALL`) and
+  `Tokens::for_kind`; one engine command per theme (`theme.<id>`, View ▸ Theme ▸, the one in effect
+  checked) and `ui.set {theme}`; Options ▸ General ▸ Interface ▸ Theme, previewed live while the
+  dialog is open as UI scale and font size are (`design-system.md` §11.4); switching repaints the
+  next frame without a restart, and the choice survives one; Classic's bevelled controls.
+- **Out:** following the system's light or dark mode, PhotoCraft's dark and light theme pairs and
+  its favourite themes (a later outline row if the maintainer wants them); PhotoCraft's layout
+  switches that go with its themes (`pro` tab strips, `round_chips`) and Studio's own fonts: Dalica
+  keeps one layout (`ui-layout.md`) and its fonts (`design-system.md` §3) in every theme; themes the
+  user edits or imports (the debug-only `DALICA_THEME_FILE` stays as it is); photo content colours
+  (the histogram's channels, a face's box, the map's tiles) stay the same in every theme.
+- **Reuse** (`architecture.md` §9): PhotoCraft `crates/ui-egui/src/theme.rs` at 3a896a5e (the
+  twelve palettes are unchanged since 30bd8a55, the pin the outline names: only Soft Dark and Soft
+  Light were added since): `ThemeKind`, its ids, labels, `from_name` and `next`, the palettes and
+  `Tokens::for_kind`'s shape; PhotoCraft `crates/ui-egui/src/LICENSE-solarized.txt` and its
+  `ATTRIBUTION.md` row for the Solarized palette; PhotoCraft `crates/engine/src/prefs.rs` at
+  3a896a5e (the theme ids as a settings choice, an unknown name falling back); in this repository
+  `ui-kit`'s `Tokens`, `tests/contrast.rs` and the widget gallery, and `ui`'s `scale.rs` (the
+  Options preview).
+- **Done when:** `cargo xtask accept M16`: each theme passes the contrast tests; a gallery
+  fingerprint per theme; `theme.proLight` run from the menu, from `dalica-cli` over the control
+  channel and from `dalica-cli mcp` repaints the window in the next frame, and a restart opens in
+  it; Options ▸ General ▸ Interface ▸ Theme previews and Cancel reverts; the main window
+  fingerprinted in every theme at 1400 × 900.
+
+#### Colour search
+
+- **In:** `organizing.md` §8.1 and §11 item 1: a colour summary per photo (the search colours it
+  shows, from the seven of Tools ▸ Experimental ▸ Search for ▸: red, orange, yellow, green, blue,
+  purple, black and white), made from the photo's colour sketch whenever the sketch is made (on
+  scan, and again after an edit), and for a library indexed before M16 from the sketches it
+  already has, without reading a file; kept in the index; `color:<colour>` matching it, plain words
+  and the other operators unchanged; the autocomplete offering the seven after `color:`;
+  `search.color {color}` (Tools ▸ Experimental ▸ Search for ▸) setting the search to that colour;
+  `color` leaving `unavailable` once the library has summaries; over MCP through `query_photos` as
+  any search.
+- **Out:** a colour picker or any colour outside the seven; matching by a colour's share or
+  position in the picture (a summary says which colours a photo shows, not where); colour words in
+  other languages (the operator and its words stay English, as `tag:` does).
+- **Reuse:** in this repository `thumbs`' colour sketch (`crates/thumbs/src/sketch.rs`: its decoded
+  grid is the summary's input), `dalica-core`'s `color.rs` (sRGB ↔ HSV), `library`'s search
+  grammar, matcher and index, and the search worker; neither Craft app has a colour search.
+- **Done when:** `cargo xtask accept M16`: a folder of procedural photos (a green field, a blue
+  sky, a red barn, a black-and-white street, a sunset) answers `color:green`, `color:blue`,
+  `color:red`, `color:bw` and `color:orange` with the right ones, in the window, through
+  Tools ▸ Experimental ▸ Search for ▸ and over MCP; a B&W effect on a green photo moves it to
+  `color:bw`; a library indexed without summaries gains them without a rescan.
+
+#### M16 tasks
+
+M16 is the first milestone after 1.0: Dalica's look becomes switchable among the Craft apps'
+themes, and the search learns colours. Its first wave lists the work each task builds on with
+`after: M15.R` and starts once the maintainer has closed M15.R. Four tasks lay the ground so later
+tasks never share a file: M16.1 (the lead) records M15.R's answers for M16 and fits the blocks
+that wait on them; M16.2 gives `dalica-core` the search colours and the classifier; M16.3 gives
+`ui-kit` `ThemeKind`, the palette shape and its mapping onto `Tokens`, Classic's bevel, and the
+contrast and gallery tests over every theme, with Dark filled and the other twelve standing in as
+Dark until their palettes land; M16.4 gives the engine the Theme setting, its options row and one
+command per theme. The themes then go in parallel: the palettes in two halves (M16.6 Pro, Studio
+and Classic; M16.7 Adwaita, Solarized and Breeze) beside the window's switching (M16.5), and the
+window in every theme last (M16.8). Colour search goes from the model, index and store (M16.9) to
+the summaries made with each sketch and the menu (M16.10). M16.11 measures the new paths, M16.12
+is `accept M16`, and M16.R the review. The PhotoCraft sources named below are pinned at its
+checkout's `origin/main` of 2026-10-19 (3a896a5e). Each task updates its `parity.md` rows
+(`SRCH-COLOR`, `SRCH-LIVE`'s note on colours, `PREF-GENERAL`'s Theme, a new `PREF-THEMES` row, a
+Dalica addition, and the `MENU-theme.*` rows of View ▸ Theme ▸) and names its commands there; the
+first fingerprints of each theme are approved in bulk on the M16.R review page.
+
+Whole-window baselines belong to no task, as in M5–M15: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m15-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does; Dark stays the default, so no
+task of M16 should move them, and one that does re-blesses them on its branch (diff images on the
+PR, the reason in the commit body). Fingerprints are made at 1400 × 900 only; at 900 × 600 a test
+asserts that the View ▸ Theme ▸ submenu and the Options row fit (`architecture.md` §11).
+
+Decisions taken while planning (the check-in lists them for reversal). **Themes:** the engine
+holds the theme ids as a settings choice (as PhotoCraft's `prefs.rs` does) and `ui-kit` maps an id
+to its `ThemeKind`; a `ui` test checks the two lists are the same, so the engine never depends on
+`ui-kit`. One engine command per theme (`theme.<id>`, effect: settings, no history), so the menu,
+the keyboard map, `dalica-cli` and MCP switch themes the same way; `ui.set {theme}` runs the same
+change. The menu is View ▸ Theme ▸ (a Dalica addition, recorded in `menus-and-shortcuts.md`) as
+well as the Options row; no default keys. The default id is `dark`, labelled "Dark"; PhotoCraft's
+`from_name` aliases are kept except `dark` and `light` (Dalica's Dark owns `dark`) and those that
+name another company's product. **Palettes:** a palette is PhotoCraft's token set ported value for
+value (its ~30 colours and three radii), and `Tokens::for_kind` derives Dalica's richer `Tokens`
+(the light table, cells, badges, tree, sliders, …) from it by one rule table written in
+`design-system.md` §2; a palette file may override a derived token, and does so where a theme would
+fail a contrast threshold (the override and the reason in the file and the PR), never by adding a
+pinned exception to the contrast tests. Dark is not derived: it stays `Tokens::DARK` value for
+value. Of PhotoCraft's layout flags only `bevel` is ported (Classic is its bevels); the rest change
+PhotoCraft's own layout, which Dalica does not have. The palettes live in `theme/palettes/*.rs`, a
+file per family, so two tasks port them side by side. **Colour search:** the summary is made from
+the colour sketch every photo already has (`thumbs`), not from a new decode, so it costs no file
+read, follows edits (the sketch is redrawn with the recipe, so a photo made black and white is
+found as `bw`) and comes for a library indexed before M16 by reading the stored sketches. The
+classifier is `dalica-core`'s (pure, beside `color.rs`), so `thumbs` makes the summary and
+`library` only stores and matches it. A summary is a set of the seven colours: a colour belongs
+when its hues cover enough of the picture's coloured area, the largest is the photo's main colour,
+and `bw` when the picture has almost no colour; the thresholds are tuned on procedural scenes and
+written in `organizing.md` §8.1. `color:` matches a photo whose summary holds the colour (the main
+one or another prominent one), so a photo of a red barn under a blue sky answers both; an unknown
+colour word is read as plain words, as an unknown `name:value` is. The summaries are derived data
+in the index (as sketches are: no undo step, no revision, no sidecar field), saved in the snapshot
+under their own key, and a snapshot without them reads as one with none.
+
+- ⬜ **M16.1 Lead: M15.R's answers in M16's blocks**
+  - after: M15.R
+  - owner: lead
+  - files: `docs/roadmap.md`, `docs/releasing.md`
+  - scope: M16's questions are asked at M15.R (M15.R's block lists them for its check-in); this
+    task records the answers in M16's intro and fits the blocks that wait on them: (1) M16.R as a
+    release (its version and `whats-new.md` section joining M16.R's scope, and `releasing.md`'s
+    plan for releases after 1.0) or as a plain review; (2) the Soft themes: if yes, M16.7 ports Soft
+    Dark and Soft Light too (its new `soft.rs` is already in its `files`; this task adds the three files
+    its scope names for their ids) and the thirteen of M16.8 and M16.12 become fifteen; if no,
+    M16.7's scope drops them. Nothing is guessed: an answer
+    missing from the review's record is a `tasks block` with the question. **The questions for
+    M15.R's check-in** (asked with options, never answered by an agent): (1) is M16 a release:
+    (a) yes, 1.1.0 (recommended: a minor release, new features and no break), (b) yes, with
+    another number, (c) no, M16.R is a plain review and its work ships with a later release;
+    (2) PhotoCraft added Soft Dark and Soft Light after the outline's pin (30bd8a55): (a) port them
+    too, fourteen themes and Dark (recommended: two palettes in a family file M16.7 already
+    writes, checked by the same contrast tests), (b) keep the outline's twelve.
+  - done when: `cargo xtask tasks sync --check` parses the fitted blocks and M16's intro records
+    both answers with the review's date.
+- ⬜ **M16.2 `core`: the search colours and the colour classifier**
+  - after: M12.4, M15.R
+  - files: `crates/core/src/color_summary.rs`, `crates/core/src/lib.rs`, `crates/core/tests/color_summary.rs`, `crates/core/README.md`, `docs/organizing.md`
+  - scope: `organizing.md` §8.1: `SearchColour` (`red`, `orange`, `yellow`, `green`, `blue`,
+    `purple`, `bw`; their words as `search.color` and the menu name them, `from_word`
+    case-insensitive), `ColourSummary` (a set of them in one byte, its main colour first-class:
+    `main()`, `contains()`, `to_byte` and `from_byte`, a byte with an unknown bit refused) and
+    `classify(cells)` taking a small grid of opaque sRGB cells (the sketch's decoded grid, any size
+    up to 64 × 64; an empty or oversized grid answers an empty summary, never a panic): each cell
+    through `color.rs`'s HSV, cells of low saturation or value counted as no colour, the hues of the
+    rest binned by the seven's ranges with the boundaries written down (orange and red split, pink
+    with red, brown with orange), weighted by saturation; a colour joins the summary past a share of
+    the coloured weight, the largest is the main colour, and `bw` when the coloured weight is
+    under a share of the picture; every threshold a named constant; `organizing.md` §8.1 says what a
+    colour means and §11 item 1 is closed by M16.10 (not here).
+  - done when: `crates/core/tests/color_summary.rs`: a grid of one colour per hue of each of the
+    seven gives that colour as main; a grey ramp, white and black give `bw`; a half-red, half-blue
+    grid holds both; a faint tint stays `bw`; a 4 × 4 green field with a small red dot is green
+    only; the byte form round-trips and an unknown bit is refused; proptest: any grid up to
+    64 × 64 classifies without a panic and in the same answer twice.
+- ⬜ **M16.3 `ui-kit`: themes' ground: `ThemeKind`, palettes, Classic's bevel, contrast and gallery for every theme**
+  - after: M15.6, M15.14, M15.R
+  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/theme/kind.rs`, `crates/ui-kit/src/theme/palette.rs`, `crates/ui-kit/src/theme/palettes.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/contrast.rs`, `crates/ui-kit/tests/themes.rs`, `crates/ui-kit/tests/gallery.rs`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/tests/fingerprints/theme-*.json`, `crates/ui-kit/README.md`, `docs/design-system.md`, `NOTICE`
+  - scope: ported from PhotoCraft `crates/ui-egui/src/theme.rs` at 3a896a5e (header naming it,
+    the `NOTICE` row covering every palette M16.6 and M16.7 port): `ThemeKind` with `Dark` (the
+    default) and the twelve (ids `pro`, `proMedium`, `proLightGray`, `proLight`, `studio`,
+    `studioLight`, `classic`, `adwaita`, `adwaitaDark`, `solarizedDark`, `breezeLight`,
+    `breezeDark`; labels as the outline writes them), `ALL`, `id`, `label`, `from_name` (the
+    aliases as the planning decisions say) and `next`; `Palette`, PhotoCraft's token set (its
+    colours, the three radii and `bevel`); `Tokens::for_kind(kind)` (Dark is `Tokens::DARK`
+    unchanged; any other kind is its palette through the rule table, its overrides on top) and
+    `Tokens.kind`; the rule table in code and in `design-system.md` §2 (a "Themes" part: the
+    thirteen, their sources, the table, what never changes with a theme); `theme/palettes/` with
+    a stub per family file (`pro.rs`, `studio.rs`, `classic.rs`, `adwaita.rs`, `solarized.rs`,
+    `breeze.rs`) answering Dark's values until M16.6 and M16.7 fill them; Classic's
+    bevel: buttons, fields, check boxes and panels drawn raised or sunken with a light and a dark
+    edge when `Tokens.bevel` is on (PhotoCraft's drawing), with square corners from the palette's
+    radii; `tests/contrast.rs`' checks run for every kind of `ThemeKind::ALL` (Dark keeping its
+    pinned pairs, the others none); `tests/themes.rs`: ids, labels, aliases, `next` round the
+    list, and the gallery fingerprinted per theme (`theme-<id>-1400x900`); the README's API list.
+  - done when: `crates/ui-kit/tests/themes.rs`: every id round-trips through `from_name`, an
+    unknown name is `None`, `next` visits all thirteen and comes back; `Tokens::for_kind(Dark)`
+    equals `Tokens::DARK`; a test palette with `bevel` on draws a button's light top edge and dark
+    bottom edge, off draws none; the contrast tests pass for every kind; the thirteen gallery
+    fingerprints exist (the twelve equal to Dark's until their palettes land); the existing gallery
+    fingerprint unchanged; `widget_ids` and `cargo xtask names` pass.
+- ⬜ **M16.4 `engine`: the Theme setting, its options row and one command per theme**
+  - after: M15.4, M15.R
+  - files: `crates/engine/src/settings.rs`, `crates/engine/src/options.rs`, `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/theme.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/theme.rs`, `crates/engine/README.md`, `docs/data-model.md`
+  - scope: `interface.theme` (default `dark`; the thirteen ids as a choice, PhotoCraft
+    `crates/engine/src/prefs.rs` at 3a896a5e; an unknown or wrong-typed value read as `dark` and
+    reported, kept in the file until the next write of the row), `Settings::interface().theme`;
+    the options catalogue's Options ▸ General ▸ Interface ▸ Theme row (a choice with the labels,
+    after UI font size); `cmd/theme.rs`: `theme.<id>` for each theme (menu path View ▸ Theme ▸
+    <label>, effect: settings, no history, checked while in effect; refused with the reason on a
+    read-only settings file as other settings writes are), and `theme.next` (no menu row, for
+    scripts); `data-model.md` §4 lists the key.
+  - done when: `crates/engine/tests/settings.rs`: the key round-trips with unknown keys kept, a
+    bad value falls back and is reported; `crates/engine/tests/options_catalogue.rs`: the Theme row
+    with its default equal to its accessor's; `crates/engine/tests/theme.rs`: each `theme.<id>`
+    writes its id and reports it checked, `theme.next` goes round all thirteen; every existing
+    engine test and `panic_hunt` pass unchanged.
+- ⬜ **M16.5 `ui`: switching themes in the window**
+  - after: M16.3, M16.4
+  - files: `crates/ui/src/scale.rs`, `crates/ui/src/theme.rs`, `crates/ui/src/lib.rs`, `crates/ui/src/app.rs`, `crates/ui/src/state.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/control/**`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/theme_switch.rs`, `docs/menus-and-shortcuts.md`, `docs/control-protocol.md`
+  - scope: `crates/ui/src/theme.rs`: the theme in effect read every frame beside the scale and
+    font size (`scale.rs`): the saved `interface.theme`, or the Options dialog's preview
+    (`options.previewTheme`) while it is open, through `ThemeKind::from_name` (an id `ui-kit`
+    does not know reads as Dark); on a change `Tokens::for_kind(kind).with_font_size(…)` applied to
+    the context once, never compounding with the font size, and every cache keyed by tokens (the
+    icon atlas, the badge plates, …) dropped; View ▸ Theme ▸ with the thirteen rows (radio, the one
+    in effect checked) in `menu_catalog.rs`; the Options row drawn as the other choices are, its
+    change previewing live and Cancel reverting; `ui.state` reports `theme` and `ui.set {theme}`
+    runs `theme.<id>` (an unknown id is `bad_params`); a test that the engine's ids and
+    `ThemeKind::ALL`'s are the same list; `menus-and-shortcuts.md` §1 and `control-protocol.md`
+    §6.5 record it.
+  - done when: `crates/ui/tests/theme_switch.rs` (headless, by id): View ▸ Theme ▸ Pro (Light)
+    changes `Tokens::get(ctx).kind` in the next frame and checks its row; `ui.set {theme:
+    "classic"}` does the same and an unknown id changes nothing; the Options row previews, Cancel
+    reverts and Apply keeps it; a font size change after a theme change keeps the theme; the
+    engine's and `ui-kit`'s id lists match; at 900 × 600 the submenu stays inside the window;
+    `widget_ids`, `panic_hunt` and every existing `ui` fingerprint pass unchanged.
+- ⬜ **M16.6 `ui-kit`: the Pro, Studio and Classic palettes**
+  - after: M16.3
+  - files: `crates/ui-kit/src/theme/palettes/pro.rs`, `crates/ui-kit/src/theme/palettes/studio.rs`, `crates/ui-kit/src/theme/palettes/classic.rs`, `crates/ui-kit/tests/fingerprints/theme-pro*.json`, `crates/ui-kit/tests/fingerprints/theme-studio*.json`, `crates/ui-kit/tests/fingerprints/theme-classic*.json`
+  - scope: ported value for value from PhotoCraft `crates/ui-egui/src/theme.rs` at 3a896a5e
+    (header naming it): Pro (Dark), Pro (Medium Gray), Pro (Light Gray) and Pro (Light) (the last
+    three built on Pro's as PhotoCraft does), Studio (Dark) and Studio (Light), and Classic with
+    `bevel` on and its square corners; the overrides any derived token needs to pass the contrast
+    tests, each with its reason in the file and the PR; the seven gallery fingerprints re-blessed
+    with their diff images on the PR.
+  - done when: `crates/ui-kit/tests/themes.rs` and `tests/contrast.rs` pass for the seven with no
+    pinned exception; their gallery fingerprints show each palette (light themes light, Classic
+    bevelled); `cargo xtask names` passes (no product name in a label or comment).
+- ⬜ **M16.7 `ui-kit`: the Adwaita, Solarized and Breeze palettes**
+  - after: M16.1, M16.3
+  - files: `crates/ui-kit/src/theme/palettes/adwaita.rs`, `crates/ui-kit/src/theme/palettes/solarized.rs`, `crates/ui-kit/src/theme/palettes/breeze.rs`, `crates/ui-kit/src/theme/palettes/soft.rs`, `crates/ui-kit/src/theme/palettes/LICENSE-solarized.txt`, `crates/ui-kit/tests/fingerprints/theme-adwaita*.json`, `crates/ui-kit/tests/fingerprints/theme-solarized*.json`, `crates/ui-kit/tests/fingerprints/theme-breeze*.json`, `crates/ui-kit/tests/fingerprints/theme-soft*.json`, `ATTRIBUTION.md`
+  - scope: ported value for value from PhotoCraft `crates/ui-egui/src/theme.rs` at 3a896a5e
+    (header naming it): Adwaita (Light) and Adwaita (Dark), Solarized Dark, Breeze Light and Breeze
+    Dark (and Soft Dark and Soft Light if M16.1 records yes: M16.1 then adds
+    `crates/ui-kit/src/theme/kind.rs`, `crates/ui-kit/src/theme/palettes.rs` and
+    `crates/engine/src/settings.rs` to this block's `files` for their two ids, and M16.8 screenshots them with the rest); Solarized's `ATTRIBUTION.md` row and its MIT licence text
+    (`LICENSE-solarized.txt`, PhotoCraft's); the overrides any derived token needs to pass the
+    contrast tests, each with its reason; the gallery fingerprints re-blessed with their diff
+    images on the PR.
+  - done when: `crates/ui-kit/tests/themes.rs` and `tests/contrast.rs` pass for each palette with no
+    pinned exception; their gallery fingerprints show each palette; `cargo xtask assets` passes
+    with the Solarized row and licence file; `cargo xtask names` passes.
+- ⬜ **M16.8 `ui`: the window in every theme**
+  - after: M16.5, M16.6, M16.7
+  - files: `crates/ui/src/panels/**`, `crates/ui/src/dialogs/**`, `crates/ui/src/titlebar.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/themes.rs`, `crates/ui/tests/fingerprints/theme-*.json`, `docs/design-system.md`, `docs/ui-layout.md`
+  - scope: every view drawn in every theme, and whatever does not follow the theme fixed: a
+    colour a panel computes from `Tokens::DARK` or a literal instead of `Tokens::get` (the light
+    table's selection and badges, the tree, the edit view's canvas and panels, the rooms, the
+    viewer, the slideshow's bar, the dialogs, the title bar's caption buttons), egui visuals the
+    theme sets (selection, hover, text cursor), an image or icon texture cached under the old
+    theme; `tests/themes.rs` sweeps the library, the edit view, the Options dialog and the
+    Collage room in each theme and checks that what each region paints is its theme's token (a
+    pixel of the toolbar is `chrome`, of the light table `grid_bg`, …); fingerprints of the main
+    window per theme (`theme-<id>-library-1400x900`, and the edit view in Pro (Light) and
+    Classic); `design-system.md` and `ui-layout.md` record any rule the sweep found.
+  - done when: `crates/ui/tests/themes.rs` (headless): in each of the thirteen themes every region
+    checked paints its theme's token, and switching back to Dark gives the Dark fingerprints
+    unchanged; the per-theme fingerprints exist with their images on the PR; at 900 × 600 the
+    library in Pro (Light) fits as in Dark; `panic_hunt` and `widget_ids` pass.
+- ⬜ **M16.9 `library` + `store`: colour summaries in the model, the index and the search**
+  - after: M15.3, M16.2
+  - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/search.rs`, `crates/library/src/search/**`, `crates/library/tests/colours.rs`, `crates/library/tests/search.rs`, `crates/library/tests/ops.rs`, `crates/library/README.md`, `crates/store/src/snapshot.rs`, `crates/store/src/mapping.rs`, `crates/store/tests/colours.rs`, `crates/store/README.md`
+  - scope: `Op::SetColours { colours: Vec<(PhotoId, Option<ColourSummary>)> }`, derived as
+    `SetSketches` is (journaled, no undo step, no library revision; the search index follows it),
+    the summary dropped with its photo and back with an undo of the removal; `Library::colours(id)`
+    and whether any photo has one; `color:<word>` matching a photo whose summary holds the colour
+    (`SearchColour::from_word`; an unknown word read as plain words), `-color:` excluding them;
+    `color` in `unavailable` only while no photo of the library has a summary; the autocomplete
+    after `color:` offering the seven words with their counts; `store`'s snapshot keeping the
+    summaries under a `colours` key (`[photo id, byte]` pairs, left out when none; a snapshot
+    without it reads as none; a byte with an unknown bit dropped with a warning, never an error),
+    `mapping.rs` listing the field as index-only; the op generator of `tests/ops.rs` gains it.
+  - done when: `crates/library/tests/colours.rs`: set, replaced, cleared, dropped with a removed
+    photo and restored by its undo, never moving the revision; `crates/library/tests/search.rs`:
+    `color:green` keeps only photos whose summary holds green, `color:GREEN` the same, `-color:bw`
+    leaves out the black-and-white ones, `color:teal` reads as a word, `unavailable` lists `color`
+    in a library without summaries and not after one; the autocomplete after `color:` lists the
+    seven; `crates/store/tests/colours.rs`: summaries survive a snapshot and a journal replay, an
+    old snapshot reads, a bad byte is dropped with its warning; every existing `library` and
+    `store` test passes unchanged.
+- ⬜ **M16.10 `thumbs` + `engine`: colour summaries made with each sketch, and Search for ▸ live**
+  - after: M16.9
+  - files: `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/search.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/tests/colour_search.rs`, `crates/engine/README.md`, `crates/thumbs/README.md`, `docs/organizing.md`
+  - scope: `Sketch::colours()` (the decoded grid through `dalica_core::color_summary::classify`);
+    the engine applying `SetColours` with every `SetSketches` it applies, in the same batch, so a
+    scan, a rescan and an edit's redrawn sketch all bring the summary (an edit to black and white
+    moves the photo to `bw`); at open, photos with a sketch and no summary get one from their
+    stored sketch on the thumbnails worker, in batches, never on the owner thread and never reading
+    a file; `search.color {color}` (Tools ▸ Experimental ▸ Search for ▸; a bad colour is
+    `bad_params`) setting the search text to `color:<word>` as the search box would, so its banner,
+    Show All and Save Search as Album work unchanged; `organizing.md` §8.1 records what landed and
+    §11 item 1 is closed.
+  - done when: `crates/thumbs/tests/sketch.rs`: the sketch of a procedural green field
+    (`scenes`) gives green, of a grey ramp `bw`; `crates/engine/tests/colour_search.rs`: a scanned
+    folder of procedural photos answers `color:green`, `color:blue`, `color:red`, `color:bw` and
+    `color:orange` with the right ones; a B&W effect on the green photo moves it to `color:bw`
+    after its sketch is redrawn; a library opened from a snapshot without summaries gains them
+    without a file read (counted by the session's file probe) and `color` leaves `unavailable`;
+    `search.color {color: "blue"}` sets the search and `{color: "teal"}` is refused; every existing
+    engine test and `panic_hunt` pass unchanged.
+- ⬜ **M16.11 `engine` + `ui` + `xtask`: M16's budgets: colour summaries, colour search and theme switching**
+  - after: M16.8, M16.10
+  - files: `crates/engine/benches/colour_summary.rs`, `crates/engine/benches/search.rs`, `crates/ui/benches/theme.rs`, `xtask/src/bench.rs`, `docs/development.md`
+  - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`
+    and the local release budgets, each documented in §8 and §13 with its machine:
+    `colour_summary` (the summaries of 100 000 stored sketches at open, and one per sketch made);
+    `colour_search` (`color:green` over 100 000 photos, beside the search bench's other queries);
+    `theme_switch` (the first frame after a switch at 100 000 photos, against a frame without one);
+    budgets at 1.5 × their first measurement, the theme switch's frame within 16 ms at p95 whatever
+    the first numbers; a missed budget is fixed in this task (the module asked of the lead; before
+    and after numbers in the PR) or blocks with its numbers, never loosened.
+  - done when: `cargo xtask bench colour_summary`, `colour_search` and `theme_switch` print their
+    numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
+- ⬜ **M16.12 `accept M16`**
+  - after: M16.11
+  - files: `tests/acceptance/m16.rs`, `tests/acceptance/m16_*.rs`, `tests/acceptance/m16.md`, `tests/acceptance/fingerprints/m16-*.json`
+  - scope: every *Done when* of M16's two areas in the real `dalica --headless` over the control
+    channel and through `dalica-cli mcp`: each theme chosen from View ▸ Theme ▸, by `dalica-cli`
+    over the control channel and by `cmd_theme_*` over MCP, repainting in the next frame, and a
+    restart opening in the last one chosen; the Options row's preview and Cancel; a folder of
+    procedural photos answering the seven colours from the search box, from Tools ▸ Experimental ▸
+    Search for ▸ and through `query_photos`; a B&W effect moving a photo to `bw`; a library from a
+    snapshot without summaries gaining them without a rescan; the release budgets with
+    `DALICA_ACCEPT_RELEASE=1` (inside `cargo xtask ci --full` a smaller debug run checks the paths
+    and prints its times); whole-window fingerprints of the library in Dark, Pro (Light) and
+    Classic and of a colour search's results; the checks by hand in `m16.md` (each theme looked at
+    in the real window on each OS, the title bar and native dialogs beside it).
+  - done when: `cargo xtask accept M16` passes everything in M16's *Done when*.
+- ⬜ **M16.R M16 review**
+  - after: M16.12
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M16.R` to prepare it; a plain review unless M16.1
+    records M15.R's answer that M16 is a release (then its version and `whats-new.md` section on
+    the review branch, the release checklist and the sign-off question, and after the merge the
+    lead cuts and publishes it, `releasing.md`); the check-in page (switch through every theme from
+    View ▸ Theme ▸ and from Options, restart in one, look at the library, the edit view, a dialog
+    and the Collage room in a light and a dark theme and in Classic; search `color:green` and use
+    Tools ▸ Experimental ▸ Search for ▸ Blue; written as steps for the maintainer to try); the
+    questions: the planning decisions above that change behaviour (View ▸ Theme ▸ as a Dalica
+    addition; PhotoCraft's layout switches and fonts left out; a summary holding several colours,
+    so `color:` finds a photo by any prominent colour, not only its main one; colour summaries
+    following edits), the look of each theme (approved with its fingerprints), anything the
+    reserved decisions left open; *Where we stand* and the `status.md` numbers (the colour
+    summary and search times, the theme switch's frame, parity) on a `review/M16.R` branch, a pull
+    request open. Only the maintainer merges that pull request and closes this issue; nothing
+    after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M16.1 lead: M15.R's answers  ‖  M16.2 search colours + classifier  ‖  M16.3 ui-kit theme ground
+         ‖  M16.4 engine Theme setting + commands
+         (once M15.R is closed)
+wave 2   M16.5 switching in the window  ‖  M16.6 Pro, Studio, Classic palettes
+         ‖  M16.7 Adwaita, Solarized, Breeze (+ Soft) palettes (after M16.1)  ‖  M16.9 colours in model, index, store
+wave 3   M16.8 the window in every theme  ‖  M16.10 summaries with each sketch + Search for ▸
+wave 4   M16.11 M16 budgets
+wave 5   M16.12 accept M16 → M16.R
+```
 
 ## Reserved decisions (the maintainer's, not the agents')
 
