@@ -131,7 +131,15 @@ fetched) and `map.pan`. The People feature is shown by its Face Model dialog (`f
 the corpus photos hold no faces, and the public-faces set's portraits of public figures are kept out of the
 page. Focal Zoom is `view.edit` on the castle photo, `edit.tab {"tab": "effects3"}` and
 `edit.tool.open {"tool": "effect", "name": "focal_zoom"}`.
-The photos inside the 0.2, 0.5, 0.6 and 0.8 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
+The three 0.9 shots (`feat-collage-pile.jpg`, `feat-collage-mosaic.jpg`, `feat-edit-collage.jpg`, 1500 × 1000)
+use one folder, Highlands and coast, of fourteen corpus photos (renamed `IMG_41xx`), added with `folders.add`
+and snapshotted with `dalica-cli snapshot --library … --size 2400x1600 --scale 2` (`HOME` and the `XDG_*`
+folders in a scratch folder), then resized. The Collage room is `create.collage {"section": "folder:1",
+"seed": "5a17"}` and `collage.set` (`pile` with white borders, shadows and `#2b2b2b`; `frameMosaic` on a
+`4 × 6` page with `#efe9dc`). Edit Collage: the pile is written first with `dalica-cli run`
+(`create.collage`, `collage.set`, `collage.create`; a snapshot's `settle` does not wait for the collage
+job), then the snapshot is `view.edit` on the new collage (id 15).
+The photos inside the 0.2, 0.5, 0.6, 0.8 and 0.9 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.
