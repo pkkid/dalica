@@ -335,6 +335,9 @@ const PHOTOS: usize = 8;
 /// left other photos, other watched folders or fewer album members.
 struct Hunt {
     lib: tempfile::TempDir,
+    /// The home the sessions see (Pictures, the browsed places, the import devices): nothing a
+    /// command does reaches the real home folder.
+    home: tempfile::TempDir,
     photos: tempfile::TempDir,
     kept: tempfile::TempDir,
     session: RefCell<Option<Session>>,
@@ -347,8 +350,16 @@ fn options() -> Options {
     Options { thumbs: ThumbOptions { cache: CacheDir::Temp, workers: 1, ..ThumbOptions::default() } }
 }
 
-fn open_session(lib: &Path) -> Session {
+/// A session over `lib` whose Pictures folder, browsed places and import devices lie in `home`
+/// (an export, an import or a collage without a folder of its own goes there, never into the real
+/// home folder).
+fn open_session(lib: &Path, home: &Path) -> Session {
     let mut s = Session::open_with(lib, Arc::new(SystemClock), &options()).unwrap();
+    let pictures = home.join("Pictures");
+    s.set_pictures_dir(Some(pictures.clone()));
+    let places = dalica_scan::Places { home: Some(home.to_path_buf()), pictures: Some(pictures), documents: None, desktop: None };
+    s.set_places(places, Vec::new());
+    s.set_import_device_roots(Some(home.join("media").into_os_string()), std::time::Duration::from_secs(3600));
     s.wait_idle();
     s
 }
@@ -378,6 +389,7 @@ fn put_back(from: &Path, dir: &Path) {
 impl Hunt {
     fn new() -> Hunt {
         let (lib, photos, kept) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let home = tempfile::tempdir().unwrap();
         let folder = photos.path().join("p");
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::create_dir_all(folder.join("q")).unwrap();
@@ -387,7 +399,7 @@ impl Hunt {
             let dir = if i < 6 { folder.clone() } else { folder.join("q") };
             std::fs::write(dir.join(format!("{i}.jpg")), bytes).unwrap();
         }
-        let mut s = open_session(lib.path());
+        let mut s = open_session(lib.path(), home.path());
         s.execute("folders.add", &json!({ "path": folder })).unwrap();
         s.wait_idle();
         let ids: Vec<u64> = s.library().photos().map(|p| p.id.get()).collect();
@@ -398,12 +410,12 @@ impl Hunt {
         drop(s);
         copy_tree(lib.path(), &kept.path().join("lib"));
         copy_tree(photos.path(), &kept.path().join("photos"));
-        let session = open_session(lib.path());
+        let session = open_session(lib.path(), home.path());
         let folders = session.library().folders().map(|f| f.id.get()).collect();
         let session = RefCell::new(Some(session));
         let roots = vec![folder.clone(), folder.join("q"), photos.path().join("missing")];
         let known = Known { roots, albums: vec![album], members: ids[1..4].to_vec(), photos: ids, folders };
-        Hunt { lib, photos, kept, session, known, reached: RefCell::default() }
+        Hunt { lib, home, photos, kept, session, known, reached: RefCell::default() }
     }
 
     /// Puts the library and its photos back as they were made if a command took photos, watched
@@ -421,7 +433,7 @@ impl Hunt {
         drop(session.take());
         put_back(&self.kept.path().join("lib"), self.lib.path());
         put_back(&self.kept.path().join("photos"), self.photos.path());
-        *session = Some(open_session(self.lib.path()));
+        *session = Some(open_session(self.lib.path(), self.home.path()));
     }
 
     /// Puts the session in the state command `id` needs to run at all: a search for Save as Album.

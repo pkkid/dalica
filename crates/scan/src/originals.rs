@@ -356,11 +356,12 @@ pub fn saved_as(sidecar: &Sidecar, name: &str) -> Option<SavedAs> {
     }
 }
 
-/// The project mark `sidecar` gives its folder: `"exported"`, or `None` (absent, unknown or of the
+/// The project mark `sidecar` gives its folder: `"exported"` or `"collages"`, or `None` (absent, unknown or of the
 /// wrong type; kept in the file).
 pub fn project(sidecar: &Sidecar) -> Option<Project> {
     match sidecar.project() {
         Field::Value(s) if s == "exported" => Some(Project::Exported),
+        Field::Value(s) if s == "collages" => Some(Project::Collages),
         _ => None,
     }
 }

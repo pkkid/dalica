@@ -872,7 +872,7 @@ Built: the roots and `--read-only` (M10.16), the annotations (M10.15). Bridge mo
 | Request, reply, depth, connection, timeout limits | Implemented (M2; `control_security.rs`, the `ui` control tests; depth 64 since #102) |
 | Screenshot / snapshot dimension limits | Implemented (M1, M2; the `ui` control tests) |
 | Command error contract and `panic_hunt` | Implemented (M1; `panic_hunt`) |
-| Root-checked path parameters | Implemented (M2 screenshots, M8 exports and Save As; one engine policy since M10.16: `crates/engine/tests/automation_roots.rs`, the `ui` control tests); collage and import destinations as they land |
+| Root-checked path parameters | Implemented (M2 screenshots, M8 exports and Save As; one engine policy since M10.16: `crates/engine/tests/automation_roots.rs`, the `ui` control tests); collage destinations over the control channel, the default folder included (M14.17: `crates/ui/src/control/engine.rs`; the MCP server's with M14.21); import destinations as they land |
 | Batch limits, paging, preview limits | Planned (M10) |
 | MCP roots, read-only mode, tool annotations | Implemented (M10.15 annotations; M10.16 client roots, `--automation-*`, `--read-only`: `crates/mcp/tests/roots.rs`, `crates/engine/tests/read_only.rs`); read-only for the desktop app's control channel not built |
 | Server proof in the handshake | Planned (M10) |
