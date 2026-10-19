@@ -995,6 +995,7 @@ dependencies = [
  "dalica-meta",
  "dalica-scan",
  "dalica-scenes",
+ "dalica-sidecar",
  "dalica-ui",
  "egui",
  "png",

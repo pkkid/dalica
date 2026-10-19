@@ -28,6 +28,8 @@ dalica-image.workspace = true
 dalica-meta.workspace = true
 dalica-scan.workspace = true
 dalica-scenes.workspace = true
+# The legacy sidecar's and originals folder's names and the folder section, for the fixtures (M14).
+dalica-sidecar.workspace = true
 dalica-ui.workspace = true
 egui.workspace = true
 png.workspace = true
@@ -96,3 +98,7 @@ path = "m12.rs"
 [[test]]
 name = "m13"
 path = "m13.rs"
+
+[[test]]
+name = "m14"
+path = "m14.rs"
