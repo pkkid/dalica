@@ -163,6 +163,16 @@ fn identical_files_make_groups_and_a_same_size_file_stays_out() {
     assert_eq!(fx.s.library().content_digest(fx.id("B/IMG_0001.jpg")), Some(md5_digest(&x).as_str()));
     assert_eq!((fx.s.library().revision(), fx.s.undo_stack().len()), (revision, undo));
 
+    // An automation surface without the people permission reads the state with `search.set {}`,
+    // sent with names withheld (`automation::NAME_SEARCHES`): no text, so nothing changed and the
+    // groups stay on show.
+    let v = fx.s.execute("search.set", &json!({ "withholdNames": true })).unwrap();
+    assert_eq!(
+        (v["changed"].clone(), v["mode"].clone(), v["banner"].clone()),
+        (json!(false), json!("duplicates"), json!("2 duplicate groups (5 files)"))
+    );
+    assert_eq!(fx.groups(), expected);
+
     // search.clear leaves duplicates mode.
     let v = fx.s.execute("search.clear", &json!({})).unwrap();
     assert_eq!(

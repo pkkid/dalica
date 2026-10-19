@@ -196,6 +196,12 @@ impl SearchState {
         People { people: self.people.clone(), withhold_names: self.withhold_names }
     }
 
+    /// Whether names are withheld from a match that could hold them: only the text matches names,
+    /// so with no text the switch makes no difference.
+    fn withholds(&self) -> bool {
+        self.withhold_names && !self.text.is_empty()
+    }
+
     /// Whether the current query asks for anything (search mode is on while it does).
     fn asks(&self, now: Timestamp) -> bool {
         self.query(now).is_active() || self.who().is_active()
@@ -515,7 +521,10 @@ impl Session {
 
     /// Sets the query (`search.set`): `text`, `age_days` and `people` when given, `filters` and
     /// `withhold_names` always. A change starts the debounce again; a query asking for nothing
-    /// leaves search mode. Returns whether anything changed.
+    /// leaves search mode. Returns whether anything changed. Withholding names shapes only a match
+    /// of the text, so with no text the switch alone changes nothing: an automation surface's
+    /// `search.set {}` (which always withholds them, `automation::NAME_SEARCHES`) keeps Find
+    /// Duplicates' groups on show.
     pub(crate) fn set_search(
         &mut self,
         text: Option<String>,
@@ -525,7 +534,7 @@ impl Session {
         withhold_names: bool,
     ) -> bool {
         let s = &self.search;
-        let before = (s.text.clone(), s.filters, s.age_days, s.people.clone(), s.withhold_names, s.mode);
+        let before = (s.text.clone(), s.filters, s.age_days, s.people.clone(), s.withholds(), s.mode);
         if let Some(text) = text {
             self.search.text = text;
         }
@@ -539,7 +548,7 @@ impl Session {
         self.search.withhold_names = withhold_names;
         if self.search.mode == Some(SearchMode::Duplicates) {
             let s = &self.search;
-            if (&s.text, s.filters, s.age_days, &s.people, s.withhold_names) == (&before.0, before.1, before.2, &before.3, before.4) {
+            if (&s.text, s.filters, s.age_days, &s.people, s.withholds()) == (&before.0, before.1, before.2, &before.3, before.4) {
                 // An unchanged query keeps Find Duplicates' groups on show.
                 return false;
             }
@@ -549,7 +558,7 @@ impl Session {
         let active = self.search.asks(self.clock.now());
         self.search.mode = active.then_some(SearchMode::Search);
         let s = &self.search;
-        let after = (s.text.clone(), s.filters, s.age_days, s.people.clone(), s.withhold_names, s.mode);
+        let after = (s.text.clone(), s.filters, s.age_days, s.people.clone(), s.withholds(), s.mode);
         if before == after {
             return false;
         }
