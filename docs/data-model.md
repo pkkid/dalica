@@ -1053,13 +1053,14 @@ Rules:
 The folder's fact (the sidecar in effect) travels in the writer's folder state. The first write
 of a folder whose fact is `legacy` (`store::legacy::first_write`) prints everything the model
 has for the folder (every photo's data, not only the change) into a new `.dalica.json`, parses it
-back and checks that it says the same, then creates it through `fs`'s atomic replace expecting no
-file: the absence is checked when the write starts and again right before its rename. A
-`.dalica.json` found there was made by another program since the scan: it wins, nothing is
-written, the write is reported unsaved and the folder is to be read again. (`fs` has no
-exact-name create that never replaces, so a file made in the microseconds between the last check
-and the rename is the one window left; one process per library keeps other Dalica processes
-out.) The writer remembers the folders it converted, writes them as ordinary folders from then
+back and checks that it says the same, then creates it under its exact name through `fs::exact_file` (M14.27): a temporary
+file, made durable and read back, committed by one step that never replaces (a rename without
+replace, or a hard link), so there is no window between a check and the commit. A
+`.dalica.json` found there, or appearing at any moment before the commit, was made by another
+program since the scan: it wins, nothing is written, the write is reported unsaved and the folder
+is to be read again. On a volume without hard links (FAT, some shares) the file is made by
+exclusive creation under the name instead: still never replacing, though a crash mid-write there
+can leave a torn file, which is set aside as damaged. The writer remembers the folders it converted, writes them as ordinary folders from then
 on and reports each first write once, so the engine records the fact `both`. A move or copy into
 or out of a legacy-only folder writes that folder's whole first `.dalica.json` before carrying
 the entries. The legacy file is never opened for writing, renamed or deleted. Albums' and
