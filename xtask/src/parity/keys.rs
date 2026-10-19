@@ -399,11 +399,15 @@ pub fn p0_cited(rows: &[super::Row]) -> BTreeSet<String> {
     out
 }
 
-/// The first unfinished task block citing `` `id` ``, as `M11.13`.
+/// Whether `text` cites the command `id`: `` `id` `` alone, or with its params, `` `id {…}` ``.
+fn cites(text: &str, id: &str) -> bool {
+    text.contains(&format!("`{id}`")) || text.contains(&format!("`{id} {{"))
+}
+
+/// The first unfinished task block citing `id` (see [`cites`]), as `M11.13`.
 fn arrives_with(id: &str, roadmap: Option<&Roadmap>) -> Option<String> {
-    let cited = format!("`{id}`");
     let mut tasks: Vec<_> =
-        roadmap?.tasks.iter().filter(|t| !t.done && (t.title.contains(&cited) || t.scope.contains(&cited) || t.done_when.contains(&cited))).collect();
+        roadmap?.tasks.iter().filter(|t| !t.done && (cites(&t.title, id) || cites(&t.scope, id) || cites(&t.done_when, id))).collect();
     tasks.sort_by_key(|t| (t.milestone, t.line));
     tasks.first().map(|t| t.id.clone())
 }
@@ -529,6 +533,14 @@ pub fn with_block(text: &str, block: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_command_is_cited_bare_or_with_its_params() {
+        assert!(cites("through `photo.locate` and more", "photo.locate"));
+        assert!(cites("`photo.locate {id}` and `folder.locate {id}`", "photo.locate"));
+        assert!(!cites("`photo.locateAll {id}`", "photo.locate"));
+        assert!(!cites("photo.locate {id}", "photo.locate"));
+    }
 
     const MENUS: &str = "# M\n\n## 1. Menu bar\n\n### 1.1 File\n\n| Item | Shortcut | Command id | Notes |\n|---|---|---|---|\n\
 | Open File… | Ctrl+O | `library.openFile` | x |\n| Rename… | F2 | `photo.rename` | x |\n\
