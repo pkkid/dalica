@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::common::{jpeg, open_with};
 use dalica_core::{Timestamp, VirtualClock};
+use dalica_engine::watching::WatchMode;
 use dalica_engine::{JobKind, Session};
 use dalica_fs::Expect;
 use dalica_meta::Limits;
@@ -19,13 +20,17 @@ use serde_json::json;
 
 const WAIT: Duration = Duration::from_secs(30);
 
-/// A session on a virtual clock watching one folder holding `a.jpg`, its first scan done.
+/// A session on a virtual clock watching one folder holding `a.jpg`, its first scan done. The
+/// folder watcher is off: its rescans of the folder the writes changed are not what this file
+/// tests, and they would hold the folder open while the test moves it away (Windows refuses to
+/// rename a folder with a file open inside it).
 fn one_photo(clock: Arc<VirtualClock>) -> (tempfile::TempDir, Session, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("photos").join("Lisbon");
     dalica_fs::create_dir_all(&folder).unwrap();
     dalica_fs::replace(&folder.join("a.jpg"), &jpeg(1), Expect::Absent).unwrap();
     let mut s = open_with(&dir.path().join("library"), clock);
+    s.set_watching(WatchMode::Off);
     s.execute("folders.add", &json!({ "path": folder })).unwrap();
     s.wait_idle();
     assert_eq!(s.library().photos().count(), 1);
@@ -69,6 +74,12 @@ fn busy_while_a_metadata_write_is_queued_and_while_it_runs() {
     // A write waiting for its folder to come back does not keep the session busy.
     let away = folder.with_file_name("Lisbon (away)");
     s.execute("photo.caption.set", &json!({ "ids": [id], "caption": "Later" })).unwrap();
+    // The folder's sidecar writes (the captions, the synced hashes of the write that landed) and
+    // the thumbnails of its new version land first: Windows refuses to rename a folder while a
+    // worker has a file open inside it. Neither starts the debounced metadata write.
+    s.wait_idle();
+    s.flush().unwrap();
+    assert_eq!(s.pending_metadata_writes(), 1, "the caption's write still waits for its debounce");
     fs::rename(&folder, &away).unwrap();
     assert!(s.flush_metadata(WAIT));
     assert_eq!(s.pending_metadata_writes(), 1, "still queued, waiting");
