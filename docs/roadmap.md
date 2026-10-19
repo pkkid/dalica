@@ -9524,9 +9524,10 @@ One milestone in 4 feature areas (*Video*, *Localisation and accessibility*, *OS
 
 #### Video
 
-- **In:** reserved decision 2 first (pure-Rust decoding or an optional external process; asked at
-  M14.R, never guessed; slideshow music comes with video sound, the maintainer's answer at M11.R,
-  2026-10-17). Whatever the answer: MP4, MOV, M4V and MKV recognised by their content and probed
+- **In:** reserved decision 2 first (answered at M14.R, 2026-10-19: pure-Rust H.264 and HEVC
+  decoders, each kept if it passes M15.46's spike on real phone files, else that codec stays a
+  tile; sound through a pure-Rust output per OS; slideshow music comes with video sound, the
+  maintainer's answer at M11.R, 2026-10-17). Whatever the answer: MP4, MOV, M4V and MKV recognised by their content and probed
   under limits (duration, frame size, rotation, date, codecs, sound, location), listed in the
   library when `fileTypes.video` is on, shown as video cells with the sprocket edge and the
   duration pill (`ui-layout.md` §5), the Videos filter, every path that cannot take a video
@@ -9541,7 +9542,8 @@ One milestone in 4 feature areas (*Video*, *Localisation and accessibility*, *OS
   frame (M13's *Out*); videos over MCP (W17).
 - **Out:** the legacy video formats (AVI, WMV, MPG, 3GP, MTS/M2TS) and a movie maker (`product.md`,
   dropped as dated); colour editing of video (`editing.md` §11); WebM (not in `formats.md`'s list).
-  If the answer descopes video to tiles, M15.1 records which *In* items leave with it.
+  A codec M15.46 fails takes the decoding items with it for its clips (posters, the player, trim
+  by eye, Save Frame, first frames), named in the tasks' PRs for M15.R.
 - **Reuse** (`architecture.md` §9): `image`'s bounded ISO BMFF walk
   (`crates/image/src/formats/bmff.rs`) for MP4 and MOV; LightCraft `crates/codecs/src/video.rs` at
   4f0b110b (its MP4 and WebM muxers: the box and EBML layouts they write, studied for our readers;
@@ -9549,10 +9551,11 @@ One milestone in 4 feature areas (*Video*, *Localisation and accessibility*, *OS
   frames, M11's slideshow, M14's collage clips and M13's face scan.
 - **Done when:** `cargo xtask accept M15`: a folder with an MP4, a MOV and an MKV lists three video
   cells with their durations, the Videos filter shows only them, Export and the slideshow count
-  them, and a hostile container is refused without a panic; with decoding, as M15.1 recorded the
-  answer: each cell shows its poster frame, the player plays, steps a frame and trims, the trim
+  them, and a hostile container is refused without a panic; for a clip of each codec M15.46
+  passed: each cell shows its poster frame, the player plays, steps a frame and trims, the trim
   survives a restart, Save Frame as Picture writes the frame shown into Video Frames, a slideshow
-  plays a clip to its end, and W17 passes over MCP.
+  plays a clip to its end, and W17 passes over MCP; a clip of a codec it failed shows the video
+  tile and "This video can't be played" with Open With.
 
 #### Localisation and accessibility
 
@@ -9561,9 +9564,11 @@ One milestone in 4 feature areas (*Video*, *Localisation and accessibility*, *OS
   following the OS's languages, `DALICA_LANGUAGE`, Options ▸ General ▸ Language switching without a
   restart, dates, numbers and sizes through locale-aware helpers, command labels and options rows
   looked up by their English text and id, the release notes line by line, the coverage tests and
-  `cargo xtask i18n`; the first languages the maintainer chooses (asked at M14.R:
-  `localization.md` says they are chosen when M15 starts), each with its style guide; the CJK
-  fallback faces from craft-fonts, by script, in release builds (`releasing.md`); AccessKit: every
+  `cargo xtask i18n`; the first languages the maintainer chose at M14.R (2026-10-19): English and
+  Thai, if M15.47's spike proves Thai's shaping and dictionary line breaking pure-Rust (else English
+  only, Thai after 1.0), Thai with its style guide and reviewed at M15.R by the maintainer's wife;
+  the fallback faces from craft-fonts (CJK and Noto Sans Thai), by script, in release builds
+  (`releasing.md`); AccessKit: every
   widget with its role, name and value, the light table, the tree and the canvases as nodes, an
   audit over every view and dialog; keyboard-only use (every command reachable by its key or the
   menu bar, Tab order in dialogs, a visible focus); UI scale and font size checked to fit; the
@@ -9638,12 +9643,17 @@ with their fakes, M15's settings and options rows, and every port's `NOTICE` row
 view state, UI commands with stub handlers and the stub video panel; M15.6 gives `ui-kit` the video
 controls and the icons; M15.7 gives `ui` its localisation core and the pseudo-locale; M15.8 gives
 `ui-kit` the fallback faces; M15.9 gives `scan` the PTP reader; M15.10 signs the Windows packages.
-The video work follows in two layers: decision-neutral (videos on scan M15.11, in the session
-M15.16, in the window M15.21) and as the answer builds it (frames M15.15, posters M15.20, playback
+Two spikes, added by M15.1 from M14.R's answers, decide what the answers can build: M15.46 runs the
+candidate pure-Rust H.264 and HEVC decoders (and the sound codecs) on real phone files, M15.47
+proves Thai shaping and line breaking in our text path. The video work follows in two layers:
+decision-neutral (videos on scan M15.11, in the session M15.16, in the window M15.21) and as the
+spike's record builds it (frames M15.15, posters M15.20, playback
 M15.25, the player M15.26, sound M15.27, export and collage M15.28, W17 M15.30); the OS integration
 goes from the app's services (M15.12) through the engine's commands (M15.17) to the window (M15.22,
 M15.23, M15.24) and the hand-off (M15.18); M14's loose ends that no M14 task took are M15.41 (crate
-READMEs, one ratio table) and M15.42 (M14.25's automation follow-ups and two flaky tests), with
+READMEs, one ratio table) and M15.42 (M14.25's automation follow-ups and two flaky tests), M14.R's own are M15.45
+(`dalica-cli` on a closed pipe), M15.48 (a grouped marker's commands) and M15.49 (three tests that
+fail on one CPU or on Windows), with
 smaller ones folded into the blocks that own their files (M15.3, M15.6, M15.9); the strings are wrapped late, in three tasks by area
 (M15.31–M15.33), so they catch everything the feature tasks drew, and the catalogs (M15.35) come
 last. The Craft-app sources named below are pinned at the checkouts' `origin/main` of
@@ -9665,18 +9675,24 @@ count as a `files` overlap, and on a rebase conflict the worker re-blesses after
 Fingerprints are made at 1400 × 900 only; at 900 × 600 a test asserts that the player, the menus
 and the translated views fit (`architecture.md` §11).
 
-Decisions taken while planning (the check-in lists them for reversal). **The answers M15 waits on.**
-Reserved decision 2 (video, with its sound: the maintainer tied slideshow music to video sound at
-M11.R, and an audio output may need a C-linked system library on Linux, a question of its own under
-`AGENTS.md` §4) and the first languages (`localization.md`: chosen by the maintainer when M15
-starts) are asked at M14.R, never guessed here. M15.1, the lead's first task once M14.R closes,
-records them and fits the blocks that hinge on them: M15.15, M15.20, M15.25–M15.28, M15.30 and the
-video parts of M15.34 (video), M15.35 (languages); each of those lists M15.1, and a worker who finds
-the answer missing from *Reserved decisions* runs `tasks block` with the question and takes another
-task. If the answer descopes video to tiles, M15.1 rewrites those blocks to what remains (their ids
-kept, never reused) and names the parity rows that leave for M15.R. Everything else is
-decision-neutral: probing containers, listing videos, the video cells and the edit view's "This
-video can't be played" are needed under any answer (a codec Dalica cannot play exists under each).
+Decisions taken while planning (the check-in lists them for reversal). **The answers M15 waited
+on** were given at M14.R (2026-10-19; *Reserved decisions* item 2, M15.1's block): pure-Rust H.264
+and HEVC decoders, each kept only if it passes a spike on real phone files (M15.46), a codec that
+fails staying a tile only; sound through a pure-Rust output per OS (M15.27); English and Thai for
+1.0 if a spike proves Thai's shaping and dictionary line breaking pure-Rust in our text path
+(M15.47), else English only. M15.1 fitted the blocks that hinge on them: M15.15, M15.20,
+M15.25–M15.28, M15.30 and the video parts of M15.34 wait on M15.46, M15.35 on M15.47. **Every
+codec has two outcomes, written into each block's *done when*:** a codec M15.46 passes is decoded
+(posters, the player, Save Frame, first frames in Export and collages); one it fails stays a tile
+(the video tile, "This video can't be played" with Open With, counted and left out where a still is
+needed), and the task's PR names the parity rows that leave with it for M15.R (`VIEW-VIDEO`,
+`EDIT-VIDEO`, the posters of `LIB-LT-VIDEO`, the videos of `VIEW-SLIDESHOW`, `OUT-EXPORT` and
+`OUT-COLLAGE`, as each applies). The spikes add no dependency: a codec or sound format that passes
+only with a licence or dependency exception (`AGENTS.md` §4; MPL-2.0 is outside the allow-list) is
+recorded as failing until the maintainer answers, the record names the question, and the lead
+carries it to M15.R's check-in, so no task waits on it. Everything else is decision-neutral:
+probing containers, listing videos, the video cells and the edit view's "This video can't be
+played" are needed under any answer (a codec Dalica cannot play exists under each).
 **Localisation:** the catalogs are TSV as `localization.md` says, ported from PhotoCraft
 (contexts, ids, plurals), rather than the JSON catalogs of LightCraft the outline named; LightCraft
 gives the craft-fonts embedding and the script order. The fonts are embedded by a new
@@ -9724,7 +9740,7 @@ and crate README record, so the tasks of a wave never share it. M15's budgets jo
 AccessKit and translation overheads within 1 ms at p95, and are never loosened. M15.38 (the lead)
 writes M16's blocks while M15 runs, as M16's outline asks.
 
-- ⬜ **M15.1 Lead: M14.R's answers in M15's blocks**
+- ✅ **M15.1 Lead: M14.R's answers in M15's blocks**
   - after: M14.R
   - owner: lead
   - files: `docs/roadmap.md`, `docs/product.md`
@@ -9972,16 +9988,82 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     review's run) signs both programs and the MSI with the throwaway certificate and
     `test-sign.ps1` passes; with signing off it names each unsigned file; `actionlint` and the
     packaging lint pass; the real certificate is checked at M15.R.
+- ⬜ **M15.46 Spike (reserved decision 2): pure-Rust H.264 and HEVC decoders on real phone files**
+  - after: M14.R
+  - files: `docs/video-decoders.md`
+  - scope: the maintainer's answer at M14.R (2026-10-19): try the candidate decoders (`rust_h264`,
+    `rusty_h264` without default features, `rusty_h265`, `rust_h265`, and any other pure-Rust
+    H.264 or HEVC decoder found on crates.io) on real phone files: iPhone HEVC `.MOV` (Main and
+    Main 10, the HDR and Dolby Vision variants phones record by default, portrait and landscape)
+    and Android H.264 `.mp4` (High profile, 1080p and 4K), plus the codecs' public conformance
+    bitstreams (ITU-T H.264.1 and H.265.1, with their published checksums). Files are fetched out
+    of tree into the agent's scratch directory from public sources whose licence allows it (URL,
+    licence and SHA-256 recorded), never committed, never personal; none goes to
+    `pkkid/dalica-corpus` without the maintainer's go-ahead (asked at M15.R). A throwaway harness
+    in the scratch directory (its source attached to the PR, nothing of it in the tree) demuxes
+    the samples and, per crate and codec, measures: **correctness** (every frame of each file
+    against what a reference decoder outside the product produces, e.g. `ffmpeg` run by hand: the
+    count of frames differing and their PSNR; recorded, never shipped or linked), **speed** (frames
+    per second at 1080p and 4K on the maintainer's machine, single thread and the crate's
+    threading), **memory** (peak), robustness (a truncated and a bit-flipped stream never panic or
+    hang), **`unsafe`** inside the crate (counted), `cargo xtask deps` on a scratch branch with the
+    crate added (licence, C build, `*-sys`), maintenance (releases, open issues). The same for the
+    sound phone clips carry (AAC-LC) and for slideshow music (MP3, Ogg Vorbis, FLAC, WAV), pure-Rust
+    decoders only. A codec passes when a crate decodes every phone file of its kind with frames
+    identical to the reference (H.264 and HEVC decoding is exact by their standards; for the sound
+    formats, within the conformance tolerance their standards give), plays 1080p at least in real time on one core of the
+    maintainer's machine, passes `cargo xtask deps` without an exception and has no panic or hang
+    on damaged input; what a crate lacks (10-bit, a profile, interlacing) is named. The record,
+    `docs/video-decoders.md`, is what M15.15, M15.20, M15.25–M15.28, M15.30 and M15.34 read: per
+    codec the chosen crate and version (or **fails: tiles only**, with why), the numbers, the
+    licences, the sample list with URLs and checksums for the corpus job, and each question for
+    the maintainer (a licence or dependency exception, publishing samples): such a codec or format
+    counts as failing until M15.R answers (`AGENTS.md` §4; no task waits on it).
+  - done when: `docs/video-decoders.md` gives, for H.264, HEVC, AAC and each music format, the
+    verdict (crate and version, or tiles only / muted / skipped) with its measured correctness,
+    speed, memory, `unsafe` count, `cargo xtask deps` result and licence for every candidate tried;
+    at least two real phone files of each kind were run, or the record says which kind found no
+    public original and the question it raises; the PR attaches the harness's source and its
+    output; `cargo xtask ci` passes (no product code changes).
+- ⬜ **M15.47 Spike: Thai shaping and line breaking in our text path**
+  - after: M15.8
+  - files: `crates/ui-kit/src/linebreak.rs`, `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/tests/thai_text.rs`, `crates/ui-kit/tests/fingerprints/thai-*.json`, `docs/thai-text.md`
+  - scope: the maintainer's answer at M14.R (2026-10-19): Thai ships with 1.0 only if both are
+    proven pure-Rust in our text path (egui 0.36's `epaint`, which already shapes with `harfrust`,
+    the pure-Rust HarfBuzz port, over the faces `ui-kit` installs): (1) **shaping**: with craft-fonts'
+    Noto Sans Thai (in its manifest, `Thai` script, OFL-1.1; installed by M15.8) above-base
+    vowels, tone marks stacked above them (ไม้เอก on a consonant with สระอิ: "ที่", "กี้"), below-base
+    vowels, the split vowel สระอำ and tall consonants (ป, ฝ, ฟ) avoiding their marks, compared
+    with a reference rendering outside the product (`hb-view`, recorded in the doc, never shipped);
+    (2) **line breaking**: Thai writes no spaces between words, so a wrapped label or hint must break
+    at word boundaries from a dictionary: the candidates are ICU4X's `icu_segmenter` with its Thai
+    dictionary data (Unicode-3.0) at run time, or break marks (U+200B) placed in the Thai catalog by
+    `cargo xtask i18n` at build time, whichever passes with the least weight (binary size, start-up
+    time, frame time); whether `epaint`'s wrapping honours U+200B is measured first; user data
+    (captions, tags, folder names in Thai) wraps by the same means where a view wraps it. What
+    passes lands in `ui-kit` as `linebreak` (`ui_kit::linebreak::mark(&str) -> Cow<str>`, a no-op
+    for text without Thai) and, if needed, the Thai face's order in `fonts.rs`; any new crate goes
+    through `cargo xtask deps`. The record `docs/thai-text.md` gives the verdict M15.35 reads: Thai
+    **passes** (both proven) or **fails** (which part, why, what would fix it) and 1.0 ships English
+    only.
+  - done when: `crates/ui-kit/tests/thai_text.rs`: without `CRAFT_FONTS_DIR` a Thai string lays out
+    without a panic (skipped checks named); with it, every glyph of a test set of Thai words has a
+    face, the marks of "ที่", "กี้", "ปู่" and "น้ำ" sit at the positions the reference rendering
+    gives (within one pixel at 16 px), and a fingerprint of the set is made;
+    `linebreak::mark` breaks a 60-word Thai paragraph only at dictionary word boundaries and
+    leaves Latin and CJK text unchanged; a label wrapped at 200 px breaks only there; the cost of
+    `mark` on the release notes' length is in the PR; `docs/thai-text.md` gives the verdict.
 - ⬜ **M15.11 `scan` + `store`: videos listed on scan**
   - after: M15.2, M15.3, M9.7, M10.11
-  - files: `crates/scan/src/skip.rs`, `crates/scan/src/facts.rs`, `crates/scan/src/video.rs`, `crates/scan/tests/video.rs`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/video.rs`
+  - files: `crates/scan/src/skip.rs`, `crates/scan/src/facts.rs`, `crates/scan/src/video.rs`, `crates/scan/tests/video.rs`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/snapshot.rs`, `crates/store/tests/video.rs`
   - scope: `formats.md` §1: `FileType::of` maps `Format::Video` to Video (the wildcard that sends
     new formats to RAW no longer catches it); with `fileTypes.video` on (the default) a scan lists
     MP4, MOV, M4V and MKV files as videos with M15.2's probe as their facts (the date from the
     container, else the file's time; a location imported as a geotag on the first scan, as M6.32
     imports file metadata; the rotation applied to the cell); turning the type off and on rescans
     as M10.11 does, keeping the videos' stars, captions and tags; a damaged or hostile container
-    listed with its reason, never a panic; the index and a rebuild keep the facts; the sidecar
+    listed with its reason, never a panic; the index (the store snapshot saves the video facts,
+    which M15.3 found it leaves out) and a rebuild keep the facts; the sidecar
     keeps a video's star, caption, tags and recipe as a photo's (`.dalica.json` unchanged in
     shape), and a legacy-only folder's section for a video applies to it as to a photo (M14.11's
     reading, unchanged).
@@ -10055,26 +10137,33 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     follows a click; Tab moves the focus through the gallery in order and Space activates the
     focused button; the focus ring passes the contrast test; setting `ui_kit::text` changes the
     date picker's month names; gallery fingerprints change only by the focus ring.
-- ⬜ **M15.15 `image` (reserved decision 2): video frames**
-  - after: M15.1, M15.2
-  - files: `crates/image/src/formats/video/frames.rs`, `crates/image/src/formats/video/frames/**`, `crates/image/tests/video_frames.rs`, `docs/formats.md`
-  - scope: what reserved decision 2's answer builds (M15.1 records it and fits this block):
-    decoding a video's frames, by a pure-Rust decoder for the codecs the answer names (after
-    `cargo xtask deps`) or by the bridge to an optional external program the user installed
-    (`security.md` §5.11: found where the user says, an argument vector with fixed arguments, a
-    timeout, its output read under §4.2's limits, never a shell); the poster frame (the first frame
-    whose mean luminance clears a small threshold within the first 10 s, else the first frame),
-    the frame at a time, the next and the previous frame, scaled at decode where the decoder can,
-    upright by the container's rotation, and the sound as samples for M15.27; a codec it cannot
-    decode answers "This video can't be played" with the codec's name; memory bounded by the
-    frame size; `formats.md`'s Video row says what landed. A worker who finds the answer missing
-    from *Reserved decisions* runs `tasks block` with the question.
-  - done when: `crates/image/tests/video_frames.rs` (clips made by the test, or public-domain clips
-    from the corpus job; never committed media): a clip that starts black gives its first lit frame
-    as poster; the frame at 1.5 s of a 2 s clip is the expected one within one frame; stepping
-    forward then back returns the same frames; a turned clip comes out upright; an unsupported
-    codec, a truncated stream and (for an external program) a missing program, a hang and a flood
-    of output are refused with their reasons without a panic.
+- ⬜ **M15.15 `image` (reserved decision 2): video frames, and the clip's sound**
+  - after: M15.1, M15.2, M15.46
+  - files: `crates/image/src/formats/video.rs`, `crates/image/src/formats/video/frames.rs`, `crates/image/src/formats/video/frames/**`, `crates/image/src/formats/video/sound.rs`, `crates/image/tests/video_frames.rs`, `crates/image/README.md`, `xtask/src/corpus_pins.rs`, `xtask/corpus/video.sha256`, `docs/formats.md`, `docs/video-decoders.md`
+  - scope: reserved decision 2 as answered (pure-Rust decoders) with the crates
+    `docs/video-decoders.md` (M15.46) chose, each after `cargo xtask deps`: for each codec the record
+    passes (H.264, HEVC), decoding a video's frames behind one `FrameSource` per open clip: the
+    poster frame (the first frame whose mean luminance clears a small threshold within the first
+    10 s, else the first frame), the frame at a time, the next and the previous frame, scaled at
+    decode where the decoder can, upright by the container's rotation, 10-bit and HDR sources
+    tone-mapped to 8-bit sRGB for display; the clip's sound as samples for M15.25 and M15.27 where
+    the record passes its codec (AAC), else the clip reports itself muted with the reason; a codec
+    the record fails, or one no crate covers, answers "This video can't be played" with the codec's
+    name (`video::playable(facts)` says which, for the session and the cells); memory bounded by the
+    frame size and a fixed look-ahead; every length from the stream hostile (`security.md` §4.2);
+    the record's public sample clips pinned for the corpus job (`corpus_pins.rs`, a `video` set by
+    URL and SHA-256; nothing committed); `formats.md`'s Video row and the record's status line say
+    what landed.
+  - done when: `crates/image/tests/video_frames.rs`: for each codec the record passes (clips from
+    the corpus job's `video` set, skipped and named when absent; a small clip made by the test
+    where the crate can encode one): a clip that starts black gives its first lit frame as poster;
+    the frame at 1.5 s of a 2 s clip is the expected one within one frame; stepping forward then
+    back returns the same frames; a turned clip comes out upright; its sound decodes to the clip's
+    length (or the clip says muted with the reason when AAC failed the spike); for each codec it
+    failed, `playable` is false and decoding answers "This video can't be played" with the codec's
+    name; a truncated stream, a bit-flipped stream and a frame size past the limits are refused
+    with their reasons without a panic or a hang; the PR names the parity rows a failed codec takes
+    out of 1.0 for M15.R.
 - ⬜ **M15.16 `engine`: videos in the session**
   - after: M15.4, M15.11
   - files: `crates/engine/src/cmd/video.rs`, `crates/engine/src/video.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/collage.rs`, `crates/engine/tests/videos.rs`
@@ -10156,19 +10245,23 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     why; `crates/ui/tests/import_camera.rs` (headless, by id): the camera shows in Import from with
     its name and its pictures fill the tray; the owner thread made no `fs` call.
 - ⬜ **M15.20 `thumbs` + `engine` (reserved decision 2): poster frames**
-  - after: M15.15, M15.16, M5.16
+  - after: M15.15, M15.16, M5.16, M15.46
   - files: `crates/thumbs/src/video.rs`, `crates/thumbs/src/ladder.rs`, `crates/thumbs/tests/video.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/preview.rs`, `crates/engine/src/preview/jobs.rs`, `crates/engine/src/faces_scan.rs`, `crates/engine/tests/video_posters.rs`
-  - scope: what the answer builds (M15.1 fits this block): a video's thumbnails and its edit-view
-    preview made from its poster frame (M15.15) on the thumbnail workers, below photos in priority,
-    cached as a photo's and made again when the file changes, the video tile kept while it is made
-    and for a video Dalica cannot play; the slideshow, the viewer and a collage get the poster where
-    they show a still; the face scan reads the poster frame (faces in videos, M13's *Out*); never a
-    decode on the UI thread.
-  - done when: `crates/thumbs/tests/video.rs`: a clip's thumbnail is its first lit frame at every
-    ladder size and is cached; an unplayable clip keeps the video tile with no error badge;
-    `crates/engine/tests/video_posters.rs`: a folder of 20 photos and 5 clips fills every thumbnail,
-    photos first; the face scan finds a face drawn on a clip's poster frame; the owner thread made
-    no `fs` call.
+  - scope: for the codecs `docs/video-decoders.md` (M15.46) passes and M15.15 decodes: a video's
+    thumbnails and its edit-view preview made from its poster frame on the thumbnail workers, below
+    photos in priority, cached as a photo's and made again when the file changes, the video tile
+    kept while it is made; the slideshow, the viewer and a collage get the poster where they show a
+    still; the face scan reads the poster frame (faces in videos, M13's *Out*); never a decode on
+    the UI thread. A clip whose codec failed the spike (`video::playable` false) keeps the video
+    tile everywhere, with no error badge and no decode attempted, and the face scan skips it.
+  - done when: `crates/thumbs/tests/video.rs`: a clip of each passing codec has its first lit frame
+    as thumbnail at every ladder size, cached; a clip of a failed codec (or an unknown one) keeps
+    the video tile with no error badge; `crates/engine/tests/video_posters.rs`: a folder of 20
+    photos and 5 clips fills every thumbnail, photos first, the posters of playable clips and the
+    tile for the others; the face scan finds a face drawn on a playable clip's poster frame and
+    never decodes an unplayable one; the owner thread made no `fs` call. If the record passes no
+    video codec, only the tile-kept tests land and the PR names `LIB-LT-VIDEO`'s posters as
+    leaving for M15.R.
 - ⬜ **M15.21 `ui`: video cells, and a video in the edit view**
   - after: M15.5, M15.6, M15.16
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/tests/video_tiles.rs`, `crates/ui/tests/fingerprints/video-*.json`, `docs/ui-layout.md`
@@ -10245,9 +10338,9 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     All then OK records every type, and the question after the first run appears once; the desktop
     entry validates and the packaging lint's WiX and plist checks pass.
 - ⬜ **M15.25 `edit` + `engine` + `create` (reserved decision 2): playback, trim, Save Frame as Picture and Export Clip**
-  - after: M15.15, M15.16, M8.10
+  - after: M15.15, M15.16, M8.10, M15.46
   - files: `crates/edit/src/ops/video.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/video_ops.rs`, `crates/engine/src/video.rs`, `crates/engine/src/cmd/video.rs`, `crates/engine/src/video_output.rs`, `crates/engine/src/cmd/video_output.rs`, `crates/engine/tests/video_play.rs`, `crates/create/src/video.rs`, `crates/create/tests/video_output.rs`, `docs/editing.md`, `docs/creating.md`
-  - scope: what the answer builds (M15.1 fits this block): `trim(start,end)` in the recipe
+  - scope: reserved decision 2 as answered, for the codecs M15.46's record passes: `trim(start,end)` in the recipe
     (milliseconds, start before end within the clip; a video-only operation in the catalogue; one
     step of the video's history; rotation as for photos); `video.open`, `.play`, `.pause`, `.seek
     {ms}`, `.step {frames}`, `.setStart`, `.setEnd`, `.volume`: frames decoded ahead on a worker so
@@ -10259,61 +10352,101 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     frame's time); `video.exportClip {path?}` (the trimmed part, as the answer allows: copied
     without re-encoding from the key frame at or before the start where the container allows it,
     the real cut said in the reply; never replacing; over automation only inside the write roots);
-    `editing.md` §11 and `creating.md` record it. A worker who finds the answer missing runs `tasks
-    block` with the question.
+    trim and Export Clip work on the container and so on any clip; for a clip whose codec failed
+    the spike, `video.open` answers "This video can't be played" with the codec's name and `.play`,
+    `.step`, `.seek` and `video.saveFrame` refuse with that reason; a clip whose sound codec failed
+    plays muted with `video.volume` refused with the reason; `editing.md` §11 and `creating.md`
+    record it.
   - done when: `crates/edit/tests/video_ops.rs`: `trim` parses and prints, and refuses `start ≥ end`
     and negative values; `crates/engine/tests/video_play.rs` (the silent `Sound`): playing 1 s of
     its clock shows the frames due within one frame; a trim survives a restart; Save Frame at 1.5 s
     writes a JPEG of the frame's size into Video Frames, listed in the Projects group;
     `crates/create/tests/video_output.rs`: Export Clip of 0.5–1.5 s writes a file M15.2 probes at
-    about 1 s; the owner thread made no `fs` call; `panic_hunt` green.
+    about 1 s, for a playable clip and for one of a failed codec alike; `video_play.rs` also: a clip
+    of a failed codec answers "This video can't be played" to `video.open` and its playback
+    commands refuse with the reason and write nothing; the owner thread made no `fs` call;
+    `panic_hunt` green. If the record passes no video codec, the playback tests are replaced by the
+    refusals and the PR names `EDIT-VIDEO`'s Save Frame and `VIEW-VIDEO` as leaving for M15.R.
 - ⬜ **M15.26 `ui` (reserved decision 2): the video player in the edit view**
-  - after: M15.21, M15.25
+  - after: M15.21, M15.25, M15.46
   - files: `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/commands/video.rs`, `crates/ui/tests/video_player.rs`, `crates/ui/tests/fingerprints/video-player-*.json`
-  - scope: `editing.md` §11 and `viewing.md` §4, as the answer builds them: the control bar under the
+  - scope: `editing.md` §11 and `viewing.md` §4, for the codecs M15.46's record passes: the control bar under the
     video (play and pause, the scrubber with its readout, volume, the trim ruler with Set Start and
     Set End, Full Screen) from M15.6's widgets; the video tab (Save Frame as Picture, Export Clip
     with the save picker, rotate); `/` and Space play and pause, `,` and `.` step a frame and, held,
     rewind or fast-forward; frames drawn from the engine's decoded frames (never a decode on the UI
-    thread); what the answer leaves out greyed with its reason.
-  - done when: `crates/ui/tests/video_player.rs` (headless, by id, the silent `Sound`): Space plays
+    thread); for a clip of a failed codec the edit view keeps "This video can't be played" with
+    [Open With ▸] (M15.21) and the bar shows only what works on the container (the trim ruler,
+    Export Clip, rotate), play, the frame steps and Save Frame greyed with the reason; a muted clip
+    greys the volume with its reason.
+  - done when: `crates/ui/tests/video_player.rs` (headless, by id, the silent `Sound`): on a clip of
+    a passing codec Space plays
     and the readout follows the clock; `.` steps one frame; dragging the start handle and Set End
     trim and the readout says "(trimmed to …)"; Save Frame adds a photo to Video Frames; the frame
-    time while playing stays within the edit view's budget; at 900 × 600 the bar fits; fingerprints
-    of the bar playing and trimmed at 1400 × 900.
-- ⬜ **M15.27 `engine` + `ui` + `dalica` (reserved decision 2): videos and music in the slideshow**
-  - after: M15.25, M11.21
-  - files: `crates/engine/src/sound.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow_sound.rs`, `apps/dalica/src/sound.rs`, `apps/dalica/src/main.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/slideshow_video.rs`, `docs/viewing.md`, `docs/menus-and-shortcuts.md`
-  - scope: `viewing.md` §1.1 and §1.5, as the answer builds them (M15.1 fits this block; the
-    maintainer's answer at M11.R ties music to video sound): the audio output in the app behind
-    M15.4's `Sound` (a pure-Rust crate after `cargo xtask deps`, or what the answer allows; with
-    none the rows stay greyed with their reason); a video in a slideshow plays to its end (its trim
-    respected) before the show moves on, muted unless Play video sound; Play music: every MP3, OGG,
-    FLAC and WAV of the music folder (a folder's own Music in Folder Properties wins) in name order,
-    looping, decoded on a worker, faded out when the show ends; Options ▸ Slideshow's Sound group
-    and Folder Properties' Music live ("Arrives with sound support" removed); `viewing.md` and
-    `menus-and-shortcuts.md` §5 record it.
-  - done when: `crates/engine/tests/slideshow_sound.rs` (the silent `Sound` recording samples): a
-    show of a photo, a 2 s clip and a photo holds the clip 2 s; video sound off records silence
-    and on records the clip's sound; the music folder's three files play in name order and loop; a
-    damaged music file is skipped with its reason; `crates/ui/tests/slideshow_video.rs`
+    time while playing stays within the edit view's budget; on a clip of a failed codec Space does
+    nothing and play, the steps and Save Frame are greyed with the reason while Export Clip works;
+    at 900 × 600 the bar fits; fingerprints of the bar playing and trimmed at 1400 × 900 (of the
+    unplayable bar if the record passes no video codec, the PR then naming `VIEW-VIDEO` as leaving
+    for M15.R).
+- ⬜ **M15.27 `image` + `engine` + `ui` + `dalica` (reserved decision 2): sound on each OS, videos and music in the slideshow**
+  - after: M15.25, M11.21, M15.46
+  - files: `crates/image/src/formats/audio.rs`, `crates/image/src/formats/audio/**`, `crates/image/src/formats/mod.rs`, `crates/image/tests/audio.rs`, `crates/engine/src/sound.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow_sound.rs`, `apps/dalica/src/sound.rs`, `apps/dalica/src/sound/**`, `apps/dalica/src/main.rs`, `apps/dalica/tests/sound.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/slideshow_video.rs`, `docs/viewing.md`, `docs/menus-and-shortcuts.md`
+  - scope: `viewing.md` §1.1 and §1.5 with the maintainer's answers (M11.R ties music to video
+    sound; M14.R, 2026-10-19: **pure-Rust output per OS**): the app's `Sound` (M15.4's trait) in
+    `apps/dalica/src/sound/` with one backend per OS: Linux a PulseAudio-protocol client (served by
+    PulseAudio and by PipeWire's pulse server; e.g. the `pulseaudio` crate), Windows WASAPI through
+    the `windows` crate, macOS CoreAudio through `objc2-core-audio`, each after `cargo xtask deps`
+    (no C build, no new `*-sys` or `C_BUILD_ALLOW` entry); no `unsafe` in our code
+    (`#![forbid(unsafe_code)]` stays): where a backend's API is `unsafe` to call, a safe wrapper
+    crate over the same API is used (for example `wasapi` over `windows`, or `cpal`'s WASAPI and
+    CoreAudio hosts with its default features off), and if none exists the task runs `tasks block`
+    with the question (`AGENTS.md` §4) and that OS keeps the Sound rows greyed with the reason;
+    the stream on its own thread, a device lost or changed reopened on the default output, no
+    sound server reachable answered as "No sound output on this system" (the rows greyed, never a
+    failure); the clip's sound from M15.15 where M15.46 passed AAC, else the clip plays muted;
+    music decoded in `image` (`formats::audio`) with the pure-Rust decoders M15.46's record passes
+    for MP3, Ogg Vorbis, FLAC and WAV, a format it failed skipped with "This music file can't be
+    played" (every read bounded, `security.md` §4.2); a video in a slideshow plays to its end (its
+    trim respected) before the show moves on, muted unless Play video sound, and a clip Dalica
+    cannot play shows its tile for the photo's display time; Play music: every playable file of
+    the music folder (a folder's own Music in Folder Properties wins) in name order, looping,
+    decoded on a worker, faded out when the show ends; Options ▸ Slideshow's Sound group and Folder
+    Properties' Music live ("Arrives with sound support" removed); `viewing.md` and
+    `menus-and-shortcuts.md` §5 record it, and the PR the backends' crates for `security.md`
+    (M15.36).
+  - done when: `crates/image/tests/audio.rs`: each passing music format decodes a file made by the
+    test (or a public one from the corpus job) to the right length and rate; a failed format, a
+    truncated file and a hostile header are refused with their reasons without a panic;
+    `crates/engine/tests/slideshow_sound.rs` (the silent `Sound` recording samples): a show of a
+    photo, a 2 s playable clip and a photo holds the clip 2 s; video sound off records silence and
+    on records the clip's sound (a muted clip records silence and says why); a clip of a failed
+    codec is held for the display time as its tile; the music folder's three files play in name
+    order and loop; a damaged or unplayable music file is skipped with its reason;
+    `apps/dalica/tests/sound.rs`: on the OS the test runs on, the backend opens the default output
+    and plays 0.5 s of silence where a sound server is reachable (skipped and named otherwise), and
+    no server answers "No sound output on this system"; `crates/ui/tests/slideshow_video.rs`
     (headless): the Sound rows are live and the clip's frames show in the show.
 - ⬜ **M15.28 `create` + `engine` + `ui` (reserved decision 2): videos in Export and in collages**
-  - after: M15.20, M14.17, M14.18, M8.16
+  - after: M15.20, M14.17, M14.18, M8.16, M15.46
   - files: `crates/create/src/export.rs`, `crates/create/src/export/plan.rs`, `crates/create/tests/export_video.rs`, `crates/engine/src/cmd/export.rs`, `crates/engine/src/collage.rs`, `crates/engine/src/collage_output.rs`, `crates/engine/tests/collage_video.rs`, `crates/ui/src/dialogs/export.rs`, `crates/ui/src/panels/collage/clips.rs`, `crates/ui/tests/export_video.rs`, `docs/creating.md`
-  - scope: `creating.md` §2 and §3, as the answer builds them: Export's "Export videos as: (•)
+  - scope: `creating.md` §2 and §3, for the codecs M15.46's record passes: Export's "Export videos as: (•)
     First frame ( ) Full video (no resizing)" live (disabled without videos): the poster frame
     (M15.20) exported as a JPEG like a photo, or the file copied as it is under the export's
     numbered name, never replacing; a collage takes videos (M15.16's notice removed from
     `create.collage` and `collage.clips.add`): the layouts use the poster's ratio, M14.17's output
     renders the poster frame (M15.20) at the size its place needs, the room's Clips show the clip
-    with its duration pill, and the `.dalica-collage` recipe holds it as any clip; descoped to
-    tiles, a collage keeps leaving videos out; `creating.md` records it.
-  - done when: `crates/create/tests/export_video.rs`: an export of two photos and a clip as first
-    frame writes three JPEGs, as full video two JPEGs and the clip byte for byte;
-    `crates/engine/tests/collage_video.rs`: a collage with a clip places its poster and the render
-    shows it and Edit Collage reopens it with the clip; `crates/ui/tests/export_video.rs`
-    (headless): the row is live with a video held and disabled without.
+    with its duration pill, and the `.dalica-collage` recipe holds it as any clip; a clip of a
+    failed codec has no poster: as first frame it is skipped and counted with the reason, as full
+    video it is copied like any clip, and a collage keeps leaving it out with M15.16's notice;
+    `creating.md` records it.
+  - done when: `crates/create/tests/export_video.rs`: an export of two photos and a playable clip
+    as first frame writes three JPEGs, as full video two JPEGs and the clip byte for byte; with a
+    clip of a failed codec added, first frame skips and counts it with the reason and full video
+    copies it; `crates/engine/tests/collage_video.rs`: a collage with a playable clip places its
+    poster, the render shows it and Edit Collage reopens it with the clip, and a clip of a failed
+    codec is left out with the notice; `crates/ui/tests/export_video.rs` (headless): the row is
+    live with a video held and disabled without. If the record passes no video codec, the PR names
+    `OUT-EXPORT`'s first frames and `OUT-COLLAGE`'s videos as leaving for M15.R.
 - ⬜ **M15.29 `ui`: the window's AccessKit tree, keyboard-only use and scaling**
   - after: M15.14, M15.21, M15.22
   - files: `crates/ui/src/a11y.rs`, `crates/ui/src/a11y/**`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/panels/menubar.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/folders/model.rs`, `crates/ui/tests/accessibility.rs`, `crates/ui/tests/keyboard_only.rs`, `crates/ui/tests/scaling.rs`, `docs/ui-layout.md`, `docs/design-system.md`
@@ -10337,13 +10470,16 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     controls; `crates/ui/tests/scaling.rs`: at scale 1.5 and the large font nothing in those views
     is clipped at 1400 × 900.
 - ⬜ **M15.30 `mcp` (reserved decision 2): videos over MCP, and the workflow W17**
-  - after: M15.25, M14.21
+  - after: M15.25, M14.21, M15.46
   - files: `crates/mcp/tests/workflows/w17_video.rs`, `crates/mcp/tests/workflows/main.rs`, `crates/mcp/src/headless.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
   - scope: `mcp.md` §9: W17 (**video**: `scan_folder` on a folder of two photos and a clip →
-    `photo_info` shows the clip's kind, duration and date → `cmd_video_inspect` → with decoding,
-    `cmd_edit_recipe_set` with `trim(500,1500)`, `cmd_video_save_frame` at 1 s → a JPEG in the
-    Video Frames project → `cmd_export_run` with first frames writes three JPEGs; descoped, the
-    steps up to `cmd_video_inspect` and the export's count, as M15.1 fits it); headless mode
+    `photo_info` shows the clip's kind, duration and date → `cmd_video_inspect` (playable or not,
+    with the reason) → on a clip of a codec M15.46's record passes, `cmd_edit_recipe_set` with
+    `trim(500,1500)`, `cmd_video_save_frame` at 1 s → a JPEG in the Video Frames project →
+    `cmd_export_run` with first frames writes three JPEGs; a clip of a failed codec is inspected as
+    unplayable, its Save Frame refused with the reason and the export counting it; if the record
+    passes no video codec, W17 is the steps up to `cmd_video_inspect` and the export's count);
+    headless mode
     playing with the silent `Sound`; the floor in `xtask/src/stats.rs` raised to the seventeen
     workflows now required; `mcp.md`'s table and status line; row `SYS-MCP`.
   - done when: `cargo test -p dalica-mcp` runs W17 green; `cargo xtask stats` prints 17 / 17
@@ -10381,12 +10517,13 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     each tab, both rooms, the slideshow with its bar and the viewer, every text drawn is bracketed
     except user data; no label clips at 1400 × 900 and 900 × 600; `cargo xtask i18n` passes.
 - ⬜ **M15.34 `image` + `engine` + `ui` + `xtask`: M15's budgets: videos, cameras, AccessKit and translations**
-  - after: M15.19, M15.20, M15.26, M15.29
+  - after: M15.19, M15.20, M15.26, M15.29, M15.46
   - files: `crates/image/benches/video.rs`, `crates/engine/benches/video.rs`, `crates/engine/benches/import_camera.rs`, `crates/ui/benches/a11y.rs`, `crates/ui/benches/i18n.rs`, `xtask/src/bench.rs`, `docs/development.md`
   - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`
     and the local release budgets, each documented in §8 and §13 with its machine: `video_probe`
-    (probing 1 000 containers); `video_play` (a clip's poster and its thumbnails, a frame step,
-    and the playing frame time, as M15.1 fitted the decoding); `camera_import` (300 objects from
+    (probing 1 000 containers); `video_play` (per codec M15.46's record passes, on its corpus
+    clips at 1080p and 4K: a clip's poster and its thumbnails, a frame step, and the playing frame
+    time; a failed codec has none, and the PR says so); `camera_import` (300 objects from
     the in-memory responder, files per second); `a11y_frame` (the library's frame at 100 000 photos
     with AccessKit on against off); `i18n_frame` (the same frame in the pseudo-locale against
     English); budgets at 1.5 × their first measurement, the playing frame within 16 ms at p95 and
@@ -10396,22 +10533,33 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: `cargo xtask bench video_probe`, `video_play`, `camera_import`, `a11y_frame` and
     `i18n_frame` print their numbers (in the PR); `cargo xtask budgets` passes with them and
     `--plant-ms` makes each fail.
-- ⬜ **M15.35 `ui` + docs: catalogs for the first languages**
-  - after: M15.1, M15.8, M15.31, M15.32, M15.33
-  - files: `crates/ui/src/i18n/*.tsv`, `crates/ui/src/i18n/LICENSE-translations.txt`, `crates/ui/src/i18n/languages.rs`, `crates/ui/tests/i18n_languages.rs`, `crates/ui/tests/fingerprints/i18n-*.json`, `xtask/src/ci.rs`, `docs/localization.md`, `docs/localization-*.md`, `ATTRIBUTION.md`
-  - scope: the languages the maintainer chose at M14.R (M15.1 names them here): one catalog each,
-    written from the meaning of Dalica's English text (`localization.md` → Clean-room translations;
-    machine-assisted drafts marked for the fluent reviewer the check-in asks for), registered in
-    `LANGUAGES` with code, endonym, script and plural rule, `complete_menus: true` once it covers
-    every enforced key; a style guide `docs/localization-<code>.md` each (terminology, conventions,
-    coverage with the revision checked); `LICENSE-translations.txt` and the `ATTRIBUTION.md` row; a
-    CJK language checked for glyphs with `CRAFT_FONTS_DIR`; `cargo xtask i18n` joined to `cargo
+- ⬜ **M15.35 `ui` + docs: the first languages: English and Thai**
+  - after: M15.1, M15.8, M15.31, M15.32, M15.33, M15.47
+  - files: `crates/ui/src/i18n/*.tsv`, `crates/ui/src/i18n/LICENSE-translations.txt`, `crates/ui/src/i18n/languages.rs`, `crates/ui/src/i18n/catalog.rs`, `crates/ui/tests/i18n_languages.rs`, `crates/ui/tests/fingerprints/i18n-*.json`, `xtask/src/i18n.rs`, `xtask/src/ci.rs`, `docs/localization.md`, `docs/localization-*.md`, `ATTRIBUTION.md`
+  - scope: the maintainer's answer at M14.R (2026-10-19): **English and Thai for 1.0, if Thai can
+    be done**, as `docs/thai-text.md` (M15.47) decides. English is the source and needs no
+    catalog. If the spike passed: `crates/ui/src/i18n/th.tsv`, written from the meaning of Dalica's
+    English text (`localization.md` → Clean-room translations), registered in `LANGUAGES` (`th`,
+    endonym ไทย, script `Thai`, plural rule: one form), `complete_menus: true` once it covers every
+    enforced key; Thai's line breaks applied as M15.47 chose (`linebreak::mark` on catalog text at
+    load, or the marks written into the catalog by `cargo xtask i18n`); every machine-assisted
+    entry marked as a draft for the fluent review (a mark `localization.md` defines, added here if
+    it has none), counted by `cargo xtask i18n`, so the maintainer's wife can review the catalog
+    at M15.R; the style guide `docs/localization-th.md` (terminology, register, the photography
+    vocabulary, how Dalica's feature names are rendered, coverage with the revision checked); Thai's
+    glyph and shaping check with `CRAFT_FONTS_DIR` (Noto Sans Thai) in place of the CJK check;
+    `LICENSE-translations.txt` and the `ATTRIBUTION.md` row. If the spike failed: 1.0 ships
+    English only, no Thai catalog is registered, and `localization.md` and `SYS-I18N` say Thai
+    follows after 1.0 with the spike's reason. Either way: `cargo xtask i18n` joined to `cargo
     xtask ci`; `localization.md`'s status and its languages.
-  - done when: `cargo xtask i18n` passes inside `cargo xtask ci` with every chosen language
-    complete for menus; `crates/ui/tests/i18n_languages.rs`: each language's plurals for 0, 1, 2, 5
-    and 21 read right; the library, the edit view and the Options dialog in each language have no
-    clipped label at 1400 × 900 and 900 × 600 and (with the fonts) no missing glyph; a fingerprint
-    per language of the library at 1400 × 900.
+  - done when: `cargo xtask i18n` passes inside `cargo xtask ci` (with Thai complete for menus, and
+    its draft count printed, when the spike passed); `crates/ui/tests/i18n_languages.rs`: Thai's
+    single plural form reads right for 0, 1, 2, 5 and 21; the library, the edit view and the
+    Options dialog in Thai have no clipped label at 1400 × 900 and 900 × 600, wrap only at word
+    boundaries and (with the fonts) have no missing glyph and no misplaced mark; switching between
+    English and Thai keeps the open view, the selection and the undo history; a fingerprint of the
+    library in Thai at 1400 × 900. If the spike failed: `LANGUAGES` lists English only, the
+    pseudo-locale sweep still passes, and the PR names `SYS-I18N`'s Thai as leaving for M15.R.
 - ⬜ **M15.41 `create` + `edit` + `engine`: M14's loose ends: two READMEs and one ratio table**
   - after: M14.R
   - files: `crates/create/README.md`, `crates/edit/README.md`, `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`
@@ -10470,8 +10618,45 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: a test in `apps/dalica-cli/tests/cli.rs` spawns the binary for `commands` and
     `inspect` with stdout piped, reads a few bytes and closes it, and the process exits 0 with no
     panic message; it fails before the fix; `grep` finds no `println!` in `apps/dalica-cli/src`.
+- ⬜ **M15.48 `ui`: a grouped Places marker's commands take the whole group**
+  - after: M14.R
+  - files: `crates/ui/src/commands/places.rs`, `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/markers.rs`, `crates/ui/src/panels/places/bubble.rs`, `crates/ui/tests/places_pane.rs`, `docs/organizing.md`
+  - scope: M14.29's follow-up, found at M14.R: the bubble of a grouped marker counts, shows,
+    selects and clears every photo the marker counts, but the commands `places.showPhotos` and
+    `places.removeLocation` (`{marker?: n}`) still act on place n alone, so the control channel,
+    MCP and a key binding see a different answer than a click; the commands take the group the map
+    last drew place n in (the pane's groups kept in the view state each frame, or computed from
+    the view state's view with `ui-kit`'s `group_markers` as the pane does, the commit body saying
+    which and the alternative), the bubble's buttons run the commands instead of their own
+    `group_action`, a marker of one place unchanged; headless (no map drawn) the grouping follows
+    the view state's zoom and centre the same way; `organizing.md` §7 loses "(the `places.*`
+    commands still act on one place)" (its deepest-zoom sentence already reads right on `main`);
+    the commands' `params` text says they take the group.
+  - done when: `crates/ui/tests/places_pane.rs`: with two photos at two places grouped at zoom 6,
+    `places.showPhotos {marker}` over the control channel selects both and
+    `places.removeLocation` clears both in one undo step (each failing before the fix); zoomed in
+    until they part, each marker's command takes its one photo; M14.29's test passes unchanged.
+- ⬜ **M15.49 `ui` + `mcp` + acceptance: three tests that fail on one CPU or on Windows**
+  - after: M14.R
+  - files: `crates/ui/tests/effect_tiles.rs`, `crates/ui/tests/fingerprints/edit-effects-tab*.json`, `crates/mcp/tests/output_tools.rs`, `tests/acceptance/m11_live.rs`
+  - scope: found at M14.R: (1) ui `effect_tiles::each_tabs_grid_matches_its_fingerprint` fails
+    under `taskset -c 0`: it fingerprints the grid before the tiles' previews arrive (the
+    placeholder grid), passing only when the workers win the race on more CPUs: the test waits for
+    the tiles (`wait_tiles`) before the fingerprint, and the baselines are re-blessed only if they
+    were made of placeholders (diff images on the PR, the reason in the commit body); (2) mcp
+    `output_tools::a_cancelled_export_leaves_only_complete_files` flaked once on Windows:
+    reproduce under load and on one CPU, find the race (the cancel arriving after the last file, a
+    file seen half-written, a rename not yet visible) and fix it in the test's synchronisation or,
+    when the product is at fault, in the product through the lead (`AGENTS.md` §7), never with a
+    looser check; (3) the `m11_live` acceptance launcher sets `HOME` and the XDG folders but not
+    `USERPROFILE`, so on Windows the live app can reach the real profile: it sets `USERPROFILE`
+    (and any other folder variable `m14_mcp` and `m14_collage` set) inside the test's home.
+  - done when: (1) passes 200 runs under `taskset -c 0` and on all CPUs; (2) passes 200 runs under
+    `taskset -c 0` and the PR says what the race was (the review's Windows run confirms it); (3)
+    a test of the launcher's environment (or an assertion in `m11_live`) fails without
+    `USERPROFILE` inside the test's home; the review's Windows run passes `accept M11`.
 - ⬜ **M15.36 `docs`: the 1.0 parity and security audit**
-  - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34, M15.41, M15.42
+  - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34, M15.41, M15.42, M15.45, M15.48, M15.49
   - files: `docs/parity.md`, `docs/product.md`, `docs/security.md`
   - scope: `process.md` §5 for 1.0: every row re-measured (its cited tests run, its evidence checked
     against the code), ✅ only with that evidence, a wrong ✅ downgraded with a note; the P0 and P1
@@ -10512,7 +10697,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     target; the advisory check passes on `main` with the recorded exception and fails on a planted
     unrecorded advisory; a release dry run attaches the SBOMs.
 - ⬜ **M15.37 `accept M15`**
-  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44, M15.45
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44, M15.45, M15.48, M15.49
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
@@ -10572,26 +10757,28 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: prepared: page published, PR open, both linked on the issue.
 
 Waves (inside a wave, "‖" separates tasks whose `files` do not overlap; "(2)" marks a task that
-waits on reserved decision 2 through M15.1):
+builds reserved decision 2's answer from M15.46's record):
 
 ```text
 wave 1   M15.1 lead: M14.R's answers  ‖  M15.2 video probe  ‖  M15.3 model: videos + M14.1's ops
          ‖  M15.4 engine modules + Os + Sound  ‖  M15.5 ui state + stubs  ‖  M15.6 ui-kit video + icons
          ‖  M15.7 i18n core  ‖  M15.8 fallback faces  ‖  M15.9 PTP reader  ‖  M15.10 Windows signing
-         ‖  M15.41 M14's loose ends  ‖  M15.44 look fixes  ‖  M15.45 CLI broken pipe
-         (once M14.R is closed)
+         ‖  M15.41 M14's loose ends  ‖  M15.44 look fixes  ‖  M15.46 video decoder spike
+         ‖  M15.45 CLI broken pipe  ‖  M15.48 grouped marker commands  ‖  M15.49 one-CPU/Windows tests
+         (once M14.R is closed; M15.46, M15.48 and M15.49 added by M15.1)
 wave 2   M15.11 videos on scan  ‖  M15.12 platform services  ‖  M15.13 macOS signing
          ‖  M15.14 ui-kit AccessKit  ‖  M15.15 video frames (2)  ‖  M15.17 OS commands
          ‖  M15.19 camera import  ‖  M15.39 fuzz targets  ‖  M15.42 M14.25's follow-ups
+         ‖  M15.47 Thai text spike (after M15.8)
 wave 3   M15.16 videos in the session  ‖  M15.18 one Dalica  ‖  M15.22 OS integration in the window
          ‖  M15.40 SBOM + advisories
 wave 4   M15.20 poster frames (2)  ‖  M15.21 video cells  ‖  M15.23 drag out  ‖  M15.24 default viewer
          ‖  M15.25 playback, trim, Save Frame (2)
-wave 5   M15.26 the player (2)  ‖  M15.27 slideshow sound (2)  ‖  M15.28 Export + collage videos (2)
+wave 5   M15.26 the player (2)  ‖  M15.27 sound per OS + slideshow (2)  ‖  M15.28 Export + collage videos (2)
          ‖  M15.29 AccessKit window + keyboard  ‖  M15.30 W17 (2)
 wave 6   M15.31 strings: window  ‖  M15.32 strings: dialogs  ‖  M15.33 strings: views
          ‖  M15.34 M15 budgets
-wave 7   M15.35 catalogs (first languages)  ‖  M15.36 1.0 parity + security audit
+wave 7   M15.35 English + Thai (M15.47)  ‖  M15.36 1.0 parity + security audit
 wave 8   M15.37 accept M15 → M15.R          (M15.38 lead: M16 blocks, any time after M15.1)
 ```
 
@@ -10614,7 +10801,17 @@ Record the decision here with a date when made.
    LightCraft and PhotoCraft share Dalica's licence, so their code may be copied and adapted with
    a header naming its origin and a `NOTICE` row. The reference organizer's code is never looked
    at or used. crates.io libraries stay allowed after the dependency check (`architecture.md` §9).
-2. Video: pure-Rust decoding vs optional external process (M15).
+2. Video: pure-Rust decoding vs optional external process (M15). **Decided 2026-10-19 (the
+   maintainer, at M14.R): pure-Rust decoders for H.264 and HEVC** (candidates found at the review:
+   `rust_h264`, `rusty_h264` without default features, `rusty_h265`, `rust_h265`; young, their
+   claims not yet run on real phone files): M15 starts with a spike on real phone files (M15.46),
+   and a codec that fails falls back to tiles only (probe, cells, the Videos filter, "This video
+   can't be played" with Open With). Its sound: **pure-Rust output per OS** (a PulseAudio-protocol
+   client on Linux, WASAPI through the `windows` crate, CoreAudio through `objc2-core-audio`), each
+   through `cargo xtask deps` (M15.27). Asked with it, the first languages: **English and Thai for
+   1.0, if Thai can be done** (shaping of its stacked vowels and tone marks and dictionary line
+   breaking, proven pure-Rust in a spike, M15.47; if not, 1.0 ships English only and Thai
+   follows), and the maintainer's wife reviews the Thai catalog at M15.R (M15.35).
 3. Metadata write defaults. **Decided 2026-10-09:** captions, tags, places and date changes are
    written into the photo files' metadata by default (pixels never change without Save); stars as
    XMP ratings off.
