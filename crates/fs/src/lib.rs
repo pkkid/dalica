@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 pub use append::{Appender, append, rotate};
 pub use aside::set_aside;
 pub use atomic::{Expect, Identity, Read, identity, read, replace, replace_private};
+pub use create::exact_file;
 pub use dirs::{TempDir, create_dir_all, create_private_dir_all, remove_own_file};
 pub use guard::{UiThread, mark_ui_thread};
 pub use lock::LibraryLock;
@@ -57,6 +58,10 @@ pub enum Error {
     /// The target is not what the caller read: it changed, appeared or vanished since (`security.md` §5.3).
     #[error("{} changed on disk since it was read", .0.display())]
     Changed(PathBuf),
+    /// A file, folder or link is there under the exact name a new file was to get
+    /// (`create::exact_file`); it was kept as it is and nothing was written.
+    #[error("{} already exists; Dalica never replaces it", .0.display())]
+    Exists(PathBuf),
     /// The target is a symbolic link; writes never go through a link (`security.md` §5.6).
     #[error("{} is a symbolic link; Dalica does not write through links", .0.display())]
     Link(PathBuf),

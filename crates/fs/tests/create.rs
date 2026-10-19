@@ -1,5 +1,6 @@
 //! New files and folders that never replace one (`security.md` §5.4, `data-model.md` §6): the
-//! first free collision name, races for one name, every fault point, hostile names.
+//! first free collision name, races for one name, every fault point, hostile names; a file created
+//! under its exact name or not at all (`exact_file`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -7,8 +8,8 @@ use std::path::Path;
 use std::sync::{Arc, Barrier};
 
 use crate::common::{names, temps};
-use dalica_fs::create::{new_file, new_folder};
-use dalica_fs::faults::{Fault, NEW_FILE_DIRECT_POINTS, NEW_FILE_POINTS, NEW_FOLDER_POINTS, arm, disarm_all, points};
+use dalica_fs::create::{EXACT_FILE_POINTS, VERIFY_TEMP, exact_file, new_file, new_folder};
+use dalica_fs::faults::{Fault, NEW_FILE_DIRECT_POINTS, NEW_FILE_POINTS, NEW_FOLDER_POINTS, arm, disarm_all, points, run_at};
 use dalica_fs::{Error, guard, identity};
 
 const JPEG: &[u8] = b"\xff\xd8\xff\xe0 a new rendering \xff\xd9";
@@ -255,7 +256,6 @@ fn a_missing_folder_and_the_ui_thread_are_refused() {
 #[cfg(unix)]
 #[test]
 fn a_folder_swapped_for_a_link_never_receives_the_new_file() {
-    use dalica_fs::faults::run_at;
     let root = tempfile::tempdir().unwrap();
     let (photos, moved, elsewhere) = (root.path().join("photos"), root.path().join("photos.moved"), root.path().join("elsewhere"));
     fs::create_dir(&photos).unwrap();
@@ -269,4 +269,151 @@ fn a_folder_swapped_for_a_link_never_receives_the_new_file() {
     disarm_all();
     assert_eq!(fs::read(moved.join(&made.name)).unwrap(), JPEG);
     assert!(names(&elsewhere).is_empty());
+}
+
+const JSON: &[u8] = b"{\"photos\": {\"a.jpg\": {\"star\": true}}}\n";
+
+#[test]
+fn an_exact_file_gets_its_name_or_nothing_and_never_replaces() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = exact_file(dir.path(), ".dalica.json", JSON).unwrap();
+    assert_eq!(fs::read(dir.path().join(".dalica.json")).unwrap(), JSON);
+    assert_eq!(identity(&dir.path().join(".dalica.json")).unwrap(), Some(id));
+    // Taken by a file (even its own earlier write), a folder or a link: kept as it is.
+    assert!(matches!(exact_file(dir.path(), ".dalica.json", b"{}"), Err(Error::Exists(p)) if p == dir.path().join(".dalica.json")));
+    assert_eq!(fs::read(dir.path().join(".dalica.json")).unwrap(), JSON);
+    fs::create_dir(dir.path().join("x.json")).unwrap();
+    assert!(matches!(exact_file(dir.path(), "x.json", JSON), Err(Error::Exists(_))));
+    assert!(dir.path().join("x.json").is_dir());
+    #[cfg(unix)]
+    {
+        fs::write(dir.path().join("target.json"), b"target").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("target.json"), dir.path().join("l.json")).unwrap();
+        assert!(matches!(exact_file(dir.path(), "l.json", JSON), Err(Error::Link(_))));
+        assert_eq!(fs::read(dir.path().join("target.json")).unwrap(), b"target");
+        std::os::unix::fs::symlink(dir.path().join("gone.json"), dir.path().join("dangling.json")).unwrap();
+        assert!(matches!(exact_file(dir.path(), "dangling.json", JSON), Err(Error::Link(_))));
+        assert!(!dir.path().join("gone.json").exists(), "never created through a dangling link");
+    }
+    assert_eq!(temps(dir.path()), 0);
+}
+
+/// The name appears between every check and the commit, on a volume with links and on one
+/// without: the file there keeps its bytes and the answer is `Exists`; no temporary file is left.
+#[test]
+fn a_file_that_appears_just_before_the_commit_is_kept_byte_identical() {
+    for links in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let planted = dir.path().join(".dalica.json");
+        let p = planted.clone();
+        let point = if links { points::NEW_COMMIT } else { points::NEW_NO_LINKS };
+        run_at(point, move || fs::write(&p, b"made by another program").unwrap());
+        if !links {
+            arm(points::NEW_NO_LINKS, Fault::Error);
+        }
+        let err = exact_file(dir.path(), ".dalica.json", JSON).unwrap_err();
+        disarm_all();
+        assert!(matches!(err, Error::Exists(ref p) if *p == planted), "links {links}: {err}");
+        assert_eq!(fs::read(&planted).unwrap(), b"made by another program", "links {links}");
+        assert_eq!(names(dir.path()), [".dalica.json"], "links {links}");
+    }
+}
+
+/// Every fault point of an exact create, as an error and as a crash: no file under the name before
+/// the commit, the whole verified bytes after it; an error leaves no temporary file, a crash at
+/// most one; afterwards the write succeeds.
+#[test]
+fn each_exact_file_fault_point_leaves_no_file_or_the_whole_file() {
+    let commit = EXACT_FILE_POINTS.iter().position(|p| *p == points::NEW_COMMIT).unwrap();
+    assert!(EXACT_FILE_POINTS.iter().position(|p| *p == VERIFY_TEMP).unwrap() < commit, "the temporary file is verified before the commit");
+    for (i, point) in EXACT_FILE_POINTS.into_iter().enumerate() {
+        for fault in [Fault::Error, Fault::Crash] {
+            let dir = tempfile::tempdir().unwrap();
+            let case = format!("{point} {fault:?}");
+            arm(point, fault);
+            let err = exact_file(dir.path(), ".dalica.json", JSON).unwrap_err();
+            disarm_all();
+            match fault {
+                Fault::Crash => assert!(matches!(err, Error::Crashed(p) if p == point), "{case}: {err}"),
+                Fault::Error => assert!(matches!(err, Error::Io { .. }), "{case}: {err}"),
+            }
+            let file = fs::read(dir.path().join(".dalica.json")).ok();
+            assert_eq!(file.as_deref(), (i > commit).then_some(JSON), "{case}");
+            match fault {
+                Fault::Error => assert_eq!(temps(dir.path()), 0, "{case}"),
+                Fault::Crash => assert!(temps(dir.path()) <= 1, "{case}"),
+            }
+            if file.is_none() {
+                exact_file(dir.path(), ".dalica.json", JSON).unwrap();
+                assert_eq!(fs::read(dir.path().join(".dalica.json")).unwrap(), JSON, "{case}");
+            }
+        }
+    }
+    // A volume without links: an error removes its own file; after the bytes are durable the file
+    // is whole (a crash mid-write there may leave it torn, the one case without a temporary file).
+    for point in std::iter::once(points::NEW_NO_LINKS).chain(NEW_FILE_DIRECT_POINTS) {
+        for fault in [Fault::Error, Fault::Crash] {
+            if point == points::NEW_NO_LINKS && fault == Fault::Error {
+                continue;
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let case = format!("{point} {fault:?}");
+            if point != points::NEW_NO_LINKS {
+                arm(points::NEW_NO_LINKS, Fault::Error);
+            }
+            arm(point, fault);
+            assert!(exact_file(dir.path(), ".dalica.json", JSON).is_err(), "{case}");
+            disarm_all();
+            let file = fs::read(dir.path().join(".dalica.json")).ok();
+            match (point, fault) {
+                (points::NEW_NO_LINKS, _) | (points::NEW_DIRECT_WRITE | points::NEW_DIRECT_FSYNC, Fault::Error) => assert_eq!(file, None, "{case}"),
+                (points::NEW_DIRECT_FSYNC | points::NEW_FSYNC_DIR | points::NEW_VERIFY, _) => assert_eq!(file.as_deref(), Some(JSON), "{case}"),
+                _ => {}
+            }
+            if fault == Fault::Error {
+                assert_eq!(temps(dir.path()), 0, "{case}");
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    arm(points::NEW_NO_LINKS, Fault::Error);
+    exact_file(dir.path(), ".dalica.json", JSON).unwrap();
+    disarm_all();
+    assert_eq!(fs::read(dir.path().join(".dalica.json")).unwrap(), JSON);
+    assert_eq!(names(dir.path()), [".dalica.json"]);
+}
+
+#[test]
+fn an_exact_file_refuses_hostile_names_parent_paths_and_the_ui_thread() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("photos");
+    fs::create_dir(&dir).unwrap();
+    let long = "x".repeat(256);
+    for name in [
+        "",
+        ".",
+        "..",
+        "../escape.json",
+        "sub/x.json",
+        "sub\\x.json",
+        "C:x.json",
+        "x.json:stream",
+        "nul\0.json",
+        "CON",
+        "aux.json",
+        ".x.json.dalica-tmp-0123456789abcdef",
+        "trailing.",
+        "trailing ",
+        "line\nbreak.json",
+        long.as_str(),
+    ] {
+        assert!(matches!(exact_file(&dir, name, JSON), Err(Error::Io { .. })), "{name:?}");
+    }
+    assert!(matches!(exact_file(&dir.join("..").join("photos"), "x.json", JSON), Err(Error::Io { .. })));
+    assert!(exact_file(&root.path().join("gone"), "x.json", JSON).is_err());
+    let _ui = guard::mark_ui_thread();
+    assert!(matches!(exact_file(&dir, "x.json", JSON), Err(Error::OnUiThread)));
+    drop(_ui);
+    assert!(names(&dir).is_empty());
+    assert_eq!(names(root.path()), ["photos"]);
 }

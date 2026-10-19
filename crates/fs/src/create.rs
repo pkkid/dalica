@@ -18,6 +18,14 @@
 //! name exclusive creation (`O_EXCL`) gives; there a crash can leave a torn file under the new name
 //! (never under an existing one), the only case without the temporary file.
 //!
+//! [`exact_file`] writes a file under one exact name or not at all (the first `.dalica.json` of a
+//! folder the previous organizer managed, `data-model.md` §9): the same temporary file, written,
+//! `fsync`ed and read back **before** the commit, then the same one step that never replaces, for
+//! that one name only. A file of the name that appears at any moment before the commit is kept
+//! byte for byte and the answer is [`Error::Exists`] (or [`Error::Link`] when it is a link); there
+//! is no "check, then create" window. A crash leaves either no file under the name or the whole
+//! verified bytes, except on a volume without links (the exclusive creation above).
+//!
 //! [`new_folder`] makes a folder under the first free name (`Export`, `Export-001`, …).
 //!
 //! Names are one plain path component ([`plain_name`]) that is fit for a new file: the caller
@@ -28,14 +36,14 @@ use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read as _, Write as _};
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
 use dalica_core::names::{MAX_NAME_BYTES, MAX_NUMBER, candidates};
 
 use crate::atomic::{Identity, is_temp_name};
-use crate::dirfd::{Folder, NoReplace};
+use crate::dirfd::{Folder, Kind, NoReplace};
 use crate::faults::{self, Fault, points};
 use crate::{Error, Result, guard, io_err};
 
@@ -51,6 +59,12 @@ pub struct Created {
 /// `name:stream`), not a Windows reserved device name (`CON`, `nul.txt`, `COM1`, …), at most 255
 /// bytes, and not one of Dalica's own names (`.dalica.json`, `.dalica-originals`, a temporary).
 pub fn plain_name(name: &str) -> bool {
+    one_component(name) && !name.starts_with(".dalica")
+}
+
+/// One path component that names no device and no temporary file: [`plain_name`] without the
+/// check for Dalica's own names (an [`exact_file`] may be one of them).
+fn one_component(name: &str) -> bool {
     const RESERVED: [&str; 22] = [
         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
         "LPT6", "LPT7", "LPT8", "LPT9",
@@ -58,7 +72,7 @@ pub fn plain_name(name: &str) -> bool {
     if name.is_empty() || name == "." || name == ".." || name.len() > MAX_NAME_BYTES || name.contains(['/', '\\', '\0', ':']) {
         return false;
     }
-    if name.starts_with(".dalica") || is_temp_name(OsStr::new(name)) {
+    if is_temp_name(OsStr::new(name)) {
         return false;
     }
     let stem = name.split('.').next().unwrap_or(name).trim_end();
@@ -68,7 +82,12 @@ pub fn plain_name(name: &str) -> bool {
 /// [`plain_name`], and fit for a name Dalica gives a new file: no control characters and no
 /// trailing dot or space (Windows drops those, so the file would get another name than asked).
 fn new_name(name: &str) -> bool {
-    plain_name(name) && !name.chars().any(char::is_control) && !name.ends_with(['.', ' '])
+    plain_name(name) && fit_for_windows(name)
+}
+
+/// No control characters and no trailing dot or space.
+fn fit_for_windows(name: &str) -> bool {
+    !name.chars().any(char::is_control) && !name.ends_with(['.', ' '])
 }
 
 fn refuse_name(folder: &Path, name: &str) -> Error {
@@ -87,28 +106,12 @@ pub fn new_file(folder: &Path, name: &str, bytes: &[u8]) -> Result<Created> {
     let dir = Folder::open(folder)?;
 
     // 1. The temporary file, written and made durable.
-    faults::at(points::NEW_TEMP, "create", folder)?;
-    let (tmp, mut file) = create_temp(&dir, name)?;
+    let tmp = write_temp(&dir, name, bytes)?;
     let tmp_path = dir.join(&tmp);
     let cleanup = |e: Error| {
         let _ = dir.remove(&tmp);
         e
     };
-    if let Some(fault) = faults::hit(points::NEW_WRITE) {
-        let _ = file.write_all(bytes.get(..bytes.len() / 2).unwrap_or_default());
-        return Err(match fault {
-            Fault::Error => cleanup(io_err("write", &tmp_path)(faults::injected(points::NEW_WRITE))),
-            Fault::Crash => Error::Crashed(points::NEW_WRITE),
-        });
-    }
-    file.write_all(bytes).map_err(|e| cleanup(io_err("write", &tmp_path)(e)))?;
-    match faults::hit(points::NEW_FSYNC) {
-        Some(Fault::Error) => return Err(cleanup(io_err("fsync", &tmp_path)(faults::injected(points::NEW_FSYNC)))),
-        Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_FSYNC)),
-        None => {}
-    }
-    faults::fsync(&tmp_path, || file.sync_all()).map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
-    drop(file);
 
     // 2. The first free name, never replacing a file.
     match faults::hit(points::NEW_COMMIT) {
@@ -151,18 +154,133 @@ pub fn new_file(folder: &Path, name: &str, bytes: &[u8]) -> Result<Created> {
     };
 
     // 3. Durable, then verified.
-    let path = dir.join(OsStr::new(&name));
-    faults::at(points::NEW_FSYNC_DIR, "fsync", folder)?;
+    let identity = durable_and_verified(&dir, &name, bytes)?;
+    Ok(Created { name, identity })
+}
+
+/// The points of [`exact_file`], in order, on a volume with links: those of
+/// [`faults::NEW_FILE_POINTS`] with [`VERIFY_TEMP`] before the commit.
+pub const EXACT_FILE_POINTS: [&str; 7] =
+    [points::NEW_TEMP, points::NEW_WRITE, points::NEW_FSYNC, VERIFY_TEMP, points::NEW_COMMIT, points::NEW_FSYNC_DIR, points::NEW_VERIFY];
+
+/// Fault point of [`exact_file`]: re-reading the temporary file before the commit.
+pub const VERIFY_TEMP: &str = "create.verify_temp";
+
+/// Writes `bytes` to a new file named exactly `name` in `folder` and returns its identity, or
+/// writes nothing: never replaces a file, a folder or a link of the name, whenever it appeared
+/// (see the module docs). A taken name is [`Error::Exists`], a link under it [`Error::Link`]; a
+/// name that is not one plain component (`..`, a separator, a device, a temporary name) and a
+/// folder path with `.` or `..` in it are refused with nothing written. Fault points
+/// [`EXACT_FILE_POINTS`] (and `faults::NEW_FILE_DIRECT_POINTS` after `create.no_links`).
+pub fn exact_file(folder: &Path, name: &str, bytes: &[u8]) -> Result<Identity> {
+    guard::check()?;
+    if !one_component(name) || !fit_for_windows(name) {
+        return Err(refuse_name(folder, name));
+    }
+    if folder.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
+        return Err(io_err("create", folder)(io::Error::new(io::ErrorKind::InvalidInput, "the folder path has a `.` or `..` in it")));
+    }
+    let dir = Folder::open(folder)?;
+    let target = OsStr::new(name);
+
+    // 1. The temporary file, written, made durable and read back.
+    let tmp = write_temp(&dir, name, bytes)?;
+    let tmp_path = dir.join(&tmp);
+    let cleanup = |e: Error| {
+        let _ = dir.remove(&tmp);
+        e
+    };
+    match faults::hit(VERIFY_TEMP) {
+        Some(Fault::Error) => return Err(cleanup(io_err("verify", &tmp_path)(faults::injected(VERIFY_TEMP)))),
+        Some(Fault::Crash) => return Err(Error::Crashed(VERIFY_TEMP)),
+        None => {}
+    }
+    verify(&dir, &tmp, bytes).map_err(cleanup)?;
+
+    // 2. The one name, never replacing what is there.
+    match faults::hit(points::NEW_COMMIT) {
+        Some(Fault::Error) => return Err(cleanup(io_err("rename", &tmp_path)(faults::injected(points::NEW_COMMIT)))),
+        Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_COMMIT)),
+        None => {}
+    }
+    let links = match faults::hit(points::NEW_NO_LINKS) {
+        Some(Fault::Error) => false,
+        Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_NO_LINKS)),
+        None => true,
+    };
+    let done = if links { dir.rename_noreplace(&tmp, &dir, target).map_err(cleanup)? } else { NoReplace::Unsupported };
+    match done {
+        NoReplace::Done => {}
+        NoReplace::Taken => return Err(cleanup(taken(&dir, target))),
+        NoReplace::Unsupported => {
+            let written = write_direct_once(&dir, target, bytes);
+            if !matches!(written, Err(Error::Crashed(_))) {
+                let _ = dir.remove(&tmp);
+            }
+            written?;
+        }
+    }
+
+    // 3. Durable, then verified again under its name.
+    durable_and_verified(&dir, name, bytes)
+}
+
+/// The error for a name [`exact_file`] found taken: [`Error::Link`] when it is a link.
+fn taken(dir: &Folder, name: &OsStr) -> Error {
+    match dir.entry(name) {
+        Ok(Some(e)) if e.kind == Kind::Link => Error::Link(dir.join(name)),
+        _ => Error::Exists(dir.join(name)),
+    }
+}
+
+/// A temporary file for `name` in `dir` holding `bytes`, made durable (fault points
+/// `create.temp`, `create.write`, `create.fsync`); an error removes it, a crash leaves it.
+fn write_temp(dir: &Folder, name: &str, bytes: &[u8]) -> Result<OsString> {
+    faults::at(points::NEW_TEMP, "create", dir.path())?;
+    let (tmp, mut file) = create_temp(dir, name)?;
+    let tmp_path = dir.join(&tmp);
+    let cleanup = |e: Error| {
+        let _ = dir.remove(&tmp);
+        e
+    };
+    if let Some(fault) = faults::hit(points::NEW_WRITE) {
+        let _ = file.write_all(bytes.get(..bytes.len() / 2).unwrap_or_default());
+        return Err(match fault {
+            Fault::Error => cleanup(io_err("write", &tmp_path)(faults::injected(points::NEW_WRITE))),
+            Fault::Crash => Error::Crashed(points::NEW_WRITE),
+        });
+    }
+    file.write_all(bytes).map_err(|e| cleanup(io_err("write", &tmp_path)(e)))?;
+    match faults::hit(points::NEW_FSYNC) {
+        Some(Fault::Error) => return Err(cleanup(io_err("fsync", &tmp_path)(faults::injected(points::NEW_FSYNC)))),
+        Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_FSYNC)),
+        None => {}
+    }
+    faults::fsync(&tmp_path, || file.sync_all()).map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
+    Ok(tmp)
+}
+
+/// The folder made durable, then `name` read back and compared with `bytes` (fault points
+/// `create.fsync_dir`, `create.verify`); returns its identity.
+fn durable_and_verified(dir: &Folder, name: &str, bytes: &[u8]) -> Result<Identity> {
+    let path = dir.join(OsStr::new(name));
+    faults::at(points::NEW_FSYNC_DIR, "fsync", dir.path())?;
     dir.sync()?;
     faults::at(points::NEW_VERIFY, "verify", &path)?;
-    let back = dir.open_read(OsStr::new(&name))?;
+    verify(dir, OsStr::new(name), bytes)
+}
+
+/// Reads `name` back (never through a link) and compares it with `bytes`; returns its identity.
+fn verify(dir: &Folder, name: &OsStr, bytes: &[u8]) -> Result<Identity> {
+    let path = dir.join(name);
+    let back = dir.open_read(name)?;
     let identity = Identity::of_file(&back).map_err(io_err("verify", &path))?;
     let mut read_back = Vec::with_capacity(bytes.len());
     back.take(u64::try_from(bytes.len()).unwrap_or(u64::MAX).saturating_add(1)).read_to_end(&mut read_back).map_err(io_err("verify", &path))?;
     if read_back != bytes {
         return Err(Error::VerifyFailed(path));
     }
-    Ok(Created { name, identity })
+    Ok(identity)
 }
 
 /// A volume without hard links or a non-replacing rename: the bytes go straight into the first
@@ -170,30 +288,43 @@ pub fn new_file(folder: &Path, name: &str, bytes: &[u8]) -> Result<Created> {
 /// The names are exhausted when every candidate is taken.
 fn write_direct(dir: &Folder, name: &str, bytes: &[u8]) -> Result<String> {
     for candidate in candidates(name).filter(|c| new_name(c)) {
-        let os = OsString::from(&candidate);
-        let Some(mut file) = dir.create_new(&os, false)? else { continue };
-        let path = dir.join(&os);
-        let cleanup = |e: Error| {
-            let _ = dir.remove(&os);
-            e
-        };
-        if let Some(fault) = faults::hit(points::NEW_DIRECT_WRITE) {
-            let _ = file.write_all(bytes.get(..bytes.len() / 2).unwrap_or_default());
-            return Err(match fault {
-                Fault::Error => cleanup(io_err("write", &path)(faults::injected(points::NEW_DIRECT_WRITE))),
-                Fault::Crash => Error::Crashed(points::NEW_DIRECT_WRITE),
-            });
+        match write_direct_one(dir, OsStr::new(&candidate), bytes)? {
+            Some(()) => return Ok(candidate),
+            None => continue,
         }
-        file.write_all(bytes).map_err(|e| cleanup(io_err("write", &path)(e)))?;
-        match faults::hit(points::NEW_DIRECT_FSYNC) {
-            Some(Fault::Error) => return Err(cleanup(io_err("fsync", &path)(faults::injected(points::NEW_DIRECT_FSYNC)))),
-            Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_DIRECT_FSYNC)),
-            None => {}
-        }
-        faults::fsync(&path, || file.sync_all()).map_err(|e| cleanup(io_err("fsync", &path)(e)))?;
-        return Ok(candidate);
     }
     Err(no_free_name(dir.path(), name))
+}
+
+/// [`write_direct`] for one exact name: [`Error::Exists`] (or [`Error::Link`]) when it is taken.
+fn write_direct_once(dir: &Folder, name: &OsStr, bytes: &[u8]) -> Result<()> {
+    write_direct_one(dir, name, bytes)?.ok_or_else(|| taken(dir, name))
+}
+
+/// The bytes written into `name` by exclusive creation and made durable; `None` when the name is
+/// taken (nothing written). A failure removes the file (it is ours, made a moment ago).
+fn write_direct_one(dir: &Folder, name: &OsStr, bytes: &[u8]) -> Result<Option<()>> {
+    let Some(mut file) = dir.create_new(name, false)? else { return Ok(None) };
+    let path = dir.join(name);
+    let cleanup = |e: Error| {
+        let _ = dir.remove(name);
+        e
+    };
+    if let Some(fault) = faults::hit(points::NEW_DIRECT_WRITE) {
+        let _ = file.write_all(bytes.get(..bytes.len() / 2).unwrap_or_default());
+        return Err(match fault {
+            Fault::Error => cleanup(io_err("write", &path)(faults::injected(points::NEW_DIRECT_WRITE))),
+            Fault::Crash => Error::Crashed(points::NEW_DIRECT_WRITE),
+        });
+    }
+    file.write_all(bytes).map_err(|e| cleanup(io_err("write", &path)(e)))?;
+    match faults::hit(points::NEW_DIRECT_FSYNC) {
+        Some(Fault::Error) => return Err(cleanup(io_err("fsync", &path)(faults::injected(points::NEW_DIRECT_FSYNC)))),
+        Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_DIRECT_FSYNC)),
+        None => {}
+    }
+    faults::fsync(&path, || file.sync_all()).map_err(|e| cleanup(io_err("fsync", &path)(e)))?;
+    Ok(Some(()))
 }
 
 fn no_free_name(folder: &Path, name: &str) -> Error {
