@@ -21,6 +21,83 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.8.0 — October 2026
+
+Dalica now knows who and where: it can find the faces in your photos, group them so you can name
+people, and put photos on a map. Face finding happens entirely on your computer with a model you
+choose to download, and Dalica connects to nothing unless you allow it.
+
+### People
+
+- Tools ▸ Face Model… lists the face models Dalica offers (YuNet to find faces, SFace or AuraFace
+  to tell them apart) with their licences and what is known about how they were made. Nothing is
+  downloaded until you tick that you accept the licence; a download can be stopped and picks up
+  where it left off, and every file is checked before it is used. You can also add a model file
+  you already have.
+- With a model installed and Find faces in my photos on (Options ▸ People), Dalica finds faces in
+  the background at the lowest priority. It pauses while you type, scroll or drag, and the window
+  never waits for it.
+- The People group in the folder tree lists Unnamed and everyone you have named, with counts. Click
+  Unnamed to see the faces grouped by likeness, largest group first: type a name under a group to
+  name every face in it at once (Ctrl+Z takes it back), press × to ignore faces, or drag faces onto
+  a person in the tree.
+- A person's section shows their photos; Zoom to Faces shows just their faces. The person menu has
+  Rename, Merge Into, Delete Person, Set as Person Thumbnail and Play.
+- Suggestions: when a face looks clearly like someone you have named, it shows "Ana?" with ✓ and ×.
+  Confirm All accepts a person's suggestions in one step, Find More looks a little further, and a
+  face you reject is never suggested for that person again. Options ▸ People sets how sure Dalica
+  must be.
+- The People pane (View ▸ People) lists the people in the selected photos; hover a face to see its
+  box on the photo. In the edit view you can draw a box around a face Dalica missed and name it.
+- Search for `person:Ana`, or use the toolbar's Faces filter for photos with faces.
+- Faces in your photos guide the crop suggestions and the slideshow's Pan and Zoom.
+- Names you give are kept in Dalica's files next to your photos. With Store people names in photos
+  on (Options ▸ People), they are also written into the photo files in the standard way other apps
+  read; names other apps wrote there come in on the first scan. Tools ▸ Experimental ▸ Write
+  People Names to Photos… writes them for the selected photos.
+- Find Faces Again (on the photo menu) and the Folder Manager's Remove Faces start over for those photos or folders; names you gave stay.
+
+### Places
+
+- View ▸ Places opens a map of the selected photos (or the folder's). Drag photos onto the map to
+  put them there, or use the pin; Dalica asks before moving photos that already have a place.
+  Ctrl+Z takes it back.
+- Tools ▸ Geotag ▸ Copy Location, Paste Location and Clear Location…. A place is written into the
+  photo file's GPS and its XMP copy when Write captions, tags and places is on; a location you
+  cleared stays cleared even if another app writes GPS into the file again.
+- Photos from your phone show on the map from their own GPS after the first scan.
+- The map works offline (coastlines and a grid). Map tiles from OpenStreetMap and searching for a
+  place by name are off until you allow them: the Places pane asks once, and Options ▸ Network has
+  the switch and the server addresses (for your own server or a proxy). Typed coordinates never
+  need the network.
+
+### Effects
+
+- Every effect is now quick on large photos: the preview while you drag stays under 16 ms and the
+  final under a tenth of a second on two cores, and saving is two to thirty times faster
+  (Focal Zoom's final went from 2.7 s to under 0.1 s). On photos above 2 MP Focal Zoom's blur is
+  very slightly softer across its rays.
+- The effect tiles of a photo that already has a frame show the whole picture, and a frame reads
+  clearly at tile size.
+
+### Agents
+
+- People and places over MCP: `set_metadata {geo}`, `photo_info` with the place and faces, and
+  person search. Without `--automation-allow-people`, agents see "Person" instead of names and no
+  face boxes; downloading models or allowing map tiles needs `--automation-allow-external`.
+
+### Not in this release yet
+
+- Face finding needs a model download (about 40 MB for YuNet and SFace, 261 MB for AuraFace) and is
+  slow on older computers; SFace's commercial-use terms are unclear upstream, which the Face Model
+  dialog says.
+- Grouping is not perfect: in our test set of 10 people, SFace splits two people in two at the
+  default confidence; AuraFace keeps all ten together.
+- Places from addresses (reverse geocoding), GPS tracks, faces in videos, and a People Manager are
+  not here yet.
+- Slideshow music, videos in slideshows, importing from cameras over a cable, and making Dalica your
+  default viewer still come later.
+
 ## 0.7.0 — October 2026
 
 Dalica now has effects: 27 of them on the edit view's three effect tabs, each with a live preview

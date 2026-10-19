@@ -10,8 +10,28 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-18, M12.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-18, M13.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-18 (M13.R, the Release 0.8 gate).* M13 is done: `cargo xtask accept M13` passes (64 s warm), and the tests
+on `main` went from 3 749 to 4 158. People: a pure-Rust ONNX interpreter (fuzzed, with hard limits) runs YuNet, SFace
+or AuraFace, downloaded only after the licence is accepted (resumable, hash-pinned, self-tested) or added from a
+file; the face scan runs in the background at the lowest priority, pauses while the user works, and never makes the
+window wait; the Unnamed grid groups faces, naming a group is one undo step that survives a restart and a rebuild,
+removed and ignored faces never return; suggestions above the calibrated threshold and margin with Confirm, Reject
+and Find More; the People group, person sections, the People pane and faces drawn by hand on a turned photo; names
+written to and read from MWG regions; faces guide crop suggestions and Pan and Zoom. Places: geotags written to EXIF
+GPS and XMP and read on scan (a removed place stays removed), the Places pane with an offline map, drag-to-geotag and
+the pin, and opt-in OpenStreetMap tiles and place search; a loopback test proves no connection without the user's
+action. On the public-faces corpus (45 public-domain portraits of 10 people, now in `dalica-corpus`) detection finds
+45 of 45, every group is one person, AuraFace keeps all 10 together and SFace 8 of 10 at the default confidence.
+The effect speed lane met the caps: every draft ≤ 16 ms and final ≤ 100 ms at p95 on two cores (Focal Zoom 2.7 s →
+66 ms), now judged as budgets. Without the people permission automation sees no names, rectangles or face points, and
+`person:` searches match nothing. Not done: the two checks by hand (EDIT-ZOOM pinch, SYS-WINDOW on macOS); budgets are
+set on a fast core and may miss on the 2-vCPU runner. The run stopped once for 50 minutes on three reserved decisions
+nobody had asked (asked early at this review), found a data-loss gap before any writer landed (M13.45), and broke
+`main` twice through a dependent's test (now caught: M13.50). 51 tasks merged with 7 workers. Parity ✅ 172 · 🟡 47 ·
+⬜ 29 · 🚫 17. M13.R is the 0.8 release gate (version 0.8.0).
 
 *2026-10-18 (M12.R, the Release 0.7 gate).* M12 is done: `cargo xtask accept M12` passes in 122 s (309 s with the
 release budgets), and the tests on `main` went from 3 545 to 3 756. The edit view's tabs 3–5 hold all 27 effects:
@@ -328,7 +348,7 @@ waits for.)
 | | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ✅ |
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ✅ |
 | | M12 | Effects | effect tiles, parameter panels and all 27 effects | ✅ |
-| | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ⬜ |
+| | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ✅ |
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ⬜ |
 | Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ⬜ |
 | After 1.0 | M16 | Post-1.0 enhancements | what comes after the honest 1.0, starting with switchable themes | ⬜ |
@@ -8694,7 +8714,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     on it (fails without the fix); `crates/mcp/tests/roots.rs`: headless MCP with
     `--automation-allow-external` refuses `faces.models.inspect {path}` outside every root with
     `path_denied` (fails without the fix); `cargo xtask ci`.
-- ⬜ **M13.R Release 0.8 gate**
+- ✅ **M13.R Release 0.8 gate**
   - after: M13.32, M13.51
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -9323,8 +9343,20 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
   - done when: `cargo xtask bench collage`, `bench legacy_scan` and `bench collage_canvas` print
     their numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each
     fail.
+- ⬜ **M14.25 `ui` + `engine`: M13's automation follow-ups: a person's export job, clicks under a dialog, a flaky sidecar test**
+  - after: M13.R
+  - files: `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/tests.rs`, `crates/engine/src/automation.rs`, `crates/ui/tests/damaged_sidecar.rs`, `docs/control-protocol.md`
+  - scope: from the M13.R review's open items: (1) when automation confirms an Export of a
+    `person:<id>` section without the people permission, `jobs.list` / `jobs.wait` report the
+    job's `folder`, `name` and `written` with the person's name; withhold them like the export
+    draft (M13.49), keyed by the job, never by matching text; (2) `ui.clickWidget` on a widget a
+    modal dialog covers replies `ok` and does nothing: reply with an error naming the dialog;
+    (3) ui `damaged_sidecar` failed once (no widget `button:folder.resetData/1`): reproduce under
+    load and fix the race (product or test synchronisation, never a looser check).
+  - done when: one test per item, each failing without its fix; the flaky test passes 200 runs
+    under `taskset -c 0`.
 - ⬜ **M14.23 `accept M14`**
-  - after: M14.15, M14.20, M14.21, M14.22
+  - after: M14.15, M14.20, M14.21, M14.22, M14.25
   - files: `tests/acceptance/m14.rs`, `tests/acceptance/m14_*.rs`, `tests/acceptance/m14.md`, `tests/acceptance/fingerprints/m14-*.json`
   - scope: every *Done when* of M14's two areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a collage opened from the tray, a folder header and a
@@ -10261,8 +10293,32 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `video_probe` and `ptp` targets, §10's signing), each marked built with its task.
   - done when: `cargo xtask parity` passes and the summary is regenerated; the PR lists every row
     changed with its evidence and every `security.md` line with its task.
+- ⬜ **M15.39 `sidecar` + `store` + `ui`: the fuzz targets security.md lists**
+  - after: M14.R
+  - files: `crates/sidecar/fuzz/**`, `crates/store/fuzz/**`, `crates/ui/fuzz/**`, `.github/workflows/fuzz.yml`, `Cargo.toml`, `docs/security.md`
+  - scope: by the maintainer's answer at M13.R (2026-10-18): the fuzz targets `security.md` lists
+    and no task wrote: the sidecar reader (`.dalica.json` and `people.json`), the store's journal
+    and snapshot readers, and the control channel's request parser; each a cargo-fuzz workspace
+    like `crates/meta/fuzz`, seeded from the crate's test files, excluded from the root workspace,
+    and run by the Fuzz workflow for 60 s at reviews; `security.md`'s status lines.
+  - done when: each target builds on stable with cargo-fuzz's coverage flags and runs 3 minutes
+    locally with no finding (a finding is fixed with a regression test in its crate); the review's
+    Fuzz run lists the three new jobs.
+- ⬜ **M15.40 `xtask`: an SBOM for every release package and an advisory check**
+  - after: M14.R
+  - files: `xtask/src/sbom.rs`, `xtask/src/advisories.rs`, `xtask/src/main.rs`, `xtask/src/ci.rs`, `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `docs/security.md`, `docs/releasing.md`
+  - scope: by the maintainer's answer at M13.R (2026-10-18): (1) `cargo xtask sbom` writes a
+    CycloneDX JSON SBOM per release package from the product graph `xtask deps` already builds,
+    attached to the GitHub release next to `SHA256SUMS.txt`; (2) an advisory check against the
+    RustSec advisory database (a pure-Rust tool such as `cargo-deny` or `cargo-audit`, run as a
+    binary at the review gate and in the release workflow, never linked into the product): a new
+    advisory fails it unless `security.md` §8.4 records it with an owner, a rationale and a review
+    date (RUSTSEC-2023-0071 is the first such entry); `security.md` §8.5 and `releasing.md`.
+  - done when: `cargo xtask sbom` lists every crate of the product graph with its licence for each
+    target; the advisory check passes on `main` with the recorded exception and fails on a planted
+    unrecorded advisory; a release dry run attaches the SBOMs.
 - ⬜ **M15.37 `accept M15`**
-  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
@@ -10366,13 +10422,24 @@ Record the decision here with a date when made.
 3. Metadata write defaults. **Decided 2026-10-09:** captions, tags, places and date changes are
    written into the photo files' metadata by default (pixels never change without Save); stars as
    XMP ratings off.
-4. Map tiles provider and whether maps are on by default (M13).
-5. Face-recognition models and their licences (M13).
+4. Map tiles provider and whether maps are on by default (M13). **Decided 2026-10-18 (the
+   maintainer, at M13.R): OpenStreetMap's standard tiles and Nominatim place search, both off by
+   default** until the user allows them (the Places pane asks once; Options ▸ Network), with OSM's
+   attribution on the map, a Dalica User-Agent, and the addresses editable for a self-hosted
+   server. Built in M13.20 and M13.28.
+5. Face-recognition models and their licences (M13). **Decided 2026-10-18 (the maintainer, at
+   M13.R): the YuNet detector with the SFace (default) and AuraFace recognisers**, each pinned by
+   URL and SHA-256 at its upstream, its licence and what is known of its training data shown before
+   any download, never redistributed by Dalica (`faces.md` §3). The public-faces corpus that
+   calibrates them was published to `pkkid/dalica-corpus` with the maintainer's go-ahead (M13.17).
 6. Password-protected hidden folders. **Decided 2026-10-09: no.**
 7. Licence. **Decided 2026-10-09: MIT OR Apache-2.0**, the same as PhotoCraft.
 8. Community process (Discord/GitHub Discussions) and release cadence. The repository is public.
 9. TLS stack for the few network features (map tiles, model downloads): a pure-Rust provider vs
-   accepting `ring`, or delegating downloads to the OS. See `security.md` (M13).
+   accepting `ring`, or delegating downloads to the OS. See `security.md` (M13). **Decided
+   2026-10-18 (the maintainer, at M13.R): pure Rust**, `rustls` with the `rustls-rustcrypto`
+   provider and the bundled `webpki-roots`, under a reviewed licence exception for its
+   CDLA-Permissive-2.0 data licence (`security.md` §8). Built in M13.13.
 10. Application id (reverse-DNS, used by packaging, desktop files and the settings path).
     **Decided 2026-10-11 (the maintainer): `org.dalica.Dalica`**, the reverse of `dalica.org`
     (which the maintainer owns) plus the app's name; three elements so Flathub accepts it. It lives
