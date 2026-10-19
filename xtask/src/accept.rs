@@ -104,14 +104,13 @@ pub struct Budget {
 }
 
 /// How a budget is judged against a base commit (maintainer decision, 2026-10-15): the same bench
-/// runs in the base commit on the same runner, and each named row's median may be at most
-/// [`RELATIVE_FACTOR`] × the base's. Runner hardware varies by more than the absolute budgets
-/// allowed (search's index build: 446–490 ms on some runners, 718–769 ms on others); a ratio on one
-/// runner does not.
+/// runs in the base commit on the same runner, and each named row's statistic (its median, or its
+/// p95 for a frame) may be at most [`RELATIVE_FACTOR`] × the base's. Runner hardware varies by more
+/// than the absolute budgets allowed (search's index build: 446–490 ms on some runners, 718–769 ms
+/// on others); a ratio on one runner does not.
 pub struct Relative {
-    /// The report rows judged, each with an absolute cap that still holds (a query never above
-    /// 100 ms) or `None`.
-    pub rows: &'static [(&'static str, Option<f64>)],
+    /// The report rows judged.
+    pub rows: &'static [RelativeRow],
     /// The bench's source: the base commit must have it.
     pub source: &'static str,
     /// The commit that first measured these budgets, the base when the release named by
@@ -125,8 +124,18 @@ pub struct Relative {
 /// A budget's judge: a bench's stdout and a planted slowdown in ms → its verdict line.
 pub type Judge = fn(&str, f64) -> Result<String, String>;
 
-/// A relative budget's base: its label and the bench's medians there; `None`: judge the absolute
-/// budget.
+/// A row a relative budget judges: its name in the bench's report, the statistic judged
+/// ([`MEDIAN`] or [`P95`], M13.R: the people and places frames are judged on p95), and an absolute
+/// cap that still holds (a query never above 100 ms, a frame never above the 8 ms frame budget) or
+/// `None`.
+pub type RelativeRow = (&'static str, &'static str, Option<f64>);
+/// A report row's median.
+pub const MEDIAN: &str = "p50_ms";
+/// A report row's 95th percentile.
+pub const P95: &str = "p95_ms";
+
+/// A relative budget's base: its label and the bench's judged statistics there, by row
+/// ([`report_stats`]); `None`: judge the absolute budget.
 pub type Base = Option<(String, BTreeMap<String, f64>)>;
 
 /// The largest slowdown a relative budget allows against its base commit.
@@ -192,7 +201,7 @@ pub const BUDGETS: &[Budget] = &[
         cargo: &["bench", "-p", "dalica-engine", "--bench", "save_export", "--", "--json"],
         judge: judge_save_export,
         relative: Some(Relative {
-            rows: &[("save", None), ("save rotate-only", None), ("export 200 mixed", None)],
+            rows: &[("save", MEDIAN, None), ("save rotate-only", MEDIAN, None), ("export 200 mixed", MEDIAN, None)],
             source: "crates/engine/benches/save_export.rs",
             since: "8bd31cb",
             rest: None,
@@ -206,11 +215,11 @@ pub const BUDGETS: &[Budget] = &[
         judge: judge_search,
         relative: Some(Relative {
             rows: &[
-                ("index build", None),
-                ("one word", Some(SEARCH_QUERY_CAP_MS)),
-                ("three words and a filter", Some(SEARCH_QUERY_CAP_MS)),
-                ("a -word", Some(SEARCH_QUERY_CAP_MS)),
-                ("search.set to applied", Some(SEARCH_QUERY_CAP_MS)),
+                ("index build", MEDIAN, None),
+                ("one word", MEDIAN, Some(SEARCH_QUERY_CAP_MS)),
+                ("three words and a filter", MEDIAN, Some(SEARCH_QUERY_CAP_MS)),
+                ("a -word", MEDIAN, Some(SEARCH_QUERY_CAP_MS)),
+                ("search.set to applied", MEDIAN, Some(SEARCH_QUERY_CAP_MS)),
             ],
             source: "crates/engine/benches/search.rs",
             since: "0ad5663",
@@ -243,7 +252,7 @@ pub const BUDGETS: &[Budget] = &[
         // (245 to 354 ms, following the runner's single-core speed; 202 ms on a workstation):
         // judged against a base on the same runner since M12.26 (maintainer decision at M12.R).
         relative: Some(Relative {
-            rows: &[("first thumbnails 1000", None), ("list 1000", None)],
+            rows: &[("first thumbnails 1000", MEDIAN, None), ("list 1000", MEDIAN, None)],
             source: "crates/engine/benches/import.rs",
             since: "4afdff5e",
             rest: Some(crate::bench::judge_import_copy),
@@ -284,10 +293,18 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 13,
         name: "face inference",
-        what: "inference: on seeded networks of the candidate models' shapes, detection on a 640 px picture and one embedding of each candidate recogniser (SFace's and AuraFace's shapes), medians within 1.5 × their first measurement",
+        what: "inference: on seeded networks of the candidate models' shapes, detection on a 640 px picture and one embedding of each candidate recogniser (SFace's and AuraFace's shapes), medians within 1.5 × their first measurement; on the review's runner judged against a base",
         cargo: &["bench", "-p", "dalica-faces", "--bench", "inference", "--", "--json"],
         judge: crate::bench::judge_inference,
-        relative: None,
+        // The review's runner (two vCPUs) ran the one-threaded interpreter 1.56 to 1.70 × slower
+        // than the workstation that set the budgets (M13.R: detection 70.4 ms against 62.5):
+        // judged against a base on the same runner (maintainer's answer at M13.R, 2026-10-18).
+        relative: Some(Relative {
+            rows: &[("detect 640", MEDIAN, None), ("embed sface", MEDIAN, None), ("embed auraface", MEDIAN, None)],
+            source: "crates/faces/benches/inference.rs",
+            since: "ebcc026c",
+            rest: Some(crate::bench::judge_inference_shape),
+        }),
     },
     Budget {
         milestone: 13,
@@ -300,10 +317,23 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 13,
         name: "people and places",
-        what: "people_places: in the headless app at 1400 × 900, the Unnamed grid opening with 10 000 faces (median) and scrolled (p95), and the Places pane over 10 000 geotagged photos opening (median) and panned with its markers grouped (p95), each within 1.5 × its first measurement",
+        what: "people_places: in the headless app at 1400 × 900, the Unnamed grid opening with 10 000 faces (median) and scrolled (p95), and the Places pane over 10 000 geotagged photos opening (median) and panned with its markers grouped (p95), each within 1.5 × its first measurement; on the review's runner judged against a base, a frame never above 8 ms",
         cargo: &["bench", "-p", "dalica-ui", "--bench", "people_places", "--", "--json"],
         judge: crate::bench::judge_people_places,
-        relative: None,
+        // The review's runner took 1.88 to 2.31 × the workstation's first measurement (M13.R: the
+        // Unnamed grid's opening 49.8 ms against 32.5): judged against a base on the same runner
+        // (maintainer's answer at M13.R, 2026-10-18); the frames on p95, within the frame budget.
+        relative: Some(Relative {
+            rows: &[
+                ("unnamed open", MEDIAN, None),
+                ("unnamed scroll", P95, Some(FRAME_BUDGET_MS)),
+                ("places open", MEDIAN, None),
+                ("places pan", P95, Some(FRAME_BUDGET_MS)),
+            ],
+            source: "crates/ui/benches/people_places.rs",
+            since: "ebcc026c",
+            rest: Some(crate::bench::judge_people_places_shape),
+        }),
     },
 ];
 
@@ -614,11 +644,20 @@ pub fn parse_budget_flags(args: &[String]) -> Result<(f64, Option<String>), Stri
     Ok((plant, baseline))
 }
 
-/// The p50 of each row of a bench's JSON report, by name.
-pub fn report_medians(stdout: &str) -> Option<BTreeMap<String, f64>> {
+/// The statistic each of `judged` names, of the rows of a bench's JSON report that have it, by row
+/// name.
+pub fn report_stats(stdout: &str, judged: &[RelativeRow]) -> Option<BTreeMap<String, f64>> {
     let report = crate::bench::parse_report(stdout)?;
     let rows = report.get("rows")?.as_array()?;
-    Some(rows.iter().filter_map(|r| Some((r.get("name")?.as_str()?.to_string(), r.get("p50_ms")?.as_f64().filter(|v| v.is_finite())?))).collect())
+    Some(
+        judged
+            .iter()
+            .filter_map(|(name, stat, _)| {
+                let row = rows.iter().find(|r| r.get("name").and_then(serde_json::Value::as_str) == Some(*name))?;
+                Some((name.to_string(), row.get(*stat)?.as_f64().filter(|v| v.is_finite())?))
+            })
+            .collect(),
+    )
 }
 
 /// The median of each row over `runs` (each a bench's medians by row name): only rows every run
@@ -646,10 +685,11 @@ pub fn median_rows(runs: &[BTreeMap<String, f64>]) -> BTreeMap<String, f64> {
 }
 
 /// `heads`, the stdout of each release run of a bench in the reviewed commit, judged against
-/// `base` (the same bench's medians in the base commit `label`, on the same runner, over its runs):
-/// each of `rel`'s rows, its median over `heads`, at most [`RELATIVE_FACTOR`] × its base and under
-/// its cap. A planted slowdown of `plant` ms is added to each median. Every row is judged and
-/// shown, also when one misses (M12.26: the review saw only the first missed row).
+/// `base` (the same bench's statistics in the base commit `label`, on the same runner, the median
+/// over its runs): each of `rel`'s rows, its statistic's median over `heads`, at most
+/// [`RELATIVE_FACTOR`] × its base and under its cap. A planted slowdown of `plant` ms is added to
+/// each. Every row is judged and shown, also when one misses (M12.26: the review saw only the first
+/// missed row).
 pub fn judge_relative(heads: &[String], plant: f64, rel: &Relative, label: &str, base: &BTreeMap<String, f64>) -> Result<String, String> {
     if heads.is_empty() {
         return Err("the bench never ran in the reviewed commit".into());
@@ -661,27 +701,28 @@ pub fn judge_relative(heads: &[String], plant: f64, rel: &Relative, label: &str,
         if mode != "release" {
             return Err(format!("the bench ran in a {mode} build; the budgets hold in release only"));
         }
-        medians.push(report_medians(stdout).unwrap_or_default());
+        medians.push(report_stats(stdout, rel.rows).unwrap_or_default());
     }
     let head = median_rows(&medians);
     let runs = if heads.len() > 1 { format!(", medians of {} runs each", heads.len()) } else { String::new() };
     let mut parts = Vec::new();
     let mut misses = Vec::new();
-    for (name, cap) in rel.rows {
-        let p50 = *head.get(*name).ok_or(format!("no row `{name}`"))?;
-        let was = *base.get(*name).ok_or(format!("the base {label} has no row `{name}`"))?;
-        let judged = p50 + plant;
+    for (name, key, cap) in rel.rows {
+        let measured = *head.get(*name).ok_or(format!("no row `{name}` with `{key}`"))?;
+        let was = *base.get(*name).ok_or(format!("the base {label} has no row `{name}` with `{key}`"))?;
+        let stat = crate::bench::stat_name(key);
+        let judged = measured + plant;
         let limit = was * RELATIVE_FACTOR;
-        let planted = if plant > 0.0 { format!(" ({p50:.2} ms measured + {plant:.2} ms planted)") } else { String::new() };
+        let planted = if plant > 0.0 { format!(" ({measured:.2} ms measured + {plant:.2} ms planted)") } else { String::new() };
         let ratio = judged / was.max(f64::MIN_POSITIVE);
         let mut verdict = "";
         if judged > limit {
-            misses.push(format!("{name}: median {judged:.2} ms{planted}, over {RELATIVE_FACTOR} × the base {label}'s {was:.2} ms"));
+            misses.push(format!("{name}: {stat} {judged:.2} ms{planted}, over {RELATIVE_FACTOR} × the base {label}'s {was:.2} ms"));
             verdict = " MISSED";
         } else if let Some(cap) = cap
             && judged > *cap
         {
-            misses.push(format!("{name}: median {judged:.2} ms{planted}, over its {cap} ms cap"));
+            misses.push(format!("{name}: {stat} {judged:.2} ms{planted}, over its {cap} ms cap"));
             verdict = " MISSED";
         }
         parts.push(format!("{name} {judged:.2} ms ({ratio:.2} × {was:.2} ms){verdict}"));
@@ -885,7 +926,7 @@ pub fn budgets(root: &Path, args: &[String]) -> Result<(), String> {
         if !ok {
             return Err(format!("cargo {} failed in the base {label}", b.cargo.join(" ")));
         }
-        let medians = report_medians(&stdout).ok_or(format!("the base {label} printed no JSON report"))?;
+        let medians = report_stats(&stdout, rel.rows).ok_or(format!("the base {label} printed no JSON report"))?;
         Ok(Some((label, medians)))
     };
     budgets_against(plant, base, |args| run(root, None, args))
@@ -983,7 +1024,7 @@ mod tests {
 
     #[test]
     fn relative_budgets_judge_against_the_base_on_the_same_runner() {
-        let rel = Relative { rows: &[("index build", None), ("one word", Some(100.0))], source: "x.rs", since: "abc", rest: None };
+        let rel = Relative { rows: &[("index build", MEDIAN, None), ("one word", MEDIAN, Some(100.0))], source: "x.rs", since: "abc", rest: None };
         let out = |build: f64, word: f64| {
             let r = serde_json::json!({ "mode": "release", "rows": [{ "name": "index build", "p50_ms": build }, { "name": "one word", "p50_ms": word }] });
             vec![format!("{r}\n")]
@@ -1002,7 +1043,7 @@ mod tests {
         let wide: BTreeMap<String, f64> = [("index build".to_string(), 600.0), ("one word".to_string(), 90.0)].into();
         assert!(judge_relative(&out(600.0, 101.0), 0.0, &rel, "b", &wide).unwrap_err().contains("100 ms cap"));
         let short: BTreeMap<String, f64> = [("index build".to_string(), 600.0)].into();
-        assert!(judge_relative(&out(600.0, 1.0), 0.0, &rel, "b", &short).unwrap_err().contains("has no row `one word`"));
+        assert!(judge_relative(&out(600.0, 1.0), 0.0, &rel, "b", &short).unwrap_err().contains("has no row `one word` with `p50_ms`"));
         assert!(judge_relative(&["{\"mode\":\"debug\",\"rows\":[]}\n".to_string()], 0.0, &rel, "b", &base).unwrap_err().contains("debug build"));
         assert!(judge_relative(&[], 0.0, &rel, "b", &base).unwrap_err().contains("never ran"));
         // Several runs: each row's median over them, so one slow run does not decide.
@@ -1012,7 +1053,97 @@ mod tests {
         for b in BUDGETS.iter().filter_map(|b| b.relative.as_ref()) {
             assert!(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(b.source).is_file(), "{}", b.source);
             assert!(b.since.len() >= 7 && !b.rows.is_empty());
+            assert!(b.rows.iter().all(|(_, stat, _)| [MEDIAN, P95].contains(stat)), "{}", b.source);
         }
+    }
+
+    /// A row judged on its p95 (M13.R: the people and places frames): the p95 of the head's runs
+    /// against the base's p95, never its median; a cap still holds.
+    #[test]
+    fn a_relative_row_is_judged_on_its_own_statistic() {
+        let rel = Relative { rows: &[("open", MEDIAN, None), ("pan", P95, Some(8.0))], source: "x.rs", since: "abc", rest: None };
+        let out = |open: f64, pan_p50: f64, pan_p95: f64| {
+            let r = serde_json::json!({ "mode": "release", "rows": [
+                { "name": "open", "p50_ms": open, "p95_ms": open * 3.0 },
+                { "name": "pan", "p50_ms": pan_p50, "p95_ms": pan_p95 },
+            ] });
+            format!("{r}\n")
+        };
+        // The base's statistics: the median of `open`, the p95 of `pan`.
+        let base = report_stats(&out(20.0, 0.5, 1.0), rel.rows).unwrap();
+        assert_eq!(base, [("open".to_string(), 20.0), ("pan".to_string(), 1.0)].into());
+        // A pan whose median is steady but whose p95 doubled misses; one with a slow median and a
+        // steady p95 holds.
+        let e = judge_relative(&[out(20.0, 0.5, 2.0)], 0.0, &rel, "b", &base).unwrap_err();
+        assert!(e.starts_with("pan: p95 2.00 ms, over 1.3 × the base b's 1.00 ms") && e.contains("open 20.00 ms (1.00 × 20.00 ms)"), "{e}");
+        assert!(judge_relative(&[out(20.0, 0.9, 1.1)], 0.0, &rel, "b", &base).unwrap().contains("pan 1.10 ms (1.10 × 1.00 ms)"));
+        // The median of three runs' p95; a planted slowdown and the cap.
+        let runs = [out(20.0, 0.5, 1.0), out(20.0, 0.5, 5.0), out(20.0, 0.5, 1.2)].concat();
+        assert!(judge_relative(&[runs], 0.0, &rel, "b", &base).unwrap().contains("pan 1.20 ms"));
+        let e = judge_relative(&[out(20.0, 0.5, 1.0)], 8.0, &rel, "b", &base).unwrap_err();
+        assert!(e.contains("pan: p95 9.00 ms (1.00 ms measured + 8.00 ms planted)") && e.contains("open: median 28.00 ms"), "{e}");
+        let wide: BTreeMap<String, f64> = [("open".to_string(), 20.0), ("pan".to_string(), 7.0)].into();
+        assert!(judge_relative(&[out(20.0, 0.5, 8.5)], 0.0, &rel, "b", &wide).unwrap_err().contains("pan: p95 8.50 ms, over its 8 ms cap"));
+        // A report without the statistic judges nothing.
+        let no_p95 =
+            format!("{}\n", serde_json::json!({ "mode": "release", "rows": [{ "name": "open", "p50_ms": 20.0 }, { "name": "pan", "p50_ms": 0.5 }] }));
+        assert!(judge_relative(&[no_p95], 0.0, &rel, "b", &base).unwrap_err().contains("no row `pan` with `p95_ms`"));
+    }
+
+    /// M13's face inference and people and places views on the review's runner (maintainer's
+    /// answer at M13.R): judged against the commit that first measured them, which v0.7.0 predates,
+    /// so the runner's single-core speed no longer decides; the numbers the review's runner missed
+    /// the absolute budgets with hold against a base 1.3 × faster at most, and a planted slowdown
+    /// still misses.
+    #[test]
+    fn the_m13_inference_and_views_are_judged_against_their_first_commit() {
+        use crate::bench::tests::{INFERENCE_MEASURED, PEOPLE_PLACES_MEASURED, inference_out, people_places_out};
+        let rel = |name: &str| BUDGETS.iter().find(|b| b.name == name).and_then(|b| b.relative.as_ref()).unwrap();
+        let (inference, views) = (rel("face inference"), rel("people and places"));
+        assert_eq!((inference.since, views.since), ("ebcc026c", "ebcc026c"));
+        assert_eq!(inference.source, "crates/faces/benches/inference.rs");
+        assert_eq!(views.source, "crates/ui/benches/people_places.rs");
+        let names = |r: &Relative| r.rows.iter().map(|(n, s, _)| format!("{n} {s}")).collect::<Vec<_>>();
+        assert_eq!(names(inference), ["detect 640 p50_ms", "embed sface p50_ms", "embed auraface p50_ms"]);
+        assert_eq!(names(views), ["unnamed open p50_ms", "unnamed scroll p95_ms", "places open p50_ms", "places pan p95_ms"]);
+        // Each row's statistic is the one its absolute budget judges.
+        for ((name, key, _), (n, stat, _)) in crate::bench::PEOPLE_PLACES_BUDGETS.iter().zip(views.rows) {
+            assert_eq!((name, key), (n, stat));
+        }
+        // The face scan stays absolute.
+        assert!(BUDGETS.iter().find(|b| b.name == "face scan").is_some_and(|b| b.relative.is_none()));
+
+        // The review's runner (M13.R): detection 70.36, SFace 70.76, AuraFace 358.84 ms; Unnamed
+        // open 49.82, places open 2.03, places pan 2.11 ms (unnamed scroll 0.9 ms).
+        let runner_inference = [("detect 640", 70.36), ("embed sface", 70.76), ("embed auraface", 358.84)];
+        let runner_views = [49.82, 0.9, 2.03, 2.11];
+        assert!(crate::bench::judge_inference(&inference_out("release", 640, &runner_inference), 0.0).is_err(), "the absolute budgets miss");
+        assert!(crate::bench::judge_people_places(&people_places_out("release", 10_000, runner_views), 0.0).is_err());
+        // The base on the same runner: the first measurement × the runner's 1.6 to 2.3.
+        let base_inference = report_stats(&inference_out("release", 640, &INFERENCE_MEASURED.map(|(n, v)| (n, v * 1.6))), inference.rows).unwrap();
+        let base_views = report_stats(&people_places_out("release", 10_000, PEOPLE_PLACES_MEASURED.map(|v| v * 2.0)), views.rows).unwrap();
+        let head_inference = vec![inference_out("release", 640, &runner_inference); RELATIVE_ROUNDS];
+        let head_views = vec![people_places_out("release", 10_000, runner_views); RELATIVE_ROUNDS];
+        let ok = judge_relative(&head_inference, 0.0, inference, "ebcc026c", &base_inference).unwrap();
+        assert!(ok.contains("detect 640 70.36 ms (1.06 ×"), "{ok}");
+        let ok = judge_relative(&head_views, 0.0, views, "ebcc026c", &base_views).unwrap();
+        assert!(ok.contains("places pan 2.11 ms (0.94 ×"), "{ok}");
+        // A planted slowdown misses them: 8 ms the views' frames and the Places opening (and the
+        // frame budget), 30 ms detection and SFace; and a slowed row misses alone.
+        let e = judge_relative(&head_views, 8.0, views, "ebcc026c", &base_views).unwrap_err();
+        assert!(e.contains("unnamed scroll: p95 8.90 ms") && e.contains("places open: median") && e.contains("places pan: p95"), "{e}");
+        let e = judge_relative(&head_inference, 30.0, inference, "ebcc026c", &base_inference).unwrap_err();
+        assert!(e.contains("detect 640: median 100.36 ms") && e.contains("embed sface: median"), "{e}");
+        let slow = vec![people_places_out("release", 10_000, [49.82, 0.9, 2.03, 2.11 * 1.4]); RELATIVE_ROUNDS];
+        let e = judge_relative(&slow, 0.0, views, "ebcc026c", &base_views).unwrap_err();
+        assert!(e.starts_with("places pan: p95 2.95 ms, over 1.3 × the base ebcc026c's 2.25 ms"), "{e}");
+        // What stays absolute: the detector's side, the library's size, a release build.
+        let rest = |r: &Relative| r.rest.unwrap();
+        assert!(rest(inference)(&inference_out("release", 640, &runner_inference), 0.0).is_ok());
+        assert!(rest(inference)(&inference_out("release", 160, &runner_inference), 0.0).unwrap_err().contains("640 px"));
+        assert!(rest(views)(&people_places_out("release", 10_000, runner_views), 0.0).is_ok());
+        assert!(rest(views)(&people_places_out("release", 1_000, runner_views), 0.0).unwrap_err().contains("hold for 10000"));
+        assert!(rest(views)(&people_places_out("debug", 10_000, runner_views), 0.0).unwrap_err().contains("debug build"));
     }
 
     #[test]
@@ -1071,7 +1202,7 @@ mod tests {
                     } else {
                         save_export_out("release", 300.0, 150.0, 15_000.0)
                     };
-                    Ok(Some(("v0.6.0".to_string(), report_medians(&out).unwrap())))
+                    Ok(Some(("v0.6.0".to_string(), report_stats(&out, b.relative.as_ref().unwrap().rows).unwrap())))
                 },
                 |args: &[&str]| {
                     let name = ["save_export", "search", "import"].into_iter().find(|n| args.contains(n)).unwrap_or("other");

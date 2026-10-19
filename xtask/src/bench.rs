@@ -663,7 +663,7 @@ pub const PEOPLE_PLACES_BUDGETS: [(&str, &str, f64); 4] =
 pub const PEOPLE_PLACES_PHOTOS: u64 = 10_000;
 
 /// "median" or "p95" for a row's statistic.
-fn stat_name(key: &str) -> &'static str {
+pub fn stat_name(key: &str) -> &'static str {
     if key.starts_with("p95") { "p95" } else { "median" }
 }
 
@@ -685,13 +685,25 @@ fn judge_rows(bench: &str, report: &Value, checks: &[(&str, &str, f64)], plant: 
 /// `inference --json` in release at the detector's 640 px: detection's and each recogniser's
 /// median within its budget (a planted slowdown added once per run).
 pub fn judge_inference(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = inference_report(stdout)?;
+    let checks: Vec<(&str, &str, f64)> = INFERENCE_BUDGETS.iter().map(|(name, budget)| (*name, "p50_ms", *budget)).collect();
+    Ok(format!("medians: {}", judge_rows("inference", &report, &checks, plant)?.join("; ")))
+}
+
+/// The release report of `inference --json`, refused unless it ran at the detector's 640 px.
+fn inference_report(stdout: &str) -> Result<Value, String> {
     let report = release_report("inference", stdout)?;
     let side = report.get("side").and_then(Value::as_u64).unwrap_or(0);
     if side != INFERENCE_SIDE {
         return Err(format!("inference ran at {side} px; the budgets hold for the detector's {INFERENCE_SIDE} px"));
     }
-    let checks: Vec<(&str, &str, f64)> = INFERENCE_BUDGETS.iter().map(|(name, budget)| (*name, "p50_ms", *budget)).collect();
-    Ok(format!("medians: {}", judge_rows("inference", &report, &checks, plant)?.join("; ")))
+    Ok(report)
+}
+
+/// What the review's relative judge of `inference` (`accept::BUDGETS`) still holds absolutely: a
+/// release run at the detector's 640 px.
+pub fn judge_inference_shape(stdout: &str, _plant: f64) -> Result<String, String> {
+    inference_report(stdout).map(|_| format!("at the detector's {INFERENCE_SIDE} px"))
 }
 
 /// `faces_scan --json` in release over 1 000 photos of 2048 px with the SFace-shaped recogniser:
@@ -739,12 +751,24 @@ pub fn judge_faces_scan(stdout: &str, plant: f64) -> Result<String, String> {
 /// `people_places --json` in release over 10 000 photos: the openings' medians and the frames'
 /// p95 within their budgets (a planted slowdown added to each).
 pub fn judge_people_places(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = people_places_report(stdout)?;
+    Ok(judge_rows("people_places", &report, &PEOPLE_PLACES_BUDGETS, plant)?.join("; "))
+}
+
+/// The release report of `people_places --json`, refused unless it ran over 10 000 photos.
+fn people_places_report(stdout: &str) -> Result<Value, String> {
     let report = release_report("people_places", stdout)?;
     let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
     if photos < PEOPLE_PLACES_PHOTOS {
         return Err(format!("people_places ran over {photos} photos; the budgets hold for {PEOPLE_PLACES_PHOTOS}"));
     }
-    Ok(judge_rows("people_places", &report, &PEOPLE_PLACES_BUDGETS, plant)?.join("; "))
+    Ok(report)
+}
+
+/// What the review's relative judge of `people_places` (`accept::BUDGETS`) still holds
+/// absolutely: a release run over 10 000 photos.
+pub fn judge_people_places_shape(stdout: &str, _plant: f64) -> Result<String, String> {
+    people_places_report(stdout).map(|_| format!("over {PEOPLE_PLACES_PHOTOS} photos"))
 }
 
 fn append(path: &Path, line: &str) -> Result<(), String> {

@@ -276,13 +276,15 @@ cargo run --release -p dalica -- --control 7990 --demo
 | The Unnamed grid opening with 10 000 faces (median); scrolled (a frame's p95) | ≤ 32.5 ms; ≤ 1 ms |
 | The Places pane over 10 000 geotagged photos opening (median); panned, its markers grouped (p95) | ≤ 2 ms; ≤ 2 ms |
 
-**At the review, the save, export and search budgets, and the import's first screenful and
-listing, are judged against a base on the same runner** (maintainer decisions, 2026-10-15, and for
-the import at M12.R): the Budgets job runs each of these benches in the last release
+**At the review, the save, export and search budgets, the import's first screenful and listing,
+face inference and the people and places views are judged against a base on the same runner**
+(maintainer decisions, 2026-10-15, for the import at M12.R, and for the M13 rows at M13.R): the
+Budgets job runs each of these benches in the last release
 (`git describe --tags --match 'v*'`; for a bench newer than that release, the commit that first
 measured it) and in the reviewed commit, three times each, interleaved (base, reviewed, base,
-reviewed, base, reviewed; `RELATIVE_ROUNDS`), and each row's median over the reviewed commit's runs
-may be at most 1.3 × its median over the base's (`cargo xtask budgets --baseline <ref>`;
+reviewed, base, reviewed; `RELATIVE_ROUNDS`), and each row's statistic (its median; the people and
+places frames' p95, the statistic their budgets judge) over the reviewed commit's runs may be at
+most 1.3 × the same statistic over the base's (`cargo xtask budgets --baseline <ref>`;
 `RELATIVE_FACTOR` and each budget's `Relative` in `xtask/src/accept.rs`). Every row's verdict is
 printed, also when one misses. GitHub's runners differ by more than the budgets allowed (the index
 build took 446–490 ms on some and 718–769 ms on others, which failed 11 runs in a row); a ratio on
@@ -290,8 +292,15 @@ one runner does not. One run of each, minutes apart, was not enough (M12.26): th
 measured 1.36 × its base once and 1.00–1.02 × on three other runs, and the import listing, the same
 code every time, took 245 to 354 ms on six runs (missing its absolute 320 ms twice) while a
 workstation on two cores listed in 198–203 ms; the listing follows the runner's single-core speed
-(the cold start was 340 ms on both runs that missed it, 236–280 ms on the rest). The import's copy
-rate stays absolute, judged on the reviewed commit's first run. The millisecond figures in the
+(the cold start was 340 ms on both runs that missed it, 236–280 ms on the rest). M13's budgets
+were set on one performance core of the workstation, and the review's two-vCPU runner (M13.R)
+took 1.56 to 1.70 × as long for face inference (one thread: detection 70.4 ms against its
+62.5 ms budget, AuraFace's shape 358.8 against 350) and 1.88 to 2.31 × for the people and places
+views (the Unnamed grid's opening 49.8 ms against 32.5, the Places pane's 2.03 against 2.0, its pan
+2.11 against 2.0 at p95); their base is the commit that first measured them (`ebcc026c`, M13.31),
+which v0.7.0 predates, and the two frames also stay within the 8 ms frame budget. The import's copy
+rate, the face scan (its rate, memory and frame) and the inference's 640 px and the views' 10 000
+photos stay absolute, judged on the reviewed commit's first run. The millisecond figures in the
 table are the budgets without a base (a plain `cargo xtask budgets`, on a workstation); the frame
 budgets (8 ms), the first screenful after adding a folder (1 s) and a query's 100 ms cap are always
 absolute.
