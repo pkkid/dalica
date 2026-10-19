@@ -95,6 +95,41 @@ fn inspect_summarises_a_library() {
     assert_eq!((v["photos"].as_u64(), v["folders"].as_array().map(Vec::len)), (Some(0), Some(0)));
 }
 
+/// `dalica-cli args` with its standard output closed by the reader after `read` bytes (0: before
+/// the command writes anything): its exit status and standard error.
+fn closed_stdout(args: &[&str], read: usize) -> (Option<i32>, String) {
+    use std::io::Read;
+    let cache = tempfile::tempdir().unwrap();
+    let mut child = dalica_cli(cache.path())
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut head = vec![0; read];
+    stdout.read_exact(&mut head).unwrap();
+    drop(stdout);
+    let out = child.wait_with_output().unwrap();
+    (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
+}
+
+/// `dalica-cli commands | head` and the like: a closed standard output ends the command quietly
+/// with exit 0, never a panic (`never-crash.md`). `commands` prints far more than a pipe holds, so
+/// closing after a few bytes stops it mid-write; `inspect` and `run` print less, so the pipe is
+/// closed before they write.
+#[test]
+fn a_closed_stdout_ends_the_command_quietly() {
+    let lib = tempfile::tempdir().unwrap();
+    let dir = lib.path().to_str().unwrap();
+    for (args, read) in [(&["commands"][..], 16), (&["inspect", "--library", dir], 0), (&["run", "--library", dir, "--cmd", "library.query"], 0)] {
+        let (code, err) = closed_stdout(args, read);
+        assert_eq!(code, Some(0), "{args:?}: {err}");
+        assert_eq!(err, "", "{args:?}");
+    }
+}
+
 /// Every file `dalica-cli` made under `dir`.
 fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();

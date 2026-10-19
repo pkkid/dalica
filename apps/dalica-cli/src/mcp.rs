@@ -112,8 +112,7 @@ fn parse(args: &[String]) -> Result<Options, String> {
 
 pub fn main(args: &[String]) -> ExitCode {
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("{USAGE}");
-        return ExitCode::SUCCESS;
+        return crate::print(USAGE);
     }
     let options = match parse(args) {
         Ok(o) => o,

@@ -41,6 +41,5 @@ pub fn main(args: &[String]) -> ExitCode {
         "notices": s.notices(),
         "scanWarnings": s.scan_warnings(),
     });
-    println!("{}", serde_json::to_string_pretty(&summary).unwrap_or_default());
-    ExitCode::SUCCESS
+    crate::print(&serde_json::to_string_pretty(&summary).unwrap_or_default())
 }
