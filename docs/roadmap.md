@@ -10652,7 +10652,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `places.showPhotos {marker}` over the control channel selects both and
     `places.removeLocation` clears both in one undo step (each failing before the fix); zoomed in
     until they part, each marker's command takes its one photo; M14.29's test passes unchanged.
-- ⬜ **M15.49 `ui` + `mcp` + acceptance: three tests that fail on one CPU or on Windows**
+- ✅ **M15.49 `ui` + `mcp` + acceptance: three tests that fail on one CPU or on Windows**
   - after: M14.R
   - files: `crates/ui/tests/effect_tiles.rs`, `crates/ui/tests/fingerprints/edit-effects-tab*.json`, `crates/mcp/tests/output_tools.rs`, `tests/acceptance/m11_live.rs`
   - scope: found at M14.R: (1) ui `effect_tiles::each_tabs_grid_matches_its_fingerprint` fails
