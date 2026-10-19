@@ -280,7 +280,7 @@ fn play_starts_a_slideshow_of_her_photos() {
     let ana = t.ana.clone();
     click(&mut t, &row_id(&ana));
     let collage = widget(&t.d, &format!("section:person:{ana}/collage"));
-    assert!(!collage.enabled, "Collage arrives with Collage");
+    assert!(collage.enabled, "Collage makes a collage of her photos (M14.20)");
     t.d.click(&format!("section:person:{ana}/play")).unwrap();
     t.d.step();
     assert_eq!(t.d.state().view, View::Slideshow);

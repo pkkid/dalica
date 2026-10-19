@@ -13,6 +13,8 @@
 //! registered yet is drawn disabled; it comes alive by itself when the command lands and is enabled
 //! for what it acts on (`CommandSpec::enabled`, or a UI command's own check: Export, the UI command
 //! `output.export`, is live while the tray holds photos and opens the Export dialog for them).
+//! Collage (the engine's `create.collage`, `creating.md` §1) opens the Collage room on the tray's
+//! photos, the held ones with the selection, in the main row and in More…'s menu alike (M14.20).
 //!
 //! The size slider drives the same view state as Ctrl+1 / Ctrl+2 (`UiState::thumb_size`), so the
 //! light table's cells follow it; the pane toggles open, switch and close `UiState::pane`, the
@@ -87,9 +89,12 @@ pub const PANE_TOGGLES: [(&str, Icon, &str, Pane); 4] = [
 /// The action buttons, in order (a dotted rule after the first): id, icon, label, command.
 pub const ACTIONS: [(&str, Icon, &str, &str); 3] = [
     ("action:export", Icon::Export, "Export", "output.export"),
-    ("action:collage", Icon::Collage, "Collage", "create.collage"),
+    ("action:collage", Icon::Collage, "Collage", COLLAGE),
     ("action:slideshow", Icon::Slideshow, "Slideshow", "view.slideshow"),
 ];
+
+/// The command of the action button Collage: the engine's Create ▸ Picture Collage… on the tray.
+pub const COLLAGE: &str = "create.collage";
 
 /// The More… button that holds the action buttons in a narrow window.
 pub const MORE: &str = "action:more";
@@ -145,9 +150,14 @@ fn ready(app: &App, id: &str) -> bool {
     (spec.enabled)(session, &params_for(app, id)).is_ok()
 }
 
-/// What a click passes command `id`: in the edit view the photo shown (`App::run` turns a rotation
-/// of it into a step of its history), else the photos the command acts on.
+/// What a click passes command `id`: Collage the tray's photos (the held ones and the selection,
+/// `creating.md` §1; with the tray empty the engine's refusal lands on the status line); in the
+/// edit view the photo shown (`App::run` turns a rotation of it into a step of its history), else
+/// the photos the command acts on.
 fn params_for(app: &App, id: &str) -> serde_json::Value {
+    if id == COLLAGE {
+        return json!({ "ids": crate::tray::photos(app.state()) });
+    }
     match open_photo(app) {
         Some(photo) if crate::keys::acts_on_tray(id) => json!({ "ids": [photo] }),
         _ => crate::keys::params_for(app, id),

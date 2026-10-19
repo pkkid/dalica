@@ -14,6 +14,7 @@ mod captions;
 mod cells;
 mod clipboard;
 mod collage_canvas;
+mod collage_entry;
 mod collage_room;
 mod color_management;
 mod common;

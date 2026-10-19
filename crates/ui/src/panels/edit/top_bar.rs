@@ -10,7 +10,9 @@
 //! Switch Layout show only in the compare modes (M11.16), so their place stays empty.
 //! **Edit Collage** (`button:edit.editCollage`, `collage.edit {id}`: the Collage room reopened from
 //! the photo's recipe, `creating.md` §3) shows left of the compare toggle for a collage the engine's
-//! `collage.canEdit` can reopen ([`shows_edit_collage`]); hidden until M14.20 asks it.
+//! `collage.canEdit` can reopen ([`shows_edit_collage`], M14.20): asked each frame, which the engine
+//! answers from what it found for the photo as it is now (a photo not looked at yet is looked at
+//! on a worker, the button showing once that look says yes); an ordinary photo shows none.
 //!
 //! The groups take the widths `panels::layout` reserves for them ([`LEFT_GROUP`] and
 //! [`RIGHT_GROUP`] add up to its `TOP_LEFT_GROUP` and `TOP_RIGHT_GROUP`).
@@ -48,9 +50,12 @@ pub const EDIT_COLLAGE_TIP: &str = "Change this collage in the Collage room";
 pub const EDIT_COLLAGE_W: f32 = 120.0;
 
 /// Whether Edit Collage shows for the photo in the edit view: for a collage the engine's
-/// `collage.canEdit` can reopen (M14.20); never until then.
-pub fn shows_edit_collage(_app: &App) -> bool {
-    false
+/// `collage.canEdit` can reopen (a readable recipe beside it). No while the engine still looks,
+/// and with no photo or no session.
+pub fn shows_edit_collage(app: &mut App) -> bool {
+    let Some(photo) = app.state().edit.photo else { return false };
+    let Some(s) = app.session_mut() else { return false };
+    s.execute("collage.canEdit", &json!({ "id": photo })).ok().and_then(|r| r.get("canEdit").and_then(serde_json::Value::as_bool)).unwrap_or(false)
 }
 
 /// The margin at each end of the bar and between its widgets.
@@ -93,8 +98,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 
     let edit_collage = Rect::from_min_size(pos2(compare.min.x - GAP - EDIT_COLLAGE_W, y), vec2(EDIT_COLLAGE_W, h));
-    if shows_edit_collage(app)
-        && edit_collage.min.x >= play.max.x
+    if edit_collage.min.x >= play.max.x
+        && shows_edit_collage(app)
         && let Some(photo) = app.state().edit.photo
     {
         let mut c = child(ui, edit_collage, true);

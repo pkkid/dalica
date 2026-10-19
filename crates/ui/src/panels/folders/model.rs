@@ -24,8 +24,9 @@
 //! - **Search mode** ([`Model::search`]): the group headers show a magnifier in place of their
 //!   disclosure triangle, and the search album's row is highlighted.
 //! - **Projects:** the rows of the Projects group (the folders an export made, marked Exported
-//!   wherever they are, and the folders under the projects directory) are flagged
-//!   [`Row::project`], so they are drawn with the project icon.
+//!   wherever they are, the folder Create Collage writes into, marked Collages, and the folders
+//!   under the projects directory) are flagged [`Row::project`], so they are drawn with the
+//!   project icon (`design-system.md`: one briefcase for export and collage folders).
 //! - **Offline** ([`Model::mark_offline`]): rows under a watched root whose volume is offline
 //!   (`data-model.md` §7) keep their place, count and section and are marked, once per build, so
 //!   a frame never tests a path.

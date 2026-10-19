@@ -50,7 +50,11 @@ use crate::state::ToolKind;
 /// Lays out and paints the edit view's regions, and registers them.
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
-    let l = layout::compute_edit(ui.max_rect(), app.state());
+    let mut l = layout::compute_edit(ui.max_rect(), app.state());
+    // A collage's Edit Collage sits left of the compare toggle: the filmstrip gives way (M14.20).
+    if top_bar::shows_edit_collage(app) {
+        l.filmstrip.max.x = (l.filmstrip.max.x - top_bar::EDIT_COLLAGE_W - top_bar::GAP).max(l.filmstrip.min.x);
+    }
     l.register(ui.ctx());
     // The sections the menus and the title bar read, as in the library.
     light_table::refresh(p, app);
