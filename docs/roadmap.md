@@ -8984,7 +8984,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     full one reads `[0, 0, 1, 1]`; duplicated, reversed and empty sections are skipped with the
     rest kept; a file past each limit is refused by name; proptest: random bytes and random line
     soups never panic; `cargo +nightly fuzz build` builds the target; `cargo xtask names` passes.
-- ⬜ **M14.3 `edit`: legacy edit operations mapped to Dalica's**
+- ✅ **M14.3 `edit`: legacy edit operations mapped to Dalica's**
   - after: M12.14, M13.R
   - files: `crates/edit/src/legacy.rs`, `crates/edit/tests/legacy.rs`, `docs/editing.md`
   - scope: `data-model.md` §9 and the decisions above: a legacy edit list (raw tokens from M14.2)

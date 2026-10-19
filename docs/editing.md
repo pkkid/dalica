@@ -499,3 +499,57 @@ skipped, and Save and Batch Edit treat it as not yet available.
   and a photo whose recipe already is the new one takes no step. A remembered whole step lasts as
   long as the session; after a restart its Undo removes the last entry, like every remembered step
   (`architecture.md` §4).
+- **Edits from the previous organizer** (M14.3, `data-model.md` §9; `dalica-edit` `legacy`): a
+  folder's legacy sidecar keeps each photo's edits as an ordered list of `name=1,params` tokens,
+  a redo list in the same form, the library rotation in quarter turns, a mirror flag, the effective
+  crop and a text overlay. They become recipe entries in their order. A token whose operation and
+  parameters are recorded with confidence becomes the Dalica operation below, each number moved
+  linearly from the legacy control's range onto the Dalica control's (the two ends onto the two
+  ends) and clamped as the operation's module clamps; names are case-sensitive.
+
+  | Legacy token | Parameters (legacy range) | Dalica entry |
+  |---|---|---|
+  | `crop64` | a `rect64` rectangle on the stored pixels | `crop(…)`, mapped into the stored frame through the EXIF orientation; only the last crop of the list is carried, in its place |
+  | `enhance`, `autolight`, `autocolor` | none | `autofix()`, `autocontrast()`, `autocolor()` |
+  | `fill` | amount 0–1 | `tuning(a,0,0,0,none)` |
+  | `finetune2` | fill 0–1, highlights 0–0.48, shadows 0–0.48, neutral colour (black = none), temperature −1–1 | `tuning(fill,highlights,shadows,temp,neutral)` (highlights and shadows onto 0–0.5) |
+  | `unsharp2` | amount 0–3 | `sharpen(a)` |
+  | `sepia`, `bw`, `warm` | none | `sepia()`, `bw()`, `warmify()` |
+  | `grain2` | none | `grain(10,false)` (the effect at its defaults) |
+  | `sat` | amount −1–1 | `saturation(a)` |
+  | `glow2` | intensity 0–1, radius 0.3–30 | `glow(i,r)` |
+  | `ansel` | filter colour | `filtered_bw(color)` |
+  | `Boost` | strength 0–100 | `boost(s)` |
+  | `HDR` | radius 1.3–80, strength 1–7, fade 0–100 | `hdr(radius,strength,fade)` |
+  | `Holga` | blur edges 0–100, grain 0–100, fade 0–100 | `plastic_lens(blur,grain,fade)` |
+  | `TwoTone` | brightness −95–95, contrast 0–100, fade, first and second colour | `duotone(first,second,brightness,contrast,fade)` |
+  | `Vignette` | size 0–50, strength 1–2, fade, colour | `vignette(size,strength,color,fade)` |
+  | `Border` | outer and inner thickness 0–100, corner radius, outer and inner colour, caption height | `border(…)` when the corner radius and caption are 0 |
+
+  Colours are hex `AARRGGBB` with leading zeros optional, of which only the first eight digits
+  count; Dalica keeps their red, green and blue. A trailing empty field is tolerated. Everything
+  else stays in the recipe, in its place, as `legacy:<name>(<the token after its first '='>)` (a
+  token without `=` as `legacy:<token>`), kept verbatim and skipped by rendering, so nothing after it
+  is lost and the edit panel counts it as an edit from the previous program: an unknown or
+  differently cased name, a wrong number of parameters, a number that is not finite, an enabled
+  flag other than `1`, and these, which stay **unsupported**:
+  - the red-eye and retouch markers (`redeye`, `retouch`): the fixes were written into the pixels
+    and the marker records no parameters;
+  - Straighten (`tilt`): the descriptions do not record how its normalised value turns into
+    degrees;
+  - the effects with a centre point (`radblur` Soft Focus, `radsat` Focal B&W, `dir_tint`
+    Graduated Tint, `radtint`): whether their point is on the whole photo or on the cropped
+    picture is not recorded, and Graduated Tint's angle is not either;
+  - a Border with rounded corners or a caption (their units are not recorded);
+  - the older versions of Sharpen, Film Grain, Glow, Tint and Tuning (`unsharp`, `grain`, `glow`,
+    `tint`, `finetune`), `desat`, and every other legacy effect (`Lomo`, `Cinemascope`, `Orton`,
+    `Sixties`, `HeatMap`, `CrossProcess`, `QuantizePalette`, `PencilSketch`, `Neon`, `Comicize`,
+    `DropShadow`, `MuseumMatte`, `Polaroid`, `Pixelate`, `FocalZoom` and the rest), whose
+    parameters the descriptions do not record with confidence; the old five-number `crop` form
+    likewise.
+
+  The library rotation and mirror flag become `flip_h()` then `rotate(…)` at the start of the
+  recipe; the crop rectangle beside the list is used only when the list carries no crop; the text
+  overlay and its on/off flag are kept as `legacy:text(…)` and `legacy:textactive(…)` at the end.
+  The redo list is mapped token by token the same way. A list that would give more than
+  `MAX_OPERATIONS` entries is refused.
