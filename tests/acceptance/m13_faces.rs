@@ -194,6 +194,6 @@ pub fn faces_and_people(exe: &Path, home: &Path) {
     println!("  after a restart and after an index rebuild: {NAME} with her ten faces, the eight ignored still ignored, Porto's four still gone");
 
     assert_eq!(proxy.connections(), Vec::<String>::new(), "no connection at any point: start-up, the scans, the face scan, the rebuild");
-    common::privacy(&logs, &[NAME, NICKNAME], &[party.clone(), porto.clone()]);
+    common::privacy(&logs, 2, &[NAME, NICKNAME], &[party.clone(), porto.clone()]);
     println!("  M13 faces and the People group in {:.1} s", secs(started));
 }
