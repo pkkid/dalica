@@ -19,7 +19,9 @@
 //!
 //! Stubs answer `Unsupported` from all three until their task fills them: TIFF (M5.6), WebP, GIF
 //! and BMP (M5.7), JPEG XL and PSD (M5.8), TIFF-structured raws (M5.9), the other raw containers
-//! and HEIF (M5.10). AVIF is recognised and never decoded, so it has no module.
+//! and HEIF (M5.10). AVIF is recognised and never decoded, so it has no module. Videos (M15.2)
+//! are recognised and probed by `video` (`video::probe`), and answer `Unsupported` from all three
+//! until frames are decoded.
 
 use std::ops::Range;
 
@@ -39,6 +41,7 @@ pub mod png;
 pub mod psd;
 pub mod raw;
 pub mod tiff;
+pub mod video;
 pub mod webp;
 
 /// A format module's `decode`.
@@ -61,6 +64,7 @@ pub fn header(format: Format, bytes: &[u8], limits: &Limits) -> Result<Header> {
         Format::JpegXl => jxl::header(bytes, limits),
         Format::Psd => psd::header(bytes, limits),
         Format::Raw(kind) => raw::header(kind, bytes, limits),
+        Format::Video(kind) => video::header(kind, bytes, limits),
     }
 }
 
@@ -78,6 +82,7 @@ pub fn decoder(format: Format) -> DecodeFn {
         Format::JpegXl => jxl::decode,
         Format::Psd => psd::decode,
         Format::Raw(kind) => raw::decoder(kind),
+        Format::Video(_) => video::decode,
     }
 }
 
@@ -95,6 +100,7 @@ pub fn embedded_thumbnail(format: Format, bytes: &[u8], limits: &Limits) -> Resu
         Format::JpegXl => jxl::embedded_thumbnail(bytes, limits),
         Format::Psd => psd::embedded_thumbnail(bytes, limits),
         Format::Raw(kind) => raw::embedded_thumbnail(kind, bytes, limits),
+        Format::Video(_) => video::embedded_thumbnail(bytes, limits),
     }
 }
 
@@ -112,6 +118,7 @@ pub fn decodes(format: Format) -> bool {
         Format::JpegXl => jxl::DECODES,
         Format::Psd => psd::DECODES,
         Format::Raw(kind) => raw::decodes(kind),
+        Format::Video(_) => video::DECODES,
     }
 }
 
@@ -129,6 +136,7 @@ pub fn reason(format: Format) -> &'static str {
         Format::JpegXl => jxl::REASON,
         Format::Psd => psd::REASON,
         Format::Raw(kind) => raw::reason(kind),
+        Format::Video(_) => video::REASON,
     }
 }
 
@@ -153,6 +161,13 @@ pub(crate) fn u16_be(b: &[u8], at: usize) -> Result<u16> {
         Some(&[hi, lo]) => Ok(u16::from_be_bytes([hi, lo])),
         _ => Err(Error::Truncated),
     }
+}
+
+/// A big-endian `u64` at `at`, or `Err(Truncated)`.
+pub(crate) fn u64_be(b: &[u8], at: usize) -> Result<u64> {
+    let hi = u32_be(b, at)?;
+    let lo = u32_be(b, at.saturating_add(4))?;
+    Ok((u64::from(hi) << 32) | u64::from(lo))
 }
 
 /// A big-endian `u32` at `at`, or `Err(Truncated)`.

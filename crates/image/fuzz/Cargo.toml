@@ -119,3 +119,10 @@ path = "fuzz_targets/icc.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "video_probe"
+path = "fuzz_targets/video_probe.rs"
+test = false
+doc = false
+bench = false

@@ -316,6 +316,7 @@ impl FileTypes {
 
     /// Whether a scan lists files of `format`.
     pub fn allows_format(self, format: Format) -> bool {
-        self.allows(FileType::of(format))
+        // Videos are not listed yet, as before M15.2 sniffed them; M15.11 replaces this with fileTypes.video.
+        !matches!(format, Format::Video(_)) && self.allows(FileType::of(format))
     }
 }
