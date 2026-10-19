@@ -9810,7 +9810,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     running to the end are refused or bounded; proptest: random bytes after a video header never
     panic; `video_probe` builds and runs 3 minutes with no finding (on stable with cargo-fuzz's
     coverage flags, as M14.2 did; the review's Fuzz run builds it on nightly).
-- ⬜ **M15.3 `library`: videos and the Video Frames project in the model**
+- ✅ **M15.3 `library`: videos and the Video Frames project in the model**
   - after: M9.1, M14.1, M14.R
   - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/tree.rs`, `crates/library/tests/video.rs`, `crates/library/tests/tree.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/seed.rs`, `crates/library/README.md`
   - scope: a photo's kind (still or video) and its video facts beside `Facts` (duration in

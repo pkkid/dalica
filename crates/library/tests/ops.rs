@@ -7,13 +7,15 @@
 //! ops of an add, a drop, a reorder and Sort Album By), photos moved and renamed, folders moved
 //! with their subtrees, folder photo sorts, search facts, digests, first-indexed and last-changed
 //! times, and stamped ops; the cached album order, Starred Photos and Recently Updated always equal
-//! fresh ones.
+//! fresh ones. M13's faces, geotags and people ops, M14's legacy ids, sidecar facts, legacy
+//! originals and project kinds, and M15's video facts join it too, and a check that the generator
+//! reaches every op keeps it that way.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use dalica_core::{FolderId, PhotoId, PosKey, Timestamp};
-use dalica_library::{Anchor, Folder, Library, Op, Photo, Synced};
+use dalica_library::{Anchor, Folder, FolderSidecar, Library, Op, Photo, Synced};
 use proptest::prelude::*;
 
 use crate::seed::*;
@@ -117,6 +119,35 @@ fn check_invariants(lib: &Library) -> Result<(), TestCaseError> {
     for (id, sort) in lib.folder_sorts() {
         prop_assert!(lib.folder(id).is_some() && !sort.is_default());
     }
+    // M13 to M15: faces, geotags, legacy facts and video facts only for photos and folders there
+    // are; a named face names a person there is; no legacy id held twice; a photo with video facts
+    // is a video.
+    for (id, faces) in lib.faces_all() {
+        prop_assert!(lib.photo(id).is_some() && !faces.is_empty());
+        for f in faces {
+            prop_assert!(f.person.person().is_none_or(|p| lib.person(p).is_some()));
+        }
+    }
+    for (id, _) in lib.geo_all() {
+        prop_assert!(lib.photo(id).is_some());
+    }
+    for (id, sidecar) in lib.folder_sidecars() {
+        prop_assert!(lib.folder(id).is_some() && sidecar != FolderSidecar::None);
+    }
+    for (id, _) in lib.legacy_originals() {
+        prop_assert!(lib.photo(id).is_some());
+    }
+    for (album, legacy) in lib.album_legacies() {
+        prop_assert!(lib.album(album).is_some());
+        prop_assert_eq!(lib.album_by_legacy(legacy), Some(album));
+    }
+    for (person, legacy) in lib.person_legacies() {
+        prop_assert!(lib.person(person).is_some());
+        prop_assert_eq!(lib.person_by_legacy(legacy), Some(person));
+    }
+    for (id, _) in lib.video_facts_all() {
+        prop_assert!(lib.photo(id).is_some() && lib.is_video(id));
+    }
     // The cached automatic albums are the ones worked out afresh.
     let mut starred: Vec<&Photo> = lib.photos().filter(|p| p.star).collect();
     starred.sort_by_key(|p| (lib.sort_date(p), p.name.clone(), p.id));
@@ -175,6 +206,50 @@ proptest! {
             check_invariants(&lib)?;
         }
     }
+}
+
+/// The names of `op` and of every op inside it.
+fn names_in(op: &Op, out: &mut BTreeSet<&'static str>) {
+    out.insert(op_name(op));
+    if let Op::Batch { ops } = op {
+        for o in ops {
+            names_in(o, out);
+        }
+    }
+}
+
+/// The generator reaches every op of the model (M14.1's and the video facts included): sequences
+/// drawn as the property test draws them, built and applied against a growing library, name every
+/// op in [`OP_NAMES`], and each of those an op applied (not only refused) at least once. The
+/// names come from a match with no wildcard, so a new op fails to compile here until it has a
+/// seed.
+#[test]
+fn the_generator_reaches_every_op() {
+    use proptest::strategy::ValueTree;
+    let mut runner = proptest::test_runner::TestRunner::deterministic();
+    let strategy = proptest::collection::vec(seed(), 1..40);
+    let (mut built, mut applied) = (BTreeSet::new(), BTreeSet::new());
+    for _ in 0..400 {
+        let mut lib = Library::new();
+        for s in strategy.new_tree(&mut runner).unwrap().current() {
+            let op = build(&mut lib, &s);
+            names_in(&op, &mut built);
+            if lib.apply(op.clone()).is_ok() {
+                names_in(&op, &mut applied);
+            }
+        }
+        if applied.len() == OP_NAMES.len() {
+            break;
+        }
+    }
+    let all: BTreeSet<&str> = OP_NAMES.into_iter().collect();
+    assert_covers(&built, &all, "built");
+    assert_covers(&applied, &all, "applied");
+}
+
+fn assert_covers(got: &BTreeSet<&str>, all: &BTreeSet<&str>, what: &str) {
+    let missing: Vec<&&str> = all.difference(got).collect();
+    assert!(missing.is_empty(), "never {what}: {missing:?}");
 }
 
 fn library_with(n: usize) -> (Library, FolderId, Vec<PhotoId>) {

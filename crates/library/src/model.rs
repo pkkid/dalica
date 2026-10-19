@@ -231,7 +231,7 @@ impl SavedAs {
 /// What kind of project folder a folder is (`organizing.md` §10, `creating.md` §2): the tree lists
 /// marked folders in Projects wherever they are, and the window draws each with its kind's icon
 /// ([`Library::project`]). Kept in the folder sidecar (`"project": "exported"`,
-/// `"project": "collages"`), so the mark survives moves and rebuilds.
+/// `"project": "collages"`, `"project": "videoFrames"`), so the mark survives moves and rebuilds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Project {
@@ -240,6 +240,94 @@ pub enum Project {
     /// The projects directory's `Collages` folder, where Create Collage and Save Draft write
     /// (M14, `creating.md`).
     Collages,
+    /// The projects directory's `Video Frames` folder, where Save Frame as Picture writes (M15,
+    /// `editing.md`).
+    VideoFrames,
+}
+
+/// What kind of file a photo is (M15, `formats.md` §1): a still picture or a video. Not stored on
+/// its own: [`Library::kind`] reads it from the photo's video facts and its search facts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PhotoKind {
+    #[default]
+    Still,
+    Video,
+}
+
+/// The most bytes of a codec name in a video's [`VideoFacts`] (a sample entry code or a Matroska
+/// `CodecID`: short, and input-derived text is capped).
+pub const MAX_CODEC: usize = 64;
+
+/// What a video's container says (M15, `formats.md` §1), read on scan from the probe. Index-only
+/// and derived like [`Facts`]: [`Op::SetVideos`](crate::Op::SetVideos) moves no revision and puts
+/// nothing on an undo stack. A photo with a record is a video ([`Library::kind`]); a video whose
+/// container could not be probed holds the default record (nothing known). The library keeps its
+/// own copy of these facts, so it stays independent of the prober's types.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoFacts {
+    /// The duration in milliseconds; 0 when unknown.
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub duration_ms: u64,
+    /// The frame size as stored, before [`VideoFacts::rotation`]; 0 × 0 when unknown.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub width: u32,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub height: u32,
+    /// Quarter turns clockwise the player applies to the stored frame (0 to 3).
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub rotation: u8,
+    /// The video codec as the container names it (`avc1`, `hvc1`, `V_VP9`, …), at most
+    /// [`MAX_CODEC`] bytes; empty when unknown.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub video_codec: String,
+    /// The sound codec as the container names it (`mp4a`, `A_OPUS`, …), at most [`MAX_CODEC`]
+    /// bytes; empty when there is no sound or it is unknown.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub sound_codec: String,
+    /// The file has a sound track.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sound: bool,
+    /// Frames per 1 000 seconds (29.97 frames a second is 29 970), so the facts stay exact and
+    /// comparable; 0 when unknown.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub frame_rate_milli: u32,
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
+fn is_zero_u8(n: &u8) -> bool {
+    *n == 0
+}
+
+impl VideoFacts {
+    /// The frame size as shown: the stored size turned by [`VideoFacts::rotation`] (width and
+    /// height swapped for a quarter or three quarters of a turn).
+    pub fn display_size(&self) -> (u32, u32) {
+        if self.rotation % 2 == 1 { (self.height, self.width) } else { (self.width, self.height) }
+    }
+
+    pub(crate) fn check(&self) -> crate::Result<()> {
+        if self.rotation > 3 {
+            return Err(crate::Error::BadText { what: "video rotation", why: "more than three quarter turns" });
+        }
+        for codec in [&self.video_codec, &self.sound_codec] {
+            if codec.len() > MAX_CODEC {
+                return Err(crate::Error::TooLong { what: "codec", max: MAX_CODEC });
+            }
+            if codec.chars().any(char::is_control) {
+                return Err(crate::Error::BadText { what: "codec", why: "control characters" });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The most bytes of a legacy id (an album token or contact id read from the previous organizer's
@@ -378,6 +466,8 @@ pub struct Facts {
     /// The camera model as read (EXIF `Model`, trimmed), at most [`MAX_CAMERA`] bytes.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub model: String,
+    /// The file is a video (the scan's word by its format); [`Library::kind`] reads it with the
+    /// video facts ([`VideoFacts`]).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub video: bool,
     /// The file holds a GPS location (EXIF or XMP).
@@ -629,6 +719,9 @@ pub struct Model {
     pub(crate) folder_sidecars: BTreeMap<FolderId, FolderSidecar>,
     /// Legacy originals (M14; index-only, derived): only photos in `photos`.
     pub(crate) legacy_originals: BTreeMap<PhotoId, LegacyOriginal>,
+    /// Video facts (M15; index-only, derived): only photos in `photos`; a photo with one is a
+    /// video.
+    pub(crate) videos: BTreeMap<PhotoId, VideoFacts>,
 }
 
 /// The library: the model, its revision counters and the next free ids.

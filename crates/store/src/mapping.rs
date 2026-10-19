@@ -788,6 +788,7 @@ pub fn project_text(project: Project) -> &'static str {
     match project {
         Project::Exported => "exported",
         Project::Collages => "collages",
+        Project::VideoFrames => "videoFrames",
     }
 }
 
@@ -797,6 +798,7 @@ fn project(f: Field<String>, notes: &mut Vec<String>) -> Reading<Option<Project>
         Field::Absent => Reading::Usable(None),
         Field::Value(s) if s == project_text(Project::Exported) => Reading::Usable(Some(Project::Exported)),
         Field::Value(s) if s == project_text(Project::Collages) => Reading::Usable(Some(Project::Collages)),
+        Field::Value(s) if s == project_text(Project::VideoFrames) => Reading::Usable(Some(Project::VideoFrames)),
         Field::Value(s) => {
             notes.push(format!("the folder's project kind {s:?} is not one Dalica knows: kept in the file, not used"));
             Reading::Unusable

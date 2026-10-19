@@ -770,6 +770,26 @@ fn a_collages_folder_lists_in_projects() {
     assert_eq!(lines(&flat(&fx), Group::Folders), ["Collages (1)", "Trip (2)"]);
 }
 
+/// A folder marked Video Frames lists in Projects wherever it is, as a Collages one does, and the
+/// mark says which kind of project it is (the window draws its icon from it); undoing the mark
+/// puts it back in Folders.
+#[test]
+fn a_video_frames_folder_lists_in_projects() {
+    let (mut fx, options) = every_group();
+    let frames = fx.folder("Trip/Video Frames");
+    fx.photos(frames, &[p(2026, 5, 1), p(2026, 5, 2)]);
+    let flat = |fx: &Fx| fx.tree(&[base()], &options);
+    assert_eq!(lines(&flat(&fx), Group::Projects), ["Exported (1)"]);
+    let mark = Op::SetProjects { projects: vec![(frames, Some(dalica_library::Project::VideoFrames))] };
+    let undo = fx.lib.apply(mark).unwrap();
+    assert_eq!(lines(&flat(&fx), Group::Projects), ["Video Frames (2)", "Exported (1)"]);
+    assert_eq!(lines(&flat(&fx), Group::Folders), ["Trip (2)"]);
+    assert_eq!(fx.lib.project(frames), Some(dalica_library::Project::VideoFrames));
+    assert_eq!(serde_json::to_value(dalica_library::Project::VideoFrames).unwrap(), "videoFrames");
+    fx.lib.apply(undo).unwrap();
+    assert_eq!(lines(&flat(&fx), Group::Folders), ["Video Frames (2)", "Trip (2)"]);
+}
+
 // M9: the Albums group, album sections, the section filter of search mode and section photos.
 
 fn aid(s: &str) -> AlbumId {
