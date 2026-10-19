@@ -24,6 +24,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # The craft-fonts pin, the same as release.yml's (docs/releasing.md): the ci jobs build with the
+  # fallback faces, so the ui-kit glyph tests run with them. Bump both together.
+  CRAFT_FONTS_REF: 3d9ab3a132ed0eff457e424226a435a901da30d3
 
 jobs:
   ci:
@@ -53,6 +56,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # craft-fonts at its pin, in the runner's temp folder: outside the repository's checkout, so
+      # no gate (names, assets, the changed-files check) sees its files as ours.
+      - name: craft-fonts at its pin
+        shell: bash
+        run: |
+          git init -q "$RUNNER_TEMP/craft-fonts"
+          git -C "$RUNNER_TEMP/craft-fonts" fetch -q --depth 1 https://github.com/storytold/craft-fonts "$CRAFT_FONTS_REF"
+          git -C "$RUNNER_TEMP/craft-fonts" checkout -q FETCH_HEAD
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
         with:
           toolchain: "1.98"
@@ -69,9 +80,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
       - name: cargo xtask ci --full --${{ matrix.part }}-only
         if: runner.os == 'Linux'
+        env:
+          CRAFT_FONTS_DIR: ${{ runner.temp }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
         run: cargo xtask ci --full --${{ matrix.part }}-only
       - name: cargo xtask ci --full --platform --${{ matrix.part }}-only
         if: runner.os != 'Linux'
+        env:
+          CRAFT_FONTS_DIR: ${{ runner.temp }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
         run: cargo xtask ci --full --platform --${{ matrix.part }}-only
 
   # The test corpora (docs/development.md §11): every published set fetched from its pin and

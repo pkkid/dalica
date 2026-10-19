@@ -9927,7 +9927,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     choosing the pseudo-locale over `options.set` changes the next frame's texts with the open view
     and the undo history kept; `cargo xtask i18n` passes on the tree and fails on each planted
     fault.
-- ⬜ **M15.8 `ui-kit`: fallback faces from craft-fonts, by script**
+- ✅ **M15.8 `ui-kit`: fallback faces from craft-fonts, by script**
   - after: M14.R
   - files: `crates/ui-kit/build.rs`, `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/tests/fonts.rs`, `.github/workflows/ci.yml`, `docs/assets.md`, `docs/releasing.md`
   - scope: `releasing.md` and `assets.md` → Fonts, ported from LightCraft `crates/engine/build.rs`

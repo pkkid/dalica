@@ -72,7 +72,7 @@ rows that start with `|` are read; the commented example in `ATTRIBUTION.md` is 
 
 - **Inter** (Regular and SemiBold, OFL, `assets/fonts/` with `OFL-Inter.txt`) is the **only font
   file committed** to this repository. It covers Latin, Greek and Cyrillic UI text.
-- Every other face (Chinese, Japanese and Korean fallbacks, a monospace face for numeric fields if
+- Every other face (Chinese, Japanese, Thai and the other scripts' fallbacks, a monospace face for numeric fields if
   [`design-system.md`](design-system.md) §3 ever needs one) comes from
   [storytold/craft-fonts](https://github.com/storytold/craft-fonts) through the **optional
   `CRAFT_FONTS_DIR` build input**, exactly as in LightCraft:
@@ -82,10 +82,19 @@ rows that start with `|` are read; the commented example in `ATTRIBUTION.md` is 
   CRAFT_FONTS_DIR=../craft-fonts cargo run --release -p dalica
   ```
 
-  A build script embeds the manifest's faces; the UI installs them as fallbacks after Inter, picked
-  by script. Without `CRAFT_FONTS_DIR` everything builds, tests and runs, but CJK text shows boxes;
-  tests that need those faces skip. Release builds set `CRAFT_FONTS_REQUIRED=1` and ship each
-  font's licence as `OFL-<family>.txt` ([`releasing.md`](releasing.md)).
+  `crates/ui-kit/build.rs` embeds every face of the manifest as `fonts::CRAFT_FONTS`;
+  `fonts::install` puts them after Inter as fallbacks in every family (Regular faces preferred for
+  regular text, Bold for SemiBold), ordered by the interface language's script
+  (`fonts::script_of`: `ja` → `Jpan`, `zh-hans` → `Hans`, `zh-hant` → `Hant`, `th` → `Thai`, …):
+  the faces of that script first (BIZ UDPGothic first for Japanese, Noto Sans CJK SC for both
+  Chinese scripts while craft-fonts has no Traditional face, Noto Sans Thai for Thai), then the
+  other CJK faces (Mincho document faces last), then every other script's faces, since file and
+  folder names can be in any script. `fonts::set_language` switches the order without a restart.
+  Without `CRAFT_FONTS_DIR` everything builds, tests and runs with Inter alone, but CJK and Thai
+  text shows boxes; tests that need those faces skip and say so. Release builds and the review's
+  CI jobs set `CRAFT_FONTS_REQUIRED=1`, which makes a missing directory, face or required UI face
+  (BIZ UDPGothic, Noto Sans CJK SC, Noto Sans Thai) a build error naming it, and packages ship each
+  font's licence as `OFL-<family>.txt` (`fonts::licences` lists them; [`releasing.md`](releasing.md)).
 - A missing face is added to craft-fonts (with its own attribution there), never committed here and
   never worked around by loading arbitrary system fonts into exports.
 - Use fonts unmodified under their licence. Fonts that shipped inside the reference organizer are
