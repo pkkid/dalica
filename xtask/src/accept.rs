@@ -268,7 +268,7 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 12,
         name: "effects",
-        what: "effects: each of the 27 effects at its defaults: a slider's draft and final on the 2560 × 1600 screen (p95) within 1.5 × their measurement and never above 16 and 100 ms (M13.43), and a 24 MP photo rendered as Save renders it (median) within 1.5 × its first measurement; an empty recipe's final on the screen (p95) and Save (median) within theirs",
+        what: "effects: each of the 27 effects at its defaults: a slider's draft (at the scale its budget was measured at) and final on the 2560 × 1600 screen (p95) within 1.5 × their measurement and never above 16 and 100 ms (M13.43), its draft at the engine's own scale within 16 ms, and a 24 MP photo rendered as Save renders it (median) within 1.5 × its first measurement; an empty recipe's final on the screen (p95) and Save (median) within theirs",
         cargo: &["bench", "-p", "dalica-edit", "--bench", "effects", "--", "--json"],
         judge: crate::bench::judge_effects,
         relative: None,
@@ -1445,7 +1445,7 @@ mod tests {
                 && e.contains("M11 batch edit: auto fix 1000")
                 && e.contains("M11 slideshow: transition frame")
                 && e.contains("M12 effects: ")
-                && e.contains("of 83 missed: no effect final")
+                && e.contains("of 110 missed: no effect final")
                 && e.contains("sharpen draft: p95"),
             "{e}"
         );

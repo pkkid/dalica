@@ -393,7 +393,12 @@ the tile grids and Saves rounded up to 5 ms, the empty final to 1 ms, the upload
   workstation quiet (load average 0.7 to 2.2, no other bench running). Every draft takes 2.3 to
   12.9 ms and every final 13.4 to 66.2 ms. The nine effects whose final takes under 32 ms (B&W,
   Filtered B&W, Infrared, Invert, Grain, Widescreen, Pixelate and the two frames Drop Shadow and
-  Museum Matte: 13.4 to 31.4 ms) draft at ½, the rest at ¼. The thinnest margins: Grain's draft
+  Museum Matte: 13.4 to 31.4 ms) draft at ½, the rest at ¼. Each draft budget holds at the scale
+  it was measured at: the `<effect> draft` row renders at that scale on any machine, and a report
+  of another scale judges nothing (M13.R: the review's runner rendered Glow's, Soften's and
+  Border's finals in under 32 ms, so the engine drafted them at ½, four times the pixels, and the
+  rows missed budgets measured at ¼). The engine's own choice is its own row, `<effect> engine
+  draft`, held to the slider's 16 ms only. The thinnest margins: Grain's draft
   12.9 ms (its budget is the 16 ms cap, not 1.5 × 12.9 = 19.4 ms), Focal Zoom's final 66.2 ms
   (budget 100 ms, the cap) and HDR Look's 62.2 ms (94 ms). An empty recipe's final took 7.0 ms
   and its Save 30.3 ms, within the M12.21 budgets. The Saves measured 73 to 301 ms (Focal Zoom
@@ -479,7 +484,8 @@ holds an upload frame's p95 to its budget, and the job runs the `effects` bench 
 render and the empty recipe; a planted slowdown added once per render) and the `effect_tiles`
 bench (each tab's median, a planted slowdown added once per sample); `--plant-ms 8` misses the
 empty recipe's final, not the Saves or the tiles. Since M13.43 the `effects` judge also holds
-every effect's draft and final p95 to its budget (a planted slowdown added once per render):
+every effect's draft (at its budget's scale) and final p95 to its budget and its draft at the
+engine's scale to 16 ms (a planted slowdown added once per render):
 `--plant-ms 8` misses every draft too, `--plant-ms 17` misses every draft whatever its budget
 (none is above 16 ms) and `--plant-ms 101` every final. Since M13 it also runs the `inference` bench
 (each median, a planted slowdown added once per run), the `faces_scan` bench (faces per second, a
@@ -979,10 +985,11 @@ budgets. Without `--bench` it runs three photos of 640 × 427, one change per tr
 `effects` (M12.21, `dalica-edit`) makes a `--width × --height` `scenes` photo in memory (6000 ×
 4000) and renders each of the 27 effects at its defaults: `--samples` (21) drafts and finals on
 a `--fit` screen (2560 × 1600) as the engine's preview renders them, and `--saves` (3) renders
-of the whole photo at `Target::Full`. Rows: `<effect> draft` (with its `draft_scale`), `<effect>
-final`, `<effect> save` and `no effect final` / `no effect save`, each with its budget
-(`budget_p95_ms` for the drafts and finals, judged on p95; `budget_ms` for the Saves, judged on
-the median). Only the renderer is timed. `--only a,b` measures some effects; `--check` judges
+of the whole photo at `Target::Full`. Rows: `<effect> draft` (at the scale its budget was
+measured at, its `draft_scale`), `<effect> engine draft` (at the scale the engine picks from the
+last final's time, judged against the slider's 16 ms only), `<effect> final`, `<effect> save` and
+`no effect final` / `no effect save`, each with its budget (`budget_p95_ms` for the drafts and
+finals, judged on p95; `budget_ms` for the Saves, judged on the median). Only the renderer is timed. `--only a,b` measures some effects; `--check` judges
 every budget itself (all 27 effects at 24 MP on the 2560 × 1600 screen), `--plant-ms N` adds N ms
 to each judged time. Without `--bench` it runs a 600 × 400 photo on a 256 × 160 screen,
 one sample each.
