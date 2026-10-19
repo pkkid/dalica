@@ -9328,7 +9328,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     sixteen workflows now required; `mcp.md`'s table and status line; row `SYS-MCP`.
   - done when: `cargo test -p dalica-mcp` runs W15 and W16 green; `cargo xtask stats` prints
     16 / 16 passing and `stats --check` fails below that.
-- ⬜ **M14.22 `create` + `scan` + `ui` + `xtask`: M14's budgets: collage layouts and renders, the canvas and legacy scans**
+- ✅ **M14.22 `create` + `scan` + `ui` + `xtask`: M14's budgets: collage layouts and renders, the canvas and legacy scans**
   - after: M14.10, M14.11, M14.17, M14.19
   - files: `crates/create/benches/collage.rs`, `crates/scan/benches/legacy.rs`, `crates/ui/benches/collage.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
   - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`

@@ -335,6 +335,30 @@ pub const BUDGETS: &[Budget] = &[
             rest: Some(crate::bench::judge_people_places_shape),
         }),
     },
+    Budget {
+        milestone: 14,
+        name: "collage",
+        what: "collage: each style's layout of 200 pictures (median), and a pile of 50 photos of 2048 px rendered at 3000 px and encoded (median, and its peak memory), each within 1.5 × its first measurement",
+        cargo: &["bench", "-p", "dalica-create", "--bench", "collage", "--", "--json"],
+        judge: crate::bench::judge_collage,
+        relative: None,
+    },
+    Budget {
+        milestone: 14,
+        name: "legacy scan",
+        what: "legacy_scan: a first scan of 10 000 photos in 100 folders with only the previous organizer's sidecar and of the same with .dalica.json, and a folder whose legacy sidecar is 64 MiB (medians), each within 1.5 × its first measurement (writes about 0.2 GB, removed after)",
+        cargo: &["bench", "-p", "dalica-scan", "--bench", "legacy_scan", "--", "--json"],
+        judge: crate::bench::judge_legacy_scan,
+        relative: None,
+    },
+    Budget {
+        milestone: 14,
+        name: "collage canvas",
+        what: "collage_canvas: in the headless app at 1400 × 900, the Collage room's frame with 100 pictures on the page while one is dragged (p95), within 1.5 × its first measurement and never above 16 ms",
+        cargo: &["bench", "-p", "dalica-ui", "--bench", "collage_canvas", "--", "--json"],
+        judge: crate::bench::judge_collage_canvas,
+        relative: None,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -1542,6 +1566,22 @@ mod tests {
                     (true, crate::bench::tests::faces_scan_out("release", 1000, 2048, "sface", crate::bench::tests::SCAN_MEASURED))
                 } else if args.contains(&"people_places") {
                     (true, crate::bench::tests::people_places_out("release", 10_000, crate::bench::tests::PEOPLE_PLACES_MEASURED))
+                } else if args.contains(&"collage") {
+                    (
+                        true,
+                        crate::bench::tests::collage_out(
+                            "release",
+                            200,
+                            50,
+                            3000,
+                            crate::bench::tests::COLLAGE_LAYOUTS_MEASURED,
+                            crate::bench::tests::COLLAGE_RENDER_MEASURED,
+                        ),
+                    )
+                } else if args.contains(&"legacy_scan") {
+                    (true, crate::bench::tests::legacy_scan_out("release", 10_000, 64 << 20, crate::bench::tests::LEGACY_SCAN_MEASURED))
+                } else if args.contains(&"collage_canvas") {
+                    (true, crate::bench::tests::collage_canvas_out("release", 100, crate::bench::tests::CANVAS_MEASURED))
                 } else if args.contains(&"effect_tiles") {
                     (true, crate::bench::tests::tiles_out("release", crate::bench::EFFECT_PHOTO, &crate::bench::tests::TILES_MEASURED))
                 } else if args.contains(&"slideshow") {
@@ -1561,10 +1601,15 @@ mod tests {
         // (a few ms), the face scan's frame and the people and places views' (a few ms); a first screenful
         // well inside its second does not, nor the save and export medians well inside theirs, nor
         // a cold start of three frames, nor the import (8 s more over 1 000 files is inside its
-        // 1.5 ×), nor the tile grids (a few hundred ms), nor face inference (tens of ms).
+        // 1.5 ×), nor the tile grids (a few hundred ms), nor face inference (tens of ms). Of M14's,
+        // the collage layouts (under 2 ms) and the canvas's drag frame miss; the render (seconds)
+        // and the legacy scans (a hundred ms and more) do not.
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("10 of 16 missed")
+            e.contains("12 of 19 missed")
+                && e.contains("M14 collage: 6 of 8 missed: layout pile 200")
+                && e.contains("M14 collage canvas: 1 of 1 missed: drag frame")
+                && !e.contains("M14 legacy scan")
                 && e.contains("M13 face scan: 1 of 3 missed: a frame while scanning")
                 && e.contains("M13 people and places")
                 && !e.contains("M13 face inference")
@@ -1585,18 +1630,18 @@ mod tests {
         assert!(e.contains("M11 import: first thumbnails"), "{e}");
         // The largest planted slowdown misses every budget, the cold start's included.
         let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
-        assert!(e.contains("16 of 16 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
+        assert!(e.contains("19 of 19 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 16 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 19 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 16 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 19 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("16 of 16 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("19 of 19 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }

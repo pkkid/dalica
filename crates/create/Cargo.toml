@@ -58,3 +58,7 @@ zune-jpeg.workspace = true
 # The collage render's peak memory (M14.10): its global allocator counts each thread apart, so
 # it sees only the measured render (as in dalica-image's tests).
 allocation-counter.workspace = true
+
+[[bench]]
+name = "collage"
+harness = false
