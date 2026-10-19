@@ -21,6 +21,10 @@
 //!   `menuitem:people.merge/<id>`, in `ui.widgets` and `ui.inspect`'s `popup`), the search banner
 //!   while the People pane filters by people (`banner:search`: "Showing photos with Person and
 //!   Person") and a face drag's pill (`drag:pill`).
+//! - **A person's export folder** ([`widgets`]): the folders an export of a person's section made
+//!   (the session's marks, `dalica_engine::automation::PersonExports`): their tree rows
+//!   (`tree:folder:<id>`, "Ana (12)" → "Person (12)") and their sections' header, icon and title
+//!   (`section:folder:<id>`, `/icon`, `/title`).
 //! - **Menus** ([`nodes`]): the same people rows in `ui.menu.tree` (the face and person menus) and
 //!   in the model `ui.menu.invoke` looks a path up in.
 //! - **The view state** ([`state`]): the names typed in the Unnamed grid (`unnamed.names`), Add a
@@ -39,7 +43,7 @@
 
 use std::collections::HashSet;
 
-use dalica_core::PersonId;
+use dalica_core::{FolderId, PersonId};
 use dalica_ui_kit::WidgetInfo;
 use serde_json::Value;
 
@@ -76,7 +80,9 @@ pub(super) fn withheld(config: &Config) -> bool {
 /// ids of those it changed.
 pub(super) fn widgets(app: &App, list: &mut [WidgetInfo]) -> HashSet<String> {
     let ids: HashSet<&str> = list.iter().map(|w| w.id.as_str()).collect();
-    let changes: Vec<(usize, String)> = list.iter().enumerate().filter_map(|(i, w)| label(app, &ids, w).map(|l| (i, l))).collect();
+    let named = app.session().map(dalica_engine::Session::person_export_folders).unwrap_or_default();
+    let changes: Vec<(usize, String)> =
+        list.iter().enumerate().filter_map(|(i, w)| label(app, &ids, w).or_else(|| folder_label(&named, w)).map(|l| (i, l))).collect();
     let mut changed = HashSet::with_capacity(changes.len());
     for (i, l) in changes {
         if let Some(w) = list.get_mut(i) {
@@ -131,6 +137,22 @@ fn label(app: &App, ids: &HashSet<&str>, w: &WidgetInfo) -> Option<String> {
         return face_pill(app);
     }
     None
+}
+
+/// The label of a widget that shows the name of a folder a person's export made (`named`, the
+/// session's marks: by the folder, never by its name): the tree row (`tree:folder:<id>`, its count
+/// kept) and the section's header, icon and title (`section:folder:<id>`, `/icon`, `/title`).
+fn folder_label(named: &[FolderId], w: &WidgetInfo) -> Option<String> {
+    if named.is_empty() {
+        return None;
+    }
+    let is_named = |id: &str| id.parse::<FolderId>().is_ok_and(|f| named.contains(&f));
+    if let Some(rest) = w.id.strip_prefix("tree:folder:") {
+        return is_named(rest).then(|| keep_suffix(&w.label, tree_count));
+    }
+    let rest = w.id.strip_prefix("section:folder:")?;
+    let (folder, part) = rest.split_once('/').map_or((rest, None), |(f, part)| (f, Some(part)));
+    (is_named(folder) && matches!(part, None | Some("icon" | "title"))).then(|| PLACEHOLDER.to_string())
 }
 
 /// Whether menu row `widget` names a person (`menuitem:faces.moveToPerson/<PersonId>`, …).

@@ -288,19 +288,13 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     Ok(Outcome::Reply(Ok(v)))
 }
 
-/// The toasts' Show Folder (`action.folder`) for the folder of a person's export job
-/// ([`super::jobs::person_export_folders`]), `null`: known by the job, never by the folder's name.
+/// The toasts' paths into a folder a person's export made (an export's Show Folder,
+/// `action.folder`) `null`: known by the folder the session marked, never by its name
+/// (`dalica_engine::automation::withhold_export_paths`).
 fn withhold_export_toasts(call: &Call<'_>, v: &mut Value) {
-    let folders = super::jobs::person_export_folders(call.host);
-    if folders.is_empty() {
-        return;
-    }
-    if let Some(Value::Array(toasts)) = v.get_mut("toasts") {
-        for folder in toasts.iter_mut().filter_map(|t| t.pointer_mut("/action/folder")) {
-            if folders.contains(folder) {
-                *folder = Value::Null;
-            }
-        }
+    let Some(session) = call.host.app().session() else { return };
+    if let Some(toasts) = v.get_mut("toasts") {
+        *toasts = dalica_engine::automation::withhold_export_paths(std::mem::take(toasts), session.person_exports());
     }
 }
 

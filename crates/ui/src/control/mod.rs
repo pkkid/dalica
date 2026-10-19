@@ -488,12 +488,10 @@ impl Connection {
     }
 
     /// Handles one request (never `auth`, which the transport answers). The UI thread is marked
-    /// as driven by automation until the request's reply ([`automated`]); as it and each of its
-    /// steps begin, the export jobs started from a person's section are marked ([`jobs::observe`]).
+    /// as driven by automation until the request's reply ([`automated`]).
     pub fn handle(&mut self, control: &Control, host: &mut dyn Host, req: &Request) -> Outcome {
         let running = Running::new(&control.config);
         vet::forget();
-        jobs::observe(host);
         let outcome = self.dispatch(control, host, req);
         let outcome = vet::before_input(host, &control.config, outcome);
         hold(outcome, &control.config, running)
@@ -569,7 +567,6 @@ fn hold(outcome: Outcome, config: &Arc<Config>, running: Running) -> Outcome {
             Outcome::Play(
                 input,
                 Box::new(move |host, played| {
-                    jobs::observe(host);
                     let next = then(host, played);
                     hold(next, &config, running)
                 }),
@@ -581,7 +578,6 @@ fn hold(outcome: Outcome, config: &Arc<Config>, running: Running) -> Outcome {
             Outcome::Work(Box::new(move || match work() {
                 Next::Resume(k) => Next::Resume(Box::new(move |host| {
                     let running = Running::new(&config);
-                    jobs::observe(host);
                     let next = k(host);
                     hold(next, &config, running)
                 })),

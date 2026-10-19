@@ -502,6 +502,8 @@ fn run(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     }
     let (options, remembered) = options(&p, &s.settings().export())?;
     let RunParams { ids, section, album, dir, folder_name, .. } = p;
+    // A person's section: its folder is named after them (`automation::PersonExports`).
+    let person = section.as_deref().and_then(|t| parse_section(t).ok()).is_some_and(|s| matches!(s, Section::Person(_)));
     let target = target(s, ids, section, album)?;
     if target.photos.is_empty() {
         return Err(CmdError::Disabled(NOTHING.into()));
@@ -558,6 +560,9 @@ fn run(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         .on_finish(move |s, tally| finish(s, tally, &shared, &report, finish_job.get().copied()));
     let id = s.start_file_job(job);
     let _ = job_id.set(id);
+    if person {
+        s.person_exports.mark_job(id);
+    }
     Ok(json!({ "job": id, "pending": true, "total": total, "videos": videos.len() }))
 }
 
@@ -565,6 +570,9 @@ fn run(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 /// message, and the job closed with the whole result.
 fn finish(s: &mut Session, tally: &Tally, shared: &Shared, report: &Mutex<Report>, job: Option<JobId>) -> Notice {
     let folder = shared.made().map(|d| d.folder.clone());
+    if let (Some(f), Some(job)) = (&folder, job) {
+        s.person_exports.mark_folder(job, f);
+    }
     if let Some(f) = &folder
         && let Some(id) = s.library().folder_by_path(f)
         && s.library().project(id) != Some(Project::Exported)
@@ -660,5 +668,54 @@ mod tests {
             std::fs::read_dir(out.join("Mixed")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         names.sort();
         assert_eq!(names, [".dalica.json", "IMG_0001.jpg", "IMG_0002.jpg"]);
+    }
+
+    /// An export of a person's section is marked by its job, and the folder it made by that job
+    /// (`automation::PersonExports`): without the people permission no job's entry names the
+    /// folder (the export's own, nor the scan that brings it into the library), and a search
+    /// withholding names finds no photo through the folder's name. A folder's export is not marked.
+    #[test]
+    fn a_persons_export_is_known_by_its_job_and_the_folder_it_made() {
+        use dalica_core::{PersonId, Rect01};
+        use dalica_library::{Face, FacePerson, Person};
+
+        let (dirs, mut s, ids) = library(2);
+        let lisbon = dirs.photos.path().join("Lisbon");
+        let ana = PersonId::parse("p0a0a").unwrap();
+        s.apply(Op::AddPerson { id: ana.clone(), person: Person::named("Ana") }).unwrap();
+        let face = || vec![Face::new(Rect01::new(0.1, 0.1, 0.3, 0.3).unwrap(), FacePerson::Person(ana.clone()))];
+        s.apply(Op::SetFaces { faces: vec![(ids[0], face()), (ids[1], face())] }).unwrap();
+        let section = format!("person:{}", ana.as_str());
+        // Into the watched folder, so a scan brings it into the library.
+        let reply = s.execute("export.run", &json!({ "section": section, "dir": lisbon, "folderName": "Ana", "size": 100 })).unwrap();
+        let job = reply["job"].as_u64().unwrap();
+        assert_eq!(s.wait_job(job, PATIENCE).unwrap().state, crate::JobState::Done);
+        s.wait_idle();
+        let folder = lisbon.join("Ana");
+        assert!(s.person_exports().is_job(job) && s.person_exports().folders() == [folder.clone()]);
+        let made = s.library().folder_by_path(&folder).expect("the scan brought the folder in");
+        assert_eq!(s.person_export_folders(), [made]);
+
+        let shown = folder.to_string_lossy().into_owned();
+        let named =
+            |s: &Session, allow: bool| s.jobs().iter().map(|e| s.job_for_automation(e, allow).to_string()).filter(|t| t.contains(&shown)).count();
+        assert!(named(&s, true) >= 2, "with the permission the export and its scan name the folder");
+        assert_eq!(named(&s, false), 0, "without it no job does");
+        let entry = s.job_for_automation(&s.job(job).unwrap(), false);
+        assert_eq!((&entry["result"]["folder"], &entry["result"]["name"], &entry["result"]["written"]), (&Value::Null, &Value::Null, &Value::Null));
+        assert_eq!(entry["result"]["done"], 2, "the counts stay");
+
+        let query = |s: &mut Session, withhold: bool| {
+            s.execute("library.query", &json!({ "text": "Ana", "withholdNames": withhold })).unwrap()["total"].clone()
+        };
+        assert_eq!(query(&mut s, false), 4, "Ana's photos and her export's");
+        assert_eq!(query(&mut s, true), 0, "neither through her name nor through her folder's");
+
+        let reply =
+            s.execute("export.run", &json!({ "section": "folder:1", "dir": dirs.photos.path().join("Out"), "folderName": "Lisbon" })).unwrap();
+        let other = reply["job"].as_u64().unwrap();
+        s.wait_job(other, PATIENCE).unwrap();
+        assert!(!s.person_exports().is_job(other));
+        assert!(!s.job_for_automation(&s.job(other).unwrap(), false)["result"]["folder"].is_null(), "a folder's export is not withheld");
     }
 }

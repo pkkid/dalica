@@ -134,7 +134,7 @@ pub fn playlist(
     } else if let Some(text) = search {
         check_text(text)?;
         let query = SearchQuery { text: text.to_string(), filters: Filters::default(), age: None };
-        s.ask_search_with(query, People { people: Vec::new(), withhold_names })?.photos().to_vec()
+        s.ask_search_with(query, People { withhold_names, ..People::default() })?.photos().to_vec()
     } else {
         let ids = ids.unwrap_or_default();
         if ids.len() > MAX_IDS {

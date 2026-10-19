@@ -19,7 +19,10 @@
 //! [`without_file_dates`]: a date equal to the photo's own file date goes back to "the file's
 //! date", so when nothing was read back in between, undo restores the library exactly. When the
 //! file's date did change, the photo keeps a date of the user's (in its sidecar) that its file
-//! will hold once the write lands.
+//! will hold once the write lands. The step an undo or redo leaves for the next one is written
+//! out the same way ([`written_out`]): one that went back to the file's date would otherwise fall
+//! back later to a date of Dalica's that landed in the file since. The metadata write-back records
+//! each date it puts in a file as the file's own (`metadata.rs`).
 
 use dalica_core::{Date, DateTime, PhotoId};
 use dalica_library::Op;
@@ -124,6 +127,41 @@ fn normalise(library: &dalica_library::Library, op: Op, depth: usize) -> Op {
     }
 }
 
+/// The photos whose dates `op` sets (in `Op::SetDates`, at any depth up to [`MAX_DEPTH`]), with
+/// their effective dates in `library` now (the user's, else the file's).
+pub(crate) fn effective_dates(library: &dalica_library::Library, op: &Op) -> Vec<(PhotoId, Option<DateTime>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![(op, 0)];
+    while let Some((op, depth)) = stack.pop() {
+        match op {
+            Op::SetDates { dates } => {
+                out.extend(dates.iter().map(|(id, _)| (*id, library.info(*id).date.or(library.photo(*id).and_then(|p| p.date)))))
+            }
+            Op::Batch { ops } if depth < MAX_DEPTH => stack.extend(ops.iter().map(|o| (o, depth + 1))),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// `op` (the inverse an undo or redo returned) with every date of `Op::SetDates` written out as
+/// the effective date its photo had before (`before`, from [`effective_dates`]), as the command's
+/// own undo step is: a step that went back to "the file's date" would otherwise, undone or redone
+/// later, fall back to whatever the file says by then (a date of Dalica's that landed in it since).
+pub(crate) fn written_out(op: Op, before: &[(PhotoId, Option<DateTime>)]) -> Op {
+    written_out_at(op, before, 0)
+}
+
+fn written_out_at(op: Op, before: &[(PhotoId, Option<DateTime>)], depth: usize) -> Op {
+    match op {
+        Op::SetDates { dates } => {
+            Op::SetDates { dates: dates.into_iter().map(|(id, d)| (id, before.iter().find(|(b, _)| *b == id).map_or(d, |(_, e)| *e))).collect() }
+        }
+        Op::Batch { ops } if depth < MAX_DEPTH => Op::Batch { ops: ops.into_iter().map(|o| written_out_at(o, before, depth + 1)).collect() },
+        other => other,
+    }
+}
+
 /// `date` moved by `secs` seconds, or `None` outside the years 1 to 9999.
 pub(crate) fn shifted(date: DateTime, secs: i64) -> Option<DateTime> {
     DateTime::from_unix_secs(unix_secs(date).checked_add(secs)?)
@@ -203,5 +241,28 @@ mod tests {
         }
         assert!(matches!(s.execute("photo.dates.set", &json!({ "ids": [ids[0]], "shift": i64::MAX })), Err(CmdError::Limit(_))));
         assert_eq!(s.undo_stack().len(), 0);
+    }
+
+    /// An undo or redo whose step went back to "the file's date" holds the date written out for
+    /// the next undo or redo, as the command's own undo step does: a read-back of a date Dalica
+    /// wrote into the file since (the file's own date now) does not become the photo's date.
+    #[test]
+    fn a_redone_step_undone_after_its_date_was_read_back_puts_the_original_date_back() {
+        let (_dirs, mut s, ids) = library(1);
+        let id = ids[0];
+        let file_date_is = |s: &mut Session, date: &str| {
+            let mut p = s.library().photo(id).unwrap().clone();
+            p.date = Some(dt(date));
+            s.apply(Op::UpdatePhotos { photos: vec![p] }).unwrap();
+        };
+        file_date_is(&mut s, "2026-06-04T10:00:00");
+        s.execute("photo.dates.set", &json!({ "ids": [id], "set": "2026-06-04T11:30:00" })).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.library().info(id).date, None, "back to the file's date");
+        s.execute("edit.redo", &json!({})).unwrap();
+        // A rescan reads the redo's date back from the file.
+        file_date_is(&mut s, "2026-06-04T11:30:00");
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.library().effective_date(id), Some(dt("2026-06-04T10:00:00")));
     }
 }

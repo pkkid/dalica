@@ -3,18 +3,18 @@
 //! frames and lets one more frame run (which polls the session) until the job has finished or the
 //! time is up.
 //!
-//! **A person's export folder** (§6.4, §6.13): an export of a person's section from the Export
-//! dialog makes its folder under the name suggested from theirs. Without the people permission the
-//! entries of those jobs reach the client with `folder`, `name` and `written` `null`
-//! (`dalica_engine::automation::withhold_export_folder`), in `jobs.list`, `jobs.wait` and
-//! `ui.inspect`'s `jobs`, and the Show Folder of the toast their end shows (`ui.inspect`'s
-//! `toasts`, its `action.folder`) is `null` too. The jobs are known by their id ([`observe`]): every export job that
-//! appears while the window's Export draft names a person's section, as each control request (and
-//! each step of one) begins, is marked; never by matching a folder's name against people's names.
+//! **A person's export folder** (§6.4, §6.13): an export of a person's section (`export.run` with
+//! `section: "person:<id>"`, from the Export dialog, a click or automation alike) makes its folder
+//! under the name suggested from theirs. The session marks the job and the folder it made
+//! (`dalica_engine::automation::PersonExports`); without the people permission those jobs reach the
+//! client with `folder`, `name` and `written` `null`, and every job's paths into that folder (the
+//! scan that brings it into the library) `null` too, in `jobs.list`, `jobs.wait` and `ui.inspect`'s
+//! `jobs`. Known by the job and the folder, never by matching a folder's name against people's
+//! names.
 
 use std::time::{Duration, Instant};
 
-use dalica_engine::{JobEntry, JobId, JobKind};
+use dalica_engine::{JobEntry, JobId};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -47,65 +47,14 @@ pub fn list(host: &dyn Host) -> Vec<JobEntry> {
     host.app().session().map(dalica_engine::Session::jobs).unwrap_or_default()
 }
 
-/// The export jobs marked as a person's ([`observe`]), kept in the window's egui memory.
-#[derive(Clone, Debug, Default)]
-struct PersonExports {
-    /// While the Export draft names a person's section: the newest job listed when it was last
-    /// seen open, so an export job after it is that draft's.
-    armed: Option<JobId>,
-    /// The marked jobs, by id and start (ids start again with a new session), while listed.
-    jobs: Vec<(JobId, u64)>,
-}
-
-fn person_exports_id() -> egui::Id {
-    egui::Id::new("dalica.control.personExports")
-}
-
-/// Marks the export jobs started from a person's section (module docs): an export job listed
-/// now that is newer than the newest job listed when the Export draft last named a person's
-/// section. Called as each control request and each of its steps begins, on the UI thread; looks
-/// at memory only.
-pub(super) fn observe(host: &dyn Host) {
-    let app = host.app();
-    let Some(session) = app.session() else { return };
-    let jobs = session.jobs();
-    let newest = jobs.iter().map(|e| e.job).max().unwrap_or(0);
-    let person = app.state().export.as_ref().and_then(|d| d.section).and_then(|s| s.person()).is_some();
-    host.ctx().data_mut(|d| {
-        let p = d.get_temp_mut_or_default::<PersonExports>(person_exports_id());
-        if let Some(after) = p.armed {
-            for e in jobs.iter().filter(|e| e.kind == JobKind::Export && e.job > after) {
-                if !p.jobs.contains(&(e.job, e.started_ms)) {
-                    p.jobs.push((e.job, e.started_ms));
-                }
-            }
-        }
-        // Finished jobs leave the list after 10 minutes; so do their marks.
-        p.jobs.retain(|k| jobs.iter().any(|e| (e.job, e.started_ms) == *k));
-        p.armed = person.then_some(newest);
-    });
-}
-
-/// Whether job `e` was marked as a person's export ([`observe`]).
-fn person_export(host: &dyn Host, e: &JobEntry) -> bool {
-    host.ctx().data(|d| d.get_temp::<PersonExports>(person_exports_id())).is_some_and(|p| p.jobs.contains(&(e.job, e.started_ms)))
-}
-
-/// Job `e` as this client may see it: a person's export without the people permission has its
-/// folder withheld.
+/// Job `e` as this client may see it: without the people permission a person's export has its
+/// folder withheld, and so has any job's path into a folder such an export made (the session's
+/// marks: `Session::job_for_automation`).
 pub(super) fn reply(host: &dyn Host, config: &Config, e: &JobEntry) -> Value {
-    let v = entry(e);
-    if super::people::withheld(config) && person_export(host, e) { dalica_engine::automation::withhold_export_folder(v) } else { v }
-}
-
-/// The export folders of the jobs marked as a person's ([`observe`]), as their results name them:
-/// a toast that shows one of these folders is that job's (`ui.inspect`'s `toasts`).
-pub(super) fn person_export_folders(host: &dyn Host) -> Vec<Value> {
-    list(host)
-        .iter()
-        .filter(|e| person_export(host, e))
-        .filter_map(|e| e.result.as_ref().and_then(|r| r.get("folder")).filter(|f| !f.is_null()).cloned())
-        .collect()
+    match host.app().session() {
+        Some(s) => s.job_for_automation(e, !super::people::withheld(config)),
+        None => entry(e),
+    }
 }
 
 /// Every job listed now as this client may see it ([`reply`]).

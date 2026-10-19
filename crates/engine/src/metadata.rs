@@ -21,8 +21,9 @@
 //!   application changed come back as one undoable import op ("Import Metadata", never written
 //!   back; a place follows the file with no undo step, never over a location the user removed);
 //!   both changed is noted for `photo.metadata` ([`Session::note_changed_elsewhere`]); a file
-//!   Dalica wrote while the model knew its version gets its new size and time, so a rescan does
-//!   not take Dalica's own write for an outside change; a failed write becomes a
+//!   Dalica wrote while the model knew its version gets its new size and time, and the date the
+//!   write put in it as the file's own, so a rescan does not take Dalica's own write for an
+//!   outside change (nor leaves an earlier write's date as the file's); a failed write becomes a
 //!   [`MetadataEvent`] (the UI's toasts), naming the file and the fields.
 //!
 //! **A damaged folder holds its photos' writes** (M10.57, `data-model.md` §3): nothing in a folder
@@ -524,6 +525,8 @@ struct Wrote {
     seen: u64,
     /// Photos still to write under the job.
     active: usize,
+    /// The date the write carried (the photo's effective date when it was queued).
+    date: Option<Option<DateTime>>,
 }
 
 /// The owned values of a photo the hook compares before and after an op.
@@ -1077,7 +1080,7 @@ impl Session {
 
     /// Applies one file's result.
     fn metadata_wrote(&mut self, wrote: Wrote) {
-        let Wrote { job, result, before, after, pending, seen, active } = wrote;
+        let Wrote { job, result, before, after, pending, seen, active, date } = wrote;
         let id = result.photo;
         let w = &mut self.metadata.writer;
         if !pending {
@@ -1096,7 +1099,12 @@ impl Session {
         if self.library.photo(id).is_none() {
             return;
         }
-        self.note_new_version(id, before, after);
+        // The date this write put in the file, if it wrote one and no later write of the photo is
+        // on its way (that one's result says what the file holds then).
+        let wrote_date =
+            result.fields.iter().any(|(f, o)| *f == SyncField::Date && matches!(o, FieldOutcome::Written | FieldOutcome::Conflict { written: true }));
+        let last = !self.metadata.writer.queued.contains_key(&id);
+        self.note_new_version(id, before, after, date.filter(|_| wrote_date && last));
         if let Some(s) = result.synced
             && self.library.synced(id) != Some(&s)
             && let Err(e) = self.apply_derived(Op::SetSynced { synced: vec![(id, Some(s))] })
@@ -1141,15 +1149,23 @@ impl Session {
     }
 
     /// Dalica's own write changed the file the model knew: the photo takes its new size and time, so
-    /// a rescan does not take the write for a change made elsewhere.
-    fn note_new_version(&mut self, id: PhotoId, before: Option<Version>, after: Option<Version>) {
+    /// a rescan does not take the write for a change made elsewhere, and, when the write put a date
+    /// in the file (`date`), that date as its file's own. Otherwise a rescan that read the file
+    /// before this result came in could leave the photo with the date of an earlier write as its
+    /// file's, which no later read corrects (the version is Dalica's), and an undo of a date would
+    /// fall back to it.
+    fn note_new_version(&mut self, id: PhotoId, before: Option<Version>, after: Option<Version>, date: Option<Option<DateTime>>) {
         let (Some(before), Some(after)) = (before, after) else { return };
         let Some(p) = self.library.photo(id) else { return };
-        if (p.size, p.mtime) != before || after == before {
+        // The size and time may be what they were (the time put back, the size unchanged).
+        if (p.size, p.mtime) != before || (after == before && date.is_none_or(|d| d == p.date)) {
             return;
         }
         let mut p = p.clone();
         (p.size, p.mtime) = after;
+        if let Some(date) = date {
+            p.date = date;
+        }
         if let Err(e) = self.apply(Op::UpdatePhotos { photos: vec![p] }) {
             log::warn!("the new version of photo {id} not applied: {e}");
         }
@@ -1345,6 +1361,8 @@ struct Work {
     /// The queued photos (exactly the queue's pending ones), with their paths and the versions the
     /// model knew.
     files: BTreeMap<PhotoId, (PathBuf, Version)>,
+    /// The date each queued photo's latest request carries (its effective date then).
+    dates: BTreeMap<PhotoId, Option<DateTime>>,
     /// Of `files`, those waiting for their volume (as the queue last said).
     waiting: BTreeSet<PhotoId>,
     /// The folders whose sidecar was damaged: a write due there is handed back, never made.
@@ -1370,6 +1388,7 @@ fn work(rx: Receiver<ToWorker>, tx: Sender<FromWorker>, clock: Arc<dyn Clock>) {
         asked: false,
         seen: 0,
         files: BTreeMap::new(),
+        dates: BTreeMap::new(),
         waiting: BTreeSet::new(),
         damaged: BTreeSet::new(),
         ready: VecDeque::new(),
@@ -1411,6 +1430,7 @@ impl Work {
                     // A new request ends a wait (the queue looks again after the debounce).
                     self.waiting.remove(&r.photo);
                     self.files.insert(r.photo, (r.path.clone(), version));
+                    self.dates.insert(r.photo, r.values.date);
                     self.queue.enqueue(r, at);
                 }
             }
@@ -1484,6 +1504,7 @@ impl Work {
     /// Forgets `photo` (it left the queue).
     fn forget(&mut self, photo: PhotoId) {
         self.files.remove(&photo);
+        self.dates.remove(&photo);
         self.waiting.remove(&photo);
     }
 
@@ -1537,6 +1558,7 @@ impl Work {
         }
         let found = Work::version(&path);
         let matched = found == Some(known);
+        let date = self.dates.get(&photo).copied();
         let (queue, options) = (&mut self.queue, &self.options);
         let result = catch_unwind(AssertUnwindSafe(|| queue.write(photo, options, now)));
         let job = self.job.as_ref().map(|(id, _)| *id);
@@ -1558,7 +1580,7 @@ impl Work {
                 } else {
                     self.waiting.remove(&photo);
                 }
-                let wrote = Wrote { job, result, before: matched.then_some(known), after, pending, seen: self.seen, active: self.active() };
+                let wrote = Wrote { job, result, before: matched.then_some(known), after, pending, seen: self.seen, active: self.active(), date };
                 let _ = self.tx.send(FromWorker::Wrote(Box::new(wrote)));
             }
             Ok(None) => self.forget(photo),
@@ -1806,5 +1828,24 @@ mod tests {
         let off = MetadataWrites::default();
         assert!(Field::Caption.allowed(&off, false) && Field::Date.allowed(&off, false) && !Field::Star.allowed(&off, false));
         assert!(!Field::People.allowed(&off, false) && Field::People.allowed(&off, true));
+    }
+
+    /// A date Dalica writes into a file is the file's own once the write lands (with the file's new
+    /// version, also when the size and time come back unchanged), so a rescan that read the file
+    /// between two writes cannot leave the photo with an earlier write's date as its file's.
+    #[test]
+    fn a_date_written_into_the_file_becomes_the_files_own() {
+        let (_dirs, mut s, ids) = library(1);
+        let id = ids[0];
+        let wait = Duration::from_secs(60);
+        let dt = |t: &str| t.parse::<DateTime>().unwrap();
+        let mut p = s.library().photo(id).unwrap().clone();
+        p.date = Some(dt("2026-06-04T10:00:00"));
+        s.apply(Op::UpdatePhotos { photos: vec![p] }).unwrap();
+        for (set, file) in [("2026-06-04T11:30:00", "2026-06-04T11:30:00"), ("2026-06-04T11:31:00", "2026-06-04T11:31:00")] {
+            s.execute("photo.dates.set", &serde_json::json!({ "ids": [id], "set": set })).unwrap();
+            assert!(s.flush_metadata(wait));
+            assert_eq!(s.library().photo(id).unwrap().date, Some(dt(file)), "{set}");
+        }
     }
 }

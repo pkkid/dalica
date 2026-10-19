@@ -193,7 +193,7 @@ impl SearchState {
 
     /// What the current search asks of people.
     fn who(&self) -> People {
-        People { people: self.people.clone(), withhold_names: self.withhold_names }
+        People { people: self.people.clone(), withhold_names: self.withhold_names, ..People::default() }
     }
 
     /// Whether names are withheld from a match that could hold them: only the text matches names,
@@ -680,6 +680,7 @@ impl Session {
     /// Runs `query`, with what it asks of people, on the worker and waits for the answer (search
     /// mode is left as it is).
     pub(crate) fn ask_search_with(&mut self, query: Query, who: People) -> Result<SearchResult, CmdError> {
+        let who = self.people_for_search(who);
         let (roots, options) = (self.roots().to_vec(), self.search_tree_options());
         let (reply, answer) = mpsc::channel();
         self.ask_worker(Request::Answer { ask: Ask { query, who, roots, options, suggest: false }, reply })?;
@@ -762,7 +763,7 @@ impl Session {
         }
         let ask = Ask {
             query: self.search.query(self.clock.now()),
-            who: self.search.who(),
+            who: self.people_for_search(self.search.who()),
             roots: self.roots().to_vec(),
             options: self.search_tree_options(),
             suggest: !self.search.text.trim().is_empty(),
