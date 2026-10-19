@@ -10,7 +10,7 @@
 
 use egui::{Color32, Id, Key, Modifiers, Pos2, Rect, Response, Sense, Ui, pos2, vec2};
 
-use super::{Target, focus_ring, register};
+use super::{Target, access_range, focus_ring, register};
 use crate::Tokens;
 use crate::registry::Role;
 
@@ -155,8 +155,9 @@ pub fn age_slider(ui: &mut Ui, t: &Tokens, id: &str, days: &mut Option<u32>, wid
     p.rect_filled(thumb, 1.0, thumb_color);
     focus_ring(p, t, &r, thumb.expand(1.0), 1);
     let label = if days.is_some() { age_label(*days) } else { tooltip.to_owned() };
-    register(ui.ctx(), id, Role::Other, &label, Target::Widget(&r), days.is_some());
     r.widget_info(|| egui::WidgetInfo::slider(enabled, f64::from(age_position(*days)), &label));
+    access_range(&r, f64::from(age_position(*days)), 0.0, 1.0, 0.05, &age_label(*days));
+    register(ui.ctx(), id, Role::Other, &label, Target::Widget(&r), days.is_some());
     if label.is_empty() { r } else { r.on_hover_text(label) }
 }
 

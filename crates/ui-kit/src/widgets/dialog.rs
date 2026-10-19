@@ -136,6 +136,10 @@ pub fn dialog<R>(
                 })
                 .inner
         });
+        super::access(&window.response, |node| {
+            node.set_role(egui::accesskit::Role::Dialog);
+            node.set_modal();
+        });
         register(ui.ctx(), id, Role::Other, title, Target::Widget(&window.response), true);
         (window.inner, window.response.rect)
     });

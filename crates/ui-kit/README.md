@@ -37,7 +37,11 @@
     Ctrl + wheel pinch, `classify` + `Input` for tests) and `flick` (`Flick`, `frame`: a pan that
     glides on after a fast drag, `FLICK_TAU`, `FLICK_MIN_START`, `FLICK_MAX_SPEED`,
     `FLICK_MAX_DT`).
-  - `widgets`: `register` + `Target` (the one way to get an automation id), `focus_ring`,
+  - `widgets`: `register` + `Target` (the one way to get an automation id; it also writes the
+    widget's AccessKit role, name and state, M15.14), `focus_ring` + `focus_color` /
+    `focus_stroke` (the ring in `accent_hover`, 3:1 on `chrome`), the AccessKit helpers `access`,
+    `access_range` (a value, its range, step and text), `access_row` (selected, expanded, level),
+    `access_role`, `access_name`,
     `label_in`; buttons `text_button`, `icon_button`, `star_toggle`, `primary_button`,
     `action_button`, `toggle_filter`, `segmented` (+ `Segment`, `SegmentLabel`); fields
     `text_field` (+ `FieldOut`, `Ending`, `TextField`, `focus_field`; Esc reverts, Return or a click away commits once, the Cut/Copy/Paste/Select All menu: M5.25), `search_field` (+ `SearchOut`), `autocomplete` (type-ahead list under a field, `Role::Suggestion` rows: M5.25); `slider` (+ `SliderSpec`, `SliderOut`,
@@ -94,6 +98,10 @@
     toggle that mutes and restores, and a short slider).
   - `registry`: `register`, `widgets`, `find`, `unregistered` (+ `Unregistered`), `is_valid_id`,
     `WidgetInfo`, `Role`.
+  - `text` (M15.14): the texts `ui-kit` says itself, `Text` (+ `ALL`, `english`, `context`) and
+    the table `Texts` (`english`, `translated`, `with`, `get`, `month`, `weekday`, `long_date`), set
+    per context by the app (`set`, `texts`, `get`), English until it is; `fill` for `{name}`
+    templates, `weekday_of`.
   - `raster`: `Rasterizer`, `Image`, `RasterError`, `MAX_SIDE`, `MAX_PIXELS`; and at the root
     `snapshot`, `raw_input`, `paint` for headless frames.
 - **Test it alone:** `cargo test -p dalica-ui-kit` (no window, GPU, network or personal photos needed).

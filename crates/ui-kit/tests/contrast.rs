@@ -83,14 +83,14 @@ fn glyph_pairs(t: &Tokens) -> Vec<Pair> {
 /// get worse. The maintainer settled them at the M3 review: `text_dim` was raised to `#949494` so it
 /// reaches 4.5:1 on `chrome`; on a hovered row it stays below (a hovered row would need about
 /// `#a8a8a8`, too close to `text_label`). `accent` on `chrome` stays below the 3:1 that WCAG 2.2
-/// asks of a focus indicator and of a drop-target outline (the ring is drawn 1 pt outside the
-/// control, the outline over an `accent × 0.15` fill). The slider `track` stays a guide under the
+/// asks of a drop-target outline (drawn over an `accent × 0.15` fill); the focus ring uses the
+/// brighter `widgets::focus_color` since M15.14, checked in `tests/accessibility.rs`. The slider `track` stays a guide under the
 /// ring (`thumb`, 5.3:1), not the control itself.
 fn known_below(t: &Tokens) -> Vec<(&'static str, Color32, Color32, f64, f64)> {
     // (what, foreground, background, pinned floor, threshold it misses)
     vec![
         ("text_dim on hover (counts in a hovered row)", t.text_dim, t.hover, 3.75, 4.5),
-        ("accent focus ring and drop-target outline on chrome", t.accent, t.chrome, 2.56, 3.0),
+        ("accent drop-target outline on chrome", t.accent, t.chrome, 2.56, 3.0),
         ("track on chrome", t.track, t.chrome, 2.00, 3.0),
     ]
 }

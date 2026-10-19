@@ -10117,7 +10117,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     as users download it (after a `ditto` copy); without the secrets it warns and signs ad hoc as
     before; `test.sh`, `actionlint` and the packaging lint pass; the Developer ID signature and
     notarization are checked at M15.R.
-- ⬜ **M15.14 `ui-kit`: AccessKit for every widget, and the texts `ui-kit` draws**
+- ✅ **M15.14 `ui-kit`: AccessKit for every widget, and the texts `ui-kit` draws**
   - after: M15.6
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/src/registry.rs`, `crates/ui-kit/src/text.rs`, `crates/ui-kit/tests/accessibility.rs`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: each widget reports its AccessKit role, its name (the label, else the tooltip, else

@@ -11,6 +11,7 @@ use super::{Target, focus_ring, one_line, primary_button, register, text_button}
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// What a [`progress_row`] did this pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -75,9 +76,10 @@ pub fn progress_row(ui: &mut Ui, t: &Tokens, id: &str, label: &str, fraction: Op
         };
         marks::cross(p, rect, glyph);
         focus_ring(p, t, &c, rect, t.radius);
-        register(ui.ctx(), cancel_id, Role::Button, "Cancel", Target::Widget(&c), false);
-        c.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, "Cancel"));
-        out.cancel = c.on_hover_text("Cancel").clicked();
+        let name = text::get(ui.ctx(), Text::Cancel);
+        c.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, &name));
+        register(ui.ctx(), cancel_id, Role::Button, &name, Target::Widget(&c), false);
+        out.cancel = c.on_hover_text(name).clicked();
     }
     out
 }

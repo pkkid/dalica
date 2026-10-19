@@ -139,10 +139,10 @@ pub fn checkbox(ui: &mut Ui, t: &Tokens, id: &str, label: &str, on: &mut bool) -
         }
     }
     if r.has_focus() {
-        p.rect_stroke(b.expand(1.0), CornerRadius::same(4), Stroke::new(t.focus_width, t.accent), StrokeKind::Outside);
+        p.rect_stroke(b.expand(1.0), CornerRadius::same(4), super::focus_stroke(t), StrokeKind::Outside);
     }
-    register(ui.ctx(), id, Role::Toggle, label, Target::Widget(&r), *on);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Checkbox, enabled, *on, label));
+    register(ui.ctx(), id, Role::Toggle, label, Target::Widget(&r), *on);
     r
 }
 
@@ -159,10 +159,10 @@ pub fn radio(ui: &mut Ui, t: &Tokens, id: &str, label: &str, checked: bool) -> R
         p.circle_filled(c, RADIO_R / 2.0, if enabled { t.accent } else { t.text_disabled });
     }
     if r.has_focus() {
-        p.circle_stroke(c, RADIO_R + 2.0, Stroke::new(t.focus_width, t.accent));
+        p.circle_stroke(c, RADIO_R + 2.0, super::focus_stroke(t));
     }
-    register(ui.ctx(), id, Role::Toggle, label, Target::Widget(&r), checked);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::RadioButton, enabled, checked, label));
+    register(ui.ctx(), id, Role::Toggle, label, Target::Widget(&r), checked);
     r
 }
 

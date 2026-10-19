@@ -18,10 +18,11 @@ use egui::{
 
 pub use picker::{field_color, field_point, hue_at, hue_color, hue_point};
 
-use super::{Target, TextField, allocate, focus_ring, register, tooltip};
+use super::{Target, TextField, access, access_range, allocate, focus_ring, register, tooltip};
 use crate::Tokens;
 use crate::icons::{EditIcon, paint_edit};
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The swatch button's size.
 pub const SWATCH_SIZE: Vec2 = vec2(36.0, 22.0);
@@ -181,8 +182,12 @@ pub fn swatch(ui: &mut Ui, t: &Tokens, id: &str, label: &str, color: [u8; 3], ar
     p.rect_stroke(r.rect, radius, border, StrokeKind::Inside);
     focus_ring(p, t, &r, r.rect, 3);
     let hex = hex_u8(color);
+    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::ColorButton, enabled, label));
+    access(&r, |node| {
+        node.set_value(hex.as_str());
+        node.set_expanded(open);
+    });
     register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), open);
-    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::ColorButton, enabled, format!("{label}: {hex}")));
     let r = tooltip(r, t, label, Some(&hex));
     let mut out = SwatchOut { color: None, eyedropper: false, open, response: r.clone() };
     if open {
@@ -200,6 +205,7 @@ fn popup(ui: &Ui, t: &Tokens, id: &str, label: &str, color: [u8; 3], armed: bool
     let kept: Option<PickerState> = ctx.data(|d| d.get_temp(state_id(id)));
     let mut state = PickerState { hsv: hsv_of(kept.as_ref(), color), hex: kept.and_then(|k| k.hex) };
     let mut typing = false;
+    let texts = text::texts(&ctx);
     egui::Area::new(Id::new(id).with("popup")).order(Order::Foreground).fixed_pos(rect.min).constrain(false).show(&ctx, |ui| {
         let (_, frame) = ui.allocate_space(rect.size());
         let p = ui.painter().clone();
@@ -207,7 +213,7 @@ fn popup(ui: &Ui, t: &Tokens, id: &str, label: &str, color: [u8; 3], armed: bool
         p.add(t.popup_shadow.as_shape(frame, round));
         p.rect(frame, round, t.chrome, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
         // The body takes the clicks between the parts, so none falls through to the photo.
-        let body = ui.interact(frame, Id::new(format!("{id}/popup")), Sense::click());
+        let body = ui.interact(frame, Id::new(format!("{id}/popup")), Sense::CLICK);
         register(&ctx, &format!("{id}/popup"), Role::Other, label, Target::Widget(&body), true);
 
         // The saturation / value field.
@@ -225,7 +231,10 @@ fn popup(ui: &Ui, t: &Tokens, id: &str, label: &str, color: [u8; 3], armed: bool
         let marker = pos2(field.left() + fx * field.width(), field.top() + fy * field.height());
         p.circle_stroke(marker, 5.0, Stroke::new(3.0, t.crosshair_outer));
         p.circle_stroke(marker, 5.0, Stroke::new(1.5, t.crosshair));
-        register(&ctx, &format!("{id}/field"), Role::Other, "Saturation and brightness", Target::Widget(&fr), fr.dragged());
+        focus_ring(&p, t, &fr, field, 0);
+        let (sat, val) = (state.hsv[1] * 100.0, state.hsv[2] * 100.0);
+        access(&fr, |node| node.set_value(format!("{sat:.0} %, {val:.0} %")));
+        register(&ctx, &format!("{id}/field"), Role::Other, texts.get(Text::SaturationBrightness), Target::Widget(&fr), fr.dragged());
 
         // The hue strip.
         let strip = Rect::from_min_size(pos2(field.right() + GAP, field.top()), vec2(HUE_STRIP_W, PICKER_FIELD));
@@ -241,7 +250,11 @@ fn popup(ui: &Ui, t: &Tokens, id: &str, label: &str, color: [u8; 3], armed: bool
             let tri = vec![pos2(x, sy), pos2(x - 5.0 * dir, sy - 4.0), pos2(x - 5.0 * dir, sy + 4.0)];
             p.add(Shape::convex_polygon(tri, t.text, Stroke::NONE));
         }
-        register(&ctx, &format!("{id}/hue"), Role::Other, "Hue", Target::Widget(&sr), sr.dragged());
+        focus_ring(&p, t, &sr, strip, 0);
+        let degrees = f64::from(state.hsv[0]);
+        sr.widget_info(|| egui::WidgetInfo::slider(true, degrees, texts.get(Text::Hue)));
+        access_range(&sr, degrees, 0.0, 360.0, 1.0, &format!("{degrees:.0}°"));
+        register(&ctx, &format!("{id}/hue"), Role::Other, texts.get(Text::Hue), Target::Widget(&sr), sr.dragged());
 
         // The hex field and the eyedropper.
         let row = Rect::from_min_size(pos2(field.left(), field.bottom() + GAP), vec2(field.width() + GAP + HUE_STRIP_W, DROPPER));
@@ -254,6 +267,7 @@ fn popup(ui: &Ui, t: &Tokens, id: &str, label: &str, color: [u8; 3], armed: bool
                 TextField::new(&hex_id, "#rrggbb", HEX_W).select_on_focus(true).show(ui, t, &mut text)
             })
             .inner;
+        access(&f.response, |node| node.set_label(texts.get(Text::HexColor)));
         typing = f.editing || f.ending.is_some();
         if f.committed() {
             if let Some(c) = parse_hex_u8(&text) {
@@ -288,12 +302,13 @@ fn popup(ui: &Ui, t: &Tokens, id: &str, label: &str, color: [u8; 3], armed: bool
         };
         paint_edit(&p, Rect::from_center_size(dropper.center(), Vec2::splat(t.metrics.icon_menu)), EditIcon::Eyedropper, glyph);
         focus_ring(&p, t, &dr, dropper, t.radius);
-        register(&ctx, &format!("{id}/eyedropper"), Role::Toggle, "Pick a color from the photo", Target::Widget(&dr), armed);
-        dr.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, true, armed, "Pick a color from the photo"));
+        let pick = texts.get(Text::PickColor);
+        dr.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, true, armed, pick));
+        register(&ctx, &format!("{id}/eyedropper"), Role::Toggle, pick, Target::Widget(&dr), armed);
         if dr.clicked() {
             out.eyedropper = true;
         }
-        let _ = tooltip(dr, t, "Pick a color from the photo", None);
+        let _ = tooltip(dr, t, pick, None);
     });
 
     let now = rgb_to_u8(hsv_to_rgb(state.hsv[0], state.hsv[1], state.hsv[2]));

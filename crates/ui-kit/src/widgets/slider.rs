@@ -12,7 +12,7 @@ use std::ops::RangeInclusive;
 
 use egui::{Align2, Color32, CornerRadius, Id, Key, Modifiers, Pos2, Rect, Response, Sense, Stroke, Ui, pos2, vec2};
 
-use super::{Target, focus_ring, register};
+use super::{Target, access_range, focus_ring, register};
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
@@ -316,7 +316,7 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
         // The field's frame, as the text fields have it focused (`field.rs`).
         let p = ui.painter();
         p.rect_filled(value_rect, CornerRadius::same(t.radius), t.canvas);
-        p.rect_stroke(value_rect, CornerRadius::same(t.radius), Stroke::new(t.focus_width, t.accent), egui::StrokeKind::Inside);
+        p.rect_stroke(value_rect, CornerRadius::same(t.radius), super::focus_stroke(t), egui::StrokeKind::Inside);
         let value_rect = value_rect.shrink2(vec2(4.0, 0.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(value_rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
         let field = child.add(edit);
@@ -341,6 +341,10 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
         }
     } else if !tuning {
         let value_resp = ui.interact(value_rect, id.with("value"), if enabled { Sense::click() } else { Sense::hover() });
+        // Enter or Space on it with the focus types a value, as a click does.
+        focus_ring(ui.painter(), t, &value_resp, value_rect, t.radius);
+        value_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, spec.label));
+        super::access(&value_resp, |node| node.set_value(spec.format(value)));
         register(ui.ctx(), &format!("{}/value", spec.id), Role::Other, spec.label, Target::Widget(&value_resp), false);
         if value_resp.clicked() {
             edit_slider_value(ui, spec, value);
@@ -437,13 +441,14 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
     p.circle_filled(c, ring, ui.visuals().panel_fill);
     p.circle_stroke(c, ring - 1.0, Stroke::new(2.0, ring_color));
     if resp.has_focus() {
-        p.circle_stroke(c, ring + 2.0, Stroke::new(t.focus_width, t.accent));
+        p.circle_stroke(c, ring + 2.0, super::focus_stroke(t));
     }
     if hot {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
-    register(ui.ctx(), spec.id, Role::Other, spec.label, Target::Widget(&resp), resp.dragged());
     resp.widget_info(|| egui::WidgetInfo::slider(enabled, shown, spec.label));
+    access_spec(&resp, spec, shown);
+    register(ui.ctx(), spec.id, Role::Other, spec.label, Target::Widget(&resp), resp.dragged());
     if tuning && enabled && (resp.hovered() || resp.dragged()) {
         super::tooltip_now(&resp, t, &spec.format(shown), None);
     }
@@ -628,17 +633,24 @@ fn stops_line(ui: &mut Ui, t: &Tokens, s: &StopsSlider<'_>, value: f64) -> Slide
     p.circle_filled(c, ring, ui.visuals().panel_fill);
     p.circle_stroke(c, ring - 1.0, Stroke::new(2.0, ring_color));
     if resp.has_focus() {
-        p.circle_stroke(c, ring + 2.0, Stroke::new(t.focus_width, t.accent));
+        p.circle_stroke(c, ring + 2.0, super::focus_stroke(t));
     }
     if hot {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
-    register(ui.ctx(), spec.id, Role::Other, spec.label, Target::Widget(&resp), resp.dragged());
     resp.widget_info(|| egui::WidgetInfo::slider(enabled, shown, spec.label));
+    access_spec(&resp, spec, shown);
+    register(ui.ctx(), spec.id, Role::Other, spec.label, Target::Widget(&resp), resp.dragged());
     out
 }
 
 /// `(low, high)` of a zoom slider's range: ordered, `(0, 1)` if an end is not finite.
+/// A spec slider's AccessKit value: the value, the spec's range and step, the value as shown.
+fn access_spec(r: &Response, spec: &SliderSpec<'_>, value: f64) {
+    let (lo, hi) = spec.bounds();
+    access_range(r, value, lo, hi, spec.step, &spec.format(value));
+}
+
 fn zoom_bounds(range: &RangeInclusive<f32>) -> (f32, f32) {
     let (a, b) = (*range.start(), *range.end());
     if a.is_finite() && b.is_finite() { (a.min(b), a.max(b)) } else { (0.0, 1.0) }
@@ -704,8 +716,9 @@ pub fn zoom_slider(ui: &mut Ui, t: &Tokens, id: &str, value: &mut f32, range: Ra
     let thumb = Rect::from_center_size(pos2(to_x(v).round(), y), m.zoom_thumb);
     p.rect_filled(thumb, 1.0, thumb_color);
     focus_ring(p, t, &r, thumb.expand(1.0), 1);
-    register(ui.ctx(), id, Role::Other, tooltip, Target::Widget(&r), r.dragged());
     r.widget_info(|| egui::WidgetInfo::slider(enabled, f64::from(v), tooltip));
+    access_range(&r, f64::from(v), f64::from(lo), f64::from(hi), f64::from(span / 20.0), &format!("{v:.0}"));
+    register(ui.ctx(), id, Role::Other, tooltip, Target::Widget(&r), r.dragged());
     if tooltip.is_empty() { r } else { r.on_hover_text(tooltip) }
 }
 

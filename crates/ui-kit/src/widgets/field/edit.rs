@@ -21,6 +21,7 @@ use egui::{Event, Id, Key, PointerButton, Popup, PopupCloseBehavior, Rect, Respo
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
+use crate::text::Text;
 use crate::widgets::{Target, register};
 
 /// How an edit ended.
@@ -242,11 +243,12 @@ fn has_selection(ctx: &egui::Context, id: Id) -> bool {
 fn menu(ui: &mut Ui, widget: &str, id: Id, text: &str, action: &mut Option<Action>) {
     let mac = ui.ctx().os() == egui::os::OperatingSystem::Mac;
     let selected = has_selection(ui.ctx(), id);
+    let texts = crate::text::texts(ui.ctx());
     let items = [
-        (Action::Cut, "cut", "Cut", "X", selected),
-        (Action::Copy, "copy", "Copy", "C", selected),
-        (Action::Paste, "paste", "Paste", "V", true),
-        (Action::SelectAll, "selectAll", "Select All", "A", !text.is_empty()),
+        (Action::Cut, "cut", texts.get(Text::Cut), "X", selected),
+        (Action::Copy, "copy", texts.get(Text::Copy), "C", selected),
+        (Action::Paste, "paste", texts.get(Text::Paste), "V", true),
+        (Action::SelectAll, "selectAll", texts.get(Text::SelectAll), "A", !text.is_empty()),
     ];
     for (a, key, label, letter, enabled) in items {
         if a == Action::SelectAll {

@@ -19,6 +19,7 @@ use crate::Tokens;
 use crate::fonts;
 use crate::icons::{self, Glyph, Icon};
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// Tabs visible on a strip and tabs that need an overflow menu, all in original order.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -230,7 +231,7 @@ pub fn tabs(ui: &mut Ui, t: &Tokens, id: &str, items: &[TabItem<'_>], active: us
         x += w;
         let on = i == active;
         let tab_id = format!("{id}/{}", item.name);
-        let r = Tab::new(Id::new(&tab_id), item.tooltip, on).focus_stroke(Stroke::new(t.focus_width, t.accent)).show_at(ui, rect, |ui, r| {
+        let r = Tab::new(Id::new(&tab_id), item.tooltip, on).focus_stroke(super::focus_stroke(t)).show_at(ui, rect, |ui, r| {
             let p = ui.painter();
             let top = CornerRadius { nw: radius, ne: radius, sw: 0, se: 0 };
             if on {
@@ -299,9 +300,11 @@ fn overflow_button(ui: &mut Ui, t: &Tokens, id: &str, rect: Rect, rows: impl FnO
     };
     icons::paint(p, Rect::from_center_size(rect.center(), Vec2::splat(t.metrics.icon_badge.min(rect.width()))), Icon::ChevronDown, glyph);
     super::focus_ring(p, t, &more, rect, radius);
-    register(ui.ctx(), &more_id, Role::Button, "More tabs", Target::Widget(&more), open);
-    more.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, enabled, "More tabs"));
-    let more = tooltip(more, t, "More tabs", None);
+    let name = text::get(ui.ctx(), Text::MoreTabs);
+    more.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, enabled, &name));
+    super::access(&more, |node| node.set_expanded(open));
+    register(ui.ctx(), &more_id, Role::Button, &name, Target::Widget(&more), open);
+    let more = tooltip(more, t, &name, None);
     if enabled {
         Popup::menu(&more).id(popup_id).close_behavior(PopupCloseBehavior::CloseOnClick).show(rows);
     }
@@ -326,8 +329,8 @@ fn overflow_row(ui: &mut Ui, t: &Tokens, id: &str, icon: Option<Glyph>, label: &
         icons::paint_glyph(p, glyph, icon, if hot { t.text } else { t.icon });
     }
     p.galley(pos2(rect.min.x + text_x, rect.center().y - galley.size().y / 2.0).round(), galley, color);
-    register(ui.ctx(), id, Role::Tab, label, Target::Widget(&r), false);
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    register(ui.ctx(), id, Role::Tab, label, Target::Widget(&r), false);
     r.clicked()
 }
 
@@ -397,7 +400,7 @@ pub fn text_tabs(ui: &mut Ui, t: &Tokens, id: &str, items: &[TextTab<'_>], activ
         let on = i == active;
         let tab_id = format!("{id}/{}", item.name);
         let mut painted = (String::new(), false);
-        let r = Tab::new(Id::new(&tab_id), item.label, on).focus_stroke(Stroke::new(t.focus_width, t.accent)).show_at(ui, rect, |ui, r| {
+        let r = Tab::new(Id::new(&tab_id), item.label, on).focus_stroke(super::focus_stroke(t)).show_at(ui, rect, |ui, r| {
             let p = ui.painter();
             if on {
                 p.rect_filled(rect, top, t.inset);
@@ -597,7 +600,7 @@ pub fn room_tabs(ui: &mut Ui, t: &Tokens, id: &str, items: &[RoomTab<'_>], activ
         let close_rect = (item.closable && rect.width() >= ROOM_TAB_PAD + m.icon_menu + 2.0 * ROOM_TAB_CLOSE)
             .then(|| Rect::from_center_size(pos2(rect.max.x - 6.0 - ROOM_TAB_CLOSE / 2.0, rect.center().y), Vec2::splat(ROOM_TAB_CLOSE)));
         let mut painted = (String::new(), false);
-        let r = Tab::new(Id::new(&tab_id), item.label, on).focus_stroke(Stroke::new(t.focus_width, t.accent)).show_at(ui, rect, |ui, r| {
+        let r = Tab::new(Id::new(&tab_id), item.label, on).focus_stroke(super::focus_stroke(t)).show_at(ui, rect, |ui, r| {
             let p = ui.painter();
             if on {
                 p.rect_filled(rect, top, t.chrome);
@@ -656,10 +659,11 @@ pub fn room_tabs(ui: &mut Ui, t: &Tokens, id: &str, items: &[RoomTab<'_>], activ
             };
             icons::paint(p, Rect::from_center_size(close.center(), Vec2::splat(10.0)), Icon::Close, color);
             super::focus_ring(p, t, &c, close, 3);
-            let label = format!("Close {}", item.label);
-            register(ui.ctx(), &close_id, Role::Button, &label, Target::Widget(&c), false);
+            let texts = text::texts(ui.ctx());
+            let label = text::fill(texts.get(Text::CloseNamed), &[("name", item.label)]);
             c.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
-            if tooltip(c, t, "Close", None).clicked() {
+            register(ui.ctx(), &close_id, Role::Button, &label, Target::Widget(&c), false);
+            if tooltip(c, t, texts.get(Text::Close), None).clicked() {
                 out.closed = Some(i);
                 out.clicked = out.clicked.filter(|&k| k != i);
             }

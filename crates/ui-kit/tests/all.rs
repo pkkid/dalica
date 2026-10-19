@@ -1,6 +1,7 @@
 //! Every integration test of the ui-kit, in one binary (one link, tests run in parallel threads):
 //! `cargo test -p dalica-ui-kit --test all <file>::` runs one file.
 
+mod accessibility;
 mod badges;
 mod collage_widgets;
 mod common;

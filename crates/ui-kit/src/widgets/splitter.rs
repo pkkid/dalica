@@ -5,6 +5,7 @@ use egui::{CornerRadius, CursorIcon, Id, Key, Modifiers, Rect, Response, Sense, 
 use super::{Target, focus_ring, register};
 use crate::Tokens;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// A splitter filling `rect`: vertical (it moves left and right) when `rect` is taller than wide,
 /// horizontal otherwise. `chrome` at rest with a grip of two 1 pt lines 48 pt long in its middle
@@ -54,8 +55,9 @@ pub fn splitter(ui: &mut Ui, t: &Tokens, id: &str, rect: Rect) -> Response {
     if hovered || dragging {
         ui.ctx().set_cursor_icon(if vertical { CursorIcon::ResizeColumn } else { CursorIcon::ResizeRow });
     }
-    register(ui.ctx(), id, Role::Other, "Splitter", Target::Widget(&r), dragging);
-    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Other, enabled, "Splitter"));
+    let name = text::get(ui.ctx(), Text::Splitter);
+    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::ResizeHandle, enabled, &name));
+    register(ui.ctx(), id, Role::Other, &name, Target::Widget(&r), dragging);
     r
 }
 

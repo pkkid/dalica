@@ -13,6 +13,7 @@ use super::{Target, allocate, focus_ring, one_line, register};
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// A key cell's default width: room for "Press the new shortcut…", or two caps such as
 /// "Ctrl+Shift+S" and "F4" side by side.
@@ -147,9 +148,10 @@ pub fn key_cell(ui: &mut Ui, t: &Tokens, id: &str, cell: &KeyCell<'_>) -> Respon
     let p = ui.painter();
     let radius = CornerRadius::same(t.radius);
     let font = fonts::regular(t.count);
+    let texts = text::texts(ui.ctx());
     if cell.recording {
         p.rect(rect, radius, t.field, Stroke::new(1.5, t.accent), StrokeKind::Inside);
-        let galley = one_line(p, RECORDING_TEXT, font, t.text, rect.width() - 2.0 * KEY_CAP_PAD);
+        let galley = one_line(p, texts.get(Text::RecordingKey), font, t.text, rect.width() - 2.0 * KEY_CAP_PAD);
         p.galley(pos2(rect.min.x + KEY_CAP_PAD, rect.center().y - galley.size().y / 2.0).round(), galley, t.text);
     } else {
         if enabled && (r.hovered() || r.is_pointer_button_down_on()) {
@@ -185,8 +187,13 @@ pub fn key_cell(ui: &mut Ui, t: &Tokens, id: &str, cell: &KeyCell<'_>) -> Respon
         }
     }
     focus_ring(p, t, &r, rect, t.radius);
-    let label = key_cell_label(cell);
-    register(ui.ctx(), id, Role::Button, &label, Target::Widget(&r), cell.recording);
+    // The label in the app's language where it is one of the cell's own texts.
+    let label = match key_cell_label(cell) {
+        l if l == RECORDING_TEXT => texts.get(Text::RecordingKey).to_owned(),
+        l if l == NO_KEY_TEXT => texts.get(Text::NoShortcut).to_owned(),
+        l => l,
+    };
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, cell.recording, &label));
+    register(ui.ctx(), id, Role::Button, &label, Target::Widget(&r), cell.recording);
     r
 }

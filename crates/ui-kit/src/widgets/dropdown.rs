@@ -7,7 +7,7 @@ use egui::{Color32, CornerRadius, Id, Painter, Popup, Rect, Response, Sense, Ui,
 
 use super::form::check_mark;
 use super::marks::{self, Chevron};
-use super::{Target, allocate, focus_ring, one_line, register};
+use super::{Target, access, allocate, focus_ring, one_line, register};
 use crate::Tokens;
 use crate::fonts;
 use crate::icons::{Glyph, paint_glyph};
@@ -47,12 +47,26 @@ pub fn dropdown(ui: &mut Ui, t: &Tokens, id: &str, text: &str, menu: impl FnOnce
     let chevron = Rect::from_center_size(pos2(r.rect.max.x - 11.0, r.rect.center().y), Vec2::splat(t.metrics.icon_badge));
     marks::chevron(p, chevron, Chevron::Down, color);
     focus_ring(p, t, &r, r.rect, t.radius);
-    register(ui.ctx(), id, Role::Button, text, Target::Widget(&r), open);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::ComboBox, enabled, text));
+    access_choice(&r, text, open);
+    register(ui.ctx(), id, Role::Button, text, Target::Widget(&r), open);
     if enabled {
         Popup::menu(&r).show(menu);
     }
     r
+}
+
+/// A dropdown's AccessKit state: the item chosen (what its face shows) and whether it is open.
+fn access_choice(r: &Response, chosen: &str, open: bool) {
+    access(r, |node| {
+        node.set_value(chosen);
+        node.set_expanded(open);
+    });
+}
+
+/// A dropdown menu's item is a radio item of the menu, checked when it is the choice.
+fn access_item(r: &Response) {
+    access(r, |node| node.set_role(egui::accesskit::Role::MenuItemRadio));
 }
 
 /// The narrowest a [`dropdown_item`] gets.
@@ -109,8 +123,9 @@ pub fn dropdown_item(ui: &mut Ui, t: &Tokens, id: &str, title: &str, description
         p.galley(pos2(text_x, first + title_g.size().y / 2.0 + 1.0).round(), detail, detail_color);
     }
     let label = if description.is_empty() { title.to_owned() } else { format!("{title}: {description}") };
-    register(ui.ctx(), id, Role::MenuItem, &label, Target::Widget(&r), checked);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::SelectableLabel, enabled, checked, &label));
+    access_item(&r);
+    register(ui.ctx(), id, Role::MenuItem, &label, Target::Widget(&r), checked);
     r
 }
 
@@ -235,8 +250,9 @@ pub fn rich_dropdown(ui: &mut Ui, t: &Tokens, id: &str, row: &RichRow<'_>, width
     paint_rich_row(p, t, r.rect, row, true, colors);
     focus_ring(p, t, &r, r.rect, t.radius);
     let label = format!("{}: {}", row.name, row.description);
-    register(ui.ctx(), id, Role::Button, &label, Target::Widget(&r), open);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::ComboBox, enabled, &label));
+    access_choice(&r, row.name, open);
+    register(ui.ctx(), id, Role::Button, &label, Target::Widget(&r), open);
     if enabled {
         Popup::menu(&r).show(menu);
     }
@@ -283,7 +299,8 @@ pub fn rich_item(ui: &mut Ui, t: &Tokens, id: &str, row: &RichRow<'_>, checked: 
     };
     paint_rich_row(p, t, rect, row, false, colors);
     let label = format!("{}: {}", row.name, row.description);
-    register(ui.ctx(), id, Role::MenuItem, &label, Target::Widget(&r), checked);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::SelectableLabel, enabled, checked, &label));
+    access_item(&r);
+    register(ui.ctx(), id, Role::MenuItem, &label, Target::Widget(&r), checked);
     r
 }

@@ -34,8 +34,8 @@ pub fn primary_button(ui: &mut Ui, t: &Tokens, id: &str, label: &str) -> Respons
     focus_ring(p, t, &r, r.rect, t.radius);
     let pos = r.rect.center() - galley.size() / 2.0;
     p.galley(pos.round(), galley, t.on_accent);
-    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), false);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, label));
+    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), false);
     r
 }
 
@@ -125,8 +125,8 @@ pub fn segmented(ui: &mut Ui, t: &Tokens, segments: &[Segment<'_>], active: Opti
             SegmentLabel::Text(text) if seg.tooltip.is_empty() => text,
             _ => seg.tooltip,
         };
-        register(ui.ctx(), seg.id, Role::Toggle, name, Target::Widget(&r), on);
         r.widget_info(|| egui::WidgetInfo::selected(WidgetType::RadioButton, enabled, on, name));
+        register(ui.ctx(), seg.id, Role::Toggle, name, Target::Widget(&r), on);
         let r = if seg.tooltip.is_empty() { r } else { r.on_hover_text(seg.tooltip) };
         if r.clicked() {
             clicked = Some(i);
@@ -169,8 +169,8 @@ pub fn action_button(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, label: &str,
     let below = Rect::from_min_max(pos2(r.rect.min.x, band.max.y), r.rect.max);
     p.galley((below.center() - galley.size() / 2.0).round(), galley, text);
     focus_ring(p, t, &r, r.rect, t.radius);
-    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, active, label));
+    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), active);
     r
 }
 
@@ -202,7 +202,7 @@ pub fn toggle_filter(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, on: bool, to
     };
     icons::paint(p, Rect::from_center_size(r.rect.center(), Vec2::splat(t.metrics.icon_menu)), icon, glyph);
     focus_ring(p, t, &r, r.rect, t.filter_radius);
-    register(ui.ctx(), id, Role::Toggle, tooltip, Target::Widget(&r), on);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Checkbox, enabled, on, tooltip));
+    register(ui.ctx(), id, Role::Toggle, tooltip, Target::Widget(&r), on);
     if tooltip.is_empty() { r } else { r.on_hover_text(tooltip) }
 }

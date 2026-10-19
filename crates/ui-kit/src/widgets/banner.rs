@@ -8,6 +8,7 @@ use super::{Target, one_line, register, text_button};
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The banner's height.
 pub const BANNER_H: f32 = 32.0;
@@ -43,7 +44,8 @@ pub fn filter_banner(ui: &mut Ui, t: &Tokens, id: &str, show_all_id: &str, text:
     let button_area = Rect::from_min_max(pos2(rect.min.x + BANNER_PAD, rect.min.y), pos2(rect.max.x.max(rect.min.x + BANNER_PAD), rect.max.y));
     let show_all = ui
         .scope_builder(UiBuilder::new().max_rect(button_area).layout(Layout::left_to_right(Align::Center)), |ui| {
-            text_button(ui, t, show_all_id, "Show All", false).on_hover_text("Leave search")
+            let texts = text::texts(ui.ctx());
+            text_button(ui, t, show_all_id, texts.get(Text::ShowAll), false).on_hover_text(texts.get(Text::LeaveSearch))
         })
         .inner;
     let left = show_all.rect.max.x + BANNER_TEXT_GAP;
