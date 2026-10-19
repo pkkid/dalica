@@ -19,8 +19,9 @@
 //! M13.23); [`slides`] tells a test what the last frame drew.
 
 use std::cell::{Cell, RefCell};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Weak};
+use std::time::{Duration, Instant};
 
 use dalica_core::PhotoId;
 use dalica_create::slideshow::{self as create, Size, Slide};
@@ -242,6 +243,26 @@ pub fn slides() -> Vec<(PhotoId, Slide)> {
 /// Where this UI thread's preview textures were prepared so far (M12.24).
 pub fn prepared() -> Prepared {
     PREPARED.with(Cell::get)
+}
+
+/// Waits up to `timeout` for the conversions under way on this UI thread to land; the frames after
+/// upload them as before. Answers whether every one did. For tests and benches whose virtual clock
+/// runs ahead of the workers (as `Session::wait_preview` for the previews): the show itself never
+/// waits for a conversion.
+pub fn wait_prepared(timeout: Duration) -> bool {
+    let until = Instant::now() + timeout;
+    PENDING.with(|pending| {
+        let mut all = true;
+        for p in pending.borrow_mut().iter_mut().filter(|p| p.ready.is_none()) {
+            match p.rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+                Ok(pixels) => p.ready = Some(pixels),
+                Err(RecvTimeoutError::Timeout) => all = false,
+                // The worker ended without an answer: the next frame starts it again.
+                Err(RecvTimeoutError::Disconnected) => {}
+            }
+        }
+        all
+    })
 }
 
 /// Photo `id`'s preview in `pane` when it is there, with its recipe (what the preview shows).
