@@ -12,7 +12,7 @@
 //!               UI scale:  [Auto ▾]
 //!                          Auto follows the system's scale and the monitor.
 //!           UI font size:  [Small ▾]
-//!               Language:  [System ▾]                        (disabled: Arrives with translations)
+//!               Language:  [System ▾]
 //!  ───────────────────────────────────────────────────────────
 //!                  Files:  [x] Detect duplicates while importing
 //!                          [ ] Delete from disk without asking
@@ -29,6 +29,12 @@
 //! through `app.preferences.folder` (over automation `ui.filePicker {path}` answers it). An option whose feature does not exist yet is drawn disabled with its
 //! reason as the tooltip; an option of another platform is left out. The body scrolls (by the
 //! wheel) when the dialog is shorter than the tab.
+//!
+//! Language lists System, then each language of the window's registry by its own name (an endonym
+//! is never translated; the pseudo-locale `qps` only while it is the language chosen); once applied
+//! the interface follows on its next draw. Every text of the tab goes through the catalogs
+//! (`crate::i18n`): groups and choices by their English, a row's label and hint by its key first
+//! (`option:<key>`), a form label as `{label}:` in the context `form label`.
 //!
 //! A change goes into the draft (`options.values`, by settings key) unless it puts the saved value
 //! back, which takes the key out, so Apply is enabled exactly while the draft differs from the
@@ -51,8 +57,10 @@ use egui::Ui;
 use serde_json::{Map, Value, json};
 
 use crate::app::App;
+use crate::i18n;
 use crate::picker::FolderRequest;
 use crate::state::{FontChoice, ScaleChoice};
+use crate::tl;
 
 /// The tab's groups, in order.
 pub const GROUPS: [&str; 3] = ["Interface", "Files", "Import"];
@@ -60,6 +68,8 @@ pub const GROUPS: [&str; 3] = ["Interface", "Files", "Import"];
 /// The settings keys whose choice previews live.
 pub const UI_SCALE: &str = "interface.uiScale";
 pub const FONT_SIZE: &str = "interface.fontSize";
+/// The settings key of the language (live: the interface follows on its next draw).
+pub const LANGUAGE: &str = "interface.language";
 
 /// The command a folder option's picker runs with the folder chosen (`{key, path}`): it puts the
 /// folder into the open dialog's draft.
@@ -229,8 +239,8 @@ fn shown<'a>(row: &'a Row, draft: &'a Map<String, Value>) -> &'a Value {
 /// Draws the groups; returns the values changed this pass, by row, and the folder row whose
 /// Browse… was clicked.
 fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: &Env) -> (Vec<(usize, Value)>, Option<usize>) {
-    let group_labels: Vec<String> = GROUPS.iter().map(|g| format!("{g}:")).collect();
-    let row_labels: Vec<String> = rows.iter().filter(|r| r.kind != "bool").map(|r| format!("{}:", r.label)).collect();
+    let group_labels: Vec<String> = GROUPS.iter().map(|g| form_label(&i18n::tr(g))).collect();
+    let row_labels: Vec<String> = rows.iter().filter(|r| r.kind != "bool").map(|r| form_label(&i18n::option_label(&r.key, &r.label))).collect();
     let labels: Vec<&str> = group_labels.iter().chain(&row_labels).map(String::as_str).collect();
     let form = Form::new(ui, t, &labels);
     let mut changes = Vec::new();
@@ -248,11 +258,13 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: 
         first = false;
         let checks: Vec<&(usize, &Row)> = in_group.iter().filter(|(_, r)| r.kind == "bool").collect();
         if !checks.is_empty() {
-            form.row(ui, t, &format!("{group}:"), |ui| {
+            form.row(ui, t, &form_label(&i18n::tr(group)), |ui| {
                 for &&(i, row) in &checks {
                     let mut on = shown(row, draft).as_bool().unwrap_or(false);
-                    let hint_text = (!row.hint.is_empty()).then_some(row.hint.as_str());
-                    let out = checkbox_row(ui, t, &control_id("bool", &row.key), &row.label, &mut on, hint_text, row.reason.as_deref());
+                    let hint_text = (!row.hint.is_empty()).then(|| i18n::option_hint(&row.key, &row.hint));
+                    let reason = row.reason.as_deref().map(i18n::tr);
+                    let label = i18n::option_label(&row.key, &row.label);
+                    let out = checkbox_row(ui, t, &control_id("bool", &row.key), &label, &mut on, hint_text.as_deref(), reason.as_deref());
                     if out.response.changed() {
                         changes.push((i, json!(on)));
                     }
@@ -260,7 +272,7 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: 
             });
         }
         for &(i, row) in in_group.iter().filter(|(_, r)| r.kind != "bool") {
-            let label = format!("{}:", row.label);
+            let label = form_label(&i18n::option_label(&row.key, &row.label));
             form_group(ui, row.reason.is_none(), |ui| {
                 form.row(ui, t, &label, |ui| match row.kind.as_str() {
                     "folder" => {
@@ -280,22 +292,44 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: 
     (changes, browse)
 }
 
+/// A form row's label: `Language:` (the colon as the language writes it).
+fn form_label(label: &str) -> String {
+    tl!(ctx = "form label", "{label}:", label = label)
+}
+
+/// The text of choice `value` of `row`, whose English label is `english`, in the language in
+/// effect: a language's own name stays as it is written (an endonym is never translated), a
+/// percentage is a number with its unit, anything else goes through the catalog.
+pub fn choice_text(row: &Row, value: &Value, english: &str) -> String {
+    match (row.key.as_str(), value) {
+        (LANGUAGE, Value::String(code)) if code != i18n::SYSTEM => english.to_string(),
+        (UI_SCALE, Value::Number(p)) => tl!("{percent} %", percent = p),
+        _ => i18n::tr(english),
+    }
+}
+
+/// Whether choice `value` of `row` is listed while `shown` is chosen: the pseudo-locale only while
+/// it is the language chosen (it is for checking the translations, not for reading).
+fn listed(row: &Row, value: &Value, shown: &Value) -> bool {
+    !(row.key == LANGUAGE && value.as_str() == Some(i18n::PSEUDO_CODE) && value != shown)
+}
+
 /// A dropdown of `row`'s choices showing `value`; returns the choice picked this pass.
 fn choice(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value) -> Option<Value> {
-    let text = row.choices.iter().find(|(v, _)| v == value).map_or_else(|| value.to_string(), |(_, l)| l.clone());
+    let text = row.choices.iter().find(|(v, _)| v == value).map_or_else(|| value.to_string(), |(v, l)| choice_text(row, v, l));
     let mut picked = None;
     let r = dropdown(ui, t, &control_id(&row.kind, &row.key), &text, |ui| {
-        for (v, label) in &row.choices {
-            if dropdown_item(ui, t, &item_id(&row.key, v), label, "", v == value).clicked() {
+        for (v, label) in row.choices.iter().filter(|(v, _)| listed(row, v, value)) {
+            if dropdown_item(ui, t, &item_id(&row.key, v), &choice_text(row, v, label), "", v == value).clicked() {
                 picked = Some(v.clone());
             }
         }
     });
     if let Some(reason) = &row.reason {
-        tooltip(r, t, reason, None);
+        tooltip(r, t, &i18n::tr(reason), None);
     }
     if !row.hint.is_empty() {
-        hint(ui, t, &row.hint);
+        hint(ui, t, &i18n::option_hint(&row.key, &row.hint));
     }
     picked
 }
@@ -306,20 +340,21 @@ fn folder(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value, env: &Env) -> bool 
     let mut path = value.as_str().unwrap_or_default().to_string();
     let default = env.default_folder.as_ref().map(|p| p.display().to_string());
     let placeholder = match &default {
-        Some(d) => d.as_str(),
-        None if row.hint.is_empty() => "The default folder",
-        None => row.hint.as_str(),
+        Some(d) => d.clone(),
+        None if row.hint.is_empty() => tl!("The default folder"),
+        None => i18n::option_hint(&row.key, &row.hint),
     };
     let available = row.reason.is_none();
     ui.horizontal(|ui| {
         let w = (ui.available_width() - BROWSE_W - ui.spacing().item_spacing.x).max(60.0);
         // Shown, not typed in: a folder is chosen with Browse….
-        let field = form_group(ui, false, |ui| TextField::new(&control_id("folder", &row.key), placeholder, w).show(ui, t, &mut path));
-        let browse =
-            form_group(ui, available && env.can_browse, |ui| text_button(ui, t, &format!("button:option.{}/browse", row.key), "Browse…", false));
-        if let Some(reason) = &row.reason {
-            tooltip(field.response, t, reason, None);
-            return tooltip(browse, t, reason, None).clicked();
+        let field = form_group(ui, false, |ui| TextField::new(&control_id("folder", &row.key), &placeholder, w).show(ui, t, &mut path));
+        let browse = form_group(ui, available && env.can_browse, |ui| {
+            text_button(ui, t, &format!("button:option.{}/browse", row.key), &tl!("Browse…"), false)
+        });
+        if let Some(reason) = row.reason.as_deref().map(i18n::tr) {
+            tooltip(field.response, t, &reason, None);
+            return tooltip(browse, t, &reason, None).clicked();
         }
         browse.clicked()
     })

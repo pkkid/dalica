@@ -194,7 +194,9 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
                 json!(path)
             }
             _ => {
-                let (value, _) = row.choices.iter().rev().find(|(v, _)| *v != row.saved).unwrap_or_else(|| panic!("{}: no other choice", row.key));
+                // The pseudo-locale is listed only while it is the language chosen (M15.7).
+                let listed = |v: &Value| *v != row.saved && v.as_str() != Some(dalica_ui::i18n::PSEUDO_CODE);
+                let (value, _) = row.choices.iter().rev().find(|(v, _)| listed(v)).unwrap_or_else(|| panic!("{}: no other choice", row.key));
                 click(d, &id);
                 click(d, &general::item_id(&row.key, value));
                 value.clone()

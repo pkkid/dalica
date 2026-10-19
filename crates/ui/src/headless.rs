@@ -176,6 +176,8 @@ pub struct Driver {
     check_ids: bool,
     /// The first frame whose automation ids broke the rules, while [`Driver::check_ids`] is on.
     id_breach: Option<String>,
+    /// The texts the last frame drew, while [`Driver::record_texts`] is on.
+    drawn: Option<Vec<String>>,
     /// Test-only UI drawn over the app each frame (widgets M1's window does not have yet).
     #[cfg(test)]
     overlay: Option<Overlay>,
@@ -183,6 +185,15 @@ pub struct Driver {
 
 #[cfg(test)]
 type Overlay = Box<dyn FnMut(&mut egui::Ui)>;
+
+/// The texts of `shape` (and of the shapes it groups), appended to `out`; empty ones left out.
+fn collect_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+    match shape {
+        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_texts(s, out)),
+        egui::Shape::Text(t) if !t.galley.text().trim().is_empty() => out.push(t.galley.text().to_string()),
+        _ => {}
+    }
+}
 
 /// egui's name for one of our key codes.
 fn egui_key(code: &str) -> Option<egui::Key> {
@@ -237,6 +248,7 @@ impl Driver {
             window_commands: Vec::new(),
             check_ids: false,
             id_breach: None,
+            drawn: None,
             #[cfg(test)]
             overlay: None,
         };
@@ -281,6 +293,12 @@ impl Driver {
         self.to_free = delta;
         let tessellating = Instant::now();
         self.drawn_ppp = out.pixels_per_point;
+        if let Some(drawn) = &mut self.drawn {
+            drawn.clear();
+            for clipped in &out.shapes {
+                collect_texts(&clipped.shape, drawn);
+            }
+        }
         self.primitives = self.ctx.tessellate(out.shapes, self.drawn_ppp);
         let tessellation = tessellating.elapsed();
         let mut sample = Sample {
@@ -298,6 +316,19 @@ impl Driver {
         if self.check_ids && self.id_breach.is_none() {
             self.id_breach = id_breach(&self.ctx).map(|why| format!("frame {}: {why}", self.frames));
         }
+    }
+
+    /// Turns on (or off) keeping the texts each later frame draws ([`Driver::drawn_texts`]); tests
+    /// of the translations turn it on (`localization.md` → Checking a translation).
+    pub fn record_texts(&mut self, on: bool) {
+        self.drawn = on.then(Vec::new);
+    }
+
+    /// Every text the last frame painted, in paint order, whole (as laid out, before any
+    /// eliding), while [`Driver::record_texts`] is on; empty otherwise. Under the pseudo-locale,
+    /// [`crate::i18n::pseudo::untranslated`] names the ones that did not go through a catalog.
+    pub fn drawn_texts(&self) -> &[String] {
+        self.drawn.as_deref().unwrap_or_default()
     }
 
     /// Turns on (or off) checking every later frame's automation ids (`control-protocol.md` §7):
