@@ -56,9 +56,14 @@ const PHOTOS: [(&str, u32, u32); 8] = [
 ];
 
 /// The app with `Pictures/Dalica` (where collages go) a write root beside its temporary folder
-/// (where the screenshots go).
+/// (where the screenshots go); its Pictures folder `home/Pictures` on Windows too (`USERPROFILE`).
 fn launch(home: &Path) -> Launch {
-    Launch::default().arg("--automation-write-root").arg(home.join("Pictures").join("Dalica")).arg("--automation-write-root").arg(home.join("tmp"))
+    Launch::default()
+        .env("USERPROFILE", home)
+        .arg("--automation-write-root")
+        .arg(home.join("Pictures").join("Dalica"))
+        .arg("--automation-write-root")
+        .arg(home.join("tmp"))
 }
 
 /// The ids of the eight photos in [`PHOTOS`]' order.
