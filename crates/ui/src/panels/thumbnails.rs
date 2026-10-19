@@ -469,11 +469,17 @@ impl Thumbnails {
         // so a recipe changed in the photo's own history shows there too. Only while the library
         // is at the revision those cells were painted in: the uploads are tagged with the edits
         // they were painted with; after a change the next frame paints and asks again.
+        // A frame that painted no thumbnail at all (a room in front, a slideshow) has none on its
+        // way: the count the last `end_frame` left goes, or the window would never idle.
         let painted_now = self.shapes_revision.is_none_or(|r| r == session.library().revision());
-        if !self.cells.is_empty() && self.asked_in != Some(self.frame) && painted_now {
-            let (uploads, _, deferred) = self.ask_and_upload(session, true);
-            let waiting = session.thumbnails_pending() > 0 || deferred > 0 || uploads > 0;
-            self.pending = if waiting { self.cells.iter().filter(|c| c.better_to_come()).count() } else { 0 };
+        if self.asked_in != Some(self.frame) {
+            if self.cells.is_empty() {
+                self.pending = 0;
+            } else if painted_now {
+                let (uploads, _, deferred) = self.ask_and_upload(session, true);
+                let waiting = session.thumbnails_pending() > 0 || deferred > 0 || uploads > 0;
+                self.pending = if waiting { self.cells.iter().filter(|c| c.better_to_come()).count() } else { 0 };
+            }
         }
         self.frame = self.frame.wrapping_add(1);
         self.cells.clear();
@@ -908,6 +914,22 @@ fn sketch_shape(rect: Rect, cols: u32, rows: u32, colours: &[Color32], turn: Dih
 mod tests {
     use super::*;
     use egui::vec2;
+
+    #[test]
+    fn a_frame_without_cells_leaves_none_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::open(&dir.path().join("library"), std::sync::Arc::new(dalica_core::SystemClock)).unwrap();
+        let ctx = egui::Context::default();
+        let mut thumbs = Thumbnails::new();
+        // The last library frame ended with cells on their way; then frames that paint none
+        // (a room in front) and never reach `end_frame`.
+        thumbs.begin_frame(&ctx, &mut session, &Tokens::default());
+        thumbs.end_frame(&mut session, &Motion::default());
+        thumbs.pending = 3;
+        thumbs.begin_frame(&ctx, &mut session, &Tokens::default());
+        thumbs.begin_frame(&ctx, &mut session, &Tokens::default());
+        assert_eq!(thumbs.pending(), 0);
+    }
 
     #[test]
     fn the_need_is_whole_device_pixels_and_hostile_sizes_ask_for_one() {

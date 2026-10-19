@@ -346,6 +346,9 @@ fn a_legacy_original_is_found_with_its_recipe_and_one_equal_to_its_photo_is_not_
     let listed: Vec<&str> = s.folders.iter().flat_map(|f| f.photos.iter().map(|p| p.name.as_str())).collect();
     assert_eq!(listed, ["a.jpg", "b.jpg", "c.jpg"]);
     assert_eq!(s.folders[0].originals.legacy(), legacy);
+    // And a scan with the option off reads no legacy original (M14.28).
+    let s = dalica_scan::scan_with(&[d.to_path_buf()], &dalica_scan::Options { legacy: false, ..dalica_scan::Options::default() });
+    assert_eq!(s.folders[0].originals, Originals::Absent);
 
     // Nothing in the legacy folder was written, renamed or removed.
     assert_eq!(snapshot(&legacy_dir(d)), before);

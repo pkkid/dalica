@@ -1071,6 +1071,26 @@ folder has no `.dalica.json` to import, so the scan's reading of its legacy side
 index snapshot keeps the legacy ids and both derived facts (the sidecar in effect, legacy
 originals).
 
+**Built (M14.13: `dalica-engine` `legacy`, `cmd::legacy`; M14.28).** A scan's legacy results reach
+the model as its imports do, with no undo step. The model records only the legacy facts: a folder's
+source is `legacy` (only the legacy sidecar, read) or `both` (Dalica's file too, the legacy one
+ignored); the control API reports `dalica` for a folder the model holds something for and `none`
+for one it holds nothing for. A new folder's fact comes in the op that adds it; a legacy folder's
+photos join their albums by the album's legacy token (the model's, else in a rebuild the legacy
+ids of `albums.json`, else an album made from the folder's definition) and their people by the
+contact id, then by name ignoring case, else a new person. A known folder whose source changed is
+**read again** before its diff's ops (its stars, info, faces, geotags, memberships and folder info
+as the scan found them; albums and people with a legacy id left empty go): when the option is
+turned off or on, and when a `.dalica.json` **appeared** in a legacy-only folder before Dalica's
+first write (it wins, and the folder is scanned again from it). A scan **never writes into a
+legacy-only folder**: an op from the files that touches one marks nothing dirty, so its first
+`.dalica.json` comes with the user's first change there (§9's table), after which the source is
+`both`. With the option off the scan reads neither the legacy sidecar nor the legacy originals
+directory (M14.28). `legacy.inspect` and `library.inspect` report each folder's source and counts,
+and `photo.inspect` and `library.inspect` each photo's `legacyEdits` (`control-protocol.md` §6.4);
+the first scan that finds legacy data gives the first-run notice its folder count once, until
+`legacy.noticeShown` records it answered (`files.legacyNoticeShown`).
+
 ## 10. Lessons encoded as tests
 
 Each of these is a regression test in `crates/fs` / `crates/sidecar` / `crates/store` / `crates/engine`:

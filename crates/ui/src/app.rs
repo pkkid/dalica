@@ -546,15 +546,6 @@ impl App {
         }
         self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
-        // A room in front draws no light table: the library's thumbnails end the frame with no
-        // cell on screen, as an empty light table ends it, so none stays counted as on its way
-        // (the window would never idle) and what the library asked for is no longer wanted.
-        if matches!(self.state.view, crate::state::View::Library | crate::state::View::Edit)
-            && self.state.room != crate::state::Room::Library
-            && let Some(session) = &mut self.session
-        {
-            p.thumbnails.end_frame(session, &crate::panels::thumbnails::Motion::default());
-        }
         crate::panels::places::tiles::end_frame(self, ui.ctx());
         // A drag of photos: its target, its pill, and its drop on release (`crate::drag`).
         crate::drag::frame(&mut p, self, ui.ctx());
