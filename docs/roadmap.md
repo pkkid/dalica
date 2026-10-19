@@ -9783,7 +9783,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     2026-10-19); its id is not reused.
   - done when: `cargo xtask tasks sync --check` parses the fitted blocks, `tasks sync --dry-run`
     lists them, and *Reserved decisions* item 2 carries its date.
-- ⬜ **M15.2 `image`: video files recognised by content and probed**
+- ✅ **M15.2 `image`: video files recognised by content and probed**
   - after: M5.10, M14.R
   - files: `crates/image/src/sniff.rs`, `crates/image/src/formats/mod.rs`, `crates/image/src/formats/video.rs`, `crates/image/src/formats/video/**`, `crates/image/src/decode.rs`, `crates/image/tests/video.rs`, `crates/image/fuzz/**`, `crates/image/README.md`, `docs/formats.md`
   - scope: `formats.md` §1 and `security.md` §4.2 (needed under any answer to reserved decision 2):

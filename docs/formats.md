@@ -8,7 +8,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 ([`menus-and-shortcuts.md`](menus-and-shortcuts.md) §5); metadata details are in
 [`xmp-interop.md`](xmp-interop.md).
 
-> Status: built for every format of §1 except video (M15). Decoding lives in our own
+> Status: built for every format of §1; videos are recognised and probed, not yet decoded (M15.2). Decoding lives in our own
 > `crates/image` (`dalica-image`, L1), built on permissive pure-Rust crates.io decoders
 > (`zune-jpeg`, `png`, `tiff`, `image-webp`, `image`'s GIF and BMP decoders, `jxl-oxide`, `heic-rs`)
 > plus our own readers (container walks, PSD composites, RAW embedded previews), with one module
@@ -50,7 +50,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 | JPEG XL | yes (`jxl-oxide`) | scaled decode | — (sidecar only) | JPEG copy beside it | orientation applied by the decoder |
 | PSD / PSB | merged composite only (8/16/32-bit gray, RGB, CMYK, indexed) | embedded thumbnail resource or composite | — (sidecar only) | JPEG copy beside it | layers are not read; ZIP-compressed composites and Lab unsupported |
 | RAW | **embedded preview only** (§2) | embedded preview | `.xmp` sidecar when enabled | JPEG copy beside it, rendered from the embedded preview | RAW development is out of scope (`product.md`) |
-| Video (MP4, MOV, M4V, MKV) | poster frame when decodable (M15), otherwise a generic video tile | — | — (sidecar only) | — (videos are not listed before M15, so Save never reaches one) | |
+| Video (MP4, MOV, M4V, MKV) | poster frame when decodable (M15), otherwise a generic video tile; until frames are decoded every image path answers "This video can't be played" | — | — (sidecar only) | — (videos are not listed before M15, so Save never reaches one) | recognised by content (M15.2): ISO BMFF whose `ftyp` major or compatible brands name MP4, M4V or QuickTime (`isom`, `iso2`…`iso9`, `mp41`, `mp42`, `avc1`, `3gp4`…, `M4V `, `M4VH`, `qt  `), never one naming a still image (`heic`, `mif1`, `avif`, `crx `, …) or a sound-only major brand (`M4A `); older QuickTime movies without `ftyp` by their first box (`moov`, `mdat`, `wide`, `pnot`); Matroska by its EBML DocType `matroska` (four of its bytes are enough when the first 32 bytes cut it; WebM is not listed). `formats::video::probe` reads, without decoding: the duration to the millisecond (`mvhd`, else the video track's `mdhd`; Matroska `Duration` × `TimestampScale`), the stored frame size (`tkhd`, else the sample entry; `PixelWidth` × `PixelHeight`), the rotation in clockwise quarter turns (the track matrix; `ProjectionPoseRoll`), the creation date (`mvhd` from 1904; `DateUTC` from 2001), the video and sound codecs (sample entry codes; `CodecID`), the frame rate (sample count over the media duration; `DefaultDuration`), whether there is sound, and the location (ISO 6709 in `udta`/`©xyz` or the QuickTime key `com.apple.quicktime.location.ISO6709`; Matroska's `RECORDING_LOCATION` tag, through the seek head). `probe_file` reads only `ftyp` and `moov` (the media data skipped), or a Matroska file's head |
 
 "JPEG copy beside it": Save of a format Dalica cannot write in place writes `name.jpg` (or
 `name-001.jpg`, the next free number) next to the source and leaves the source byte-identical
@@ -300,9 +300,14 @@ Whichever limit is reached first applies; for large images it is usually the all
 - Container walks are bounded too: TIFF IFD chains (seen-set, depth limit, directory cap), XMP
   nesting depth and node count, EXIF entry counts, ISOBMFF box nesting. The walks Dalica owns count
   their steps (JPEG segments, PNG chunks, APP2 chunks, IFDs while recognising a raw) and stop at
-  their cap.
+  their cap. A video probe reads boxes nested at most 12 deep with at most 4,096 per level and EBML
+  elements inside their parents (one of unknown size runs to its parent's end, at most 12 deep and
+  4,096 per level), never a whole sample table, and counts every box or element (at most 65,536 per
+  probe); bytes that stop before the movie box, or before a Matroska file's info and tracks, are
+  truncated (a caller reads on), never a panic.
 - Every parser has a fuzz target in `crates/image/fuzz` (`security.md` §7.1): sniffing, decoding
-  any file, decoding as each format, RAW previews, embedded thumbnails and ICC profiles.
+  any file, decoding as each format, RAW previews, embedded thumbnails, ICC profiles and video
+  probing (`video_probe`).
 
 ## 6. Small images
 

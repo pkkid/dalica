@@ -27,6 +27,8 @@ pub enum Format {
     Psd,
     /// A camera raw file; only its embedded preview is shown (`formats.md` §2).
     Raw(RawKind),
+    /// A video: recognised and probed for its facts (`formats::video::probe`), not decoded yet.
+    Video(VideoKind),
 }
 
 /// The RAW container families, each with its own module under `formats/raw/`.
@@ -50,8 +52,36 @@ impl RawKind {
     pub const ALL: [RawKind; 6] = [RawKind::TiffBased, RawKind::Cr3, RawKind::Raf, RawKind::Crw, RawKind::Mrw, RawKind::X3f];
 }
 
+/// The video containers (`formats.md` §1), told apart by `formats::video::recognise`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum VideoKind {
+    /// ISO base media (MP4, 3GP): an `ftyp` brand such as `isom`, `mp41`, `mp42` or `avc1`.
+    Mp4,
+    /// The M4V flavour of MP4 (brands `M4V `, `M4VH`, `M4VP`).
+    M4v,
+    /// QuickTime (brand `qt  `, or an older movie that starts with its `moov` or `mdat` box).
+    QuickTime,
+    /// Matroska (an EBML header whose DocType is `matroska`).
+    Matroska,
+}
+
+impl VideoKind {
+    pub const ALL: [VideoKind; 4] = [VideoKind::Mp4, VideoKind::M4v, VideoKind::QuickTime, VideoKind::Matroska];
+
+    /// The name shown to people ("MP4", "MOV", …).
+    pub fn name(self) -> &'static str {
+        match self {
+            VideoKind::Mp4 => "MP4",
+            VideoKind::M4v => "M4V",
+            VideoKind::QuickTime => "MOV",
+            VideoKind::Matroska => "MKV",
+        }
+    }
+}
+
 impl Format {
-    /// Every format, RAW kinds included.
+    /// Every still-image format, RAW kinds included (what the image paths iterate). The video
+    /// kinds are [`VideoKind::ALL`]: no image path reads them.
     pub const ALL: [Format; 16] = [
         Format::Jpeg,
         Format::Png,
@@ -90,6 +120,7 @@ impl Format {
             Format::JpegXl => "JPEG XL",
             Format::Psd => "PSD",
             Format::Raw(_) => "RAW",
+            Format::Video(kind) => kind.name(),
         }
     }
 }
@@ -129,6 +160,11 @@ pub fn sniff(head: &[u8]) -> Option<Format> {
     if at(0, b"8BPS") {
         return Some(Format::Psd);
     }
+    // Videos: ISO BMFF brands that name MP4, M4V or QuickTime (never a still-image brand), and
+    // Matroska by its EBML DocType.
+    if let Some(kind) = formats::video::recognise(head) {
+        return Some(Format::Video(kind));
+    }
     match &formats::bmff::major_brand(head)? {
         b"avif" | b"avis" => Some(Format::Avif),
         b"heic" | b"heix" | b"heim" | b"heis" | b"hevc" | b"hevx" | b"mif1" | b"msf1" => Some(Format::Heif),
@@ -161,7 +197,7 @@ mod tests {
             (b"FUJIFILMCCD-RAW 0201", Some(Format::Raw(RawKind::Raf))),
             (b"II\x1a\0\0\0HEAPCCDR", Some(Format::Raw(RawKind::Crw))),
             (b"\0MRM\0\0\0\x08", Some(Format::Raw(RawKind::Mrw))),
-            (b"\0\0\0\x18ftypmp42\0\0\0\0", None),
+            (b"\0\0\0\x18ftypmp42\0\0\0\0", Some(Format::Video(VideoKind::Mp4))),
             (b"BMx", None),
             (b"", None),
         ];

@@ -21,4 +21,5 @@ mod psd;
 mod raw_containers;
 mod raw_tiff;
 mod tiff;
+mod video;
 mod webp_gif_bmp;
