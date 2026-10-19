@@ -13,6 +13,13 @@
 //! and on A│A's right side the variant's history (`photo.history.state {variant: true}`, asked
 //! again only when the variant's recipe changes), whose steps the click walks
 //! (`commands::compare::route`).
+//!
+//! **Edits from the previous organizer** (`data-model.md` §9, `editing.md` §13): when the open
+//! photo's recipe holds entries kept as `legacy:` (operations Dalica has no equivalent for, kept in
+//! their place), a line above the pair counts them: "1 edit from the previous program (not
+//! supported)", "2 edits from the previous program (not supported)" ([`legacy_text`],
+//! `label:edit.legacyEdits`, `detail` in `text_dim`, its tooltip saying what that means). The edit
+//! panel gives the row [`LINE`] more points while there is one ([`line_height`]).
 
 use dalica_core::PhotoId;
 use dalica_ui_kit::Tokens;
@@ -33,6 +40,32 @@ pub const UNDO_TIP: &str = "Remove the latest edit";
 pub const REDO_TIP: &str = "Put back the edit removed last";
 /// The gap between the two buttons.
 pub const GAP: f32 = 6.0;
+/// The line counting the previous organizer's edits: its automation id, height and tooltip.
+pub const LEGACY_ID: &str = "label:edit.legacyEdits";
+pub const LINE: f32 = 36.0;
+pub const LEGACY_TIP: &str = "Kept in the photo's edits in their place, but Dalica cannot show them";
+
+/// The line for `n` edits kept from the previous program; `None` when there are none.
+pub fn legacy_text(n: usize) -> Option<String> {
+    match n {
+        0 => None,
+        1 => Some("1 edit from the previous program (not supported)".into()),
+        n => Some(format!("{n} edits from the previous program (not supported)")),
+    }
+}
+
+/// How many entries of the open photo's recipe are kept as `legacy:` (0 with no photo open): a
+/// count over one recipe, cheap enough for every frame.
+pub fn legacy_count(app: &App) -> usize {
+    let Some((id, s)) = crate::commands::edit_view::open_photo(app).zip(app.session()) else { return 0 };
+    dalica_engine::cmd::legacy::legacy_entries(s.library().info(id))
+}
+
+/// The points the Undo / Redo row needs above its buttons: [`LINE`] while the open photo has edits
+/// from the previous program, else 0.
+pub fn line_height(app: &App) -> f32 {
+    if legacy_count(app) > 0 { LINE } else { 0.0 }
+}
 
 /// What the pair shows for a photo: each button's label and whether it can run, and whether Undo
 /// is Undo Save.
@@ -83,10 +116,20 @@ fn variant_pair(app: &mut App, ctx: &egui::Context) -> Pair {
     pair
 }
 
-/// Draws the pair into `ui`'s rect.
+/// Draws the pair into `ui`'s rect: the line counting the previous program's edits at its top when
+/// the rect is taller than the buttons ([`line_height`]), the buttons below.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
-    let rect = ui.max_rect();
+    let full = ui.max_rect();
+    let buttons = full.height().min(super::panel::HISTORY);
+    let rect = Rect::from_min_max(pos2(full.min.x, full.max.y - buttons), full.max);
+    // The line keeps the gap the buttons keep between them clear above them.
+    let line = Rect::from_min_max(full.min, pos2(full.max.x, (rect.min.y - GAP).max(full.min.y)));
+    if line.height() > 0.0
+        && let Some(text) = legacy_text(legacy_count(app))
+    {
+        legacy_line(ui, &t, line, &text);
+    }
     let half = ((rect.width() - GAP) / 2.0).max(0.0).floor();
     let undo_rect = Rect::from_min_size(rect.min, vec2(half, rect.height()));
     let redo_rect = Rect::from_min_max(pos2(rect.max.x - half, rect.min.y), rect.max);
@@ -103,6 +146,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Err(e) = run {
         app.toast(&e.to_string(), ToastKind::Caution);
     }
+}
+
+/// The line `text` in `rect`, left-aligned and centred vertically: `detail` in `text_dim`, wrapped
+/// to the width on at most two lines (elided past that), with [`LEGACY_TIP`].
+fn legacy_line(ui: &mut Ui, t: &Tokens, rect: Rect, text: &str) {
+    let r = ui.interact(rect, Id::new(LEGACY_ID), Sense::hover());
+    let mut job = egui::text::LayoutJob::simple(text.to_owned(), fonts::regular(t.detail), t.text_dim, rect.width().max(1.0));
+    job.wrap.max_rows = 2;
+    let galley = ui.painter().layout_job(job);
+    let at = pos2(rect.min.x, rect.center().y - galley.size().y / 2.0).round();
+    ui.painter().galley(at, galley, t.text_dim);
+    widgets::register(ui.ctx(), LEGACY_ID, Role::Other, text, Target::Widget(&r), false);
+    widgets::tooltip(r, t, LEGACY_TIP, None);
 }
 
 /// A button filling `rect` with a centred label, as `widgets::text_button` draws it: SemiBold

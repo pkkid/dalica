@@ -9,8 +9,15 @@
 //! Place:                 [Lisbon, Portugal               ]
 //! Description:           [A weekend of trams             ]
 //! Music for slideshows:  [                     ] [Browse…]  (disabled: Arrives with sound support)
+//! Photo data:            Kept in Dalica's file in this folder.
 //!                                                   [Cancel] [OK]
 //! ```
+//!
+//! **Photo data** (`data-model.md` §9) says which file holds the folder's data, from the folder's
+//! source as `legacy.inspect` gives it ([`source_text`], `label:dialog.source`): Dalica's own
+//! file, the previous organizer's (read, never changed; Dalica's is written on the first change),
+//! both (Dalica's in use, the old one no longer read), or none yet. It is worked out when the
+//! library or the folder's fact changes, never per frame.
 //!
 //! The draft is `{folder, name, date, useOldest, place, description}`: the folder's id and name,
 //! the date the Date field shows (`"YYYY-MM-DD"`; `null` when the folder has none: no photo with a
@@ -84,6 +91,35 @@ pub const PLACE_ID: &str = "field:dialog.place";
 pub const DESCRIPTION_ID: &str = "field:dialog.description";
 pub const MUSIC_ID: &str = "field:dialog.music";
 pub const BROWSE_ID: &str = "button:dialog.browse";
+pub const SOURCE_ID: &str = "label:dialog.source";
+
+/// What the Photo data row says for a folder's source (`legacy.inspect`'s `dalica`, `legacy`,
+/// `both` or `none`).
+pub fn source_text(source: &str) -> &'static str {
+    match source {
+        "dalica" => "Kept in Dalica's file in this folder.",
+        "legacy" => "Read from the previous organizer's file, which is never changed. Dalica writes its own file on the first change.",
+        "both" => "Kept in Dalica's file. The previous organizer's file is also here; it is no longer read and never changed.",
+        _ => "None saved for this folder yet.",
+    }
+}
+
+/// Folder `folder`'s source (`legacy.inspect`'s word), kept in the context's data with what it
+/// was worked out from (the library's revision and the folder's fact, which moves no revision):
+/// one pass over the library when either changes, none per frame.
+fn source(app: &App, ctx: &egui::Context, folder: FolderId) -> &'static str {
+    let Some(lib) = app.session().map(dalica_engine::Session::library) else { return "none" };
+    let key = (folder, lib.revision(), dalica_engine::cmd::legacy::source_name(lib.folder_sidecar(folder)));
+    let id = egui::Id::new(SOURCE_ID);
+    if let Some((k, s)) = ctx.data(|d| d.get_temp::<((FolderId, u64, &'static str), &'static str)>(id))
+        && k == key
+    {
+        return s;
+    }
+    let s = dalica_engine::cmd::legacy::Sources::new(lib).of(folder);
+    ctx.data_mut(|d| d.insert_temp(id, (key, s)));
+    s
+}
 
 /// The dialog for `folder`, its draft filled from what the library holds.
 pub fn dialog(app: &App, folder: FolderId) -> Dialog {
@@ -254,6 +290,14 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
             widgets::tooltip(browse, &t, music_reason(), None);
         });
     });
+    let folder = fields.get("folder").and_then(|v| serde_json::from_value::<FolderId>(v.clone()).ok());
+    if let Some(folder) = folder {
+        let said = source_text(source(app, ui.ctx(), folder));
+        row(ui, &t, "Photo data:", |ui| {
+            let r = ui.add(egui::Label::new(RichText::new(said).font(fonts::regular(t.detail)).color(t.text_dim)).wrap());
+            widgets::register(ui.ctx(), SOURCE_ID, dalica_ui_kit::registry::Role::Other, said, widgets::Target::Widget(&r), false);
+        });
+    }
 }
 
 /// The `folder.rename` the draft asks for: `Some(params)` when its name is not the folder's now.

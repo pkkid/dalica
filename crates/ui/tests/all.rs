@@ -51,6 +51,7 @@ mod import_room;
 mod import_run_ui;
 mod jobs_control;
 mod layout;
+mod legacy_ui;
 mod library_window;
 mod light_table;
 mod map_tiles_ui;
