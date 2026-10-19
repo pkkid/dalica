@@ -20,11 +20,12 @@ and git.
   rustls-rustcrypto, a licence exception for webpki-roots); 5 = YuNet + SFace (default) / AuraFace, pinned; the
   public-faces corpus published to `dalica-corpus`; 4 = OpenStreetMap tiles and Nominatim, off until allowed;
   people names and face points withheld from automation without the people permission (M13.49); the task gate also
-  tests direct dependents (M13.50); Focal Zoom's half-resolution blur accepted. Sign-off questions on the check-in
-  page.
+  tests direct dependents (M13.50); Focal Zoom's half-resolution blur accepted. At sign-off: ship 0.8 after the slideshow fix and green
+  review-PR runs; all 57 fingerprint baselines approved; the security fuzz targets, SBOMs and an
+  advisory check planned as M15.39 and M15.40; M13's automation follow-ups as M14.25.
 - **Numbers (M13.R, 75b83f7c, 2026-10-18):** `cargo xtask ci --full` 12.7 min cold / 8.9 min warm (i7-13700K, 16
-  jobs): tests 4 158 passed, 2 ignored, 1 failed (an intermittent slideshow upload test, fixed on its own PR before
-  the review closes); every milestone's acceptance M0–M13 passes; release budgets: face detection 41 ms, SFace
+  jobs): tests 4 158 passed, 2 ignored, 1 failed (an intermittent slideshow upload test: the test raced a worker
+  thread; fixed by #914, 0 / 200 under load); every milestone's acceptance M0–M13 passes; release budgets: face detection 41 ms, SFace
   embedding 45 ms, face scan 11 faces/s with the frame at 0.2 ms p95, Unnamed grid of 10 000 faces opens in 21.5 ms,
   Places pane of 10 000 photos 1.05 ms; all 27 effects' drafts 2.3–12.9 ms and finals 13.4–66.2 ms at p95 on two
   cores; public-faces floors: detection 45 / 45, SFace 8 / 10 people grouped, AuraFace 10 / 10, every group pure,

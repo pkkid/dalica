@@ -9343,8 +9343,20 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
   - done when: `cargo xtask bench collage`, `bench legacy_scan` and `bench collage_canvas` print
     their numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each
     fail.
+- ⬜ **M14.25 `ui` + `engine`: M13's automation follow-ups: a person's export job, clicks under a dialog, a flaky sidecar test**
+  - after: M13.R
+  - files: `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/tests.rs`, `crates/engine/src/automation.rs`, `crates/ui/tests/damaged_sidecar.rs`, `docs/control-protocol.md`
+  - scope: from the M13.R review's open items: (1) when automation confirms an Export of a
+    `person:<id>` section without the people permission, `jobs.list` / `jobs.wait` report the
+    job's `folder`, `name` and `written` with the person's name; withhold them like the export
+    draft (M13.49), keyed by the job, never by matching text; (2) `ui.clickWidget` on a widget a
+    modal dialog covers replies `ok` and does nothing: reply with an error naming the dialog;
+    (3) ui `damaged_sidecar` failed once (no widget `button:folder.resetData/1`): reproduce under
+    load and fix the race (product or test synchronisation, never a looser check).
+  - done when: one test per item, each failing without its fix; the flaky test passes 200 runs
+    under `taskset -c 0`.
 - ⬜ **M14.23 `accept M14`**
-  - after: M14.15, M14.20, M14.21, M14.22
+  - after: M14.15, M14.20, M14.21, M14.22, M14.25
   - files: `tests/acceptance/m14.rs`, `tests/acceptance/m14_*.rs`, `tests/acceptance/m14.md`, `tests/acceptance/fingerprints/m14-*.json`
   - scope: every *Done when* of M14's two areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a collage opened from the tray, a folder header and a
@@ -10281,8 +10293,32 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `video_probe` and `ptp` targets, §10's signing), each marked built with its task.
   - done when: `cargo xtask parity` passes and the summary is regenerated; the PR lists every row
     changed with its evidence and every `security.md` line with its task.
+- ⬜ **M15.39 `sidecar` + `store` + `ui`: the fuzz targets security.md lists**
+  - after: M14.R
+  - files: `crates/sidecar/fuzz/**`, `crates/store/fuzz/**`, `crates/ui/fuzz/**`, `.github/workflows/fuzz.yml`, `Cargo.toml`, `docs/security.md`
+  - scope: by the maintainer's answer at M13.R (2026-10-18): the fuzz targets `security.md` lists
+    and no task wrote: the sidecar reader (`.dalica.json` and `people.json`), the store's journal
+    and snapshot readers, and the control channel's request parser; each a cargo-fuzz workspace
+    like `crates/meta/fuzz`, seeded from the crate's test files, excluded from the root workspace,
+    and run by the Fuzz workflow for 60 s at reviews; `security.md`'s status lines.
+  - done when: each target builds on stable with cargo-fuzz's coverage flags and runs 3 minutes
+    locally with no finding (a finding is fixed with a regression test in its crate); the review's
+    Fuzz run lists the three new jobs.
+- ⬜ **M15.40 `xtask`: an SBOM for every release package and an advisory check**
+  - after: M14.R
+  - files: `xtask/src/sbom.rs`, `xtask/src/advisories.rs`, `xtask/src/main.rs`, `xtask/src/ci.rs`, `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `docs/security.md`, `docs/releasing.md`
+  - scope: by the maintainer's answer at M13.R (2026-10-18): (1) `cargo xtask sbom` writes a
+    CycloneDX JSON SBOM per release package from the product graph `xtask deps` already builds,
+    attached to the GitHub release next to `SHA256SUMS.txt`; (2) an advisory check against the
+    RustSec advisory database (a pure-Rust tool such as `cargo-deny` or `cargo-audit`, run as a
+    binary at the review gate and in the release workflow, never linked into the product): a new
+    advisory fails it unless `security.md` §8.4 records it with an owner, a rationale and a review
+    date (RUSTSEC-2023-0071 is the first such entry); `security.md` §8.5 and `releasing.md`.
+  - done when: `cargo xtask sbom` lists every crate of the product graph with its licence for each
+    target; the advisory check passes on `main` with the recorded exception and fails on a planted
+    unrecorded advisory; a release dry run attaches the SBOMs.
 - ⬜ **M15.37 `accept M15`**
-  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
