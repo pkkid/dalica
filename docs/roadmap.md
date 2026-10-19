@@ -10458,6 +10458,18 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     the fold: place it where `ui-layout.md` puts it.
   - done when: one test per fix, each failing without it; screenshots at 1400 × 900 and
     900 × 600 on the PR; any moved fingerprint re-blessed with its image and reason.
+- ⬜ **M15.45 `dalica-cli`: a closed stdout ends the command quietly, never a panic**
+  - after: M14.R
+  - files: `apps/dalica-cli/src/main.rs`, `apps/dalica-cli/src/inspect.rs`, `apps/dalica-cli/src/run.rs`, `apps/dalica-cli/src/snapshot.rs`, `apps/dalica-cli/src/mcp.rs`, `apps/dalica-cli/tests/cli.rs`
+  - scope: bug found while updating the website for 0.9.0 (2026-10-19): `dalica-cli commands |
+    head` panics with "failed printing to stdout: Broken pipe", because `println!` panics when
+    stdout is closed (`AGENTS.md` §3, never crash on bad input). Every subcommand that prints
+    (commands, inspect, run, snapshot's text, help, mcp's non-protocol output) writes through one
+    writer that treats `BrokenPipe` as a quiet, successful end (exit 0, nothing on stderr); no
+    `print!` / `println!` left in non-test code of the CLI.
+  - done when: a test in `apps/dalica-cli/tests/cli.rs` spawns the binary for `commands` and
+    `inspect` with stdout piped, reads a few bytes and closes it, and the process exits 0 with no
+    panic message; it fails before the fix; `grep` finds no `println!` in `apps/dalica-cli/src`.
 - ⬜ **M15.36 `docs`: the 1.0 parity and security audit**
   - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34, M15.41, M15.42
   - files: `docs/parity.md`, `docs/product.md`, `docs/security.md`
@@ -10500,7 +10512,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     target; the advisory check passes on `main` with the recorded exception and fails on a planted
     unrecorded advisory; a release dry run attaches the SBOMs.
 - ⬜ **M15.37 `accept M15`**
-  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44, M15.45
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
@@ -10566,7 +10578,7 @@ waits on reserved decision 2 through M15.1):
 wave 1   M15.1 lead: M14.R's answers  ‖  M15.2 video probe  ‖  M15.3 model: videos + M14.1's ops
          ‖  M15.4 engine modules + Os + Sound  ‖  M15.5 ui state + stubs  ‖  M15.6 ui-kit video + icons
          ‖  M15.7 i18n core  ‖  M15.8 fallback faces  ‖  M15.9 PTP reader  ‖  M15.10 Windows signing
-         ‖  M15.41 M14's loose ends  ‖  M15.44 look fixes
+         ‖  M15.41 M14's loose ends  ‖  M15.44 look fixes  ‖  M15.45 CLI broken pipe
          (once M14.R is closed)
 wave 2   M15.11 videos on scan  ‖  M15.12 platform services  ‖  M15.13 macOS signing
          ‖  M15.14 ui-kit AccessKit  ‖  M15.15 video frames (2)  ‖  M15.17 OS commands
