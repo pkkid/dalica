@@ -29,6 +29,7 @@
 
 pub mod albums;
 pub mod fields;
+pub mod legacy;
 pub mod originals;
 mod print;
 

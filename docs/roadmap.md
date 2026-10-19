@@ -8958,7 +8958,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     the facts ops move no revision and leave the undo stack alone; the query of legacy folders
     counts each once; `crates/library/tests/tree.rs`: a folder marked Collages is listed in
     Projects; every existing `library` test passes unchanged.
-- ⬜ **M14.2 `sidecar`: the legacy sidecar reader**
+- ✅ **M14.2 `sidecar`: the legacy sidecar reader**
   - after: M13.2, M13.R
   - files: `crates/sidecar/src/legacy.rs`, `crates/sidecar/src/legacy/**`, `crates/sidecar/tests/legacy.rs`, `crates/sidecar/fuzz/**`, `crates/sidecar/README.md`, `.github/workflows/fuzz.yml`, `xtask/src/ci.rs`, `docs/security.md`
   - scope: `data-model.md` §9 and `security.md` §4.2, from the notes' description of the format,
