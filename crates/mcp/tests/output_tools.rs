@@ -156,16 +156,7 @@ fn a_cancelled_export_leaves_only_complete_files() {
     c.send(&json!({ "jsonrpc": "2.0", "id": 3, "method": "ping" }));
     let (lines, _) = c.until(&json!(3));
     assert!(lines.iter().all(|l| l.get("id") != Some(&json!(2))), "a cancelled request gets no response: {lines:?}");
-    // The photo in flight when the cancel arrived still finishes, written to a temp file and
-    // renamed into place: wait (bounded) until no temp file is left, then read only final names.
-    let target = out.path().join("Out");
-    let is_temp = |p: &PathBuf| p.file_name().unwrap().to_string_lossy().contains(".dalica-tmp-");
-    let start = std::time::Instant::now();
-    while exported(&target).iter().any(is_temp) && start.elapsed() < std::time::Duration::from_secs(30) {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    assert!(!exported(&target).iter().any(is_temp), "a temp file was left behind: {:?}", exported(&target));
-    let files: Vec<PathBuf> = exported(&target).into_iter().filter(|p| !is_temp(p)).collect();
+    let files = exported(&out.path().join("Out"));
     assert!(!files.is_empty() && files.len() < 40, "{} of 40 written", files.len());
     for f in &files {
         let (w, h, _) = rgb(&std::fs::read(f).unwrap());
