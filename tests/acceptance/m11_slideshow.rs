@@ -219,12 +219,14 @@ fn session(f: &mut Fx) -> &mut Session {
     f.d.app_mut().session_mut().unwrap()
 }
 
-/// Lets `ms` pass on the session's clock, a frame every [`STEP`], each after the preview's work has
-/// landed (the show itself never waits for it).
+/// Lets `ms` pass on the session's clock, a frame every [`STEP`], each after the preview's work and
+/// the conversions to textures the frames before started have landed (the show itself never waits
+/// for either; without the wait the clock runs ahead of the workers on a slow machine).
 fn pass(f: &mut Fx, ms: u64) {
     for _ in 0..ms / STEP.as_millis() as u64 {
         f.clock.advance(STEP);
         assert!(session(f).wait_preview(PATIENCE));
+        assert!(dalica_ui::panels::slideshow::show::wait_prepared(PATIENCE));
         f.d.step();
     }
 }

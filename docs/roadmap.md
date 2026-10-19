@@ -9370,7 +9370,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     file byte-identical and returns the new error, on every system; the crash points leave either
     no file or the whole verified bytes; the store's first-write test plants a `.dalica.json` at the
     commit point and it survives; every existing `fs` and `store` test passes.
-- ⬜ **M14.26 `xtask` + `ui` + `engine`: the M13.R review's macOS and Windows failures**
+- ✅ **M14.26 `xtask` + `ui` + `engine`: the M13.R review's macOS and Windows failures**
   - after: M13.R
   - files: `.github/workflows/ci.yml`, `xtask/src/ci.rs`, `crates/engine/tests/map_tiles.rs`, `crates/engine/src/geocode.rs`, `crates/ui/src/picker.rs`, `crates/ui/src/control/picker.rs`, `tests/acceptance/m11_live.rs`, `tests/acceptance/fingerprints/m11-1400x900-slideshow-wipe.json`, `tests/acceptance/m13_common.rs`, `tests/acceptance/m13_faces.rs`, `docs/development.md`
   - scope: deferred by the maintainer at M13.R (2026-10-18), from the review PR's GitHub runs:
