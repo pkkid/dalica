@@ -9170,7 +9170,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     never replaced; an album and a person with legacy ids survive a restart and a rebuild of
     `albums.json` and `people.json`; a crash at one point before and one after the commit (`fs`
     faults) leaves no `.dalica.json` or the whole one.
-- ⬜ **M14.13 `engine`: legacy data in the session**
+- ✅ **M14.13 `engine`: legacy data in the session**
   - after: M14.5, M14.11, M14.12, M13.15
   - files: `crates/engine/src/cmd/legacy.rs`, `crates/engine/src/legacy.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/tests/legacy.rs`, `docs/control-protocol.md`
   - scope: `data-model.md` §9 and the decisions above: the scan's legacy results applied as a

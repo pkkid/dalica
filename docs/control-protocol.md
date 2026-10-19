@@ -580,6 +580,26 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   `library.query`, `slideshow.list`, `export.*`, `places.list` and `section.refreshThumbs` take
   it (the photos holding the person's faces, by date like a folder); a person section listed here
   carries no `name` (names are `people.list`'s). `counts.people` counts the people.
+- **The previous organizer's data** (M14.13, `data-model.md` §9): each folder row of `tree`
+  carries `source`, the sidecar in effect: `"legacy"` or `"both"` as the scans found the previous
+  organizer's file, else `"dalica"` for a folder the model says something about (what Dalica's own
+  file holds, or will once written) and `"none"` for one it says nothing about (also a directory
+  row that is no library folder); each listed photo carries `legacyEdits`, how many of
+  its recipe's entries are kept as `legacy:` (operations Dalica has no equivalent for); and
+  `legacy: {folders, notice}` counts the folders whose data came from a legacy sidecar (`legacy`
+  or `both`) and gives the count the first-run notice waits to show (`null` once given, or while
+  no scan found any). The engine query `legacy.inspect {folders?}` gives per folder (by default
+  every folder with legacy data; an unknown one is `not_found`) its `source` and what the model
+  holds there (`photos`, `starred`, `captioned`, `tagged`, `hidden`, `edited`, `legacyEdits`,
+  `faces`, `geotagged`, and the distinct `albums` and `people` with a legacy id, counted, never
+  named), with `readLegacyData` (the option), `notice`, `noticeShown` and how many `albums` and
+  `people` carry a legacy id. `legacy.noticeShown {}` records the notice as answered
+  (`files.legacyNoticeShown`). Legacy data comes in as a scan's imports do (no undo step) and a scan
+  writes nothing into a legacy-only folder: its first `.dalica.json` comes with the user's first
+  change there, after which its `source` is `both`. Options → General → "Read photo data left by
+  the previous organizer" (`files.readLegacyData`, an `options.set` that rescans) off takes the
+  data of legacy-only folders out of the model (and the albums and people only it named, once
+  empty), on brings it back; neither writes into the photo folders.
 
 ### 6.5 `ui.state` and `ui.set`
 

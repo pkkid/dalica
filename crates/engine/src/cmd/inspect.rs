@@ -9,8 +9,10 @@
 //! What it gives: `revision`, `demo`, `watched`, `counts`, the `tree` (the Albums group first,
 //! then the folder groups, each row with its widget id and section), the light table's `sections`
 //! in order, `search` (`Session::search_inspect`), `view`, `undo`, `unsavedEdits`,
-//! `pendingWrites`, `problems`, `fileOpRepairs` and `scan`; with `photos` the photos in light-table
-//! order, paged. It walks the library a few times (a query an agent asks for, never per frame); a
+//! `pendingWrites`, `problems`, `fileOpRepairs`, `scan` and `legacy` (M14.13: how many folders
+//! hold the previous organizer's data, and the first-run notice's count while it waits); each
+//! folder row carries its `source` (the sidecar in effect) and each photo its `legacyEdits`; with
+//! `photos` the photos in light-table order, paged. It walks the library a few times (a query an agent asks for, never per frame); a
 //! page renders at most [`MAX_LIMIT`] photos and `problems` holds at most [`MAX_PROBLEMS`] entries.
 //!
 //! People data is withheld: `counts.people` counts the people (M13.15), a person section
@@ -40,7 +42,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Inspect Library",
         menu: "",
         keys: &[],
-        params: r#"{"photos"?:bool|"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>", "section"?:section id, "offset"?:int=0 (at most 1000000000), "limit"?:int=200 (at most 1000)}: the library as the user sees it: {revision, demo, watched, counts, tree, sections, search, view, undo, unsavedEdits, pendingWrites, problems, fileOpRepairs, scan}; with photos (true, or a section id, as section restricts) also photos [{id, section, path, name, star, caption, tags, hidden, rotate, edited, recipe, geo, place, date, width, height, displayed, bytes, video}] in light-table order (geo whether it is geotagged, place its [lat, lon] or null) (width × height the file's; displayed {width, height} the size it shows at, as photo.inspect's: grown by the recipe's frames and turned, a crop not counted) and page {offset, limit, total}; offset and limit only with photos"#,
+        params: r#"{"photos"?:bool|"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>", "section"?:section id, "offset"?:int=0 (at most 1000000000), "limit"?:int=200 (at most 1000)}: the library as the user sees it: {revision, demo, watched, counts, tree (a folder row's source: "dalica"|"legacy"|"both"|"none", the sidecar in effect), sections, search, view, undo, unsavedEdits, pendingWrites, problems, fileOpRepairs, scan, legacy {folders (with the previous organizer's data), notice (the count the first-run notice waits to give, or null)}}; with photos (true, or a section id, as section restricts) also photos [{id, section, path, name, star, caption, tags, hidden, rotate, edited, recipe, legacyEdits, geo, place, date, width, height, displayed, bytes, video}] in light-table order (legacyEdits the recipe's entries kept as legacy:, geo whether it is geotagged, place its [lat, lon] or null) (width × height the file's; displayed {width, height} the size it shows at, as photo.inspect's: grown by the recipe's frames and turned, a crop not counted) and page {offset, limit, total}; offset and limit only with photos"#,
         effect: Effect::Query,
         history: History::None,
         enabled: always,
@@ -142,7 +144,7 @@ pub fn inspect(s: &Session, p: &Value, tree: Option<TreeOptions>) -> Result<Valu
     out.insert("demo".into(), json!(is_demo(s.dir())));
     out.insert("watched".into(), watched(s));
     out.insert("counts".into(), counts(lib));
-    out.insert("tree".into(), tree_json(&folders, &albums, &options));
+    out.insert("tree".into(), tree_json(lib, &folders, &albums, &options));
     out.insert("sections".into(), sections(lib, &folders, &albums, &shown));
     out.insert("search".into(), s.search_inspect());
     out.insert("view".into(), view(s));
@@ -154,6 +156,7 @@ pub fn inspect(s: &Session, p: &Value, tree: Option<TreeOptions>) -> Result<Valu
     out.insert("fileOpRepairs".into(), json!(s.file_op_repairs().collect::<Vec<_>>()));
     let scan = s.scan_progress();
     out.insert("scan".into(), json!({ "running": scan.running, "foldersQueued": scan.folders_queued, "found": scan.found, "indexed": scan.indexed }));
+    out.insert("legacy".into(), json!({ "folders": lib.legacy_folders().len(), "notice": s.legacy().notice() }));
     if let Some(one) = listing {
         let listed = match one {
             Some(section) => section_photos(lib, std::slice::from_ref(&section), &options),
@@ -242,8 +245,11 @@ fn dir_widget(path: &Path) -> String {
 
 /// `{mode, sort, reverse, groups}`: the Albums group (when it has rows), then the folder groups.
 /// An album row is `{widget, section, name, count}`, a folder row `{widget, section, name, count,
-/// path, depth, year, hidden, offline}`, a year divider of the flat Folders group `{divider}`.
-fn tree_json(folders: &Tree, albums: &AlbumTree, options: &TreeOptions) -> Value {
+/// path, depth, year, hidden, offline, source}` (`source` the sidecar in effect, M14.13; `none`
+/// for a directory that is no library folder), a year divider of the flat Folders group
+/// `{divider}`.
+fn tree_json(lib: &Library, folders: &Tree, albums: &AlbumTree, options: &TreeOptions) -> Value {
+    let sources = crate::cmd::legacy::Sources::new(lib);
     let mut groups = Vec::with_capacity(folders.groups.len().saturating_add(1));
     if albums.count > 0 {
         let rows: Vec<Value> = albums
@@ -266,6 +272,7 @@ fn tree_json(folders: &Tree, albums: &AlbumTree, options: &TreeOptions) -> Value
                     "section": f.section().map(|s| s.to_string()),
                     "name": f.name, "count": f.count, "path": f.path, "depth": f.depth,
                     "year": f.date.map(|d| d.date().year()), "hidden": f.hidden, "offline": options.is_offline(&f.path),
+                    "source": f.folder.map_or("none", |id| sources.of(id)),
                 }),
             })
             .collect();
@@ -392,7 +399,7 @@ fn problems(s: &Session) -> Vec<Value> {
 }
 
 /// One photo of a page: `{id, section, path, name, star, caption, tags, hidden, rotate, edited,
-/// recipe, geo, place, date, width, height, displayed, bytes, video}`. `rotate` is the recipe's
+/// recipe, legacyEdits, geo, place, date, width, height, displayed, bytes, video}`. `rotate` is the recipe's
 /// clockwise turn in degrees, `edited` whether it has unsaved edits, `recipe` its operations, `geo`
 /// whether it is geotagged (the library's word on its place, else its file's GPS: M13.14) and
 /// `place` its geotag (`[lat, lon]`, or null), `date` its effective date (the user's, else the
@@ -409,6 +416,7 @@ fn photo(lib: &Library, section: &Section, id: PhotoId) -> Option<Value> {
         "id": id, "section": section.to_string(), "path": folder.path.join(&p.name), "name": p.name, "star": p.star,
         "caption": info.caption, "tags": info.tags, "hidden": info.hidden || lib.is_folder_hidden(p.folder),
         "rotate": u16::from(turn.quarters()).saturating_mul(90), "edited": lib.has_unsaved_edits(id), "recipe": info.edits,
+        "legacyEdits": crate::cmd::legacy::legacy_entries(info),
         "geo": lib.is_geotagged(id), "place": lib.geotag(id), "date": lib.effective_date(id), "width": p.width, "height": p.height,
         "displayed": { "width": dw, "height": dh }, "bytes": p.size, "video": facts.video,
     }))

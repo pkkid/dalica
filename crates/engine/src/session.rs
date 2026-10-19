@@ -354,9 +354,10 @@ impl Session {
         let damaged = damage.snapshot();
         let damage = Arc::new(Mutex::new(damage));
         let (tx, rx) = mpsc::channel();
+        let legacy = crate::legacy::Legacy::default();
         let worker = {
             let (clock, errors, queue) = (Arc::clone(&clock), Arc::clone(&io_errors), Arc::clone(&sidecar_queue));
-            let shared = Shared { errors, queue, damage: Arc::clone(&damage), dir: dir.to_path_buf() };
+            let shared = Shared { errors, queue, damage: Arc::clone(&damage), dir: dir.to_path_buf(), legacy: legacy.writes() };
             let store = opened.store;
             std::thread::Builder::new()
                 .name("dalica-io".into())
@@ -436,7 +437,7 @@ impl Session {
             map_tiles: crate::map_tiles::MapTiles::default(),
             collage: crate::collage::Collage::default(),
             collage_output: crate::collage_output::CollageOutput::default(),
-            legacy: crate::legacy::Legacy::default(),
+            legacy,
             read_only,
             _lock: lock,
         };
@@ -602,6 +603,8 @@ impl Session {
         self.send(Msg::Journal(vec![op]));
         let rev = self.library.revision();
         let touched: BTreeSet<FolderId> = self.all_folder_ids().into_iter().filter(|f| self.library.folder_revision(*f) == rev).collect();
+        // An op from the files writes nothing into a legacy-only folder (`legacy.rs`, M14.13).
+        let touched = if self.collected.is_none() { self.keep_legacy_unwritten(touched, &inverse) } else { touched };
         let mut states: Vec<(FolderId, Option<FolderState>)> =
             touched.into_iter().map(|f| (f, dalica_store::mapping::folder_state(&self.library, f))).collect();
         // Folders the op removed: the I/O worker drops their pending writes (a folder deleted
@@ -832,6 +835,7 @@ impl Session {
         n += self.poll_duplicates();
         n += self.poll_face_scan();
         n += self.poll_face_models();
+        n += self.poll_legacy();
         self.sync_damage();
         self.jobs.prune(self.clock.now());
         n
@@ -858,6 +862,8 @@ impl Session {
         self.send(Msg::Flush(ack));
         let _ = done.recv();
         self.sync_damage();
+        // A legacy-only folder's first write just made is recorded (`legacy.rs`).
+        self.poll_legacy();
         let errors = std::mem::take(&mut *self.io_errors.lock().unwrap_or_else(PoisonError::into_inner));
         if errors.is_empty() { Ok(()) } else { Err(CmdError::Unsaved(errors.join("; "))) }
     }
@@ -1142,9 +1148,21 @@ struct Shared {
     queue: Arc<Mutex<SidecarQueue>>,
     damage: Arc<Mutex<crate::cmd::folder_data::Damage>>,
     dir: PathBuf,
+    /// The first writes of legacy-only folders the writer made, for the session (`legacy.rs`).
+    legacy: crate::legacy::Writes,
 }
 
 impl Shared {
+    /// Passes on what the writer's first writes of legacy-only folders did since the last call
+    /// (`SidecarWriter::take_legacy`): the session records the fact `both` or reads the folder
+    /// again (`legacy.rs`).
+    fn note_legacy(&self, writer: &mut SidecarWriter) {
+        let taken = writer.take_legacy();
+        if !taken.is_empty() {
+            self.legacy.lock().unwrap_or_else(PoisonError::into_inner).extend(taken);
+        }
+    }
+
     fn fail(&self, e: String) {
         log::warn!("{e}");
         self.errors.lock().unwrap_or_else(PoisonError::into_inner).push(e);
@@ -1215,6 +1233,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, shared: &Sh
     let write = |writer: &mut SidecarWriter, states: &HashMap<FolderId, Option<FolderState>>, seen: &HashMap<FolderId, u64>, all: bool| {
         let state_of = |f: FolderId| states.get(&f).cloned().flatten();
         let tried = report(if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) }, states);
+        shared.note_legacy(writer);
         settle(tried, writer, seen);
     };
     loop {
@@ -1270,6 +1289,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, shared: &Sh
                     (Some(path), _, _) => Err(dalica_store::carry::CarryError::ReadOnly(path)),
                     (None, Some(from), Some(to)) => {
                         let r = writer.carry(&carry, from, to, |f| states.get(&f).cloned().flatten(), now);
+                        shared.note_legacy(&mut writer);
                         let tried = report(r.writes, &states);
                         settle(tried, &writer, &seen);
                         r.carried
@@ -1330,6 +1350,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, shared: &Sh
                                 writer.mark_dirty(folder);
                                 shared.queue.lock().unwrap_or_else(PoisonError::into_inner).folders.entry(folder).or_insert(0);
                                 let outcomes = writer.flush_with(|f| states.get(&f).cloned().flatten(), clock.now());
+                                shared.note_legacy(&mut writer);
                                 let written = match outcomes.get(&folder) {
                                     Some(dalica_store::Outcome::Written | dalica_store::Outcome::Unchanged) | None => Ok(()),
                                     Some(dalica_store::Outcome::Failed(e)) => Err(e.clone()),
