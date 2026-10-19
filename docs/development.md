@@ -278,6 +278,11 @@ cargo run --release -p dalica -- --control 7990 --demo
 | The face scan: the owner thread's time per frame while it runs (p95; never above 16 ms) | ≤ 0.5 ms |
 | The Unnamed grid opening with 10 000 faces (median); scrolled (a frame's p95) | ≤ 32.5 ms; ≤ 1 ms |
 | The Places pane over 10 000 geotagged photos opening (median); panned, its markers grouped (p95) | ≤ 2 ms; ≤ 2 ms |
+| A collage's layout of 200 pictures (median): Pile, Grid, Contact Sheet, Multiple Exposure; Mosaic; Frame Mosaic | ≤ 0.05 ms; ≤ 0.65 ms; ≤ 1.1 ms |
+| A pile of 50 photos of 2048 px rendered at 3000 px and encoded (median); its peak memory | ≤ 2 105 ms; ≤ 65 MiB |
+| A first scan of 10 000 photos in 100 folders with only the previous organizer's sidecar; with `.dalica.json` (median) | ≤ 195 ms; ≤ 190 ms |
+| A folder whose legacy sidecar is 64 MiB, the reader's limit, scanned (median) | ≤ 995 ms |
+| The Collage room's frame with 100 pictures on the page while one is dragged (p95; never above 16 ms) | ≤ 0.5 ms |
 
 **At the review, the save, export and search budgets, the import's first screenful and listing,
 face inference and the people and places views are judged against a base on the same runner**
@@ -463,6 +468,39 @@ budgets' (a real model of that shape costs the same on this interpreter).
   Europe) 1.05 ms (1.05, 1.11, 1.04); a frame while the map pans, grouping the markers again,
   1.12 ms at p95 (1.09, 1.17, 1.12).
 
+M14's budgets (M14.22) follow the same rule: 1.5 × the first measurement, the median of three runs
+in one sitting, release on two hardware threads (`taskset -c 0,1`, one performance core of the
+i7-13700K), 2026-10-19, the same workstation (load average 6.7 falling to 3.9 over the runs);
+the layouts rounded up to 0.05 ms, the render and the scans to 5 ms, the render's memory to 5 MiB,
+the canvas's frame to 0.5 ms, which is also never above 16 ms at p95 whatever the first numbers.
+None was missed on the performance cores; nothing needed speeding up. The workstation's
+efficiency cores (CPUs 16 to 23) take about 1.7 × as long for the two mosaics' layouts (Mosaic 0.68
+to 0.75 ms, Frame Mosaic 1.10 to 1.21 ms), which miss their budgets there, as some of the effects'
+drafts do: an unpinned `cargo xtask budgets` on this machine can land on them, so here it is run on
+the performance cores (`taskset -c 0-15 cargo xtask budgets`).
+- **Collage** (the `collage` bench, `dalica-create`): each style's layout of 200 pictures (16:9
+  page, default settings, aspects cycling through 3:2, 2:3, 4:3, 16:9 and 1:1), the median of 21:
+  Picture Pile 0.0103 ms (the runs 0.0103, 0.0102, 0.0103), Mosaic 0.420 ms (0.417, 0.428, 0.420),
+  Frame Mosaic 0.712 ms (0.666, 0.712, 0.722), Grid 0.0077 ms, Contact Sheet 0.0065 ms, Multiple
+  Exposure 0.0047 ms. A pile of 50 `scenes` JPEGs of 2048 px (every third portrait) with a white
+  border, shadows and captions, drawn at 3000 × 1688 and encoded, each picture decoded at the size
+  its place asks as the engine does, the median of five: 1 401 ms (1 318, 1 401, 1 430); its peak
+  memory on the render's thread (the page, the picture in hand and its decode, the encoder's
+  buffers; `allocation-counter`) 42.98 MiB in every run, a 20.3 MB page.
+- **Legacy scans** (the `legacy_scan` bench, `dalica-scan`): `scan_with` over 100 folders of 100
+  `scenes` JPEGs (640 × 427), the median of five, interleaved: each folder with only the previous
+  organizer's sidecar (a section per photo: star on every third, caption, keywords, an edit, a
+  face naming a contact, an album, a geotag; the folder's section, contacts and an album) 128.7 ms
+  (122.2, 128.7, 131.1); the same folders with a `.dalica.json` saying the same 124.2 ms (120.9,
+  127.9, 124.2): reading the legacy files costs about 4 % over Dalica's own. A folder of 100 photos
+  whose legacy sidecar is exactly 64 MiB (584 952 sections, nearly all for files that are not there)
+  661.1 ms (632.9, 661.1, 679.7).
+- **The collage canvas** (the `collage_canvas` bench, `dalica-ui`): 100 demo photos in a Picture
+  Pile in the Collage room of the headless app at 1400 × 900, every thumbnail loaded, the top
+  picture dragged back and forth (four drags of 60 moves): a frame while dragging 0.167 ms at p95
+  (0.164, 0.167, 0.170; median 0.153), 100 textures; the drop's frame (the move given to the engine)
+  about 0.18 ms, printed, not budgeted.
+
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
 **The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` once per milestone,
@@ -505,7 +543,13 @@ planted slowdown counted once per face; the memory per worker; a frame's p95 whi
 planted slowdown added) and the `people_places` bench (the openings' medians and the frames' p95, a
 planted slowdown added to each); `--plant-ms 8` misses the scan's frame and the people and places
 frames and the Places opening, not inference, the scan's rate (16 s more over 2 000 faces) or the
-Unnamed opening (21.5 + 8 ms is inside 32.5), and the largest planted slowdown misses all of them. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+Unnamed opening (21.5 + 8 ms is inside 32.5), and the largest planted slowdown misses all of them.
+Since M14 it also runs the `collage` bench (each style's layout median and the render's, a planted
+slowdown added once per layout or render; the render's peak memory), the `legacy_scan` bench (each
+scan's median, a planted slowdown added once per scan) and the `collage_canvas` bench (a drag
+frame's p95, a planted slowdown added); `--plant-ms 8` misses the layouts and the drag frame, not
+the render (seconds) or the scans (a hundred milliseconds and more), and `--plant-ms 1000` misses
+every M14 time. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
 review (maintainer decision, 2026-10-15); *Run workflow* on the Actions tab runs the job on any
 branch, with a planted slowdown (`plant_ms`) if asked. The same check locally:
 
@@ -880,7 +924,9 @@ budgeted, baseline-compared run that feeds the scorecard.
 `harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
 `first_thumbnails`, `edit_preview`, `save_export`, `search`, `scan_throughput`, `import` and
 `batch_edit`, `effect_tiles` and `faces_scan` (`dalica-engine`), `cold_start`, `slideshow` and
-`people_places` (`dalica-ui`), `effects` (`dalica-edit`) and `inference` (`dalica-faces`).
+`people_places` (`dalica-ui`), `effects` (`dalica-edit`), `inference` (`dalica-faces`), `collage`
+(`dalica-create`), `legacy_scan` (`dalica-scan`, in `benches/legacy.rs`) and `collage_canvas`
+(`dalica-ui`, in `benches/collage.rs`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -1045,6 +1091,31 @@ open, in a new order each time so the places are worked out again) and `places p
 `map.pan` moves the map at zoom 4, its markers grouped each frame). Frames are timed whole
 (`Driver::step`). `--check` judges the openings' medians and the frames' p95. Without `--bench` it
 runs 1 000 photos, two samples and ten frames.
+
+`collage` (M14.22, `dalica-create`) times `collage::layout` for each style over `--pictures` (200)
+pictures, `--samples` (21) times (rows `layout <style> <n>`), then renders a Picture Pile of
+`--photos` (50) `scenes` JPEGs of 2048 px (white border, shadows, captions) at 3000 px with
+`render::render`, each picture decoded at the size asked (`decode_thumbnail`), `--renders` (5)
+times (row `render <n>`, with `peak_mib`: `allocation-counter`'s peak on the render's thread, one
+more render). `--check` judges the medians and the memory. Without `--bench` it runs 30 pictures
+and 6 photos.
+
+`legacy_scan` (M14.22, `dalica-scan`) writes two trees of `--folders` (100) folders of
+`--per-folder` (100) `scenes` JPEGs, one with a legacy sidecar per folder and one with a
+`.dalica.json` saying the same, and a folder whose legacy sidecar is `--large-bytes` (64 MiB) long
+(about 0.2 GB under the target directory, removed after), then times `scan_with` with the default
+options over each, `--samples` (5) times, interleaved. Rows: `legacy scan <n>`, `dalica scan <n>`,
+`legacy file 64 MiB`. It fails when a folder's data does not come from the file expected or a star
+is missing; `--check` judges the medians. Without `--bench` it runs 4 folders of 25 photos and a
+1 MiB file once.
+
+`collage_canvas` (M14.22, `dalica-ui`) adds `--pictures` (100) demo photos to a new library, makes
+a Picture Pile of them with Create Collage and a fixed seed, opens the Collage room in the headless
+driver at 1400 × 900 and steps until every picture has its thumbnail, then drags the top picture
+`--drags` (4) times, back and forth, in `--frames` (60) pointer moves each. Rows: `drag frame` (each
+move's frame, timed whole by `Driver::step`) and `drop frame` (the release, the move given to the
+engine). It fails when a drag is not one step of the room's history; `--check` judges the drag
+frame's p95. Without `--bench` it runs 12 pictures, one drag of ten moves.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

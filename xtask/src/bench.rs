@@ -98,7 +98,34 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-ui",
         what: "the Unnamed grid opening with 10 000 faces and the Places pane with 10 000 geotagged photos, its markers grouped, in the headless app",
     },
+    Bench {
+        name: "collage",
+        package: "dalica-create",
+        what: "each collage style's layout of 200 pictures, and a 3000 px render of a pile of 50 photos: its time and peak memory",
+    },
+    Bench {
+        name: "legacy_scan",
+        package: "dalica-scan",
+        what: "a first scan of 10 000 photos in 100 folders with only the previous organizer's sidecar against the same with .dalica.json, and a 64 MiB legacy sidecar read whole (writes about 0.2 GB)",
+    },
+    Bench {
+        name: "collage_canvas",
+        package: "dalica-ui",
+        what: "the Collage room's frame with 100 pictures on the page while one is dragged, in the headless app",
+    },
 ];
+
+/// The benches whose source file is not named after the bench (`[[bench]]` with a `path`): the
+/// bench's name, and its file's stem under the crate's `benches/` (checked by the tests; cargo
+/// itself finds them by name).
+#[cfg(test)]
+pub const BENCH_FILES: [(&str, &str); 2] = [("legacy_scan", "legacy"), ("collage_canvas", "collage")];
+
+/// The stem of `bench`'s source file under its crate's `benches/`.
+#[cfg(test)]
+pub fn bench_file(bench: &str) -> &str {
+    BENCH_FILES.iter().find(|(name, _)| *name == bench).map_or(bench, |(_, file)| file)
+}
 
 /// Time units a field may name, in milliseconds.
 const UNITS: [(&str, f64); 4] = [("s", 1000.0), ("ms", 1.0), ("us", 0.001), ("ns", 0.000_001)];
@@ -669,6 +696,13 @@ pub fn stat_name(key: &str) -> &'static str {
 
 /// Judges each `(row, statistic, budget)` of `report` with `plant` ms added; every miss is listed.
 fn judge_rows(bench: &str, report: &Value, checks: &[(&str, &str, f64)], plant: f64) -> Result<Vec<String>, String> {
+    let (missed, parts) = row_verdicts(bench, report, checks, plant)?;
+    if missed.is_empty() { Ok(parts) } else { Err(format!("{} of {} missed: {}", missed.len(), checks.len(), missed.join("; "))) }
+}
+
+/// Each `(row, statistic, budget)` of `report` judged with `plant` ms added: the misses, and every
+/// row's line.
+fn row_verdicts(bench: &str, report: &Value, checks: &[(&str, &str, f64)], plant: f64) -> Result<(Vec<String>, Vec<String>), String> {
     let (mut missed, mut parts) = (Vec::new(), Vec::new());
     for (name, key, budget) in checks {
         let measured = row_number(bench, report, name, key)?;
@@ -679,7 +713,7 @@ fn judge_rows(bench: &str, report: &Value, checks: &[(&str, &str, f64)], plant: 
         }
         parts.push(format!("{name} {judged:.2} ms ≤ {budget} ms"));
     }
-    if missed.is_empty() { Ok(parts) } else { Err(format!("{} of {} missed: {}", missed.len(), checks.len(), missed.join("; "))) }
+    Ok((missed, parts))
 }
 
 /// `inference --json` in release at the detector's 640 px: detection's and each recogniser's
@@ -769,6 +803,97 @@ fn people_places_report(stdout: &str) -> Result<Value, String> {
 /// absolutely: a release run over 10 000 photos.
 pub fn judge_people_places_shape(stdout: &str, _plant: f64) -> Result<String, String> {
     people_places_report(stdout).map(|_| format!("over {PEOPLE_PLACES_PHOTOS} photos"))
+}
+
+// ---------------------------------------------------------------------------------------------
+// M14's budgets (M14.22, `docs/development.md` §8): collage layouts and their render, legacy scans,
+// the collage canvas. Each judge adds a planted slowdown once per measured operation (a layout, a
+// render, a scan, a frame).
+// ---------------------------------------------------------------------------------------------
+
+/// The collage layouts' budgets (`collage` → `LAYOUT_BUDGETS_MS`): per style, the median of one
+/// layout of [`COLLAGE_PICTURES`] pictures in ms, 1.5 × the first measurement rounded up to 0.05 ms.
+pub const COLLAGE_LAYOUT_BUDGETS: [(&str, f64); 6] =
+    [("pile", 0.05), ("mosaic", 0.65), ("frameMosaic", 1.1), ("grid", 0.05), ("contactSheet", 0.05), ("multipleExposure", 0.05)];
+/// The render's budgets (`collage` → `RENDER_BUDGET_MS`, `RENDER_PEAK_MIB_BUDGET`): its median and
+/// the most memory it holds, 1.5 × the first measurement.
+pub const COLLAGE_RENDER_MS: f64 = 2105.0;
+pub const COLLAGE_RENDER_PEAK_MIB: f64 = 65.0;
+/// What the collage budgets hold for: layouts of 200 pictures, a render of 50 photos at 3000 px.
+pub const COLLAGE_PICTURES: u64 = 200;
+pub const COLLAGE_PHOTOS: u64 = 50;
+pub const COLLAGE_LONG_SIDE: u64 = 3000;
+
+/// The legacy scans' budgets (`legacy_scan` → `LEGACY_SCAN_BUDGET_MS`, `DALICA_SCAN_BUDGET_MS`,
+/// `LARGE_FILE_BUDGET_MS`): per row, its median in ms, 1.5 × the first measurement.
+pub const LEGACY_SCAN_BUDGETS: [(&str, f64); 3] = [("legacy scan 10000", 195.0), ("dalica scan 10000", 190.0), ("legacy file 64 MiB", 995.0)];
+/// What the legacy scan budgets hold for: 10 000 photos, and a legacy sidecar of 64 MiB.
+pub const LEGACY_SCAN_PHOTOS: u64 = 10_000;
+pub const LEGACY_FILE_BYTES: u64 = 64 << 20;
+
+/// The collage canvas's budget (`collage_canvas` → `DRAG_BUDGET_MS`, `FRAME_CAP_MS`): a drag
+/// frame's p95, 1.5 × the first measurement rounded up to 0.5 ms, never above
+/// [`CANVAS_FRAME_CAP_MS`].
+pub const CANVAS_DRAG_P95_MS: f64 = 0.5;
+pub const CANVAS_FRAME_CAP_MS: f64 = 16.0;
+/// The collage the canvas budget holds for.
+pub const CANVAS_PICTURES: u64 = 100;
+
+/// `collage --json` in release over 200 pictures and 50 photos at 3000 px: each style's layout
+/// median, the render's median (a planted slowdown added to each) and its peak memory within their
+/// budgets. Every miss is listed.
+pub fn judge_collage(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("collage", stdout)?;
+    let number = |key: &str| report.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let (pictures, photos, long) = (number("pictures"), number("photos"), number("long_side"));
+    if pictures < COLLAGE_PICTURES || photos < COLLAGE_PHOTOS || long < COLLAGE_LONG_SIDE {
+        return Err(format!(
+            "collage ran with {pictures} pictures and a render of {photos} photos at {long} px; the budgets hold for {COLLAGE_PICTURES}, and {COLLAGE_PHOTOS} at {COLLAGE_LONG_SIDE} px"
+        ));
+    }
+    let layouts: Vec<(String, f64)> = COLLAGE_LAYOUT_BUDGETS.iter().map(|(style, b)| (format!("layout {style} {pictures}"), *b)).collect();
+    let render = format!("render {photos}");
+    let mut checks: Vec<(&str, &str, f64)> = layouts.iter().map(|(name, b)| (name.as_str(), "p50_ms", *b)).collect();
+    checks.push((render.as_str(), "p50_ms", COLLAGE_RENDER_MS));
+    let (mut missed, parts) = row_verdicts("collage", &report, &checks, plant)?;
+    let peak = row_number("collage", &report, &render, "peak_mib")?;
+    if peak > COLLAGE_RENDER_PEAK_MIB {
+        missed.push(format!("{render}: peak {peak:.1} MiB, over the {COLLAGE_RENDER_PEAK_MIB} MiB budget"));
+    }
+    if !missed.is_empty() {
+        return Err(format!("{} of {} missed: {}", missed.len(), checks.len() + 1, missed.join("; ")));
+    }
+    Ok(format!("medians: {}; {render} peak {peak:.1} MiB ≤ {COLLAGE_RENDER_PEAK_MIB} MiB", parts.join("; ")))
+}
+
+/// `legacy_scan --json` in release over 10 000 photos and a 64 MiB legacy sidecar: each scan's
+/// median within its budget (a planted slowdown added to each).
+pub fn judge_legacy_scan(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("legacy_scan", stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    let bytes = report.get("large_bytes").and_then(Value::as_u64).unwrap_or(0);
+    if photos != LEGACY_SCAN_PHOTOS || bytes != LEGACY_FILE_BYTES {
+        return Err(format!(
+            "legacy_scan ran over {photos} photos and a legacy sidecar of {bytes} bytes; the budgets hold for {LEGACY_SCAN_PHOTOS} and {LEGACY_FILE_BYTES}"
+        ));
+    }
+    let checks: Vec<(&str, &str, f64)> = LEGACY_SCAN_BUDGETS.iter().map(|(name, b)| (*name, "p50_ms", *b)).collect();
+    Ok(format!("medians: {}", judge_rows("legacy_scan", &report, &checks, plant)?.join("; ")))
+}
+
+/// `collage_canvas --json` in release with 100 pictures: a drag frame's p95 within its budget and
+/// 16 ms (a planted slowdown added).
+pub fn judge_collage_canvas(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("collage_canvas", stdout)?;
+    let pictures = report.get("pictures").and_then(Value::as_u64).unwrap_or(0);
+    if pictures < CANVAS_PICTURES {
+        return Err(format!("collage_canvas ran with {pictures} pictures; the budget holds for {CANVAS_PICTURES}"));
+    }
+    let budget = CANVAS_DRAG_P95_MS.min(CANVAS_FRAME_CAP_MS);
+    Ok(format!(
+        "{pictures} pictures: {} (cap {CANVAS_FRAME_CAP_MS} ms)",
+        judge_rows("collage_canvas", &report, &[("drag frame", "p95_ms", budget)], plant)?.join("; ")
+    ))
 }
 
 fn append(path: &Path, line: &str) -> Result<(), String> {
@@ -1321,6 +1446,122 @@ pub(crate) mod tests {
         assert!(judge_people_places(&people_places_out("release", 1_000, PEOPLE_PLACES_MEASURED), 0.0).unwrap_err().contains("hold for 10000"));
     }
 
+    /// The collage bench's first measurement (M14.22): each style's layout median, then the
+    /// render's median (ms) and peak memory (MiB).
+    pub const COLLAGE_LAYOUTS_MEASURED: [f64; 6] = [0.0103, 0.4198, 0.7122, 0.0077, 0.0065, 0.0047];
+    pub const COLLAGE_RENDER_MEASURED: (f64, f64) = (1401.4, 42.98);
+
+    /// What `collage --json` prints with `pictures` and a render of `photos` at `long` px.
+    pub fn collage_out(mode: &str, pictures: u64, photos: u64, long: u64, layouts: [f64; 6], render: (f64, f64)) -> String {
+        let mut rows: Vec<Value> = COLLAGE_LAYOUT_BUDGETS
+            .iter()
+            .zip(layouts)
+            .map(|((style, _), v)| json!({ "name": format!("layout {style} {pictures}"), "samples": 21, "p50_ms": v, "p95_ms": v * 1.2 }))
+            .collect();
+        rows.push(json!({ "name": format!("render {photos}"), "samples": 5, "p50_ms": render.0, "p95_ms": render.0 * 1.1, "peak_mib": render.1 }));
+        let r = json!({ "bench": "collage", "mode": mode, "pictures": pictures, "photos": photos, "long_side": long, "rows": rows });
+        format!("{r}\n")
+    }
+
+    /// The legacy scan bench's first measurement (M14.22): each row's median.
+    pub const LEGACY_SCAN_MEASURED: [f64; 3] = [128.73, 124.16, 661.12];
+
+    /// What `legacy_scan --json` prints over `photos` and a legacy sidecar of `bytes`.
+    pub fn legacy_scan_out(mode: &str, photos: u64, bytes: u64, values: [f64; 3]) -> String {
+        let rows: Vec<Value> = LEGACY_SCAN_BUDGETS
+            .iter()
+            .zip(values)
+            .map(|((name, _), v)| json!({ "name": name, "samples": 5, "p50_ms": v, "p95_ms": v * 1.1 }))
+            .collect();
+        let r = json!({ "bench": "legacy_scan", "mode": mode, "folders": 100, "photos": photos, "large_bytes": bytes, "rows": rows });
+        format!("{r}\n")
+    }
+
+    /// The canvas bench's first measurement (M14.22): a drag frame's p95.
+    pub const CANVAS_MEASURED: f64 = 0.167;
+
+    /// What `collage_canvas --json` prints with `pictures` and a drag frame's p95.
+    pub fn collage_canvas_out(mode: &str, pictures: u64, p95: f64) -> String {
+        let r = json!({ "bench": "collage_canvas", "mode": mode, "pictures": pictures, "window": [1400, 900], "rows": [
+            { "name": "drag frame", "samples": 240, "p50_ms": p95 * 0.9, "p95_ms": p95, "max_ms": p95 * 2.0 },
+            { "name": "drop frame", "samples": 4, "p50_ms": p95, "p95_ms": p95, "max_ms": p95 },
+        ]});
+        format!("{r}\n")
+    }
+
+    #[test]
+    fn the_collage_budgets_judge_each_layout_the_render_and_its_memory() {
+        let out = |layouts, render| collage_out("release", 200, 50, 3000, layouts, render);
+        let ok = judge_collage(&out(COLLAGE_LAYOUTS_MEASURED, COLLAGE_RENDER_MEASURED), 0.0).unwrap();
+        assert!(ok.contains("layout mosaic 200") && ok.contains("render 50") && ok.contains("peak 43.0 MiB ≤ 65 MiB"), "{ok}");
+        for (i, ((style, budget), measured)) in COLLAGE_LAYOUT_BUDGETS.iter().zip(COLLAGE_LAYOUTS_MEASURED).enumerate() {
+            assert!(one_and_a_half(*budget, measured, 0.05), "{style}: {budget} is not 1.5 × {measured}");
+            let mut slow = COLLAGE_LAYOUTS_MEASURED;
+            slow[i] = budget + 0.001;
+            let e = judge_collage(&out(slow, COLLAGE_RENDER_MEASURED), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("1 of 8 missed: layout {style} 200: median")), "{e}");
+        }
+        let (render, peak) = COLLAGE_RENDER_MEASURED;
+        assert!(one_and_a_half(COLLAGE_RENDER_MS, render, 5.0) && one_and_a_half(COLLAGE_RENDER_PEAK_MIB, peak, 5.0));
+        let e = judge_collage(&out(COLLAGE_LAYOUTS_MEASURED, (COLLAGE_RENDER_MS + 1.0, peak)), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 8 missed: render 50: median"), "{e}");
+        let e = judge_collage(&out(COLLAGE_LAYOUTS_MEASURED, (render, COLLAGE_RENDER_PEAK_MIB + 0.5)), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 8 missed: render 50: peak"), "{e}");
+        // 8 ms planted misses every layout (under 2 ms), not the render (seconds); the largest
+        // planted slowdown misses the render too.
+        let e = judge_collage(&out(COLLAGE_LAYOUTS_MEASURED, COLLAGE_RENDER_MEASURED), 8.0).unwrap_err();
+        assert!(e.starts_with("6 of 8 missed") && !e.contains("render 50"), "{e}");
+        let e = judge_collage(&out(COLLAGE_LAYOUTS_MEASURED, COLLAGE_RENDER_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.starts_with("7 of 8 missed") && !e.contains("peak"), "{e}");
+        // Another run judges nothing.
+        assert!(
+            judge_collage(&collage_out("debug", 200, 50, 3000, COLLAGE_LAYOUTS_MEASURED, COLLAGE_RENDER_MEASURED), 0.0)
+                .unwrap_err()
+                .contains("debug build")
+        );
+        for (pictures, photos, long) in [(30, 50, 3000), (200, 6, 3000), (200, 50, 1000)] {
+            let e =
+                judge_collage(&collage_out("release", pictures, photos, long, COLLAGE_LAYOUTS_MEASURED, COLLAGE_RENDER_MEASURED), 0.0).unwrap_err();
+            assert!(e.contains("the budgets hold for 200, and 50 at 3000 px"), "{e}");
+        }
+    }
+
+    #[test]
+    fn the_legacy_scan_budgets_judge_each_scan() {
+        let full = |values| legacy_scan_out("release", 10_000, 64 << 20, values);
+        let ok = judge_legacy_scan(&full(LEGACY_SCAN_MEASURED), 0.0).unwrap();
+        assert!(ok.contains("legacy scan 10000") && ok.contains("dalica scan 10000") && ok.contains("legacy file 64 MiB"), "{ok}");
+        for (i, ((name, budget), measured)) in LEGACY_SCAN_BUDGETS.iter().zip(LEGACY_SCAN_MEASURED).enumerate() {
+            assert!(one_and_a_half(*budget, measured, 5.0), "{name}: {budget} is not 1.5 × {measured}");
+            let mut slow = LEGACY_SCAN_MEASURED;
+            slow[i] = budget + 0.1;
+            let e = judge_legacy_scan(&full(slow), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("1 of 3 missed: {name}: median")), "{e}");
+        }
+        // 8 ms planted is inside every scan's headroom; the largest planted slowdown misses all.
+        assert!(judge_legacy_scan(&full(LEGACY_SCAN_MEASURED), 8.0).is_ok());
+        let e = judge_legacy_scan(&full(LEGACY_SCAN_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.starts_with("3 of 3 missed") && e.contains("ms planted)"), "{e}");
+        assert!(judge_legacy_scan(&legacy_scan_out("debug", 10_000, 64 << 20, LEGACY_SCAN_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        for (photos, bytes) in [(100, 64 << 20), (10_000, 1 << 20)] {
+            let e = judge_legacy_scan(&legacy_scan_out("release", photos, bytes, LEGACY_SCAN_MEASURED), 0.0).unwrap_err();
+            assert!(e.contains("the budgets hold for 10000 and 67108864"), "{e}");
+        }
+    }
+
+    #[test]
+    fn the_collage_canvas_budget_judges_a_drag_frame() {
+        assert!(one_and_a_half(CANVAS_DRAG_P95_MS, CANVAS_MEASURED, 0.5) && CANVAS_DRAG_P95_MS <= CANVAS_FRAME_CAP_MS);
+        let ok = judge_collage_canvas(&collage_canvas_out("release", 100, CANVAS_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("100 pictures: drag frame 0.17 ms ≤ 0.5 ms"), "{ok}");
+        let e = judge_collage_canvas(&collage_canvas_out("release", 100, CANVAS_DRAG_P95_MS + 0.01), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 1 missed: drag frame: p95"), "{e}");
+        let e = judge_collage_canvas(&collage_canvas_out("release", 100, CANVAS_MEASURED), 8.0).unwrap_err();
+        assert!(e.contains("+ 8.00 ms planted"), "{e}");
+        assert!(judge_collage_canvas(&collage_canvas_out("debug", 100, CANVAS_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_collage_canvas(&collage_canvas_out("release", 12, CANVAS_MEASURED), 0.0).unwrap_err().contains("holds for 100"));
+    }
+
     /// The benches' own `--check` budgets are the ones judged here.
     #[test]
     fn the_benches_carry_the_budgets_judged_here() {
@@ -1399,6 +1640,39 @@ pub(crate) mod tests {
             assert!(views.contains(&format!("row(\"{name}\"")), "people_places prints `{name}`");
         }
         assert!(views.contains(&format!("const PHOTOS: usize = {};", grouped_thousands(PEOPLE_PLACES_PHOTOS))));
+        // M14.22: the collage layouts and render, the legacy scans, the collage canvas.
+        let collage = std::fs::read_to_string(root.join("crates").join("create").join("benches").join("collage.rs")).unwrap();
+        let legacy = std::fs::read_to_string(root.join("crates").join("scan").join("benches").join("legacy.rs")).unwrap();
+        let canvas = read("ui", "collage");
+        for (style, budget) in COLLAGE_LAYOUT_BUDGETS {
+            assert!(collage.contains(&format!("(\"{style}\", {budget:?})")), "the collage bench's budget for {style} is ours: {budget}");
+        }
+        let [(_, legacy_scan), (_, dalica_scan), (_, large)] = LEGACY_SCAN_BUDGETS;
+        for (source, constant, ours) in [
+            (&collage, "RENDER_BUDGET_MS", COLLAGE_RENDER_MS),
+            (&collage, "RENDER_PEAK_MIB_BUDGET", COLLAGE_RENDER_PEAK_MIB),
+            (&legacy, "LEGACY_SCAN_BUDGET_MS", legacy_scan),
+            (&legacy, "DALICA_SCAN_BUDGET_MS", dalica_scan),
+            (&legacy, "LARGE_FILE_BUDGET_MS", large),
+            (&canvas, "DRAG_BUDGET_MS", CANVAS_DRAG_P95_MS),
+            (&canvas, "FRAME_CAP_MS", CANVAS_FRAME_CAP_MS),
+        ] {
+            assert!(source.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours: {ours}");
+        }
+        assert!(
+            collage.contains(&format!("const PICTURES: usize = {COLLAGE_PICTURES};"))
+                && collage.contains(&format!("const PHOTOS: usize = {COLLAGE_PHOTOS};"))
+                && collage.contains(&format!("const LONG_SIDE: u32 = {COLLAGE_LONG_SIDE};"))
+                && collage.contains("format!(\"layout {id} {}\", a.pictures)")
+                && collage.contains("format!(\"render {}\", a.photos)")
+        );
+        assert!(legacy.contains("const FOLDERS: usize = 100;") && legacy.contains("const PER_FOLDER: usize = 100;"));
+        assert!(
+            legacy.contains("format!(\"legacy scan {n}\")")
+                && legacy.contains("format!(\"dalica scan {n}\")")
+                && legacy.contains("format!(\"legacy file {mib:.0} MiB\")")
+        );
+        assert!(canvas.contains(&format!("const PICTURES: usize = {CANVAS_PICTURES};")) && canvas.contains("\"drag frame\""));
     }
 
     /// `n` as Rust source writes it with `_` between thousands (`1_000`, `10_000`).
@@ -1419,9 +1693,17 @@ pub(crate) mod tests {
         let root = crate::workspace_root();
         for b in BENCHES {
             let dir = root.join("crates").join(b.package.trim_start_matches("dalica-"));
-            assert!(dir.join("benches").join(format!("{}.rs", b.name)).is_file(), "{}", b.name);
+            let file = bench_file(b.name);
+            assert!(dir.join("benches").join(format!("{file}.rs")).is_file(), "{}", b.name);
             let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
             assert!(manifest.contains(&format!("name = \"{}\"\nharness = false", b.name)), "{}: [[bench]] with harness = false", b.name);
+            if file != b.name {
+                let target = format!("name = \"{}\"\nharness = false\npath = \"benches/{file}.rs\"", b.name);
+                assert!(manifest.contains(&target), "{}: [[bench]] with its path", b.name);
+            }
+        }
+        for (name, _) in BENCH_FILES {
+            assert!(BENCHES.iter().any(|b| b.name == name), "{name} is a registered bench");
         }
     }
 }

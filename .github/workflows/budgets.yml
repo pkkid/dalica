@@ -27,6 +27,11 @@
 # 16 ms at p95) and people_places (the Unnamed grid with 10 000 faces and the Places pane with
 # 10 000 geotagged photos), each 1.5 x its first measurement on a workstation; on this runner
 # inference and people_places are judged against the commit that first measured them (M13.R).
+# Since M14 also collage (each style's layout of 200 pictures; a pile of 50 photos rendered at
+# 3000 px, its time and peak memory), legacy_scan (a first scan of 10 000 photos in 100 folders with
+# only the previous organizer's sidecar against the same with .dalica.json, and a 64 MiB legacy
+# sidecar) and collage_canvas (the Collage room's frame with 100 pictures while one is dragged,
+# never above 16 ms at p95), each 1.5 x its first measurement on a workstation.
 # Like every test run on GitHub, it runs only at a milestone review (the pull request of a
 # `review/M<n>.R` branch) and when dispatched by hand: "Run workflow" on the Actions tab, which also
 # takes a planted slowdown to prove that a missed budget fails the run (docs/development.md §3, §8).

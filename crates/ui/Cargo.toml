@@ -63,3 +63,8 @@ harness = false
 [[bench]]
 name = "people_places"
 harness = false
+
+[[bench]]
+name = "collage_canvas"
+harness = false
+path = "benches/collage.rs"
