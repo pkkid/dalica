@@ -216,6 +216,8 @@ pub fn collage_room(exe: &Path, home: &Path) {
     }
     let photos_of = |dir: &Path| -> Vec<(String, Vec<u8>)> { common::files(dir).into_iter().filter(|(n, _)| n.ends_with(".jpg")).collect() };
     let originals = photos_of(&garden);
+    // The write root exists (a root that does not exist holds nothing, `security.md` §5.7).
+    std::fs::create_dir_all(pictures.join("Dalica")).unwrap();
     let (a, mut cl) = live::start_with(exe, home, launch(home));
     let c = &mut cl;
     app::resize(c, LARGE);
