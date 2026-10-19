@@ -124,7 +124,8 @@ L0       core · fs                    (only `fs` writes to disk)
 
 - Floors only rise: corpus floors, performance budgets, parity counts, workflow pass rates,
   acceptance checks of finished milestones. They are checked once per milestone, at its review
-  (`cargo xtask ci --full` and the review's GitHub run), not per task, and they hold all the same.
+  (`cargo xtask ci --full`, the release budgets run locally with `cargo xtask budgets`, and the
+  review's GitHub run), not per task, and they hold all the same.
 - Never weaken a gate to make a commit pass: no `#[ignore]` or deleted tests, no relaxed lint, no
   `xtask` check loosened, no `DALICA_BLESS` fingerprint update without looking at the diff images
   and saying why in the commit body. If a gate is wrong, raise it on the task's issue.
@@ -249,7 +250,8 @@ cargo xtask tasks submit <id> --body-file <evidence.md>   # the PR body: evidenc
   their tests too (maintainer decision, 2026-10-18; never `dalica-acceptance` or `xtask`);
   transitive dependents are not tested, and a behaviour break there surfaces at the review. The acceptance tests, `panic_hunt` at full strength, the benches and budgets, the
   corpus tests, fuzzing and the Windows and macOS runs all run once, at the review
-  (`cargo xtask ci --full` and the review's GitHub run; `development.md` §3).
+  (`cargo xtask ci --full` and the release budgets locally, the review's GitHub run for CI per OS,
+  the corpus job and Fuzz; `development.md` §3, §8).
 - **Portable paths:** the review runs on Windows too. Paths in messages use `/` (as git prints
   them); tests build expected paths with `Path::join`, never by hard-coding a separator. Tests that
   create files leave out names Windows forbids (`" * ? < > | :`, trailing dots or spaces) on

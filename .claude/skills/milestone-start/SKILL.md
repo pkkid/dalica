@@ -183,8 +183,9 @@ once and report.
     tests, run only here), the check-in page (questions first, then the UI changelog), the
     questions asked with AskUserQuestion and their answers applied, *Where we stand* and
     `docs/status.md` on a `review/M<n>.R` branch, a pull request (it runs CI on all three systems,
-    the corpus job, Budgets and Fuzz), both linked on the issue (for a release gate also the
-    checklist and the sign-off questions). What fails there is fixed before the review closes.
+    the corpus job and Fuzz; the release budgets run locally, `cargo xtask budgets`), both linked
+    on the issue (for a release gate also the checklist and the sign-off questions). What fails
+    there is fixed before the review closes.
   - Never merge that pull request, never close the review issue, never `tasks merge` it. Then end
     the run.
 - **Final message** (at a review task, or when the maintainer stops the run):

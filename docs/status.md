@@ -19,9 +19,9 @@ and git.
 - **M14 review (2026-10-19):** reserved decision 2 = pure-Rust decoders for H.264 and HEVC after a spike on real
   phone files (tiles only for a codec that fails); sound = pure-Rust output per OS; the first languages = English and
   Thai for 1.0 if Thai can be done (shaping and line breaking to be proven), the maintainer's wife reviews the Thai;
-  M14's budgets judged against a same-runner base (M15.43); accept M12's narrower frame check accepted; five look
-  issues from the screenshots carried to M15 (M15.44); all 56 fingerprint baselines approved; ship 0.9 once the review
-  PR's runs are green; the by-hand checks EDIT-ZOOM and SYS-WINDOW split off as P2 rows that never gate CI (the maintainer, after the review PR's accept jobs failed on them).
+  the release budgets run locally only, the Budgets workflow removed from GitHub (M15.43, a same-runner base for
+  M14's budgets, dropped); accept M12's narrower frame check accepted; five look issues from the screenshots carried
+  to M15 (M15.44); all 56 fingerprint baselines approved; ship 0.9 once the review PR's runs are green; the by-hand checks EDIT-ZOOM and SYS-WINDOW split off as P2 rows that never gate CI (the maintainer, after the review PR's accept jobs failed on them).
 - **Numbers (M14.R, 01170527, 2026-10-19):** `cargo xtask ci --full` 18.7 min (i7-13700K, 10 jobs): tests 4 329
   passed, 0 failed, 2 ignored on purpose; every milestone's acceptance M0–M14 passes; M14 release budgets: layouts of
   200 pictures 0.00–0.68 ms (budgets 0.05–1.10), a 50-photo 3000 px render 1 400 ms and 43 MiB (2 105 ms, 65 MiB), a

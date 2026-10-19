@@ -26,7 +26,7 @@ file stays byte-identical, created under its exact name so it can never replace 
 Revert work from the originals it kept; the option turns it all off and on without writing. W15 and W16 over MCP
 (workflows 16 / 16). Accept M14 found a security bug (a click on the room's Create Collage wrote outside the automation
 write roots), fixed before the review. Not done: the canvas doesn't draw captions or names; five small look issues
-seen in the review's screenshots (M15.44); M14's budgets are absolute and judged on the workstation (M15.43); the
+seen in the review's screenshots (M15.44); the release budgets run only locally (M14.R); the
 checks by hand, now P2 rows that wait for the hardware (EDIT-ZOOM-HAND, SYS-WINDOW-MAC). `main` went red for 5 hours after the merges (older milestones' fingerprints moved by the lit Collage
 button, a Windows-only warning, a timing check tight first for slow runners and then for fast ones, an old Windows
 rename test), so merges stopped until four fix PRs passed on all three systems. 29 tasks merged with 7 workers.
@@ -295,10 +295,11 @@ waits for.)
 - **Test little during a milestone, everything at its review** (maintainer decision, 2026-10-15).
   A task's gate (`cargo xtask ci`) compiles everything and tests only the packages the task
   changed, quick; a merge runs no tests. The review runs the full list once: every test at full
-  strength and every finished milestone's acceptance (`cargo xtask ci --full`), then, on the
-  review's pull request, CI on Linux, Windows and macOS, the corpus job, the release budgets and
-  fuzzing. What fails there becomes fix tasks, merged before the review closes
-  (`development.md` §3). A *done when* that names other systems or budgets is checked there.
+  strength and every finished milestone's acceptance (`cargo xtask ci --full`) and the release
+  budgets (`cargo xtask budgets`, locally only since M14.R), then, on the review's pull request,
+  CI on Linux, Windows and macOS, the corpus job and fuzzing. What fails there becomes fix tasks,
+  merged before the review closes (`development.md` §3). A *done when* that names other systems
+  or budgets is checked there.
 - **Every review task is a stop.** A milestone has exactly one review, at its end: the review task
   `M<n>.R`. There are no mid-milestone reviews (the maintainer's decision, 2026-10-10: "I do not
   want any checkins mid milestones"); the roadmap parser refuses an open `M<n>.A`, `M<n>.B`, …
@@ -10379,9 +10380,9 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     except user data; no label clips at 1400 × 900 and 900 × 600; `cargo xtask i18n` passes.
 - ⬜ **M15.34 `image` + `engine` + `ui` + `xtask`: M15's budgets: videos, cameras, AccessKit and translations**
   - after: M15.19, M15.20, M15.26, M15.29
-  - files: `crates/image/benches/video.rs`, `crates/engine/benches/video.rs`, `crates/engine/benches/import_camera.rs`, `crates/ui/benches/a11y.rs`, `crates/ui/benches/i18n.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - files: `crates/image/benches/video.rs`, `crates/engine/benches/video.rs`, `crates/engine/benches/import_camera.rs`, `crates/ui/benches/a11y.rs`, `crates/ui/benches/i18n.rs`, `xtask/src/bench.rs`, `docs/development.md`
   - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`
-    and the release-budgets job, each documented in §8 and §13 with its machine: `video_probe`
+    and the local release budgets, each documented in §8 and §13 with its machine: `video_probe`
     (probing 1 000 containers); `video_play` (a clip's poster and its thumbnails, a frame step,
     and the playing frame time, as M15.1 fitted the decoding); `camera_import` (300 objects from
     the in-memory responder, files per second); `a11y_frame` (the library's frame at 100 000 photos
@@ -10441,17 +10442,17 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     automation and one started by a click each leave no person's name in `ui.inspect`,
     `library.query` or the job's reply without the permission, and show it with the permission);
     the two tests pass 200 runs under `taskset -c 0`.
-- ⬜ **M15.43 `xtask`: M14's budgets judged against a base on the same runner**
+- ✅ **M15.43 `docs`: dropped: M14's budgets against a same-runner base**
   - after: M14.R
-  - files: `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
-  - scope: the maintainer's answer at M14.R (2026-10-19, Q5): M14.22's budgets (collage layouts
-    and the render, the legacy scans, the canvas drag frame) were set as absolute numbers on the
-    workstation's performance cores; judge them as M13's are, relative to M14.22's merge commit
-    (2f68af57) built and run on the same runner, interleaved, so a slower runner or an
-    efficiency core does not fail them; the workstation numbers stay as the record.
-  - done when: the Budgets workflow and `cargo xtask budgets` judge every M14 row against the base
-    on the same machine; `--plant-ms` still fails each row; a run on the 2-vCPU runner passes
-    with the numbers in the PR body.
+  - owner: lead
+  - files: —
+  - scope: dropped by the maintainer's decision at M14.R (2026-10-19): "remove the budgets CI
+    from GitHub Actions and only run them locally; it's stupid to expect the slower GitHub CI
+    machines to perform just as well as my local machine". The Budgets workflow is gone and the
+    release budgets run locally at each review (`cargo xtask budgets`, `development.md` §8), so
+    M14's absolute budgets need no same-runner base. The id is kept and never reused; nothing to
+    build.
+  - done when: the block records the decision.
 - ⬜ **M15.44 `ui`: five small look fixes from the M14.R screenshots**
   - after: M14.R
   - files: `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/titlebar.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/collage_room.rs`, `crates/ui/tests/options_dialog.rs`
@@ -10508,7 +10509,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     target; the advisory check passes on `main` with the recorded exception and fails on a planted
     unrecorded advisory; a release dry run attaches the SBOMs.
 - ⬜ **M15.37 `accept M15`**
-  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.43, M15.44
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
@@ -10574,7 +10575,7 @@ waits on reserved decision 2 through M15.1):
 wave 1   M15.1 lead: M14.R's answers  ‖  M15.2 video probe  ‖  M15.3 model: videos + M14.1's ops
          ‖  M15.4 engine modules + Os + Sound  ‖  M15.5 ui state + stubs  ‖  M15.6 ui-kit video + icons
          ‖  M15.7 i18n core  ‖  M15.8 fallback faces  ‖  M15.9 PTP reader  ‖  M15.10 Windows signing
-         ‖  M15.41 M14's loose ends  ‖  M15.43 M14 budgets on one runner  ‖  M15.44 look fixes
+         ‖  M15.41 M14's loose ends  ‖  M15.44 look fixes
          (once M14.R is closed)
 wave 2   M15.11 videos on scan  ‖  M15.12 platform services  ‖  M15.13 macOS signing
          ‖  M15.14 ui-kit AccessKit  ‖  M15.15 video frames (2)  ‖  M15.17 OS commands

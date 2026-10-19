@@ -38,7 +38,7 @@ commands:
   test-corpus  cargo xtask test-corpus [-p <crate>] [-- args]: fetch, then the corpus tests with their floors (--release --features corpus)
   contributors  cargo xtask contributors [--check] [--ref <rev>]: regenerate contributors/contributors.json (git + gh); --check verifies people.toml offline
   bench     cargo xtask bench [name…] [-- args]: release benches; history in <target>/bench/history.jsonl; flags >20 % slowdowns
-  budgets   cargo xtask budgets [--plant-ms N]: the release frame budgets the milestones assert (the budgets workflow)
+  budgets   cargo xtask budgets [--plant-ms N]: the release frame budgets the milestones assert (run locally at each review)
   assets    every asset has an ATTRIBUTION.md row; licence files exist; no forbidden names or formats
   docs      every `cargo xtask` command the docs name exists (AGENTS.md, development.md, task-board.md)
   deps      audit dependencies: licences, banned and *-sys crates, C builds, sources (docs/security.md §8)
