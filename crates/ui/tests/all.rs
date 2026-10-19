@@ -13,6 +13,7 @@ mod bottom;
 mod captions;
 mod cells;
 mod clipboard;
+mod collage_canvas;
 mod color_management;
 mod common;
 mod compare;
