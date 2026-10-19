@@ -1,4 +1,4 @@
-//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1, M13.3, M14.5) against
+//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1, M13.3, M14.5, M15.4) against
 //! `menus-and-shortcuts.md` §5: the eight tabs shown are the catalogue's seven and the shortcut
 //! editor; every option of the General, File Types, Slideshow, Network, People, Photo Viewer and
 //! Export tables is in the catalogue once, on its tab, and nothing else is; keys are unique; each
@@ -6,7 +6,9 @@
 //! on / off, a number's the table's number); each option that can be changed, stored under its key
 //! with each of its choices, is read back by that accessor; and the People rows and the Network
 //! rows of reserved decision 4 (M13.20) can be changed, the network log level still waiting; and
-//! "Read photo data left by the previous organizer" can be changed (M14.5).
+//! "Read photo data left by the previous organizer" can be changed (M14.5); Language lists the
+//! languages the app gives and can be changed, and the Photo
+//! Viewer's File Types is a list still waiting on the OS integration (M15.4).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -73,7 +75,7 @@ fn every_option_of_the_seven_tabs_is_in_the_catalogue_once() {
             match o.default {
                 Initial::Bool(on) => assert_eq!(default, if on { "on" } else { "off" }, "{key}"),
                 Initial::Int(n) => assert!(default.starts_with(&n.to_string()), "{key}: {default} is not {n}"),
-                Initial::Str(_) | Initial::Null => {}
+                Initial::Str(_) | Initial::List(_) | Initial::Null => {}
             }
         }
     }
@@ -93,7 +95,7 @@ fn each_default_is_its_accessors_and_each_option_is_read_back_from_its_key() {
             Kind::Bool => vec![json!(o.default != Initial::Bool(true))],
             Kind::Int { max, .. } => vec![json!(max)],
             Kind::Scale { .. } => vec![json!(150)],
-            Kind::Choice(choices) => choices.iter().map(|c| json!(c.0)).filter(|c| *c != o.default_value()).collect(),
+            Kind::Choice(_) => o.choices(&empty).into_iter().map(|c| json!(c.0)).filter(|c| *c != o.default_value()).collect(),
             Kind::Text { .. } => vec![json!("© Ana")],
             Kind::Folder => vec![json!(folder)],
         };
@@ -105,7 +107,7 @@ fn each_default_is_its_accessors_and_each_option_is_read_back_from_its_key() {
     }
     // The options whose feature is still to come say why, and the HEIC row follows the build.
     let reasons: Vec<(&str, &str)> = catalogue().iter().filter_map(|o| o.unavailable.map(|r| (o.key, r))).collect();
-    for key in ["interface.language", "slideshow.music", "slideshow.musicFolder", "slideshow.videoSound", "viewer.defaultViewer"] {
+    for key in ["slideshow.music", "slideshow.musicFolder", "slideshow.videoSound", "viewer.defaultViewer"] {
         assert!(reasons.iter().any(|(k, r)| *k == key && r.starts_with("Arrives with")), "{key}: {reasons:?}");
     }
     for key in ["import.detectDuplicates", "import.folder"] {
@@ -182,4 +184,45 @@ fn the_legacy_row_can_be_changed() {
     assert!(!st.legacy().read_legacy_data);
     assert_eq!((o.read)(&st), json!(false));
     assert!(o.store(&mut st, &json!("off")).is_err());
+}
+
+/// M15: Language lists the languages the session was given (System first) and takes only those;
+/// the External editor waits for the window's field (M15.22); the Photo Viewer's File Types
+/// is a list of types, still waiting on the OS integration.
+#[test]
+fn the_m15_rows_language_external_editor_and_viewer_file_types() {
+    let empty = Settings::default();
+    let language = find("interface.language").unwrap();
+    assert_eq!((language.available(), language.applies), (true, Applies::Now));
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = crate::common::open(dir.path());
+    let listed = |s: &mut dalica_engine::Session| -> Value {
+        let rows = s.execute("options.list", &json!({ "tab": "general" })).unwrap();
+        rows["options"].as_array().unwrap().iter().find(|r| r["key"] == "interface.language").unwrap()["choices"].clone()
+    };
+    assert_eq!(listed(&mut s), json!([{ "id": "system", "label": "System" }, { "id": "en", "label": "English" }]), "none given");
+    s.set_languages(&[("en", "English"), ("th", "ไทย")]);
+    assert_eq!(listed(&mut s), json!([{ "id": "system", "label": "System" }, { "id": "en", "label": "English" }, { "id": "th", "label": "ไทย" }]));
+    s.execute("options.set", &json!({ "values": { "interface.language": "th" } })).unwrap();
+    assert_eq!(s.settings().interface().language, "th");
+    let refused = s.execute("options.set", &json!({ "values": { "interface.language": "fr" } })).unwrap_err().to_string();
+    assert!(refused.contains("interface.language must be one of \"system\", \"en\", \"th\""), "{refused}");
+    assert_eq!(s.settings().interface().language, "th");
+
+    assert!(find("files.externalEditor").is_none(), "listed with its field, M15.22");
+
+    let types = find("viewer.defaultViewer").unwrap();
+    assert_eq!((types.many, types.available(), types.unavailable), (true, false, Some("Arrives with OS integration")));
+    assert_eq!(types.to_json(&empty)["type"], json!("list"));
+    assert_eq!(types.default_value(), json!([]));
+    let ids: Vec<String> = types.choices(&empty).into_iter().map(|c| c.0).collect();
+    let viewer: Vec<&str> = dalica_engine::settings::VIEWER_TYPES.iter().map(|t| t.id()).collect();
+    assert_eq!(ids, viewer, "a choice per viewer type");
+    assert_eq!(types.check(&json!(["raw", "jpeg", "raw"])), Ok(json!(["jpeg", "raw"])), "in the choices' order, each once");
+    for bad in [json!("jpeg"), json!(["video"]), json!([1]), json!(true)] {
+        assert!(types.check(&bad).unwrap_err().starts_with("viewer.defaultViewer must be a list of"), "{bad}");
+    }
+    let mut st = Settings::default();
+    types.store(&mut st, &json!(["png"])).unwrap();
+    assert_eq!((types.read)(&st), json!(["png"]), "read back through Settings::viewer");
 }

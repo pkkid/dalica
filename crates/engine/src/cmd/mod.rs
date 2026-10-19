@@ -4,6 +4,7 @@
 pub mod albums;
 pub mod app;
 pub mod batch;
+pub mod camera;
 pub mod caption;
 pub mod collage;
 pub mod collage_output;
@@ -35,6 +36,7 @@ pub mod legacy;
 pub mod library;
 pub mod map;
 pub mod options;
+pub mod os;
 pub mod people;
 pub mod photo;
 pub mod places;
@@ -49,6 +51,8 @@ pub mod slideshow;
 pub mod suggest;
 pub mod tags;
 pub mod tuning;
+pub mod video;
+pub mod video_output;
 pub mod view;
 pub mod viewer;
 
@@ -123,6 +127,11 @@ pub fn specs() -> Vec<CommandSpec> {
         collage::specs(),
         collage_output::specs(),
         legacy::specs(),
+        // M15: empty until M15.16 (video), M15.17 (os), M15.19 (camera) and M15.25 (video_output).
+        video::specs(),
+        video_output::specs(),
+        os::specs(),
+        camera::specs(),
     ]
     .concat();
     #[cfg(test)]

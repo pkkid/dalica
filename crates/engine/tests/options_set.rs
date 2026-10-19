@@ -112,7 +112,7 @@ fn a_batch_with_one_bad_value_changes_nothing() {
         ("interface.fontSize", json!(true)),
         ("export.location", json!("relative/folder")),
         ("no.suchOption", json!(1)),
-        ("interface.language", json!("system")),
+        ("interface.language", json!("xx-not-offered")),
     ] {
         match set(&mut s, &[fine.clone(), (key, bad.clone())]) {
             Err(CmdError::BadParams(m)) => assert!(m.contains(key), "{key}: {m}"),

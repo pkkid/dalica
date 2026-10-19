@@ -1,4 +1,4 @@
-//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1, M13.3, M14.5;
+//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1, M13.3, M14.5, M15.4;
 //! `data-model.md` §4 and §6, `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1 and
 //! §4, `creating.md` §2, `organizing.md` §3, §4, §6.1, §7 and §9, `viewing.md` §1.5 and §3.3,
 //! `faces.md` §3–§5), each a row of [`rows`]: nothing stored means its default; every
@@ -9,7 +9,8 @@
 //! object, the photo sizes by region, the export location, the recent imports and the
 //! slideshow's display time bounded, the confidences, model id, addresses and port of the
 //! People and Network tabs kept in their ranges, and the Collage room's spacing, page format and
-//! colour too.
+//! colour too; M15's default viewer read from the flag it was, the video volume bounded, and the
+//! languages the app offers (never stored).
 
 use std::path::{Path, PathBuf};
 
@@ -26,7 +27,9 @@ use dalica_engine::settings::{
     COLLAGE_PAGE_FORMAT_DEFAULT, CURRENT_DISPLAY, CollageSettings, CollageStyle, GRID_SPACING_RANGE, LegacySettings, PageOrientation, PictureBorder,
     color_hex, parse_color_hex,
 };
+use dalica_engine::settings::{MAX_LANGUAGES, VIEWER_TYPES, VOLUME_DEFAULT, VideoSettings};
 use dalica_fs::Expect;
+use dalica_scan::FileType;
 use serde_json::{Value, json};
 
 use crate::common::open;
@@ -142,11 +145,16 @@ fn rows(dir: &Path) -> Vec<Row> {
         }),
         row("collage.orientation", json!("portrait"), json!("square"), json!("landscape"), |s| json!(s.collage().orientation.id())),
         row("collage.backgroundColor", json!("#1a2b3c"), json!("secret"), json!("#000000"), |s| json!(color_hex(s.collage().background_color))),
+        row("files.externalEditor", json!("/opt/Editor Pro/bin/editor"), json!(["secret-editor"]), json!(""), |s| json!(s.external_editor())),
+        row("video.volume", json!(35), json!(101), json!(VOLUME_DEFAULT), |s| json!(s.video().volume)),
+        row("viewer.defaultViewer", json!(["jpeg", "png", "raw"]), json!("secret-types"), json!([]), |s| {
+            json!(s.viewer().default_viewer.iter().map(|t| t.id()).collect::<Vec<_>>())
+        }),
     ]
 }
 
 /// The sections of the rows.
-const SECTIONS: [&str; 15] = [
+const SECTIONS: [&str; 16] = [
     "files",
     "tags",
     "edit",
@@ -162,6 +170,7 @@ const SECTIONS: [&str; 15] = [
     "people",
     "network",
     "collage",
+    "video",
 ];
 
 /// A `settings.json` holding `value(row)` for every row, an unknown key in every section and one at
@@ -214,6 +223,7 @@ fn nothing_stored_means_the_defaults() {
     );
     assert_eq!((s.settings().people(), s.settings().network()), (PeopleSettings::default(), NetworkSettings::default()));
     assert_eq!((s.settings().legacy(), s.settings().collage()), (LegacySettings::default(), CollageSettings::default()));
+    assert_eq!((s.settings().video(), s.settings().external_editor()), (VideoSettings::default(), String::new()));
     assert_eq!(s.settings().edit().photo_sizes(), PhotoSizes::system());
     assert!(s.notices().is_empty(), "{:?}", s.notices());
 }
@@ -249,6 +259,8 @@ fn every_setting_round_trips_with_unknown_keys_kept() {
         st.set_network(&wanted.network());
         st.set_legacy(&wanted.legacy());
         st.set_collage(&wanted.collage());
+        st.set_external_editor(&wanted.external_editor());
+        st.set_video(&wanted.video());
     });
     s.flush().unwrap();
     drop(ui);
@@ -311,6 +323,7 @@ fn a_section_that_is_not_an_object_is_reported_once_and_replaced_on_the_next_wri
         json!(85),
         json!("offline"),
         json!(["pile"]),
+        json!(80),
     ];
     for (section, bad) in SECTIONS.iter().zip(bad) {
         written[section] = bad;
@@ -812,4 +825,67 @@ fn the_collage_values_stay_in_their_ranges() {
     let back = Settings::parse(&st.print()).unwrap();
     assert_eq!(back.legacy(), LegacySettings { read_legacy_data: false, legacy_notice_shown: true });
     assert!(!back.metadata_writes().dates);
+}
+
+/// M15: the default viewer was a flag before M15 (`true` reads as every viewer type, `false` as
+/// none, neither reported); a list keeps the ids of types this version does not know through a
+/// write, in the viewer types' order after the known ones; a volume past 100 is stored as 100; an
+/// overlong editor is stored empty.
+#[test]
+fn the_default_viewer_flag_reads_as_all_or_none_and_m15_values_stay_in_range() {
+    for (flag, want) in [(true, VIEWER_TYPES.to_vec()), (false, Vec::new())] {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "viewer": { "defaultViewer": flag } })).unwrap()).unwrap();
+        assert_eq!(st.viewer().default_viewer, want, "{flag}");
+        assert!(st.problems().is_empty(), "{:?}", st.problems());
+    }
+    assert!(!VIEWER_TYPES.contains(&FileType::Video), "the photo viewer is not a video player");
+    let mut st = Settings::parse(br#"{"viewer": {"defaultViewer": ["png", "cinema", "jpeg", "png"], "futureKey": 1}}"#).unwrap();
+    assert_eq!(st.viewer().default_viewer, [FileType::Jpeg, FileType::Png], "known ids, in order, each once");
+    let mut v = st.viewer();
+    v.default_viewer = vec![FileType::Raw, FileType::Video, FileType::Gif];
+    st.set_viewer(&v);
+    let back = Settings::parse(&st.print()).unwrap();
+    assert_eq!(back.get("viewer").unwrap()["defaultViewer"], json!(["gif", "raw", "cinema"]), "a video is not a viewer type; unknown ids kept");
+    assert_eq!(back.get("viewer").unwrap()["futureKey"], json!(1));
+    assert_eq!(back.viewer().default_viewer, [FileType::Gif, FileType::Raw]);
+    for bad in [json!([1]), json!({}), json!("jpeg")] {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "viewer": { "defaultViewer": bad } })).unwrap()).unwrap();
+        assert!(st.viewer().default_viewer.is_empty(), "{bad}");
+        assert_eq!(st.problems(), ["settings.json: viewer.defaultViewer is not a list of file types; none is used"], "{bad}");
+    }
+
+    let mut st = Settings::default();
+    st.set_video(&VideoSettings { volume: 250 });
+    assert_eq!(Settings::parse(&st.print()).unwrap().video().volume, 100);
+    st.set_video(&VideoSettings { volume: 0 });
+    assert_eq!(Settings::parse(&st.print()).unwrap().video().volume, 0);
+    st.set_external_editor(&"e".repeat(MAX_PATH_BYTES + 1));
+    assert_eq!(Settings::parse(&st.print()).unwrap().external_editor(), "");
+    st.set_external_editor("gimp");
+    assert_eq!(Settings::parse(&st.print()).unwrap().external_editor(), "gimp");
+}
+
+/// The languages offered: System and English with none given; what the app gives, System first,
+/// each well-formed tag once, capped; never stored, and no part of a settings' equality.
+#[test]
+fn the_languages_offered_are_the_apps_with_system_first_and_never_stored() {
+    let mut st = Settings::default();
+    let pair = |list: &[(&str, &str)]| list.iter().map(|(t, n)| (t.to_string(), n.to_string())).collect::<Vec<_>>();
+    assert_eq!(st.languages(), pair(&[("system", "System"), ("en", "English")]));
+    st.set_languages(&[
+        ("th", "ไทย"),
+        ("en", "English"),
+        ("system", "Auto"),
+        ("not a tag", "x"),
+        ("th", "again"),
+        ("pt-BR", "  "),
+        ("de", &"n".repeat(65)),
+    ]);
+    assert_eq!(st.languages(), pair(&[("system", "System"), ("th", "ไทย"), ("en", "English"), ("pt-BR", "pt-BR"), ("de", "de")]));
+    assert_eq!(st, Settings::default(), "the languages are not settings");
+    assert_eq!(st.print(), Settings::default().print(), "nor stored");
+    let many: Vec<(String, String)> = (0..100).map(|i| (format!("x{i}"), format!("X{i}"))).collect();
+    let many: Vec<(&str, &str)> = many.iter().map(|(t, n)| (t.as_str(), n.as_str())).collect();
+    st.set_languages(&many);
+    assert_eq!(st.languages().len(), MAX_LANGUAGES);
 }

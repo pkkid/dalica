@@ -211,9 +211,9 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
     for (key, value) in &wanted {
         assert_eq!(&saved(d, key), value, "{key}");
     }
-    // The tab's disabled row says why.
+    // Language can be changed since M15.4: its choices are the languages offered.
     let row = rows.iter().find(|r| r.key == "interface.language").unwrap();
-    assert!(row.reason.as_deref().is_some_and(|r| r.starts_with("Arrives with")), "interface.language: {:?}", row.reason);
+    assert_eq!(row.reason, None, "interface.language");
 }
 
 /// The option only Windows and Linux show (`menus-and-shortcuts.md` §5 General).
