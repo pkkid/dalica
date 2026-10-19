@@ -262,6 +262,7 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     }
     if withheld {
         people::inspect(call.host.app(), &mut v, under.as_deref(), &changed);
+        withhold_export_toasts(call, &mut v);
     }
     // Where the views are scrolled to, beside `scroll` (the view state's anchor) (§6.6).
     let views = Value::Object(scroll_views(call));
@@ -272,6 +273,22 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         call.host.perf_mut().reset();
     }
     Ok(Outcome::Reply(Ok(v)))
+}
+
+/// The toasts' Show Folder (`action.folder`) for the folder of a person's export job
+/// ([`super::jobs::person_export_folders`]), `null`: known by the job, never by the folder's name.
+fn withhold_export_toasts(call: &Call<'_>, v: &mut Value) {
+    let folders = super::jobs::person_export_folders(call.host);
+    if folders.is_empty() {
+        return;
+    }
+    if let Some(Value::Array(toasts)) = v.get_mut("toasts") {
+        for folder in toasts.iter_mut().filter_map(|t| t.pointer_mut("/action/folder")) {
+            if folders.contains(folder) {
+                *folder = Value::Null;
+            }
+        }
+    }
 }
 
 /// The light table's and the tree's offsets (points), the section at the top of the light table

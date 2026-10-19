@@ -121,9 +121,10 @@ fn a_dialog_opens_by_command_and_esc_and_enter_close_it() {
     let item = tools["children"].as_array().unwrap().iter().find(|i| i["id"] == "folders.manager").unwrap();
     assert_eq!((item["live"].as_bool(), item["enabled"].as_bool(), item["dialog"].as_str()), (Some(true), Some(false), Some("folderManager")));
     assert_eq!(code(&mut t, "engine.execute", json!({ "command": "folders.manager" })), "disabled");
-    // Under the dialog: a click on a thumbnail lands on the backdrop, a shortcut does not run.
+    // Under the dialog: a click on a thumbnail is refused (the backdrop would take it), a shortcut
+    // does not run.
     let first = sections(&t)[0][0];
-    ok(&mut t, "ui.clickWidget", json!({ "id": format!("thumb:{}", first.get()) }));
+    assert_eq!(code(&mut t, "ui.clickWidget", json!({ "id": format!("thumb:{}", first.get()) })), "disabled");
     ok(&mut t, "ui.key", json!({ "combo": "Ctrl+A" }));
     assert!(t.d.state().selection.ids.is_empty(), "the window under a dialog takes no input");
     // Esc cancels.

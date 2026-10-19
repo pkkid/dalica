@@ -1026,7 +1026,7 @@ the photos it completed.
 An export of a person's section from the Export dialog makes its folder under the name suggested
 from theirs: without `--automation-allow-people` that job's entry, in `jobs.list`, `jobs.wait` and
 `ui.inspect`'s `jobs`, has `result.folder`, `result.name` and `result.written` `null`, its counts
-kept (M14.25; `automation::withhold_export_folder`, as the draft's `export.folderName` is withheld,
+kept, and the toast its end shows has `action.folder` `null` in `ui.inspect`'s `toasts` (M14.25; `automation::withhold_export_folder`, as the draft's `export.folderName` is withheld,
 §6.4). The job is known by its id: every export job that appears while the Export draft names a
 person's section (as a control request, and each of its steps, begins) is one; a folder's name is
 never matched against people's names. An `export.run` the client sends over `engine.execute` names

@@ -1310,8 +1310,8 @@ fn options_that_reach_outside_and_the_panes_allow_need_the_external_permission()
 
 /// An export of a person's section confirmed over automation makes its folder under her name
 /// (§6.4, §6.13): without `--automation-allow-people` `jobs.wait`, `jobs.list` and `ui.inspect`'s
-/// `jobs` give that job's `folder`, `name` and `written` as `null`, its counts kept; with it, her
-/// name. Known by the job, not by its text: an export of the folder's section named "Ana" by the
+/// `jobs` give that job's `folder`, `name` and `written` as `null`, its counts kept, and the
+/// toast its end shows has no Show Folder path; with it, her name. Known by the job, not by its text: an export of the folder's section named "Ana" by the
 /// client reads "Ana" either way.
 #[test]
 fn a_persons_export_job_keeps_her_folder_name_from_automation_without_the_people_permission() {
@@ -1347,9 +1347,18 @@ fn a_persons_export_job_keeps_her_folder_name_from_automation_without_the_people
             assert_eq!((name, folder_path, written), (Value::Null, Value::Null, Value::Null), "{at}: {hers}");
             assert!(out.join("Ana").is_dir(), "{at}: the export itself is made as asked");
         }
-        let listed = ok(&mut t, "jobs.list", json!({})).to_string();
-        let inspected = ok(&mut t, "ui.inspect", json!({}))["jobs"].to_string();
-        for (what, text) in [("jobs.list", listed), ("ui.inspect", inspected)] {
+        t.d.settle(600).unwrap();
+        // The export jobs (the scan that brings her folder into the library names it: open).
+        let exports = |jobs: &Value| -> String {
+            jobs.as_array().unwrap().iter().filter(|e| e["kind"] == json!("export")).map(Value::to_string).collect::<Vec<_>>().join("\n")
+        };
+        let listed = exports(&ok(&mut t, "jobs.list", json!({})));
+        let v = ok(&mut t, "ui.inspect", json!({}));
+        let toast = v["toasts"].as_array().unwrap().iter().find(|t| t["action"].is_object()).cloned();
+        let shown = toast.as_ref().map(|t| t["action"]["folder"].clone());
+        assert_eq!(shown, Some(if allow { json!(out.join("Ana")) } else { Value::Null }), "{at}: the toast's Show Folder: {toast:?}");
+        let (inspected, toasts) = (exports(&v["jobs"]), v["toasts"].to_string());
+        for (what, text) in [("jobs.list", listed), ("ui.inspect jobs", inspected), ("ui.inspect toasts", toasts)] {
             assert_eq!(text.contains("Ana"), allow, "{at}: {what}: {text}");
         }
 

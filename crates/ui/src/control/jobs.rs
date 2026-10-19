@@ -7,7 +7,8 @@
 //! dialog makes its folder under the name suggested from theirs. Without the people permission the
 //! entries of those jobs reach the client with `folder`, `name` and `written` `null`
 //! (`dalica_engine::automation::withhold_export_folder`), in `jobs.list`, `jobs.wait` and
-//! `ui.inspect`'s `jobs`. The jobs are known by their id ([`observe`]): every export job that
+//! `ui.inspect`'s `jobs`, and the Show Folder of the toast their end shows (`ui.inspect`'s
+//! `toasts`, its `action.folder`) is `null` too. The jobs are known by their id ([`observe`]): every export job that
 //! appears while the window's Export draft names a person's section, as each control request (and
 //! each step of one) begins, is marked; never by matching a folder's name against people's names.
 
@@ -95,6 +96,16 @@ fn person_export(host: &dyn Host, e: &JobEntry) -> bool {
 pub(super) fn reply(host: &dyn Host, config: &Config, e: &JobEntry) -> Value {
     let v = entry(e);
     if super::people::withheld(config) && person_export(host, e) { dalica_engine::automation::withhold_export_folder(v) } else { v }
+}
+
+/// The export folders of the jobs marked as a person's ([`observe`]), as their results name them:
+/// a toast that shows one of these folders is that job's (`ui.inspect`'s `toasts`).
+pub(super) fn person_export_folders(host: &dyn Host) -> Vec<Value> {
+    list(host)
+        .iter()
+        .filter(|e| person_export(host, e))
+        .filter_map(|e| e.result.as_ref().and_then(|r| r.get("folder")).filter(|f| !f.is_null()).cloned())
+        .collect()
 }
 
 /// Every job listed now as this client may see it ([`reply`]).
