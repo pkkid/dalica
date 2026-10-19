@@ -12,6 +12,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::common::{FRAMES, LARGE, new_driver, shot, try_widget};
 use dalica_core::FolderId;
@@ -36,14 +37,26 @@ fn jpeg(seed: u64) -> Vec<u8> {
     dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
 }
 
+/// When folder `day` (days after 2020-06-01, 12:00 UTC)'s photos were taken: their files' times,
+/// as these photos have no EXIF date.
+fn taken(day: u64, i: u64) -> SystemTime {
+    UNIX_EPOCH + Duration::from_secs(1_591_012_800 + day * 86_400 + i * 60)
+}
+
+/// The folders' dates are fixed, Lisbon's the newer, so Lisbon is the first folder on the light
+/// table (newest first): with the dates the files got as they were written, a second boundary
+/// passed between the two folders' files put Porto first, and after the star Lisbon's header lay
+/// below the view, its banner not drawn.
 fn fixture() -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let photos = dir.path().join("photos");
     let (lisbon, porto) = (photos.join("Lisbon"), photos.join("Porto"));
-    for (folder, seed) in [(&lisbon, 1), (&porto, 10)] {
+    for (folder, seed, day) in [(&lisbon, 1, 3), (&porto, 10, 0)] {
         std::fs::create_dir_all(folder).unwrap();
         for i in 0..2 {
-            std::fs::write(folder.join(format!("IMG_{:04}.jpg", i + 1)), jpeg(seed + i)).unwrap();
+            let path = folder.join(format!("IMG_{:04}.jpg", i + 1));
+            std::fs::write(&path, jpeg(seed + i)).unwrap();
+            std::fs::File::options().write(true).open(&path).unwrap().set_modified(taken(day, i)).unwrap();
         }
     }
     std::fs::write(lisbon.join(".dalica.json"), BROKEN).unwrap();
@@ -73,6 +86,8 @@ fn kept(folder: &Path) -> Vec<String> {
 fn the_banner_asks_cancel_keeps_and_reset_lifts_the_folder() {
     let mut fx = fixture();
     let d = &mut fx.d;
+    let order: Vec<_> = d.app().panels().unwrap().sections.list.iter().filter_map(|s| s.folder).collect();
+    assert_eq!(order, [fx.damaged, fx.fine], "Lisbon, the newer, first");
     let banner = try_widget(d, &folder_banner::banner_id(fx.damaged)).expect("the damaged folder's banner");
     assert_eq!(banner.label, folder_banner::TITLE);
     let section = try_widget(d, &format!("section:folder:{}", fx.damaged)).unwrap();

@@ -556,7 +556,8 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   `popup` and `ui.menu.tree`), the search banner while the People pane filters by people ("Showing
   photos with Person and Person"), a face drag's pill, the tooltip over any of these (a person
   section's icon says their name), the names typed (`unnamed.names`, `peoplePane.manual.name`), the
-  Export draft's folder name while it exports a person's section (`export.folderName`), and
+  Export draft's folder name while it exports a person's section (`export.folderName`; and the
+  export job it starts, §6.13), and
   New Person's and Rename Person's drafts (`fields.name`, `fields.nickname`, in `dialogs` and
   `ui.inspect`'s `dialog`). `ui.menu.invoke {path}` matches a person's row by the placeholder only
   (by `id` and `params` as before). What is withheld is chosen by widget id, role and dialog kind,
@@ -865,7 +866,10 @@ rest of it kept, under the same id (§6.4).
 
 - `ui.clickWidget {id}` clicks the widget's centre; `fx`, `fy` (0..1) pick another point inside it;
   `count: 2` double-clicks; `button: "right"` opens context menus; modifier flags apply to the click
-  (`ctrl: true` toggles a thumbnail in the selection, `shift: true` extends it).
+  (`ctrl: true` toggles a thumbnail in the selection, `shift: true` extends it). A widget under an
+  open dialog (drawn before its backdrop, which takes every click meant for the window) is
+  `disabled`, naming the dialog by its id (`dialog:about`), and nothing is played (M14.25); the
+  dialog's own widgets and popups are clicked as usual.
 - `ui.dragWidget {id, toWidget}` drags from one widget onto another — e.g. `thumb:5` onto
   `tree:folder:2` moves the photo (hold `ctrl: true` to copy), onto `tray` holds it, onto
   `tree:album:a91c0e` adds it to the album; `toX`/`toY` on the left or right half of an album
@@ -1018,6 +1022,15 @@ in `cancelled`. Kinds: `scan`, `import`, `export`, `save`, `files` (a move, copy
 or map tiles, only after the user allowed it, M13), `collage`, `analysis`. `jobs.cancel` stops a job at its next photo boundary: photos already written stay
 (each was written atomically), nothing is left half-written. Cancelling a job is never an undo of
 the photos it completed.
+
+An export of a person's section from the Export dialog makes its folder under the name suggested
+from theirs: without `--automation-allow-people` that job's entry, in `jobs.list`, `jobs.wait` and
+`ui.inspect`'s `jobs`, has `result.folder`, `result.name` and `result.written` `null`, its counts
+kept, and the toast its end shows has `action.folder` `null` in `ui.inspect`'s `toasts` (M14.25; `automation::withhold_export_folder`, as the draft's `export.folderName` is withheld,
+§6.4). The job is known by its id: every export job that appears while the Export draft names a
+person's section (as a control request, and each of its steps, begins) is one; a folder's name is
+never matched against people's names. An `export.run` the client sends over `engine.execute` names
+its folder itself; its job is withheld only when it starts while such a draft is open.
 
 ## 7. Widget ids
 

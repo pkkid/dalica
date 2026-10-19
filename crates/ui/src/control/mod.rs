@@ -488,10 +488,12 @@ impl Connection {
     }
 
     /// Handles one request (never `auth`, which the transport answers). The UI thread is marked
-    /// as driven by automation until the request's reply ([`automated`]).
+    /// as driven by automation until the request's reply ([`automated`]); as it and each of its
+    /// steps begin, the export jobs started from a person's section are marked ([`jobs::observe`]).
     pub fn handle(&mut self, control: &Control, host: &mut dyn Host, req: &Request) -> Outcome {
         let running = Running::new(&control.config);
         vet::forget();
+        jobs::observe(host);
         let outcome = self.dispatch(control, host, req);
         let outcome = vet::before_input(host, &control.config, outcome);
         hold(outcome, &control.config, running)
@@ -567,6 +569,7 @@ fn hold(outcome: Outcome, config: &Arc<Config>, running: Running) -> Outcome {
             Outcome::Play(
                 input,
                 Box::new(move |host, played| {
+                    jobs::observe(host);
                     let next = then(host, played);
                     hold(next, &config, running)
                 }),
@@ -578,6 +581,7 @@ fn hold(outcome: Outcome, config: &Arc<Config>, running: Running) -> Outcome {
             Outcome::Work(Box::new(move || match work() {
                 Next::Resume(k) => Next::Resume(Box::new(move |host| {
                     let running = Running::new(&config);
+                    jobs::observe(host);
                     let next = k(host);
                     hold(next, &config, running)
                 })),
@@ -699,7 +703,7 @@ pub static METHODS: &[Method] = &[
     method("ui.inspect", "{resetPerf?}", "the view state plus window, perf and more (§6.6)", view::inspect),
     method("ui.resize", "{width, height}", "{width, height} in points", input::resize),
     method("ui.widgets", "{filter?, region?}", "[{id, rect, enabled, checked?, label?, role}] (§6.7)", view::widgets),
-    method("ui.clickWidget", "{id, count?, button?, fx?, fy?, ctrl?, shift?, alt?, cmd?}", "{rect}", input::click_widget),
+    method("ui.clickWidget", "{id, count?, button?, fx?, fy?, ctrl?, shift?, alt?, cmd?}", "{rect}", view::click_widget),
     method(
         "ui.dragWidget",
         "{id, toWidget? | toX, toY | dx, dy, steps?, fx?, fy?, button?, ctrl?, shift?, alt?, cmd?}",

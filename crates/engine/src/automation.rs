@@ -55,6 +55,10 @@
 //!   that tell where a face is ([`FACE_POINTS`]: `slideshow.list`'s `focus`) give each photo's
 //!   focus as the photo's centre `[0.5, 0.5]` and no face ([`Policy::people_reply`]); the window's
 //!   own show still moves toward the face.
+//! - **A person's export folder** (`control-protocol.md` §6.13): an export of a person's section
+//!   from the window makes its folder under the person's name; without `--automation-allow-people`
+//!   that job's entry reaches automation with its folder, name and written files `null`
+//!   ([`withhold_export_folder`]), the surface knowing the job by its id.
 
 use std::path::{Component, Path, PathBuf, Prefix};
 
@@ -489,6 +493,27 @@ fn centred(mut reply: Value) -> Value {
         }
     }
     reply
+}
+
+/// The keys of an export job's `result` (`export.run`'s job: `{total, done, written, skipped,
+/// failed, cancelled, folder, name}`) that hold the export folder's name: the folder, its name
+/// and the files written into it.
+pub const EXPORT_FOLDER_KEYS: &[&str] = &["folder", "name", "written"];
+
+/// A job's entry (as `jobs.list` gives it) with [`EXPORT_FOLDER_KEYS`] of its `result` `null`, for
+/// an export whose folder was named from a person's name (a person's section exported from the
+/// window, its folder name suggested from theirs) and a client without the people permission
+/// (`control-protocol.md` §6.4, §6.13). Which jobs those are is the caller's to know, by the job;
+/// never by matching the folder's name against people's names (a guess-oracle). The counts stay.
+pub fn withhold_export_folder(mut entry: Value) -> Value {
+    if let Some(Value::Object(result)) = entry.get_mut("result") {
+        for key in EXPORT_FOLDER_KEYS {
+            if let Some(v) = result.get_mut(*key) {
+                *v = Value::Null;
+            }
+        }
+    }
+    entry
 }
 
 /// Adds `dir` to `roots` when it is absolute and not there yet, up to [`MAX_ROOTS`].

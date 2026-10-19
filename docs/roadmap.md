@@ -9343,7 +9343,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
   - done when: `cargo xtask bench collage`, `bench legacy_scan` and `bench collage_canvas` print
     their numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each
     fail.
-- ⬜ **M14.25 `ui` + `engine`: M13's automation follow-ups: a person's export job, clicks under a dialog, a flaky sidecar test**
+- ✅ **M14.25 `ui` + `engine`: M13's automation follow-ups: a person's export job, clicks under a dialog, a flaky sidecar test**
   - after: M13.R
   - files: `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/tests.rs`, `crates/engine/src/automation.rs`, `crates/ui/tests/damaged_sidecar.rs`, `docs/control-protocol.md`
   - scope: from the M13.R review's open items: (1) when automation confirms an Export of a
