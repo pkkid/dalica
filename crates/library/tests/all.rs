@@ -18,3 +18,4 @@ mod sketch;
 mod sync;
 mod tags;
 mod tree;
+mod video;

@@ -16,6 +16,10 @@
 //! photo order, then their order on the photo), the photos with faces, counts per person, people
 //! by name or by count, a person's thumbnail, and the geotags: a photo is geotagged by the
 //! model's word when it has one, else by its file's GPS.
+//!
+//! M15's queries (`formats.md` §1): a photo's kind (still or video) and its video facts, the
+//! videos of a section (for the paths that count them) and the photos a still-only path takes.
+//! Each walks only the ids it is given, so none is cached.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -26,7 +30,7 @@ use std::time::Duration;
 use dalica_core::geo::LatLon;
 use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 
-use crate::model::{Folder, FolderSidecar, LegacyOriginal, Library, Photo, PhotoSort, Saved, SortBy};
+use crate::model::{Folder, FolderSidecar, LegacyOriginal, Library, Photo, PhotoKind, PhotoSort, Saved, SortBy, VideoFacts};
 use crate::people::{Face, FacePerson, FaceRef, Geo, PeopleSort, Person};
 use crate::tags::fold;
 
@@ -572,6 +576,54 @@ impl Library {
     pub fn geotags_of(&self, ids: &[PhotoId]) -> Vec<(PhotoId, LatLon)> {
         let mut seen = std::collections::HashSet::with_capacity(ids.len());
         ids.iter().filter(|id| seen.insert(**id)).filter_map(|id| Some((*id, self.geotag(*id)?))).collect()
+    }
+}
+
+/// M15's queries: videos.
+impl Library {
+    /// Photo `id`'s kind: a video when it has video facts ([`Library::video_facts`]) or its search
+    /// facts say so ([`crate::Facts::video`], the scan's word since M9); a still otherwise, and for
+    /// an unknown id.
+    pub fn kind(&self, id: PhotoId) -> PhotoKind {
+        if self.model.videos.contains_key(&id) || self.model.facts.get(&id).is_some_and(|f| f.video) { PhotoKind::Video } else { PhotoKind::Still }
+    }
+
+    /// Whether photo `id` is a video ([`Library::kind`]).
+    pub fn is_video(&self, id: PhotoId) -> bool {
+        self.kind(id) == PhotoKind::Video
+    }
+
+    /// Photo `id`'s video facts, if it has a record.
+    pub fn video_facts(&self, id: PhotoId) -> Option<&VideoFacts> {
+        self.model.videos.get(&id)
+    }
+
+    /// Every video facts record, by photo id.
+    pub fn video_facts_all(&self) -> impl Iterator<Item = (PhotoId, &VideoFacts)> {
+        self.model.videos.iter().map(|(id, v)| (*id, v))
+    }
+
+    /// The videos among `ids` (a section's photos, a selection), in the order given, each once;
+    /// unknown ids are left out.
+    pub fn videos_among(&self, ids: &[PhotoId]) -> Vec<PhotoId> {
+        self.known_once(ids, true)
+    }
+
+    /// How many videos `ids` holds, each counted once (a section header's count).
+    pub fn video_count(&self, ids: &[PhotoId]) -> usize {
+        self.videos_among(ids).len()
+    }
+
+    /// The photos of `ids` a still-only path takes (editing, Save, collages, prints): the stills,
+    /// in the order given, each once; videos and unknown ids are left out.
+    pub fn stills_among(&self, ids: &[PhotoId]) -> Vec<PhotoId> {
+        self.known_once(ids, false)
+    }
+
+    /// The known photos of `ids` whose kind is a video (`videos`) or a still, in order, each once.
+    fn known_once(&self, ids: &[PhotoId], videos: bool) -> Vec<PhotoId> {
+        let mut seen = std::collections::HashSet::with_capacity(ids.len());
+        ids.iter().copied().filter(|&id| self.model.photos.contains_key(&id) && self.is_video(id) == videos && seen.insert(id)).collect()
     }
 }
 

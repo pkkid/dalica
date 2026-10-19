@@ -1,12 +1,15 @@
 //! The op generator `ops.rs` and `search_props.rs` share: a [`Seed`] (a recipe for an op, drawn by
-//! proptest) built into a real op against the current library, every op of the model in the mix.
+//! proptest) built into a real op against the current library, every op of the model in the mix:
+//! M13's people, faces and geotags, M14's legacy ids and facts and the project kinds, and M15's
+//! video facts included ([`op_name`] names each, and `ops.rs` checks the mix reaches them all).
 
 use std::path::PathBuf;
 
-use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_core::geo::LatLon;
+use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Rect01, Timestamp};
 use dalica_library::{
-    AlbumInfo, Anchor, ContentDigest, Facts, Folder, FolderInfo, Library, Op, Photo, PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved,
-    SavedAs, SortBy, Synced, clean_tags,
+    AlbumInfo, Anchor, ContentDigest, Face, FaceKey, FacePerson, Facts, Folder, FolderInfo, FolderSidecar, Geo, LegacyOriginal, Library, Op, Person,
+    Photo, PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved, SavedAs, Sketch, SortBy, Synced, VideoFacts, clean_tags,
 };
 use proptest::prelude::*;
 
@@ -34,7 +37,9 @@ pub enum Seed {
     SetSynced(Vec<(u8, Option<u8>)>),
     SetSaved(Vec<(u8, Option<u8>)>),
     SetSavedAs(Vec<(u8, Option<u8>)>),
-    SetProjects(Vec<(u8, bool)>),
+    /// A project kind per folder (`None` clears the mark).
+    SetProjects(Vec<(u8, Option<u8>)>),
+    SetSketches(Vec<(u8, Option<u8>)>),
     /// The batches M8's file changes apply (when the library refuses to build one, an op on an
     /// unknown photo).
     Save(Vec<(u8, u8)>),
@@ -58,6 +63,22 @@ pub enum Seed {
     SetDigests(Vec<(u8, Option<u8>)>),
     SetFirstIndexed(Vec<(u8, Option<u8>)>),
     SetLastChanged(Vec<(u8, Option<u8>)>),
+    // M13.
+    /// Whole face lists: (photo, faces as (place, who)); who 0 is Unnamed, 1 Ignored, else a person.
+    SetFaces(Vec<(u8, Vec<(u8, u8)>)>),
+    SetGeo(Vec<(u8, Option<u8>)>),
+    AddPerson(u8, u8),
+    RenamePerson(u8, u8, u8),
+    MergePeople(u8, u8),
+    DeletePerson(u8),
+    /// A person's thumbnail: one of their faces, or `None`.
+    SetPersonThumbnail(u8, Option<u8>),
+    // M14.
+    SetLegacyIds(Vec<(u8, Option<u8>)>, Vec<(u8, Option<u8>)>),
+    SetFolderSidecars(Vec<(u8, u8)>),
+    SetLegacyOriginals(Vec<(u8, Option<u8>)>),
+    // M15.
+    SetVideos(Vec<(u8, Option<u8>)>),
     /// A seed's op stamped with a last-changed time.
     Stamped(Box<Seed>, u8),
     Batch(Vec<Seed>),
@@ -163,6 +184,65 @@ pub fn facts(n: u8) -> Facts {
     }
 }
 
+/// People ids from a small set, so clashes and unknown people happen.
+pub fn person(n: u8) -> PersonId {
+    PersonId::parse(&format!("p{:04x}", n % 4)).unwrap()
+}
+
+pub fn pick_person(people: &[PersonId], i: u8) -> PersonId {
+    if people.is_empty() || i.is_multiple_of(7) { person(i) } else { people[usize::from(i) % people.len()].clone() }
+}
+
+/// Names with a case variant, so the case rule refuses some.
+pub const NAMES: [&str; 5] = ["Ana", "Rui", "ana", "Zé Ünïcode", "Maria Costa"];
+
+/// A face at one of eight places, of nobody, an ignored face, or a person (known or not).
+pub fn face(people: &[PersonId], place: u8, who: u8) -> Face {
+    let x = f64::from(place % 8) / 10.0;
+    let rect = Rect01::new(x, 0.1, x + 0.1, 0.3).unwrap();
+    let who = match who % 4 {
+        0 => FacePerson::Unnamed,
+        1 => FacePerson::Ignored,
+        _ => FacePerson::Person(pick_person(people, who)),
+    };
+    Face::new(rect, who)
+}
+
+pub fn geo(n: u8) -> Geo {
+    if n.is_multiple_of(5) { Geo::Removed } else { Geo::At(LatLon::new(38.7 + f64::from(n % 10) / 10.0, -9.1 - f64::from(n / 10) / 10.0).unwrap()) }
+}
+
+/// Legacy ids from a small set, so two albums or people asking for one happen.
+pub fn legacy_id(n: u8) -> String {
+    format!("L{}", n % 4)
+}
+
+pub fn legacy_original(n: u8) -> LegacyOriginal {
+    LegacyOriginal { size: u64::from(n) * 10, digest: if n.is_multiple_of(2) { format!("md5:{n}") } else { String::new() }, recipe: recipe(n).edits }
+}
+
+pub fn project(n: u8) -> Project {
+    [Project::Exported, Project::Collages, Project::VideoFrames][usize::from(n) % 3]
+}
+
+/// A video's facts: an empty record (an unprobed video), or durations, sizes, turns, codecs and
+/// rates drawn from `n`.
+pub fn video(n: u8) -> VideoFacts {
+    if n.is_multiple_of(6) {
+        return VideoFacts::default();
+    }
+    VideoFacts {
+        duration_ms: u64::from(n) * 1001,
+        width: [1920, 3840, 640][usize::from(n) % 3],
+        height: [1080, 2160, 480][usize::from(n) % 3],
+        rotation: n % 4,
+        video_codec: ["avc1", "hvc1", "V_VP9", ""][usize::from(n) % 4].into(),
+        sound_codec: if n.is_multiple_of(2) { "mp4a".into() } else { String::new() },
+        sound: n.is_multiple_of(2),
+        frame_rate_milli: [29_970, 25_000, 60_000, 0][usize::from(n / 4) % 4],
+    }
+}
+
 pub fn time(n: u8) -> Timestamp {
     Timestamp::from_millis(1_700_000_000_000 + i64::from(n) * 86_400_000)
 }
@@ -199,10 +279,30 @@ pub fn m9_leaf() -> impl Strategy<Value = Seed> {
     ]
 }
 
+/// The ops of M13 (people, faces, geotags), M14 (legacy ids and facts) and M15 (video facts).
+pub fn later_leaf() -> impl Strategy<Value = Seed> {
+    let opt = || proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4);
+    prop_oneof![
+        3 => proptest::collection::vec((any::<u8>(), proptest::collection::vec((any::<u8>(), any::<u8>()), 0..4)), 0..3).prop_map(Seed::SetFaces),
+        1 => opt().prop_map(Seed::SetGeo),
+        2 => (any::<u8>(), any::<u8>()).prop_map(|(p, n)| Seed::AddPerson(p, n)),
+        1 => (any::<u8>(), any::<u8>(), any::<u8>()).prop_map(|(p, n, k)| Seed::RenamePerson(p, n, k)),
+        1 => (any::<u8>(), any::<u8>()).prop_map(|(a, b)| Seed::MergePeople(a, b)),
+        1 => any::<u8>().prop_map(Seed::DeletePerson),
+        1 => (any::<u8>(), proptest::option::of(any::<u8>())).prop_map(|(p, f)| Seed::SetPersonThumbnail(p, f)),
+        1 => (opt(), opt()).prop_map(|(a, p)| Seed::SetLegacyIds(a, p)),
+        1 => proptest::collection::vec((any::<u8>(), any::<u8>()), 0..3).prop_map(Seed::SetFolderSidecars),
+        1 => opt().prop_map(Seed::SetLegacyOriginals),
+        2 => opt().prop_map(Seed::SetVideos),
+    ]
+}
+
 pub fn leaf() -> impl Strategy<Value = Seed> {
     prop_oneof![
         3 => old_leaf(),
         2 => m9_leaf(),
+        2 => later_leaf(),
+        1 => (later_leaf(), any::<u8>()).prop_map(|(s, t)| Seed::Stamped(Box::new(s), t)),
         1 => (old_leaf(), any::<u8>()).prop_map(|(s, t)| Seed::Stamped(Box::new(s), t)),
         1 => (m9_leaf(), any::<u8>()).prop_map(|(s, t)| Seed::Stamped(Box::new(s), t)),
     ]
@@ -230,7 +330,8 @@ pub fn old_leaf() -> impl Strategy<Value = Seed> {
         proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSynced),
         proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSaved),
         proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSavedAs),
-        proptest::collection::vec((any::<u8>(), any::<bool>()), 0..3).prop_map(Seed::SetProjects),
+        proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..3).prop_map(Seed::SetProjects),
+        proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSketches),
         proptest::collection::vec((any::<u8>(), any::<u8>()), 0..3).prop_map(Seed::Save),
         proptest::collection::vec(any::<u8>(), 0..3).prop_map(Seed::UndoSave),
         proptest::collection::vec(any::<u8>(), 0..3).prop_map(Seed::Revert),
@@ -269,6 +370,7 @@ pub fn build(lib: &mut Library, seed: &Seed) -> Op {
     let folders: Vec<FolderId> = lib.folders().map(|f| f.id).collect();
     let photos: Vec<PhotoId> = lib.photos().map(|p| p.id).collect();
     let albums: Vec<AlbumId> = lib.albums().map(|(id, _)| id.clone()).collect();
+    let people: Vec<PersonId> = lib.people().map(|(id, _)| id.clone()).collect();
     match seed {
         Seed::AddFolder(n) => {
             let id = lib.next_folder_id();
@@ -334,8 +436,14 @@ pub fn build(lib: &mut Library, seed: &Seed) -> Op {
         Seed::SetSaved(list) => Op::SetSaved { saved: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(saved)))).collect() },
         Seed::SetSavedAs(list) => Op::SetSavedAs { saved_as: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(saved_as)))).collect() },
         Seed::SetProjects(list) => {
-            Op::SetProjects { projects: list.iter().filter_map(|(i, on)| Some((pick(&folders, *i)?, on.then_some(Project::Exported)))).collect() }
+            Op::SetProjects { projects: list.iter().filter_map(|(i, n)| Some((pick(&folders, *i)?, n.map(project)))).collect() }
         }
+        Seed::SetSketches(list) => Op::SetSketches {
+            sketches: list
+                .iter()
+                .filter_map(|(i, n)| Some((pick(&photos, *i)?, n.and_then(|n| Sketch::new(&[n; 3][..usize::from(n % 3) + 1])))))
+                .collect(),
+        },
         Seed::Save(list) => {
             lib.save_op(list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, saved(*n)))).collect()).unwrap_or_else(|_| refused())
         }
@@ -393,6 +501,49 @@ pub fn build(lib: &mut Library, seed: &Seed) -> Op {
         Seed::SetLastChanged(list) => {
             Op::SetLastChanged { changed: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(time)))).collect() }
         }
+        Seed::SetFaces(list) => Op::SetFaces {
+            faces: list
+                .iter()
+                .filter_map(|(i, faces)| Some((pick(&photos, *i)?, faces.iter().map(|(at, who)| face(&people, *at, *who)).collect())))
+                .collect(),
+        },
+        Seed::SetGeo(list) => Op::SetGeo { geo: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(geo)))).collect() },
+        Seed::AddPerson(p, n) => Op::AddPerson { id: person(*p), person: Person::named(NAMES[usize::from(*n) % NAMES.len()]) },
+        Seed::RenamePerson(p, n, k) => Op::RenamePerson {
+            id: pick_person(&people, *p),
+            name: NAMES[usize::from(*n) % NAMES.len()].into(),
+            nickname: if k.is_multiple_of(2) { String::new() } else { NAMES[usize::from(*k) % NAMES.len()].into() },
+        },
+        Seed::MergePeople(a, b) => Op::MergePeople { from: pick_person(&people, *a), into: pick_person(&people, *b) },
+        Seed::DeletePerson(p) => Op::DeletePerson { id: pick_person(&people, *p) },
+        Seed::SetPersonThumbnail(p, f) => {
+            let id = pick_person(&people, *p);
+            let faces = lib.person_faces(&id).to_vec();
+            let thumbnail = f.and_then(|f| {
+                let r = pick(&faces, f)?;
+                Some(FaceKey { photo: r.photo, rect: lib.face(r)?.rect })
+            });
+            Op::SetPersonThumbnail { id, thumbnail }
+        }
+        Seed::SetLegacyIds(a, p) => Op::SetLegacyIds {
+            albums: a.iter().map(|(i, n)| (pick_album(&albums, *i), n.map(legacy_id))).collect(),
+            people: p.iter().map(|(i, n)| (pick_person(&people, *i), n.map(legacy_id))).collect(),
+        },
+        Seed::SetFolderSidecars(list) => Op::SetFolderSidecars {
+            folders: list
+                .iter()
+                .filter_map(|(f, n)| {
+                    Some((
+                        pick(&folders, *f)?,
+                        [FolderSidecar::None, FolderSidecar::Dalica, FolderSidecar::Legacy, FolderSidecar::Both][usize::from(*n) % 4],
+                    ))
+                })
+                .collect(),
+        },
+        Seed::SetLegacyOriginals(list) => {
+            Op::SetLegacyOriginals { originals: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(legacy_original)))).collect() }
+        }
+        Seed::SetVideos(list) => Op::SetVideos { videos: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(video)))).collect() },
         Seed::Stamped(seed, t) => {
             let op = build(lib, seed);
             lib.stamped(op, time(*t))
@@ -402,12 +553,18 @@ pub fn build(lib: &mut Library, seed: &Seed) -> Op {
         Seed::UnknownFolder => Op::SetFoldersHidden { hidden: vec![(FolderId::new(u64::MAX), true)] },
         Seed::BadText(n) => {
             let id = pick(&photos, *n).unwrap_or(PhotoId::new(1));
-            match n % 6 {
+            match n % 9 {
                 0 => Op::AddTags { ids: vec![id], tags: vec![" padded ".into()] },
                 1 => Op::SetCaptions { captions: vec![(id, "x".repeat(dalica_library::MAX_CAPTION + 1))] },
                 2 => Op::SetTags { tags: vec![(id, vec!["dog".into(), "DOG".into()])] },
                 3 => Op::SetSaved { saved: vec![(id, Some(Saved { digest: "x".repeat(dalica_library::MAX_DIGEST + 1), ..saved(*n) }))] },
                 4 => Op::SetSavedAs { saved_as: vec![(id, Some(SavedAs { name: String::new(), recipe: vec![] }))] },
+                5 => Op::SetVideos { videos: vec![(id, Some(VideoFacts { rotation: 4 + n % 4, ..video(*n) }))] },
+                6 => Op::SetVideos { videos: vec![(id, Some(VideoFacts { video_codec: "x".repeat(dalica_library::MAX_CODEC + 1), ..video(*n) }))] },
+                7 => Op::SetLegacyIds {
+                    albums: albums.first().map(|a| (a.clone(), Some(" padded ".to_string()))).into_iter().collect(),
+                    people: vec![],
+                },
                 _ => Op::RenameTag { from: "dog".into(), to: "two\nlines".into() },
             }
         }
@@ -427,3 +584,110 @@ pub fn photo(id: PhotoId, folder: FolderId, n: u8, size: u64) -> Photo {
         star: n.is_multiple_of(2),
     }
 }
+
+/// The journal name of every op, so `ops.rs` can check the mix reaches each one. The match has no
+/// wildcard: a new op does not compile until it is named here (and given a seed above).
+pub fn op_name(op: &Op) -> &'static str {
+    match op {
+        Op::AddFolder { .. } => "addFolder",
+        Op::RemoveFolder { .. } => "removeFolder",
+        Op::AddPhotos { .. } => "addPhotos",
+        Op::RemovePhotos { .. } => "removePhotos",
+        Op::UpdatePhotos { .. } => "updatePhotos",
+        Op::SetStars { .. } => "setStars",
+        Op::SetSketches { .. } => "setSketches",
+        Op::SetCaptions { .. } => "setCaptions",
+        Op::AddTags { .. } => "addTags",
+        Op::RemoveTags { .. } => "removeTags",
+        Op::RenameTag { .. } => "renameTag",
+        Op::SetTags { .. } => "setTags",
+        Op::SetHidden { .. } => "setHidden",
+        Op::SetRecipes { .. } => "setRecipes",
+        Op::SetDates { .. } => "setDates",
+        Op::SetPhotoInfo { .. } => "setPhotoInfo",
+        Op::SetFolderInfo { .. } => "setFolderInfo",
+        Op::SetFoldersHidden { .. } => "setFoldersHidden",
+        Op::SetSynced { .. } => "setSynced",
+        Op::SetSaved { .. } => "setSaved",
+        Op::SetSavedAs { .. } => "setSavedAs",
+        Op::SetProjects { .. } => "setProjects",
+        Op::MovePhotos { .. } => "movePhotos",
+        Op::MoveFolder { .. } => "moveFolder",
+        Op::SetFolderSorts { .. } => "setFolderSorts",
+        Op::CreateAlbums { .. } => "createAlbums",
+        Op::DeleteAlbums { .. } => "deleteAlbums",
+        Op::SetAlbumInfo { .. } => "setAlbumInfo",
+        Op::AddMembers { .. } => "addMembers",
+        Op::RemoveMembers { .. } => "removeMembers",
+        Op::SetMemberKeys { .. } => "setMemberKeys",
+        Op::SetCovers { .. } => "setCovers",
+        Op::SetFacts { .. } => "setFacts",
+        Op::SetDigests { .. } => "setDigests",
+        Op::SetFirstIndexed { .. } => "setFirstIndexed",
+        Op::SetLastChanged { .. } => "setLastChanged",
+        Op::SetFaces { .. } => "setFaces",
+        Op::SetGeo { .. } => "setGeo",
+        Op::AddPerson { .. } => "addPerson",
+        Op::RenamePerson { .. } => "renamePerson",
+        Op::MergePeople { .. } => "mergePeople",
+        Op::DeletePerson { .. } => "deletePerson",
+        Op::SetPersonThumbnail { .. } => "setPersonThumbnail",
+        Op::SetLegacyIds { .. } => "setLegacyIds",
+        Op::SetFolderSidecars { .. } => "setFolderSidecars",
+        Op::SetLegacyOriginals { .. } => "setLegacyOriginals",
+        Op::SetVideos { .. } => "setVideos",
+        Op::Batch { .. } => "batch",
+    }
+}
+
+/// Every op's journal name ([`op_name`]).
+pub const OP_NAMES: [&str; 48] = [
+    "addFolder",
+    "removeFolder",
+    "addPhotos",
+    "removePhotos",
+    "updatePhotos",
+    "setStars",
+    "setSketches",
+    "setCaptions",
+    "addTags",
+    "removeTags",
+    "renameTag",
+    "setTags",
+    "setHidden",
+    "setRecipes",
+    "setDates",
+    "setPhotoInfo",
+    "setFolderInfo",
+    "setFoldersHidden",
+    "setSynced",
+    "setSaved",
+    "setSavedAs",
+    "setProjects",
+    "movePhotos",
+    "moveFolder",
+    "setFolderSorts",
+    "createAlbums",
+    "deleteAlbums",
+    "setAlbumInfo",
+    "addMembers",
+    "removeMembers",
+    "setMemberKeys",
+    "setCovers",
+    "setFacts",
+    "setDigests",
+    "setFirstIndexed",
+    "setLastChanged",
+    "setFaces",
+    "setGeo",
+    "addPerson",
+    "renamePerson",
+    "mergePeople",
+    "deletePerson",
+    "setPersonThumbnail",
+    "setLegacyIds",
+    "setFolderSidecars",
+    "setLegacyOriginals",
+    "setVideos",
+    "batch",
+];
