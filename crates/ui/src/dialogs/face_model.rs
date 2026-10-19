@@ -29,7 +29,8 @@
 //! file, the box ticked, the progress), and the dialog's fields: [`MODELS`] (the files it offers,
 //! fixed when it opens), [`QUEUE`] (Download was pressed: the files download one after another),
 //! [`JOB`] (the download running or last run), [`ERROR`] (why the last download failed) and, for a
-//! local file, [`INSPECT`] (the `faces.models.inspect` job that says what it is).
+//! local file, [`INSPECT`] (the `faces.models.inspect` job that says what it is) and [`FILE`] (the
+//! file it opened on, which `ui.set` cannot change as it can the draft).
 //!
 //! - **Download** (`button:dialog.download`) runs `faces.models.download {id, acknowledged: true}`
 //!   for the first file not installed yet, and the dialog stays open showing the progress
@@ -39,7 +40,11 @@
 //! - **Add Model** (`button:dialog.install`, a local file) runs `faces.models.install {path,
 //!   acknowledged: true}` once the file was looked at and can be used, and closes.
 //! - Under a control request, Download, Add Model and opening on a local file run only with
-//!   `--automation-allow-external` (the engine's own rule for `faces.models.*`).
+//!   `--automation-allow-external` (the engine's own rule for `faces.models.*`). Add Model then
+//!   installs only the file the dialog opened on (checked against the automation read roots, its
+//!   links resolved, when automation opened it: `control-protocol.md` §5.7), and only while that
+//!   file lies, as written, inside a read root or a watched folder (or in `--demo`): a draft
+//!   changed by `ui.set` after the dialog opened reads nothing ([`automation_may_install`]).
 //! - A model whose licence does not plainly allow commercial use, or that is not built in (a
 //!   `catalog.json` model, a local file), shows its licence and notice in `caution`.
 //!
@@ -78,6 +83,8 @@ pub const QUEUE: &str = "queue";
 pub const JOB: &str = "job";
 pub const ERROR: &str = "error";
 pub const INSPECT: &str = "inspect";
+/// The local file the dialog opened on.
+pub const FILE: &str = "file";
 
 /// What the dialog says above the files.
 pub const INTRO: &str = "To find faces, Dalica needs these model files. Each is downloaded once from its own site and stays on this computer.";
@@ -103,6 +110,9 @@ pub fn open(app: &mut App, draft: FaceModelDraft) -> Result<Value, CmdError> {
     let mut dialog = Dialog::new(DialogKind::FaceModel);
     if let Some(path) = &draft.file {
         models::external_allowed()?;
+        if let Some(file) = path.to_str() {
+            dialog.fields.insert(FILE.into(), json!(file));
+        }
         let session = app.session_mut().ok_or_else(|| CmdError::Disabled("The library is still opening.".into()))?;
         match session.execute("faces.models.inspect", &json!({ "path": path })) {
             Ok(v) => dialog.fields.insert(INSPECT.into(), v.get("job").cloned().unwrap_or(Value::Null)),
@@ -159,6 +169,29 @@ pub fn look(app: &App, d: &Dialog) -> Look {
     }
 }
 
+/// Under a control request, whether Add Model may install `path`: it must be the file the dialog
+/// opened on ([`FILE`], which automation could only open on after the read-root check with links
+/// resolved), and lie, as written, inside an automation read root or a watched folder, or the
+/// session be the demo's. Nothing here touches the disk (this runs on the UI thread). The person's
+/// own clicks are not checked.
+fn automation_may_install(app: &App, d: &Dialog, path: &std::path::Path) -> Result<(), CmdError> {
+    let Some(config) = crate::control::automated() else { return Ok(()) };
+    if d.fields.get(FILE).and_then(Value::as_str).map(std::path::Path::new) != Some(path) {
+        return Err(CmdError::Disabled(format!(
+            "{} is not the file this dialog opened on; open the dialog on it (faceModel.addFile {{path}})",
+            path.display()
+        )));
+    }
+    let watched = app.session().map(|s| s.roots().to_vec()).unwrap_or_default();
+    if !config.demo && !config.read_roots.iter().chain(&watched).any(|r| path.starts_with(r)) {
+        return Err(CmdError::Disabled(format!(
+            "{} is outside every automation read root (--automation-read-root) and every watched folder",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 pub fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     let draft = app.state().face_model.clone().unwrap_or_default();
     match action {
@@ -174,6 +207,7 @@ pub fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         }
         "install" => {
             let path = draft.file.ok_or_else(|| CmdError::Internal("the face model dialog has no file".into()))?;
+            automation_may_install(app, d, &path)?;
             let reply = app.run("faces.models.install", &json!({ "path": path, "acknowledged": true }))?;
             app.state_mut().status = "Adding the face model…".into();
             Ok(reply)

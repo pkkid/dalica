@@ -300,7 +300,9 @@ normalised paths; `..` components are refused; symlinks are resolved before the 
   already watched folder. With no read root, adding new folders or reading a model file over
   automation is refused (`path_denied`), except in `--demo`. The window's own Add a Model File…
   picker and a `.onnx` file dropped on it are the user's and are not checked (the picker's answer
-  to automation is, §5.6).
+  to automation is, §5.6). The face model dialog's Add Model, pressed by automation, installs only
+  the file the dialog opened on, and only while it lies (as written) inside a read root or a
+  watched folder: a `faceModel` draft changed by `ui.set` after the dialog opened is refused.
 - **Writing new files** (export, collage, screenshots, renders): the target must be inside an `--automation-write-root`. With no write root
   given, the defaults are the OS temporary directory and `<cache>/Dalica/automation/`.
 - Never inside a watched folder or any `.dalica-originals/` (a screenshot or render there would turn

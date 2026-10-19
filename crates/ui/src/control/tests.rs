@@ -461,6 +461,32 @@ fn a_face_model_file_is_read_from_automation_only_under_a_read_root() {
 }
 
 #[test]
+fn add_model_over_automation_installs_only_the_file_the_dialog_opened_on() {
+    let mut t = setup_with(1, |dir| Config { read_roots: vec![dir.join("extra")], allow_external: true, ..Config::default() });
+    let (outside, inside) = (t.dir.path().join("elsewhere").join("model.onnx"), t.dir.path().join("extra").join("model.onnx"));
+    for f in [&outside, &inside] {
+        dalica_fs::create_dir_all(f.parent().unwrap()).unwrap();
+        write(f, dalica_faces::synthetic::embedder_model(128));
+    }
+    ok(&mut t, "engine.execute", json!({ "command": "faceModel.addFile", "params": { "path": inside } }));
+    // The draft, rewritten after the dialog opened on the allowed file: ticked, another file.
+    ok(&mut t, "ui.set", json!({ "faceModel": { "file": outside, "accepted": true } }));
+    let install = "button:dialog.install";
+    let enabled = |d: &Driver| registry::widgets(d.ctx()).iter().any(|w| w.id == install && w.enabled);
+    for _ in 0..3600 {
+        if enabled(&t.d) {
+            break;
+        }
+        t.d.step();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(enabled(&t.d), "Add Model is enabled once the file was looked at");
+    ok(&mut t, "ui.clickWidget", json!({ "id": install }));
+    let status = t.d.state().status.clone();
+    assert!(status.contains("not the file this dialog opened on"), "Add Model refused the changed file: {status}");
+}
+
+#[test]
 fn engine_commands_lists_engine_and_ui_commands_with_effective_shortcuts() {
     let mut t = setup(1);
     let all = ok(&mut t, "engine.commands", json!({}));
