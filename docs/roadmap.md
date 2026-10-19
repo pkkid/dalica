@@ -9314,7 +9314,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     room with the right clips; a created collage shows Edit Collage in the edit view and it reopens
     the room; an ordinary photo shows no Edit Collage; the Collages folder sits in Projects with
     its icon; a fingerprint of the top bar with Edit Collage at 1400 × 900.
-- ⬜ **M14.21 `mcp`: collages and a legacy library over MCP, and the workflows W15 and W16**
+- ✅ **M14.21 `mcp`: collages and a legacy library over MCP, and the workflows W15 and W16**
   - after: M14.13, M14.17
   - files: `crates/mcp/tests/workflows/w15_collage.rs`, `crates/mcp/tests/workflows/w16_legacy.rs`, `crates/mcp/tests/workflows/main.rs`, `crates/mcp/src/headless.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
   - scope: `mcp.md` §9: W15 (**collage**: `cmd_create_collage` on 8 photos → `cmd_collage_set
