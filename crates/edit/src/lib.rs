@@ -35,6 +35,7 @@ pub mod frame;
 pub mod fx;
 pub mod geometry;
 pub mod guides;
+pub mod legacy;
 pub mod ops;
 pub mod recipe;
 pub mod render;
