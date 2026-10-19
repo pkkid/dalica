@@ -19,13 +19,17 @@ pub enum RenderError {
     Failed(String),
 }
 
+/// Answers the picture of one placement rendered at about `(width, height)` pixels, or `None`
+/// when it cannot be read (its place is left empty).
+pub type PictureFn<'a> = dyn FnMut(&Placement, (u32, u32)) -> Option<Rgba8> + 'a;
+
 /// The page's JPEG at `size` pixels. `picture(placement, (width, height))` answers the picture of
 /// one placement rendered at about that size (or `None` when it cannot be read: its place is left
 /// empty); `cancelled` is asked between pictures; `progress(done, total)` after each.
 pub fn render(
     collage: &Collage,
     placements: &[Placement],
-    picture: &mut dyn FnMut(&Placement, (u32, u32)) -> Option<Rgba8>,
+    picture: &mut PictureFn,
     size: (u32, u32),
     cancelled: &dyn Fn() -> bool,
     progress: &mut dyn FnMut(usize, usize),
