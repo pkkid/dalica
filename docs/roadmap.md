@@ -10293,7 +10293,8 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     engine's options catalogue here (`options.rs`, General ▸ Files, `files.externalEditor` as a
     text row) together with its text field in `general.rs`, since M15.4 left it out of the
     catalogue (a text row drew as an empty dropdown); the setting and `Settings::external_editor`
-    already exist; each "Arrives with
+    already exist; the section header's icon passes `folder.locate` the folder's `{id}` (M15.17's
+    params), not today's `{section}` (`header.rs`'s `section_params`); each "Arrives with
     OS integration" reason removed where the feature landed and kept, with the OS's reason, where an
     OS cannot do it; `organizing.md` and `menus-and-shortcuts.md` record what landed.
   - done when: `crates/ui/tests/os_menus.rs` (headless, by id, the recording `Os`): each menu row
@@ -10325,7 +10326,9 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - files: `crates/engine/src/cmd/os.rs`, `crates/engine/src/os.rs`, `crates/engine/tests/default_viewer.rs`, `apps/dalica/src/os/default_viewer.rs`, `apps/dalica/tests/default_viewer.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/default_viewer.rs`, `crates/ui/src/dialogs/first_run.rs`, `crates/ui/tests/default_viewer.rs`, `packaging/linux/org.dalica.Dalica.desktop`, `packaging/windows/dalica.wxs`, `packaging/macos/Info.plist.in`, `docs/viewing.md`, `docs/releasing.md`
   - scope: `viewing.md` §3.3 and `menus-and-shortcuts.md` §5 Photo Viewer: `viewer.fileTypes` (each
     type Dalica reads, with its current default handler's name, through `Os`) and
-    `viewer.setDefault {types}`; the File Types tab of Options ▸ Photo Viewer and of the viewer's
+    `viewer.setDefault {types}`; the engine's `os::Handler` gains an optional `icon` (the
+    handler's icon as the OS gives it, the commit body saying in what form, left empty where an OS
+    gives none) so M15.22's Open With ▸ can show it, `photo.openWithList` listing it; the File Types tab of Options ▸ Photo Viewer and of the viewer's
     Settings… live: "Use Dalica as the default viewer for these file types:" with a checkbox per
     type showing its handler ("JPEG (Image Viewer)"), [Current] [Select All] [Select None], or
     "Don't use Dalica as a viewer"; offered once after the first run (`dialog:defaultViewer`,
@@ -10339,7 +10342,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     as Viewer; HEIC and AVIF left out while release builds cannot show them); `viewing.md` §3.3 and
     `releasing.md` record it.
   - done when: `crates/engine/tests/default_viewer.rs` (the recording `Os`): the types list with
-    their handlers and setting three records three; `apps/dalica/tests/default_viewer.rs`: a
+    their handlers and setting three records three; `photo.openWithList` gives the fake's handler icons; `apps/dalica/tests/default_viewer.rs`: a
     `mimeapps.list` with other sections, comments and an unknown key keeps them after Dalica is
     chosen for JPEG and PNG and after "Don't use" puts the old handlers back;
     `crates/ui/tests/default_viewer.rs` (headless, by id): the tab shows the fake's handlers, Select
@@ -10668,8 +10671,76 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `taskset -c 0` and the PR says what the race was (the review's Windows run confirms it); (3)
     a test of the launcher's environment (or an assertion in `m11_live`) fails without
     `USERPROFILE` inside the test's home; the review's Windows run passes `accept M11`.
+- ⬜ **M15.50 `engine` + `store`: a write into a legacy-only folder after the legacy option is turned off and on**
+  - after: M14.R, M15.42
+  - files: `crates/engine/src/legacy.rs`, `crates/engine/src/session.rs`, `crates/engine/src/scanning.rs`, `crates/store/src/writer.rs`, `crates/store/src/legacy.rs`, `crates/engine/tests/legacy.rs`, `tests/acceptance/m14_legacy.rs`
+  - scope: data safety, before any feature work (`AGENTS.md` §3, legacy files are read-only and
+    nothing is written into a legacy-only folder before the user's first change, `data-model.md`
+    §9): `accept M14`'s `m14_legacy.rs` failed once on Ubuntu CI (run 39333340837) at its
+    "nothing written" check: a `.dalica.json` appeared in a legacy-only folder (Lake or Odd) after
+    "Read photo data left by the previous organizer" was turned off and on (each a rescan), never
+    reproduced locally in 11 runs. The suspect is `Session::keep_legacy_unwritten`
+    (`legacy.rs`, called from `Session::apply`): a legacy-only folder still counted in the
+    `SidecarQueue` (a write sent and inside the store writer's 1-second `DEBOUNCE`, or a carry under
+    way) is let through as a user's queued write, so the rescan's op gets the folder written; other
+    paths to check: a `Msg::Dirty` from `scanning.rs` that skips `keep_legacy_unwritten`, a folder
+    the option's rescan marks `quiet` whose earlier dirty mark the writer still holds, and the
+    store's `legacy::first_write` taking a folder the user never changed. Find the race on the
+    session's clock (the test clock steps across the debounce, no sleeps), fix it so a legacy-only
+    folder is written only for a change of the user's (the commit body names the race and the
+    alternative fix); `m14_legacy.rs` asserts on the path the fix closes if it can.
+  - done when: an engine test in `crates/engine/tests/legacy.rs` drives the interleaving
+    deterministically (a legacy-only folder, the option off then on with a write pending or within
+    the debounce, the clock stepped past it, the I/O worker drained) and fails before the fix by
+    finding a `.dalica.json`, or, if the race proves impossible, the same test pins the order that
+    was suspected and the PR shows why no other order exists; legacy files stay byte-identical;
+    `cargo xtask accept M14` passes 50 runs in a row while the machine is loaded (eight
+    `cargo build` or `stress-ng` workers, the PR giving the command and the count).
+- ⬜ **M15.51 `engine` + `ui` + `mcp`: the rest of a person's export folder name withheld from automation**
+  - after: M14.R, M15.42, M15.17
+  - files: `crates/engine/src/search.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/automation.rs`, `crates/engine/tests/search.rs`, `crates/ui/src/control/people.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/tests.rs`, `crates/ui/src/notices.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/src/backend.rs`, `crates/mcp/tests/command_tools.rs`, `docs/control-protocol.md`, `docs/mcp.md`
+  - scope: privacy, after M15.42 (PR #1057), which marks a person's export by its job and the
+    folder it made (`automation::PersonExports`) and withholds that folder's name from jobs,
+    toasts, tree rows, section headers and the search match: the places it still leaks without
+    `--automation-allow-people` (`withholdNames`): (1) `search.suggest`'s folder suggestions (the
+    folder's name as `text` with its `section`), (2) `ui.state`'s status line in the edit view,
+    whose prefix names the folder (`Ana › IMG_0001.jpg`, `status_text::PREFIX_SEP`): the prefix
+    becomes the placeholder `Person` in the reply, never in the window, (3) a failed export's toast,
+    whose reason carries the folder's path, (4) MCP's headless mode, whose `jobs.list` and
+    `jobs.wait` (and a tool's job report) do not pass through `automation::withhold_export_folder`
+    and `withhold_export_paths` as the control channel's do; each through the same marks, keyed by
+    the job and the folder, never by matching text. Folded here (`control-protocol.md` is this
+    task's): §5.6 says Locate on Disk, Open With and Open in External Editor are always refused over
+    automation with `forbidden`, even with `--automation-allow-external` (M15.17, `security.md`
+    §6.6), and lists what this task withholds in §6.13; `mcp.md` §5 says headless MCP withholds the
+    same.
+  - done when: one test per leak, each failing without its fix and passing with the people
+    permission (the name shown): `search.suggest` with `withholdNames` lists no person export
+    folder (`crates/engine/tests/search.rs`); `ui.state` in the edit view on a photo of that folder
+    has no name in its status (`crates/ui/src/control/tests.rs`); a person export failed by a
+    planted fault leaves no path into the folder in `ui.inspect`'s `toasts`; headless MCP's
+    `jobs.list` after a person export has `result.folder`, `result.name` and `result.written`
+    `null` (`crates/mcp/tests/command_tools.rs`); M15.42's tests pass unchanged.
+- ⬜ **M15.54 `engine` + docs: small follow-ups from M15's PRs: camera thumbnails, NOTICE and three indexes**
+  - after: M14.R, M15.10, M15.14, M15.19, M15.46, M15.47
+  - files: `crates/engine/src/import/thumbs.rs`, `crates/engine/src/import/worker.rs`, `crates/engine/tests/import_camera.rs`, `NOTICE`, `crates/ui-kit/README.md`, `docs/README.md`
+  - scope: what M15's tasks left outside their files: (1) the import tray's in-memory thumbnail
+    cache (`import/thumbs.rs`, `CAP_BYTES`) remakes a dropped thumbnail from its file, so a
+    camera's candidate (M15.19), which has no file, stays blank once it is dropped: it is made
+    again from the device (its thumbnail, else the object read in chunks, on the import worker,
+    at most `MAX_REMAKING` at a time), and a camera that went keeps the placeholder tile, never a
+    retry loop; (2) `NOTICE` gets the rows for `packaging/windows/sign.ps1` (M15.10: ported from
+    LightCraft 453f97b5 and PhotoCraft 1f1ddb2a, MIT OR Apache-2.0), the file's header naming them
+    already; (3) `crates/ui-kit/README.md` lists M15.47's `linebreak` module (`mark`, `MARK`,
+    `has_thai`, `is_thai`); (4) `docs/README.md`'s index gets rows for `docs/video-decoders.md`
+    (M15.46) and `docs/thai-text.md` (M15.47).
+  - done when: `crates/engine/tests/import_camera.rs`: with the cache's cap set below a camera's 40
+    thumbnails, scrolling the tray back to the first one makes it again from the in-memory
+    responder (fails before the fix), and an unplugged camera's dropped thumbnail gives the tile
+    with no further request; `cargo xtask docs` and `cargo xtask assets` green; the NOTICE rows
+    name both commits.
 - ⬜ **M15.36 `docs`: the 1.0 parity and security audit**
-  - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34, M15.41, M15.42, M15.45, M15.48, M15.49
+  - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34, M15.41, M15.42, M15.45, M15.48, M15.49, M15.50, M15.51, M15.54
   - files: `docs/parity.md`, `docs/product.md`, `docs/security.md`
   - scope: `process.md` §5 for 1.0: every row re-measured (its cited tests run, its evidence checked
     against the code), ✅ only with that evidence, a wrong ✅ downgraded with a note; the P0 and P1
@@ -10695,6 +10766,52 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: each target builds on stable with cargo-fuzz's coverage flags and runs 3 minutes
     locally with no finding (a finding is fixed with a regression test in its crate); the review's
     Fuzz run lists the two new jobs and the sidecar job's new targets.
+- ⬜ **M15.52 `engine` + manifests: the camera USB transport optional, and fuzz builds without the workaround**
+  - after: M14.R, M15.39, M15.19, M15.7, M15.12, M15.17
+  - files: `Cargo.toml`, `crates/engine/Cargo.toml`, `crates/engine/src/camera.rs`, `crates/engine/README.md`, `crates/ui/Cargo.toml`, `crates/ui/fuzz/Cargo.toml`, `crates/mcp/Cargo.toml`, `apps/dalica/Cargo.toml`, `apps/dalica-cli/Cargo.toml`, `.github/workflows/fuzz.yml`, `docs/security.md`
+  - scope: M15.39 (PR #1061) builds and runs `crates/ui/fuzz` with `--no-cfg-fuzzing`, because
+    `dalica-ui` reaches `dalica-scan`'s default `usb` feature (`nusb`) through `dalica-engine`, and
+    `nusb` does not build under `--cfg fuzzing`; any later fuzz workspace over a crate above
+    `engine` (M15.53's) would need the same. The engine gets a `camera-usb` feature, on by default,
+    forwarding to `dalica-scan/usb` (the root manifest's `dalica-scan` with `default-features =
+    false` and every crate that needs the transport asking for it, so nothing in the product loses
+    it: `cargo xtask deps` and `cargo tree -e features` show `nusb` in the `dalica` and
+    `dalica-cli` graphs as before); `ui` (and `mcp` where it names the engine) forwards it; without
+    it `camera.list` answers `usb: false` with no cameras, as on a system without USB access
+    (M15.19's `USB_REACHABLE`), never a build error; `crates/ui/fuzz` depends on `dalica-ui`
+    without it and `fuzz.yml` drops `--no-cfg-fuzzing` and its comment; `security.md` §7.1's
+    `crates/ui` row loses the sentence about it. Folded here (`crates/engine/README.md` is this
+    task's): the README describes M15.19's `camera.*` commands and `camera.rs` (the listing off the
+    owner thread, the import through `dalica-fs`, the removal rules) and the new feature.
+  - done when: `cargo +nightly fuzz build` (with `--cfg fuzzing`) builds `crates/ui/fuzz` and
+    `request_line` runs 60 s with no finding; `cargo build -p dalica-engine --no-default-features`
+    builds and an engine test under it lists no camera with `usb: false`; the release package
+    graph still has `nusb` (`cargo xtask deps` green, `cargo tree` output on the PR); `fuzz.yml`
+    has no `--no-cfg-fuzzing`.
+- ⬜ **M15.53 `engine` + `dalica`: the fuzz targets security.md still lacks: `folders.json`, `settings.json` and `auth`**
+  - after: M14.R, M15.39, M15.52, M15.12
+  - files: `crates/engine/fuzz/**`, `crates/engine/src/folders.rs`, `apps/dalica/fuzz/**`, `apps/dalica/Cargo.toml`, `apps/dalica/src/lib.rs`, `apps/dalica/src/control/transport.rs`, `.github/workflows/fuzz.yml`, `Cargo.toml`, `docs/security.md`
+  - scope: what M15.39 recorded as missing from `security.md` §7.1: (1) `crates/engine/fuzz`, a
+    cargo-fuzz workspace like `crates/store/fuzz` (excluded in the root `Cargo.toml`), with
+    `folders_json` (any bytes through `Folders::parse`, made reachable from the fuzz crate as a
+    `#[doc(hidden)] pub` entry point or a public wrapper: refused, or every entry a single path and
+    rule, written and parsed again to the same folders, unknown keys kept) and `settings_json` (any
+    bytes through `Settings::parse`: an error with its reason, or settings whose every value lies
+    in its option's range and that write and read back the same); (2) `apps/dalica/fuzz` with
+    `auth`: any bytes as a connection's first lines against a fixed token through the transport's
+    `auth` step (`control/transport.rs`: the line limit, the token compared in constant time,
+    `unauthorized` for anything else, nothing passed on before a successful `auth`), reached as a
+    pure function of the transport's (bytes and token in, answer and state out) through a small
+    `lib.rs` target of `dalica` or a `#[path]` include from the fuzz crate, the commit body saying
+    which and why; `apps/dalica/src/main.rs` is left alone; every target seeded from its crate's
+    tests and run by the Fuzz workflow for 60 s at reviews (a job per new workspace in
+    `fuzz.yml`, built with `--cfg fuzzing` now that M15.52 lands first); `security.md` §7.1's
+    `crates/store` and `crates/ui` rows lose their "no target yet" sentences and an `engine` and
+    a `dalica` row say what each target checks.
+  - done when: each target builds on stable with cargo-fuzz's coverage flags and runs 3 minutes
+    locally with no finding (a finding is fixed with a regression test in its crate; the numbers
+    on the PR); the existing transport tests in `apps/dalica` pass unchanged; the review's Fuzz run
+    lists the two new jobs.
 - ⬜ **M15.40 `xtask`: an SBOM for every release package and an advisory check**
   - after: M14.R
   - files: `xtask/src/sbom.rs`, `xtask/src/advisories.rs`, `xtask/src/main.rs`, `xtask/src/ci.rs`, `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `docs/security.md`, `docs/releasing.md`
@@ -10710,7 +10827,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     target; the advisory check passes on `main` with the recorded exception and fails on a planted
     unrecorded advisory; a release dry run attaches the SBOMs.
 - ⬜ **M15.37 `accept M15`**
-  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44, M15.45, M15.48, M15.49
+  - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44, M15.45, M15.48, M15.49, M15.50, M15.51, M15.52, M15.53, M15.54
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a folder of photos and clips listed with video cells and
@@ -10779,15 +10896,19 @@ wave 1   M15.1 lead: M14.R's answers  ‖  M15.2 video probe  ‖  M15.3 model: 
          ‖  M15.7 i18n core  ‖  M15.8 fallback faces  ‖  M15.9 PTP reader  ‖  M15.10 Windows signing
          ‖  M15.41 M14's loose ends  ‖  M15.44 look fixes  ‖  M15.46 video decoder spike
          ‖  M15.45 CLI broken pipe  ‖  M15.48 grouped marker commands  ‖  M15.49 one-CPU/Windows tests
-         (once M14.R is closed; M15.46, M15.48 and M15.49 added by M15.1)
+         (once M14.R is closed; M15.46, M15.48 and M15.49 added by M15.1; M15.50–M15.54 added mid-run
+         from M15's PRs and CI, placed by their `after`)
 wave 2   M15.11 videos on scan  ‖  M15.12 platform services  ‖  M15.13 macOS signing
          ‖  M15.14 ui-kit AccessKit  ‖  M15.15 video frames (2)  ‖  M15.17 OS commands
          ‖  M15.19 camera import  ‖  M15.39 fuzz targets  ‖  M15.42 M14.25's follow-ups
          ‖  M15.47 Thai text spike (after M15.8)
 wave 3   M15.16 videos in the session  ‖  M15.18 one Dalica  ‖  M15.22 OS integration in the window
          ‖  M15.40 SBOM + advisories
+         ‖  M15.50 legacy-only write race (after M15.42)  ‖  M15.51 person folder leaks (after M15.42, M15.17)
+         ‖  M15.52 camera USB optional (after M15.39, M15.19)  ‖  M15.54 small follow-ups
 wave 4   M15.20 poster frames (2)  ‖  M15.21 video cells  ‖  M15.23 drag out  ‖  M15.24 default viewer
          ‖  M15.25 playback, trim, Save Frame (2)
+         ‖  M15.53 engine + auth fuzz targets (after M15.52)
 wave 5   M15.26 the player (2)  ‖  M15.27 sound per OS + slideshow (2)  ‖  M15.28 Export + collage videos (2)
          ‖  M15.29 AccessKit window + keyboard  ‖  M15.30 W17 (2)
 wave 6   M15.31 strings: window  ‖  M15.32 strings: dialogs  ‖  M15.33 strings: views
