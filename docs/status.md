@@ -21,12 +21,12 @@ and git.
   Thai for 1.0 if Thai can be done (shaping and line breaking to be proven), the maintainer's wife reviews the Thai;
   M14's budgets judged against a same-runner base (M15.43); accept M12's narrower frame check accepted; five look
   issues from the screenshots carried to M15 (M15.44); all 56 fingerprint baselines approved; ship 0.9 once the review
-  PR's runs are green.
+  PR's runs are green; the by-hand checks EDIT-ZOOM and SYS-WINDOW split off as P2 rows that never gate CI (the maintainer, after the review PR's accept jobs failed on them).
 - **Numbers (M14.R, 01170527, 2026-10-19):** `cargo xtask ci --full` 18.7 min (i7-13700K, 10 jobs): tests 4 329
   passed, 0 failed, 2 ignored on purpose; every milestone's acceptance M0–M14 passes; M14 release budgets: layouts of
   200 pictures 0.00–0.68 ms (budgets 0.05–1.10), a 50-photo 3000 px render 1 400 ms and 43 MiB (2 105 ms, 65 MiB), a
   10 000-photo legacy scan 124.5 ms (195), a 64 MiB legacy file 648 ms (995), the canvas drag frame p95 0.22 ms (0.5);
-  parity ✅ 174 · 🟡 47 · ⬜ 27 · 🚫 17 (265 rows, 387 commands); workflows 16 / 16 (floor 16); +44 630 / −1 791 lines.
+  parity ✅ 176 · 🟡 45 · ⬜ 29 · 🚫 17 (267 rows, 387 commands); workflows 16 / 16 (floor 16); +44 630 / −1 791 lines.
   Run: 29 tasks with 7 workers from 23:53 on 2026-10-18 to 10:35 on 2026-10-19; median claim→merge about 27 min;
   5 send-backs (3 rebase conflicts in `docs/parity.md`); 14 tasks needed files outside their list; `main` red on GitHub
   for 5 h after the merges, fixed by #976, #977, #978; accept M14 found a write-roots bug, fixed by #982.

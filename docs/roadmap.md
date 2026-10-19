@@ -27,10 +27,10 @@ Revert work from the originals it kept; the option turns it all off and on witho
 (workflows 16 / 16). Accept M14 found a security bug (a click on the room's Create Collage wrote outside the automation
 write roots), fixed before the review. Not done: the canvas doesn't draw captions or names; five small look issues
 seen in the review's screenshots (M15.44); M14's budgets are absolute and judged on the workstation (M15.43); the
-checks by hand. `main` went red for 5 hours after the merges (older milestones' fingerprints moved by the lit Collage
+checks by hand, now P2 rows that wait for the hardware (EDIT-ZOOM-HAND, SYS-WINDOW-MAC). `main` went red for 5 hours after the merges (older milestones' fingerprints moved by the lit Collage
 button, a Windows-only warning, a timing check tight first for slow runners and then for fast ones, an old Windows
 rename test), so merges stopped until four fix PRs passed on all three systems. 29 tasks merged with 7 workers.
-Parity ✅ 174 · 🟡 47 · ⬜ 27 · 🚫 17. M14.R is the 0.9 release gate (version 0.9.0).
+Parity ✅ 176 · 🟡 45 · ⬜ 29 · 🚫 17. M14.R is the 0.9 release gate (version 0.9.0).
 
 *2026-10-18 (M13.R, the Release 0.8 gate).* M13 is done: `cargo xtask accept M13` passes (64 s warm), and the tests
 on `main` went from 3 749 to 4 158. People: a pure-Rust ONNX interpreter (fuzzed, with hard limits) runs YuNet, SFace
