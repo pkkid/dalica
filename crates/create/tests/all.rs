@@ -8,6 +8,7 @@ mod common;
 mod collage_doc;
 mod collage_layouts;
 mod collage_mosaic;
+mod collage_render;
 mod export;
 mod output;
 mod save;

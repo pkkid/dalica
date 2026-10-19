@@ -9112,7 +9112,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     for the same seed; a block's ratio stays within 2× of its picture's for 2 to 30 pictures; the
     frame centre is the largest block and Set as Frame Center moves it; a swap exchanges exactly
     two blocks; proptest: no count or ratio panics.
-- ⬜ **M14.10 `create`: rendering a collage**
+- ✅ **M14.10 `create`: rendering a collage**
   - after: M14.4, M12.14
   - files: `crates/create/src/collage/render.rs`, `crates/create/src/collage/render/**`, `crates/create/tests/collage_render.rs`, `crates/create/tests/fingerprints/collage-*.json`
   - scope: `creating.md` §3 and the decisions above: `render(doc, placements, pictures, size,
