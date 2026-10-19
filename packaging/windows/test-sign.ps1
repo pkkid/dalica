@@ -24,9 +24,12 @@
 .EXAMPLE
   pwsh packaging/windows/test-sign.ps1 target/windows-package/x64/bin/dalica.exe dist/release/dalica-0.1.0-windows-x64.msi
 #>
+# Only -Thumbprint by name: every positional argument is a file (package.ps1 splats the paths).
+[CmdletBinding(PositionalBinding = $false)]
 param(
   [Parameter(Mandatory = $true, ValueFromRemainingArguments = $true)]
   [string[]] $Files,
+  [Parameter()]
   [string] $Thumbprint
 )
 $ErrorActionPreference = 'Stop'
