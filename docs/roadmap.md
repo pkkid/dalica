@@ -9131,7 +9131,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     a white border is white and a shadow darkens only outside the picture; cancelling after the
     first picture stops; peak memory stays within the page plus one picture; fingerprints of the
     six styles at 1 200 px.
-- ⬜ **M14.11 `scan`: legacy folders read on scan**
+- ✅ **M14.11 `scan`: legacy folders read on scan**
   - after: M14.1, M14.2, M14.3, M13.14, M13.19
   - files: `crates/scan/src/legacy.rs`, `crates/scan/src/legacy/**`, `crates/scan/src/walk.rs`, `crates/scan/tests/legacy.rs`, `crates/scan/README.md`
   - scope: `data-model.md` §9 and the decisions above: on the scan's worker, a folder without
