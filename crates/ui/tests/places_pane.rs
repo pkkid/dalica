@@ -6,7 +6,8 @@
 //!   asks "Move %d photos here?";
 //! - Remove Location in a marker's bubble clears its photos, asking first past 5; Show These Photos
 //!   selects them; a marker drawn as a group of places speaks and acts for all their photos
-//!   (M14.29), and one zoom level in its places part again;
+//!   (M14.29), and one zoom level in its places part again; `places.showPhotos` and
+//!   `places.removeLocation` over the control channel take the same group (M15.48);
 //! - typed coordinates in "Search for a place:" move the pin and the map there, and the pin's OK
 //!   puts the selection there;
 //! - Tools ▸ Geotag ▸ Copy Location and Paste Location work from the menu, and Clear Location…
@@ -23,6 +24,7 @@ use crate::common::{FRAMES, LARGE, SMALL, check_region, check_small, new_driver,
 use dalica_core::PhotoId;
 use dalica_core::geo::LatLon;
 use dalica_engine::Session;
+use dalica_ui::control::{Config, Connection, Control, Request, serve};
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::{Bubble, DialogKind, Pane};
 use dalica_ui::{App, Driver};
@@ -224,6 +226,47 @@ fn a_grouped_markers_bubble_counts_shows_and_removes_every_photo_it_counts() {
     // One undo step.
     run(&mut t, "edit.undo", json!({}));
     assert!(located(&t, a) && located(&t, b));
+}
+
+/// `places.*` over the control channel (`engine.execute`), as an agent would.
+fn over_control(t: &mut T, command: &str, params: Value) -> Value {
+    let control = Control::new(Config::default());
+    let mut conn = Connection::new();
+    let v = serve(&control, &mut conn, &mut t.d, &Request::new("engine.execute", json!({ "command": command, "params": params })))
+        .unwrap_or_else(|e| panic!("{command} {params}: {e}"));
+    t.d.settle(FRAMES).unwrap();
+    v
+}
+
+#[test]
+fn a_grouped_markers_commands_take_the_whole_group_and_part_when_zoomed_in() {
+    let mut t = setup(LARGE);
+    let (a, b) = (t.ids[0], t.ids[1]);
+    put(&mut t, &[a], LISBON);
+    put(&mut t, &[b], EAST);
+    let all = t.ids.clone();
+    select(&mut t, &all);
+    // At zoom 6 one marker of 2, whichever place the command names.
+    assert_eq!(markers(&t), [("marker:0".to_string(), "2".to_string())]);
+    for n in [0, 1] {
+        over_control(&mut t, "places.showPhotos", json!({ "marker": n }));
+        assert_eq!(t.d.state().selection.ids, vec![a, b], "marker {n} selects both");
+        select(&mut t, &all);
+    }
+    over_control(&mut t, "places.removeLocation", json!({ "marker": 1 }));
+    assert!(t.d.state().dialogs.is_empty() && !located(&t, a) && !located(&t, b), "both cleared");
+    run(&mut t, "edit.undo", json!({}));
+    assert!(located(&t, a) && located(&t, b), "in one undo step");
+    // Zoomed in until they part, each marker's command takes its one photo.
+    run(&mut t, "map.pan", json!({ "centre": [38.7, -8.9], "zoom": 7 }));
+    assert_eq!(markers(&t).len(), 2);
+    for (n, id) in [(0, a), (1, b)] {
+        over_control(&mut t, "places.showPhotos", json!({ "marker": n }));
+        assert_eq!(t.d.state().selection.ids, vec![id], "marker {n}");
+        select(&mut t, &all);
+    }
+    over_control(&mut t, "places.removeLocation", json!({ "marker": 1 }));
+    assert!(located(&t, a) && !located(&t, b), "marker 1 alone");
 }
 
 #[test]

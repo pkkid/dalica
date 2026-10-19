@@ -487,8 +487,9 @@ How Dalica does it (M13.22):
   on a group of several places zooms the map in two levels on it, until they part (at the deepest
   zoom it opens the group's bubble). A bubble opened on a grouped marker covers every photo the
   marker counts: its count, its stack, Show These Photos and Remove Location all take the whole
-  group (the `places.*` commands still act on one place). A click on the map itself closes the
-  bubble.
+  group, and so do the `places.showPhotos` and `places.removeLocation` commands for the group the
+  map draws the marker in (before the map is ever drawn, grouped at the view's zoom and centre as
+  it would be). A click on the map itself closes the bubble.
 - **Dropping photos.** Photos dragged from the light table over the map show where they would
   land; let go, the point shows as the pin and the bubble asks "Put %d photos here?" ("Move %d
   photos here?" when any of them has a location) with their stack, [OK] [Cancel]. OK geotags them

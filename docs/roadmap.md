@@ -10631,7 +10631,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: a test in `apps/dalica-cli/tests/cli.rs` spawns the binary for `commands` and
     `inspect` with stdout piped, reads a few bytes and closes it, and the process exits 0 with no
     panic message; it fails before the fix; `grep` finds no `println!` in `apps/dalica-cli/src`.
-- ⬜ **M15.48 `ui`: a grouped Places marker's commands take the whole group**
+- ✅ **M15.48 `ui`: a grouped Places marker's commands take the whole group**
   - after: M14.R
   - files: `crates/ui/src/commands/places.rs`, `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/markers.rs`, `crates/ui/src/panels/places/bubble.rs`, `crates/ui/tests/places_pane.rs`, `docs/organizing.md`
   - scope: M14.29's follow-up, found at M14.R: the bubble of a grouped marker counts, shows,

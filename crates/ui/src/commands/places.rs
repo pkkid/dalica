@@ -9,7 +9,10 @@
 //!   thumbnail stack, [OK] (`places.put`) [Cancel] (`places.bubble {}`);
 //! - the bubble open (`places.bubble`): a marker's "%d photos here" with [Show These Photos]
 //!   (`places.showPhotos`, which selects them) and [Remove Location] (`places.removeLocation`),
-//!   or the pin's. Marker `n` is the pane's `n`-th place (`crate::panels::places::markers`);
+//!   or the pin's. Marker `n` is the pane's `n`-th place (`crate::panels::places::markers`); the
+//!   two buttons' commands take every place the map draws in one marker with place `n`, as the
+//!   bubble counts them (`crate::panels::places::groups`: the view state's centre and zoom, the
+//!   rect the map was last drawn in), a marker of one place its own photos;
 //! - Tools ▸ Geotag ▸ **Clear Location…** ([`CLEAR`], an [opener](super::Opener) of the engine's
 //!   `geo.clear {ids, confirm}`: "Remove the location from %d photos?"), **Copy Location** and
 //!   **Paste Location** (the engine's `geo.copy {id}` and `geo.paste {ids}`, M13.14; [`params_for`]
@@ -30,7 +33,7 @@ use serde_json::{Map, Value, json};
 use super::{Check, Opener, UiCommand, no_params, parse, parse_object};
 use crate::app::App;
 use crate::dialogs::{self, DialogKind, geotag_confirm};
-use crate::panels::places::markers::{self, Place};
+use crate::panels::places::markers::Place;
 use crate::state::{Bubble, LatLon, MAP_LAT_MAX, MAX_DRAFT, MAX_IDS, PlacePin, PlacesDrop, is_lat_lon};
 
 /// Nothing selected.
@@ -78,7 +81,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Show These Photos",
         menu: "",
         keys: &[],
-        params: "{marker?: n}: select the photos of marker n (default: the one whose bubble is open)",
+        params: "{marker?: n}: select the photos of marker n (default: the one whose bubble is open), with every place the map draws in one marker with it (the group its badge counts)",
         run: show_photos,
     },
     UiCommand {
@@ -86,7 +89,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Remove Location",
         menu: "",
         keys: &[],
-        params: "{marker?: n}: remove the location of marker n's photos (default: the one whose bubble is open), one undo step; asks first past 5",
+        params: "{marker?: n}: remove the location of marker n's photos (default: the one whose bubble is open), with every place the map draws in one marker with it (the group its badge counts), one undo step; asks first past 5",
         run: remove_location,
     },
 ];
@@ -287,14 +290,14 @@ pub fn set_location(app: &mut App, ids: Vec<PhotoId>, at: LatLon, confirm: bool)
     Ok(reply)
 }
 
-/// The place of marker `n` (default: the one whose bubble is open), or why there is none.
+/// Marker `n` (default: the one whose bubble is open) as the map draws it: its place with every
+/// other place of its group (`crate::panels::places::drawn`), or why there is none.
 fn place(app: &App, n: Option<u32>) -> Result<Place, CmdError> {
     let n = match (n, app.state().places.bubble) {
         (Some(n), _) | (None, Some(Bubble::Marker(n))) => n,
         (None, _) => return Err(CmdError::Disabled("Open a marker's bubble first.".into())),
     };
-    let places = markers::places(app);
-    usize::try_from(n).ok().and_then(|i| places.into_iter().nth(i)).ok_or_else(|| CmdError::NotFound(format!("no marker {n} on the map")))
+    usize::try_from(n).ok().and_then(|i| crate::panels::places::drawn(app, i)).ok_or_else(|| CmdError::NotFound(format!("no marker {n} on the map")))
 }
 
 fn marker_check(app: &App, params: &Value) -> Result<(), String> {
@@ -423,8 +426,13 @@ mod tests {
         app.run("places.put", &json!({})).unwrap();
         assert_eq!(app.session().unwrap().library().geotag(ids[2]), Some(Point::new(41.1579, -8.6291).unwrap()));
         assert!(app.state().places.pin.is_none(), "the pin goes once its photos are there");
-        // Markers: Lisbon (2 photos) then Porto, in the selection's order.
+        // Markers: Lisbon (2 photos) then Porto, in the selection's order, apart at zoom 7 (one
+        // marker at the default zoom 1).
         app.run("select.set", &json!({ "ids": ids })).unwrap();
+        app.run("places.showPhotos", &json!({ "marker": 1 })).unwrap();
+        assert_eq!(app.state().selection.ids, ids, "grouped: every photo");
+        app.run("select.set", &json!({ "ids": ids })).unwrap();
+        app.run("map.pan", &json!({ "centre": [40.0, -9.0], "zoom": 7 })).unwrap();
         assert_eq!(moving(&app, &ids, [0.0, 0.0]), 3);
         app.run("places.showPhotos", &json!({ "marker": 0 })).unwrap();
         assert_eq!(app.state().selection.ids, vec![ids[0], ids[1]]);
