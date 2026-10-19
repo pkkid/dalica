@@ -9209,7 +9209,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     `crates/engine/tests/legacy_originals.rs`: Undo Save brings the recipe back as unsaved edits,
     Revert drops it, a photo with a Dalica record uses Dalica's; the owner thread made no `fs`
     call.
-- ⬜ **M14.15 `ui`: the previous organizer's data in the window**
+- ✅ **M14.15 `ui`: the previous organizer's data in the window**
   - after: M14.6, M14.13, M14.14
   - files: `crates/ui/src/notices.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/panels/edit/history.rs`, `crates/ui/tests/legacy_ui.rs`, `crates/ui/tests/fingerprints/legacy-*.json`, `docs/organizing.md`
   - scope: `organizing.md` §1 item 4 and `data-model.md` §9: the notice "Found photo data from your

@@ -113,6 +113,27 @@ pub fn parts_for(rect: Rect, need: f32) -> Parts {
     Parts { tabs, content, history, histogram }
 }
 
+/// [`parts_for`] with the Undo / Redo row `line` points taller (the line counting the previous
+/// organizer's edits, `history::line_height`): the histogram box gives the room while it stays at
+/// least [`MIN_HISTOGRAM`] tall; otherwise the content is laid out needing `line` more and gives it
+/// from its foot.
+pub fn parts_with_line(rect: Rect, need: f32, line: f32) -> Parts {
+    let p = parts_for(rect, need);
+    if !(line.is_finite() && line > 0.0) {
+        return p;
+    }
+    if p.histogram.height() - line >= MIN_HISTOGRAM {
+        let histogram = span(p.histogram.min.x, p.histogram.max.x, p.histogram.min.y + line, p.histogram.max.y);
+        let history = span(p.history.min.x, p.history.max.x, p.history.min.y, p.history.max.y + line);
+        return Parts { history, histogram, ..p };
+    }
+    let p = parts_for(rect, need.max(0.0) + line);
+    let top = (p.history.min.y - line).max(p.content.min.y).min(p.history.min.y);
+    let history = span(p.history.min.x, p.history.max.x, top, p.history.max.y);
+    let content = span(p.content.min.x, p.content.max.x, p.content.min.y, history.min.y - MARGIN);
+    Parts { history, content, ..p }
+}
+
 /// Runs `add` in a child of `ui` filling `rect`, disabled when `enabled` is false.
 fn part(ui: &mut Ui, salt: &str, rect: Rect, enabled: bool, add: impl FnOnce(&mut Ui)) {
     if !rect.is_positive() {
@@ -128,7 +149,8 @@ fn part(ui: &mut Ui, salt: &str, rect: Rect, enabled: bool, add: impl FnOnce(&mu
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let need = effects::needed_height(app.tokens(), app.state().edit.tab);
-    let p = parts_for(ui.max_rect(), need);
+    // The line counting the previous organizer's edits sits on top of Undo / Redo.
+    let p = parts_with_line(ui.max_rect(), need, history::line_height(app));
     // A modal tool (Crop, Straighten, Retouch) holds the panel until Apply or Cancel.
     let modal = tools::open_tool(app).filter(|t| t.modal()).map(|t| t.kind());
     part(ui, "tabs", p.tabs, true, |ui| tabs(app, ui));
@@ -302,5 +324,18 @@ mod tests {
         for (tab, id, ..) in TAB_ITEMS {
             assert_eq!(serde_json::to_value(tab).unwrap(), json!(id.trim_start_matches("tab:edit.")));
         }
+    }
+
+    #[test]
+    fn the_line_of_legacy_edits_takes_its_room_from_the_histogram_box_first() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(280.0, 700.0));
+        let (p, q) = (parts(rect), parts_with_line(rect, 0.0, 36.0));
+        assert_eq!(q.content, p.content, "the content keeps its room");
+        assert_eq!((q.history.height(), q.histogram.height()), (HISTORY + 36.0, HISTOGRAM - 36.0));
+        assert_eq!(parts_with_line(rect, 0.0, f32::NAN), p);
+        // A short panel whose box cannot give it: the content does, and nothing overlaps.
+        let short = Rect::from_min_size(pos2(0.0, 0.0), vec2(280.0, 330.0));
+        let q = parts_with_line(short, 120.0, 36.0);
+        assert!(q.history.height() >= HISTORY + 36.0 - 0.01 && q.content.max.y <= q.history.min.y - MARGIN + 0.01, "{q:?}");
     }
 }

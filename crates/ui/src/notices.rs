@@ -32,6 +32,14 @@
 //!   not move IMG_0041.jpg: the file is in use", "and 2 more" after it). Move to New Folder's
 //!   count leaves out the step that makes (or, undone, removes) the folder.
 //!
+//! - **The previous organizer's data** (`organizing.md` §1 item 4, `data-model.md` §9): when the
+//!   session's first scan finds folders with legacy data ([`dalica_engine::legacy::Legacy::notice`],
+//!   while `files.legacyNoticeShown` is off), one non-modal toast says so with its count
+//!   ([`legacy_text`]) and an **OK** button (`button:toast.ok`). It stays until OK is pressed (no
+//!   time of its own, never dropped for newer toasts, which show over it while they last); OK runs
+//!   `legacy.noticeShown` ([`act`]), so it is not given again, not even after a restart. Quitting
+//!   without OK gives it again next time.
+//!
 //! The app's own confirmations come through [`Notices::push`].
 
 use std::path::{Path, PathBuf};
@@ -62,12 +70,37 @@ const SHOW_FOLDER_FRAMES: u32 = 30;
 const MAX_TRIED: usize = 8;
 /// Why Show Folder found nothing.
 pub const NOT_IN_LIBRARY: &str = "The folder is not in the library.";
+/// The legacy notice's OK button: its automation id and label.
+pub const OK_ID: &str = "button:toast.ok";
+pub const OK: &str = "OK";
+
+/// The notice of the previous organizer's data found in `folders` folders (`organizing.md` §1
+/// item 4): "… in 1 folder", "… in 12 folders".
+pub fn legacy_text(folders: usize) -> String {
+    let counted = if folders == 1 { "1 folder".to_string() } else { format!("{folders} folders") };
+    format!(
+        "Found photo data from your previous photo program in {counted}. Dalica shows it and saves any changes in its own files; the old files are never changed."
+    )
+}
 
 /// What a toast's button does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     /// Brings this folder up in the library ([`act`]).
     ShowFolder(PathBuf),
+    /// OK on the notice of the previous organizer's data: `legacy.noticeShown` ([`act`]). The
+    /// toast stays until it is pressed.
+    LegacyOk,
+}
+
+impl Action {
+    /// The button's automation id and label.
+    fn button(&self) -> (&'static str, &'static str) {
+        match self {
+            Action::ShowFolder(_) => (SHOW_FOLDER_ID, SHOW_FOLDER),
+            Action::LegacyOk => (OK_ID, OK),
+        }
+    }
 }
 
 /// What a finished file job shows: the text, the part of it kept whole (the failed file's name),
@@ -94,20 +127,31 @@ pub struct Toast {
 }
 
 impl Toast {
+    /// Whether it stays until its button is pressed (the legacy notice).
+    pub fn sticky(&self) -> bool {
+        self.action == Some(Action::LegacyOk)
+    }
+
     /// How long it shows, in seconds: its kind's time, at least [`ACTION_SECS`] with a button.
     fn life(&self) -> f64 {
         if self.action.is_some() { self.kind.life().max(ACTION_SECS) } else { self.kind.life() }
     }
 
     /// Its age as its kind's fade counts it: the extra time a button gives comes first, so the
-    /// toast fades over the last moments of its whole life.
+    /// toast fades over the last moments of its whole life. A sticky one never fades.
     fn fade_age(&self, now: f64) -> f64 {
+        if self.sticky() {
+            return 0.0;
+        }
         let age = now - self.shown_at - (self.life() - self.kind.life());
         if age.is_finite() { age.max(0.0) } else { f64::INFINITY }
     }
 
-    /// The seconds it still shows at `now` (0 once over).
+    /// The seconds it still shows at `now` (0 once over; infinite for a sticky one).
     pub fn remaining(&self, now: f64) -> f64 {
+        if self.sticky() {
+            return f64::INFINITY;
+        }
         let age = now - self.shown_at;
         if age.is_finite() { (self.life() - age.max(0.0)).max(0.0) } else { 0.0 }
     }
@@ -130,6 +174,10 @@ pub struct Notices {
     /// The file each running job tried to write, when the app knows it (Save As's chosen path):
     /// its failure names that file ([`Notices::name_tried`]).
     tried: Vec<(JobId, PathBuf)>,
+    /// The legacy notice was shown this session (it is shown once, until OK).
+    legacy_shown: bool,
+    /// Its OK was pressed and `legacy.noticeShown` has not run yet ([`act`]).
+    legacy_ok: bool,
 }
 
 impl Notices {
@@ -157,7 +205,9 @@ impl Notices {
         };
         self.next = self.next.saturating_add(1);
         if self.toasts.len() >= MAX_TOASTS {
-            self.toasts.remove(0);
+            // The oldest that is not waiting for its button.
+            let oldest = self.toasts.iter().position(|t| !t.sticky()).unwrap_or(0);
+            self.toasts.remove(oldest);
         }
         self.toasts.push(Toast { n: self.next, text, keep, kind, shown_at: if now.is_finite() { now } else { 0.0 }, action });
     }
@@ -204,6 +254,12 @@ impl Notices {
             self.seen_ops = Some(self.seen_ops.map_or(seq, |s| s.max(seq)));
             self.push_with(&t.text, &t.whole, t.kind, t.action, now);
         }
+        if !self.legacy_shown
+            && let Some(folders) = session.legacy().notice()
+        {
+            self.legacy_shown = true;
+            self.push_with(&legacy_text(folders), "", ToastKind::Info, Some(Action::LegacyOk), now);
+        }
     }
 
     /// The folder a Show Folder pressed asks for, while it waits ([`act`]).
@@ -221,20 +277,23 @@ impl Notices {
     pub fn show(&mut self, ui: &Ui, t: &Tokens, area: Rect, now: f64) {
         let Some(toast) = self.showing(now).last() else { return };
         let text = ToastText::new(&toast.text, toast.keep);
-        let button = toast.action.as_ref().map(|_| (SHOW_FOLDER_ID, SHOW_FOLDER));
+        let button = toast.action.as_ref().map(Action::button);
         let pressed =
             widgets::toast(ui, t, &format!("toast:{}", toast.n), area, text, toast.kind, toast.fade_age(now), button).is_some_and(|r| r.clicked());
         if pressed {
             let (n, action) = (toast.n, toast.action.clone());
             self.toasts.retain(|t| t.n != n);
-            if let Some(Action::ShowFolder(path)) = action {
-                self.want = Some((path, SHOW_FOLDER_FRAMES));
+            match action {
+                Some(Action::ShowFolder(path)) => self.want = Some((path, SHOW_FOLDER_FRAMES)),
+                Some(Action::LegacyOk) => self.legacy_ok = true,
+                None => {}
             }
         }
     }
 
-    /// `ui.inspect` → `toasts`: `[{id, text, kind, remaining}]` (`kind` `info`, `caution` or `error`,
-    /// `remaining` in seconds).
+    /// `ui.inspect` → `toasts`: `[{id, text, kind, remaining, action?}]` (`kind` `info`, `caution`
+    /// or `error`, `remaining` in seconds, `null` for the legacy notice, which stays until OK;
+    /// `action` its button: `{id, folder}` for Show Folder, `{id}` for OK).
     pub fn inspect(&self, now: f64) -> Value {
         let list: Vec<Value> = self
             .showing(now)
@@ -245,8 +304,14 @@ impl Notices {
                     ToastKind::Error => "error",
                 };
                 let mut v = json!({ "id": format!("toast:{}", toast.n), "text": toast.text, "kind": kind, "remaining": toast.remaining(now) });
-                if let (Some(Action::ShowFolder(folder)), Some(o)) = (&toast.action, v.as_object_mut()) {
-                    o.insert("action".into(), json!({ "id": SHOW_FOLDER_ID, "folder": folder }));
+                match (&toast.action, v.as_object_mut()) {
+                    (Some(Action::ShowFolder(folder)), Some(o)) => {
+                        o.insert("action".into(), json!({ "id": SHOW_FOLDER_ID, "folder": folder }));
+                    }
+                    (Some(Action::LegacyOk), Some(o)) => {
+                        o.insert("action".into(), json!({ "id": OK_ID }));
+                    }
+                    _ => {}
                 }
                 v
             })
@@ -369,11 +434,17 @@ pub fn op_toast(e: &FileOpEvent) -> JobToast {
     JobToast { text, whole: name, kind: ToastKind::Caution, action: None }
 }
 
-/// Does what a toast's button asked for (once a frame, after the toasts are drawn): Show Folder
+/// Does what a toast's button asked for (once a frame, after the toasts are drawn): OK on the
+/// legacy notice runs `legacy.noticeShown`, so the notice is not given again. Show Folder
 /// goes back to the library, selects the folder as a unit and scrolls the light table to it. A
 /// folder not in the library yet is waited for while a scan runs (an export's folder comes in by
 /// the scan its job starts at its end), then a few frames more; past that the toast says so.
 pub fn act(app: &mut App) {
+    if std::mem::take(&mut app.notices_mut().legacy_ok)
+        && let Err(e) = app.run("legacy.noticeShown", &json!({}))
+    {
+        app.toast(&e.to_string(), ToastKind::Caution);
+    }
     let Some((path, frames)) = app.notices_mut().want.take() else { return };
     let folder = app.session().and_then(|s| s.library().folder_by_path(&path));
     let scanning = app.session().is_some_and(Session::busy);
@@ -617,5 +688,24 @@ mod tests {
         let keeps: Vec<usize> = n.toasts.iter().map(|t| t.keep).collect();
         assert_eq!(keeps, [38, 40, 31, 0, 0], "the name followed by \": \" first; control characters dropped from both");
         assert_eq!(n.inspect(1.0)[0]["kind"], "caution");
+    }
+
+    #[test]
+    fn the_legacy_notice_stays_until_ok_and_is_never_pushed_out() {
+        assert_eq!(
+            legacy_text(1),
+            "Found photo data from your previous photo program in 1 folder. Dalica shows it and saves any changes in its own files; the old files are never changed."
+        );
+        assert!(legacy_text(12).contains(" in 12 folders. "));
+        let mut n = Notices::default();
+        n.push_with(&legacy_text(3), "", ToastKind::Info, Some(Action::LegacyOk), 0.0);
+        for i in 0..20 {
+            n.push("Starred 1 photo", ToastKind::Info, f64::from(i));
+        }
+        assert_eq!(n.toasts.len(), MAX_TOASTS);
+        let v = n.inspect(1.0e6);
+        assert_eq!(v.as_array().map(Vec::len), Some(1), "only the notice is left: {v}");
+        assert_eq!((&v[0]["remaining"], &v[0]["action"]), (&Value::Null, &json!({ "id": OK_ID })));
+        assert_eq!(n.toasts.first().map(|t| t.fade_age(1.0e6)), Some(0.0), "it never fades");
     }
 }

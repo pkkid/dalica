@@ -50,6 +50,29 @@ shortcuts in [`menus-and-shortcuts.md`](menus-and-shortcuts.md). Parity ids are 
    says once: **"Found photo data from your previous photo program in %d folders. Dalica shows it
    and saves any changes in its own files; the old files are never changed."** [OK] (see
    `data-model.md` §9).
+   - Built (M14.15): the notice is a toast at the bottom of the light table (the photo area in
+     the edit view) with an **OK** button (`button:toast.ok`); "1 folder" in the singular. It has
+     no time of its own: it stays until OK, newer toasts show over it while they last and never
+     push it out. OK runs `legacy.noticeShown`, so it is not given again, not even after a
+     restart; quitting without OK gives it again next time. `ui.inspect` → `toasts` lists it
+     with `remaining: null` and `action: {id}`.
+   - Options ▸ General ▸ Files ▸ "Read photo data left by the previous organizer" is a live
+     checkbox: turned off, the legacy-only folders are read again without the legacy data (their
+     stars, captions, edits, albums and people go, nothing written); turned on, it comes back.
+   - Folder Properties ends with a **Photo data:** line naming the file that holds the folder's
+     data (`label:dialog.source`): "Kept in Dalica's file in this folder." · "Read from the
+     previous organizer's file, which is never changed. Dalica writes its own file on the first
+     change." · "Kept in Dalica's file. The previous organizer's file is also here; it is no
+     longer read and never changed." · "None saved for this folder yet." It is worked out when
+     the library or the folder's fact changes, never per frame.
+   - In the edit view, a photo whose recipe keeps entries as `legacy:` shows a line above Undo /
+     Redo: "1 edit from the previous program (not supported)", "%d edits from the previous
+     program (not supported)" (`label:edit.legacyEdits`, `detail` in `text_dim`, up to two
+     lines; its tooltip says the edits are kept in their place but Dalica cannot show them). The
+     row takes its room from the Histogram & Camera Info box while the box stays at least its
+     smallest height, else from the content's foot.
+   - File ▸ Revert… and Undo Save work on a photo the previous organizer saved with M8's
+     question and dialogs: the original comes back from its kept copy, which is never written.
 
 ## 2. Folder Manager (Tools → Folder Manager…, also File → Add Folder…)
 
