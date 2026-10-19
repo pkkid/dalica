@@ -27,6 +27,12 @@
 //! grid in the light table's place; the face and person menus and Tools ▸ Geotag are listed and
 //! greyed until their tasks; M13's stub dialogs and the Options tabs Network and People are drawn
 //! with their ids.
+//!
+//! M14's view state (M14.6): the Collage room (its tab, the pictures selected on the canvas, the
+//! clips selected, the gesture under way, Get More, the close question) round-trips the same way;
+//! `collage.open` opens the Collage tab and the strip shows it, with the stub room's region, tabs and
+//! canvas; a Collage-context key does nothing in the library; Create ▸ Picture Collage… and the
+//! canvas's picture menu are listed and greyed; the close question is drawn with its ids.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -1314,4 +1320,207 @@ fn m13s_stub_dialogs_and_options_tabs_are_drawn_with_their_ids() {
     assert!(x(&t, "tab:options.people") < x(&t, "tab:options.viewer"));
     ok(&mut t, "ui.clickWidget", json!({ "id": "tab:options.people" }));
     assert_eq!(state(&mut t)["options"]["tab"], "people");
+}
+
+/// `ui.set` opening the Collage room (so its view state may be set) with `collage`.
+fn in_collage(collage: Value) -> Value {
+    json!({ "rooms": ["library", "collage"], "room": "collage", "collage": collage })
+}
+
+/// Each M14 field round-trips through `ui.set` and `ui.state` (`collage` merges field by field).
+#[test]
+fn every_m14_field_round_trips_through_ui_set_and_ui_state() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let defaults = state(&mut t);
+    assert_eq!(defaults["collage"], json!({ "tab": "settings", "selection": [], "clips": [], "gesture": null, "getMore": false, "close": null }));
+    // The tab is kept while the room is closed.
+    ok(&mut t, "ui.set", json!({ "collage": { "tab": "clips" } }));
+    assert_eq!(state(&mut t)["collage"]["tab"], "clips");
+    ok(&mut t, "ui.set", json!({ "collage": { "tab": "settings" } }));
+    assert_eq!(state(&mut t), defaults);
+    for change in [
+        json!({ "tab": "clips" }),
+        json!({ "selection": [3, 0] }),
+        json!({ "clips": [p[2], p[0]] }),
+        json!({ "gesture": { "item": 1, "kind": "move", "from": [0.25, 0.5], "to": [1.5, -0.25] } }),
+        json!({ "gesture": { "item": 0, "kind": "turn", "from": [0.5, 0.5], "to": [0.75, 0.5] } }),
+        json!({ "close": "window" }),
+    ] {
+        let reply = ok(&mut t, "ui.set", in_collage(change.clone()));
+        let now = state(&mut t);
+        for (k, v) in change.as_object().unwrap() {
+            assert_eq!(&now["collage"][k], v, "collage.{k}");
+            assert_eq!(&reply["collage"][k], v, "the reply is the new state: collage.{k}");
+        }
+        assert_eq!((&now["room"], &now["rooms"]), (&json!("collage"), &json!(["library", "collage"])));
+    }
+    // Get More: the Library tab in front, the room still open.
+    ok(&mut t, "ui.set", json!({ "room": "library", "collage": { "getMore": true } }));
+    let now = state(&mut t);
+    assert_eq!((&now["room"], &now["collage"]["getMore"], &now["collage"]["selection"]), (&json!("library"), &json!(true), &json!([3, 0])));
+    // Repeated pictures are kept once; closing the room drops its view state but the tab.
+    ok(&mut t, "ui.set", in_collage(json!({ "getMore": false, "selection": [2, 2, 1], "clips": [p[1], p[1]] })));
+    let c = state(&mut t)["collage"].clone();
+    assert_eq!((&c["selection"], &c["clips"]), (&json!([2, 1]), &json!([p[1]])));
+    ok(&mut t, "engine.execute", json!({ "command": "room.close", "params": { "room": "collage" } }));
+    let now = state(&mut t);
+    assert_eq!(now["rooms"], json!(["library"]));
+    assert_eq!(now["collage"], json!({ "tab": "clips", "selection": [], "clips": [], "gesture": null, "getMore": false, "close": null }));
+}
+
+/// Bad M14 values are `bad_params` (photos that do not exist `not_found`), and nothing changes.
+#[test]
+fn bad_m14_values_are_refused_and_change_nothing() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let before = state(&mut t);
+    let gesture = |item: Value, to: Value| json!({ "gesture": { "item": item, "kind": "move", "from": [0.5, 0.5], "to": to } });
+    for bad in [
+        // The room's view state only while it is open.
+        json!({ "collage": { "selection": [1] } }),
+        json!({ "collage": { "getMore": true } }),
+        json!({ "collage": { "close": "tab" } }),
+        json!({ "collage": { "tab": "attic" } }),
+        json!({ "collage": { "colour": 1 } }),
+        json!({ "collage": 3 }),
+        in_collage(json!({ "selection": [1000] })),
+        in_collage(json!({ "selection": [-1] })),
+        in_collage(json!({ "selection": "all" })),
+        in_collage(json!({ "clips": ["x"] })),
+        in_collage(gesture(json!(1000), json!([0.5, 0.5]))),
+        in_collage(gesture(json!(0), json!([2.5, 0.5]))),
+        in_collage(gesture(json!(0), json!([0.5]))),
+        in_collage(json!({ "gesture": { "item": 0, "kind": "fling", "from": [0, 0], "to": [0, 0] } })),
+        in_collage(json!({ "close": "door" })),
+        // Get More shows the Library tab.
+        in_collage(json!({ "getMore": true })),
+        // A good field next to a bad one: neither is applied.
+        json!({ "rooms": ["library", "collage"], "collage": { "selection": [1], "close": 3 } }),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "bad_params", "{bad}");
+        assert_eq!(state(&mut t), before, "{bad}");
+    }
+    let no_photo = p.iter().max().unwrap() + 100;
+    let bad = in_collage(json!({ "clips": [p[0], no_photo] }));
+    assert_eq!(code(&mut t, "ui.set", bad.clone()), "not_found", "{bad}");
+    assert_eq!(state(&mut t), before, "{bad}");
+}
+
+/// `collage.open` opens the Collage tab and the strip shows it, with the stub room's region, its
+/// Settings and Clips tabs and its canvas; a click on Clips shows that tab; closing the tab removes
+/// the strip.
+#[test]
+fn collage_open_opens_the_collage_tab_and_the_strip_shows_it() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    assert_eq!(rect_of(&t, "tab:room/collage"), None);
+    assert_eq!(ok(&mut t, "engine.execute", json!({ "command": "collage.open", "params": { "ids": [p[0], p[1]] } })), json!({ "room": "collage" }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    let s = state(&mut t);
+    assert_eq!((&s["room"], &s["rooms"]), (&json!("collage"), &json!(["library", "collage"])));
+    let strip = rect_of(&t, "region:tabStrip").expect("the strip shows");
+    assert_eq!(strip[3], 28.0);
+    let tab = t.d.widgets().into_iter().find(|w| w.id == "tab:room/collage").expect("the Collage tab");
+    assert!(tab.active, "in front");
+    assert!(rect_of(&t, "tab:room/collage/close").is_some());
+    for id in ["region:collage", "tab:collage/settings", "tab:collage/clips", "canvas:collage"] {
+        assert!(rect_of(&t, id).is_some_and(|r| r[2] > 0.0 && r[3] > 0.0), "{id}");
+    }
+    assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"]["collage"], json!(rect_of(&t, "region:collage")));
+    assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty());
+    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:collage/clips" }));
+    assert_eq!(state(&mut t)["collage"]["tab"], "clips");
+    // Opening it again brings it to the front on its Settings tab; its tab's × closes it.
+    ok(&mut t, "engine.execute", json!({ "command": "room.select", "params": { "room": "library" } }));
+    ok(&mut t, "engine.execute", json!({ "command": "collage.open" }));
+    let s = state(&mut t);
+    assert_eq!((&s["room"], &s["rooms"], &s["collage"]["tab"]), (&json!("collage"), &json!(["library", "collage"]), &json!("settings")));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:room/collage/close" }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert_eq!(state(&mut t)["rooms"], json!(["library"]));
+    assert_eq!(rect_of(&t, "region:tabStrip"), None, "the strip goes with the last room");
+}
+
+/// The Collage context's keys act only while the room is in front: Esc there selects no picture,
+/// in the library it leaves the canvas's selection alone.
+#[test]
+fn a_collage_key_does_nothing_in_the_library() {
+    let mut t = setup();
+    ok(&mut t, "engine.execute", json!({ "command": "collage.open" }));
+    ok(&mut t, "engine.execute", json!({ "command": "collageCanvas.select", "params": { "items": [1, 2] } }));
+    ok(&mut t, "engine.execute", json!({ "command": "collage.getMore" }));
+    assert_eq!(state(&mut t)["room"], "library");
+    ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+    assert_eq!(state(&mut t)["collage"]["selection"], json!([1, 2]), "Esc in the library");
+    // Ctrl+A in the library is the library's Select All, not the canvas's.
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+A" }));
+    assert_ne!(t.d.app().state().status, dalica_ui::commands::collage_canvas::LATER);
+    let key = dalica_engine::Key::parse("Ctrl+A").unwrap();
+    let keymap = t.d.app().session().unwrap().keymap();
+    assert_eq!(keymap.resolve(&key, dalica_engine::Context::Library, false).as_deref(), Some("select.all"));
+    assert_eq!(keymap.resolve(&key, dalica_engine::Context::Collage, false).as_deref(), Some("collageCanvas.selectAll"));
+    ok(&mut t, "engine.execute", json!({ "command": "collage.backToCollage" }));
+    let del = dalica_engine::Key::parse("Delete").unwrap();
+    assert_eq!(t.d.app().session().unwrap().keymap().resolve(&del, dalica_engine::Context::Collage, false).as_deref(), Some("collageCanvas.remove"));
+    assert_eq!(state(&mut t)["room"], "collage");
+    ok(&mut t, "ui.key", json!({ "combo": "Delete" }));
+    assert_eq!(t.d.app().state().status, dalica_ui::commands::collage_canvas::LATER, "Delete is the canvas's Remove");
+    assert!(t.d.app().state().dialogs.is_empty(), "no photo is deleted");
+    ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+    assert_eq!(state(&mut t)["collage"]["selection"], json!([]));
+}
+
+/// Create ▸ Picture Collage… waits for the engine's `create.collage` (greyed), and the canvas's
+/// picture menu is listed and greyed until the room is open and M14.19 makes it act.
+#[test]
+fn the_collage_menu_items_are_listed_and_greyed() {
+    use dalica_ui::commands::{collage, collage_canvas};
+    let mut t = setup();
+    let r = row(&mut t, "create.collage", Value::Null);
+    assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(false), &json!(false), &json!("Not available yet.")), "{r}");
+    let check = |t: &mut T, want: &str| {
+        let menu = ok(t, "ui.menu.tree", json!({ "context": "collage" }));
+        let rows = rows_of(&menu);
+        let ids: Vec<&str> = rows.iter().map(|r| r["widget"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["menuitem:collageCanvas.order/top", "menuitem:collageCanvas.order/bottom", "menuitem:collageCanvas.viewAndEdit"]);
+        for r in &rows {
+            assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(want)), "{r}");
+        }
+    };
+    check(&mut t, collage::NOT_OPEN);
+    ok(&mut t, "engine.execute", json!({ "command": "collage.open" }));
+    check(&mut t, collage_canvas::LATER);
+}
+
+/// The close question is drawn with its ids and buttons; Save Draft waits for M14.18, Discard
+/// closes the room, Esc keeps it.
+#[test]
+fn the_collage_close_question_is_drawn_with_its_ids() {
+    use dalica_ui::dialogs::{self, Dialog, DialogKind};
+    let mut t = setup();
+    ok(&mut t, "engine.execute", json!({ "command": "collage.open" }));
+    for (answer, open_after) in [("esc", true), ("discard", false)] {
+        dialogs::open(t.d.app_mut(), Dialog::new(DialogKind::CollageClose)).unwrap();
+        ok(&mut t, "ui.set", json!({ "collage": { "close": "tab" } }));
+        ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+        let v = ok(&mut t, "ui.inspect", json!({}));
+        assert_eq!(v["dialog"]["widget"], "dialog:collageClose");
+        let buttons = ["button:dialog.saveDraft", "button:dialog.discard", "button:dialog.cancel"];
+        assert_eq!(v["dialog"]["buttons"], json!(buttons));
+        assert_eq!(v["dialog"]["default"], "button:dialog.saveDraft");
+        for id in buttons {
+            assert!(rect_of(&t, id).is_some(), "{id} drawn");
+        }
+        assert!(matches!(dialogs::answer(t.d.app_mut(), None), Err(CmdError::Disabled(_))), "Save Draft waits");
+        match answer {
+            "esc" => ok(&mut t, "ui.key", json!({ "combo": "Esc" })),
+            _ => ok(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.discard" })),
+        };
+        let s = state(&mut t);
+        assert!(t.d.app().state().dialogs.is_empty(), "{answer} closes the question");
+        assert_eq!(s["collage"]["close"], Value::Null, "{answer}: the question's draft goes with it");
+        assert_eq!(s["rooms"].as_array().unwrap().contains(&json!("collage")), open_after, "{answer}");
+    }
 }

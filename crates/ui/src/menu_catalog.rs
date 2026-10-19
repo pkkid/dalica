@@ -365,6 +365,16 @@ pub const MERGE_INTO: &[Entry] = &[];
 pub const PERSON: &[Entry] =
     &[item("Rename…", "people.rename").e(), Entry::Submenu("Merge Into", MERGE_INTO), item("Delete Person", "people.delete").e()];
 
+/// The context menu of a picture on the collage canvas (`creating.md` §3): Bring to Top and Send to
+/// Bottom (a pile), View and Edit; they act on the picture right-clicked, which is selected first
+/// (M14.19).
+pub const COLLAGE_PICTURE: &[Entry] = &[
+    item("Bring to Top", "collageCanvas.order").part("top", r#"{"to":"top"}"#).e(),
+    item("Send to Bottom", "collageCanvas.order").part("bottom", r#"{"to":"bottom"}"#).e(),
+    SEP,
+    item("View and Edit", "collageCanvas.viewAndEdit").e(),
+];
+
 /// Submenus whose rows are all added when their menu opens (the people), empty in the catalog.
 pub const DYNAMIC: &[&[Entry]] = &[MOVE_TO_PERSON, MERGE_INTO];
 
@@ -554,6 +564,7 @@ mod tests {
         check("Photo in an album", PHOTO_IN_ALBUM);
         check("Face", FACE);
         check("Person", PERSON);
+        check("Collage picture", COLLAGE_PICTURE);
     }
 
     #[test]
@@ -562,6 +573,7 @@ mod tests {
         assert_eq!(labels(FACE), ["Move to New Person…", "Remove from Person", "Set as Person Thumbnail", "Ignore Face"]);
         assert_eq!(labels(PERSON), ["Rename…", "Delete Person"]);
         assert!(matches!(FACE[1], Entry::Submenu("Move to Person", _)) && matches!(PERSON[1], Entry::Submenu("Merge Into", _)));
+        assert_eq!(labels(COLLAGE_PICTURE), ["Bring to Top", "Send to Bottom", "View and Edit"]);
     }
 
     #[test]

@@ -1,7 +1,12 @@
 //! The room tab strip's commands (`ui-layout.md` §8): `room.select {room}` brings an open room to
 //! the front (a click on its tab), `room.close {room?}` closes one (its ×; the front room without
 //! `room`). The Library tab is always open and never closes. Opening a room is its own command
-//! (`import.open`, `crate::commands::import`).
+//! (`import.open`, `crate::commands::import`; the Collage room `create.collage`, and
+//! `collage.open`, `crate::commands::collage`).
+//!
+//! Closing the Collage room with unsaved changes asks [Save Draft] [Discard] [Cancel]
+//! (`dialog:collageClose`) unless `confirm` is true, which discards them
+//! (`crate::commands::collage::close`). Bringing it to the front ends Get More.
 //!
 //! Closing the Import room while an import job copies asks first through the host: "Stop
 //! importing?" [Stop Import] [Keep Importing] (`crate::dialogs::confirm`, [`close_asks`]); Stop
@@ -22,7 +27,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Show Room",
         menu: "",
         keys: &[],
-        params: r#"{room: "library" | "import"}: bring an open room to the front (its tab); replies {room}"#,
+        params: r#"{room: "library" | "import" | "collage"}: bring an open room to the front (its tab); replies {room}"#,
         run: select,
     },
     UiCommand {
@@ -30,7 +35,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Close Room",
         menu: "",
         keys: &[],
-        params: r#"{room?: "import", confirm?: bool}: close a room (its tab's ×), the front one without `room`; the Library tab never closes; the Import room while an import copies asks "Stop importing?" first unless `confirm` is true, which cancels the import; replies {room} (the room now in front)"#,
+        params: r#"{room?: "import" | "collage", confirm?: bool}: close a room (its tab's ×), the front one without `room`; the Library tab never closes; the Import room while an import copies asks "Stop importing?" first unless `confirm` is true, which cancels the import; the Collage room with unsaved changes asks Save Draft, Discard or Cancel first unless `confirm` is true, which discards them; replies {room} (the room now in front), or {dialog} when it asks"#,
         run: close,
     },
 ];
@@ -92,7 +97,11 @@ fn select(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     if !app.state().rooms.contains(&p.room) {
         return Err(CmdError::NotFound(format!("the {} room is not open", p.room.name())));
     }
-    app.state_mut().room = p.room;
+    let state = app.state_mut();
+    state.room = p.room;
+    if p.room == Room::Collage {
+        state.collage.get_more = false;
+    }
     Ok(json!({ "room": p.room.name() }))
 }
 
@@ -104,6 +113,9 @@ fn close(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     }
     if !app.state().rooms.contains(&room) {
         return Err(CmdError::NotFound(format!("the {} room is not open", room.name())));
+    }
+    if room == Room::Collage {
+        return super::collage::close(app, p.confirm, crate::state::CollageClose::Tab);
     }
     if room == Room::Import
         && let Some(job) = importing(app)
@@ -139,7 +151,8 @@ mod tests {
         assert_eq!(app.run("room.close", &json!({ "room": "import" })).unwrap(), json!({ "room": "library" }));
         assert_eq!(app.state().rooms, [Room::Library]);
         assert!(matches!(app.run("room.close", &json!({ "room": "import" })), Err(CmdError::NotFound(_))));
-        for bad in [json!({ "room": "collage" }), json!({}), json!([1])] {
+        assert!(matches!(app.run("room.select", &json!({ "room": "collage" })), Err(CmdError::NotFound(_))), "not open");
+        for bad in [json!({ "room": "attic" }), json!({}), json!([1])] {
             assert!(matches!(app.run("room.select", &bad), Err(CmdError::BadParams(_))), "{bad}");
         }
     }

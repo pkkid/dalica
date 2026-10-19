@@ -9042,7 +9042,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     kept and wrong types or out-of-range values falling back (reported);
     `crates/engine/tests/options_catalogue.rs`: the legacy row is available with its default equal
     to its accessor's; every existing engine test and `panic_hunt` pass unchanged.
-- ⬜ **M14.6 `ui`: M14's view state, UI commands and the stub room**
+- ✅ **M14.6 `ui`: M14's view state, UI commands and the stub room**
   - after: M13.4, M13.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/commands/collage.rs`, `crates/ui/src/commands/collage_canvas.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/collage.rs`, `crates/ui/src/panels/collage/**`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/collage_close.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M14 field of `UiState` in one go: the Collage room (open, its tab Settings or

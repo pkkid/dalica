@@ -3,7 +3,8 @@
 //! label, the tab in front joined to the content below). Each room open has a tab
 //! (`tab:room/<room>`, active for the room in front; a click runs `room.select`), every tab but the
 //! Library's a close × (`tab:room/<room>/close`, `room.close`, which asks "Stop importing?" while
-//! the Import room copies). The tabs shrink, then overflow into a menu, in a narrow window.
+//! the Import room copies, and the Collage room asks Save Draft, Discard or Cancel with unsaved
+//! changes). The tabs shrink, then overflow into a menu, in a narrow window.
 
 use dalica_ui_kit::icons::{Glyph, Icon, ViewingIcon};
 use dalica_ui_kit::widgets::{self, RoomTab};
@@ -23,14 +24,16 @@ pub fn label(room: Room) -> &'static str {
     match room {
         Room::Library => "Library",
         Room::Import => "Import",
+        Room::Collage => "Collage",
     }
 }
 
-/// A room's tab glyph: the Library's four thumbnails, Import's camera.
+/// A room's tab glyph: the Library's four thumbnails, Import's camera, Collage's three pictures.
 pub fn glyph(room: Room) -> Glyph {
     match room {
         Room::Library => ViewingIcon::Library.into(),
         Room::Import => Icon::Import.into(),
+        Room::Collage => Icon::Collage.into(),
     }
 }
 

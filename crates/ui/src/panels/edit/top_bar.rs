@@ -8,6 +8,9 @@
 //! "Compare two photos", "Compare two versions of this photo"), each running `edit.compare {mode}`
 //! and enabled as that command is for its mode (A│B and A│A arrive with M11.16). Switch Focus and
 //! Switch Layout show only in the compare modes (M11.16), so their place stays empty.
+//! **Edit Collage** (`button:edit.editCollage`, `collage.edit {id}`: the Collage room reopened from
+//! the photo's recipe, `creating.md` §3) shows left of the compare toggle for a collage the engine's
+//! `collage.canEdit` can reopen ([`shows_edit_collage`]); hidden until M14.20 asks it.
 //!
 //! The groups take the widths `panels::layout` reserves for them ([`LEFT_GROUP`] and
 //! [`RIGHT_GROUP`] add up to its `TOP_LEFT_GROUP` and `TOP_RIGHT_GROUP`).
@@ -37,6 +40,18 @@ pub const COMPARE: [(&str, &str, &str, Compare); 3] = [
     ("button:compare.two", "A|B", "Compare two photos", Compare::Two),
     ("button:compare.same", "A|A", "Compare two versions of this photo", Compare::Same),
 ];
+
+/// Edit Collage: its id, label, tooltip and width.
+pub const EDIT_COLLAGE_ID: &str = "button:edit.editCollage";
+pub const EDIT_COLLAGE: &str = "Edit Collage";
+pub const EDIT_COLLAGE_TIP: &str = "Change this collage in the Collage room";
+pub const EDIT_COLLAGE_W: f32 = 120.0;
+
+/// Whether Edit Collage shows for the photo in the edit view: for a collage the engine's
+/// `collage.canEdit` can reopen (M14.20); never until then.
+pub fn shows_edit_collage(_app: &App) -> bool {
+    false
+}
 
 /// The margin at each end of the bar and between its widgets.
 pub const GAP: f32 = 8.0;
@@ -75,6 +90,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         && let Some(mode) = compare_toggle(ui, &t, compare, app.state().edit.compare, live)
     {
         let _ = app.run("edit.compare", &json!({ "mode": mode }));
+    }
+
+    let edit_collage = Rect::from_min_size(pos2(compare.min.x - GAP - EDIT_COLLAGE_W, y), vec2(EDIT_COLLAGE_W, h));
+    if shows_edit_collage(app)
+        && edit_collage.min.x >= play.max.x
+        && let Some(photo) = app.state().edit.photo
+    {
+        let mut c = child(ui, edit_collage, true);
+        if widgets::text_button(&mut c, &t, EDIT_COLLAGE_ID, EDIT_COLLAGE, false).on_hover_text(EDIT_COLLAGE_TIP).clicked() {
+            let _ = app.run("collage.edit", &json!({ "id": photo }));
+        }
     }
 }
 

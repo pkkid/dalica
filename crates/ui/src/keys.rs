@@ -20,7 +20,9 @@
 //!
 //! The view context follows what fills the window ([`view_context`], `menus-and-shortcuts.md`
 //! §2.0): a slideshow resolves keys in Slideshow, the photo viewer in Photo viewer, the Import room
-//! in front in Import, the library in Library (the edit view resolves its own, the open tool first,
+//! in front in Import, the Collage room in front in Collage (the canvas's Delete, Ctrl+A and Esc,
+//! `crate::commands::collage_canvas`; Ctrl+Z and Ctrl+Y the engine's room history), the library in
+//! Library (the edit view resolves its own, the open tool first,
 //! `crate::commands::edit_view::dispatch`). Only the library routes Delete by section and to the
 //! focused tree.
 
@@ -250,6 +252,7 @@ pub fn view_context(state: &crate::state::UiState) -> Context {
         (View::Slideshow, _) => Context::Slideshow,
         (View::Viewer, _) => Context::PhotoViewer,
         (_, Room::Import) => Context::Import,
+        (_, Room::Collage) => Context::Collage,
         (View::Edit, Room::Library) => Context::EditView,
         (View::Library, Room::Library) => Context::Library,
     }

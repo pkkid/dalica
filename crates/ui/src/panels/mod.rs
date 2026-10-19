@@ -14,9 +14,13 @@
 //! table's region while `unnamed.open`), the People pane ([`people_pane`]) and the Places pane
 //! ([`places`]) in the side pane, the face boxes on the edit view's photo (`edit::faces`) and a
 //! person section's suggestion strip (`light_table::suggestions`).
+//!
+//! M14's surfaces, stubs until the tasks that draw them: the Collage room ([`collage`]: its Settings
+//! and Clips tabs, M14.18, and its canvas, M14.19) under the tab strip while it is in front.
 
 pub mod activity;
 pub mod bottom;
+pub mod collage;
 pub mod edit;
 pub mod faces;
 pub mod folders;
@@ -130,7 +134,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         match (app.state().view, app.state().room) {
             (View::Slideshow, _) => slideshow::show(app, ui),
             (View::Viewer, _) => viewer::show(app, ui),
-            (_, Room::Import) => room(p, app, ui),
+            (_, Room::Import | Room::Collage) => room(p, app, ui),
             (View::Library, Room::Library) => regions(p, app, ui),
             (View::Edit, Room::Library) => edit::show(p, app, ui),
         }
@@ -145,7 +149,7 @@ pub fn toast_area(window: Rect, state: &crate::state::UiState) -> Rect {
     use crate::state::{Room, View};
     match (state.view, state.room) {
         (View::Slideshow | View::Viewer, _) => window,
-        (_, Room::Import) => layout::compute_room(window).room,
+        (_, Room::Import | Room::Collage) => layout::compute_room(window).room,
         (View::Library, Room::Library) => layout::compute(window, state).light_table,
         (View::Edit, Room::Library) => layout::compute_edit(window, state).toast_area(),
     }
@@ -165,6 +169,7 @@ fn room(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     region(ui, "tabStrip", l.tab_strip, t.chrome, |ui| rooms::show(app, ui));
     region(ui, "room", l.room, t.grid_bg, |ui| match app.state().room {
         crate::state::Room::Import => import::show(app, ui),
+        crate::state::Room::Collage => collage::show(app, ui),
         crate::state::Room::Library => {}
     });
     region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
