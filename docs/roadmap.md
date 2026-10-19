@@ -9762,7 +9762,9 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     (3) the first languages: **English and Thai for 1.0, if Thai can be done** (Thai needs shaping
     for its stacked vowels and tone marks and dictionary line breaking, both to be proven pure-Rust
     in a spike; if not, 1.0 ships English only and Thai follows); (4) **the maintainer's wife
-    reviews the Thai catalog** at M15.R.
+    reviews the Thai catalog** at M15.R. M15.43 (M14's budgets against a same-runner base) was dropped
+    the same day: release budgets run locally at each review, never on GitHub (the maintainer,
+    2026-10-19); its id is not reused.
   - done when: `cargo xtask tasks sync --check` parses the fitted blocks, `tasks sync --dry-run`
     lists them, and *Reserved decisions* item 2 carries its date.
 - ⬜ **M15.2 `image`: video files recognised by content and probed**
@@ -10442,17 +10444,6 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     automation and one started by a click each leave no person's name in `ui.inspect`,
     `library.query` or the job's reply without the permission, and show it with the permission);
     the two tests pass 200 runs under `taskset -c 0`.
-- ✅ **M15.43 `docs`: dropped: M14's budgets against a same-runner base**
-  - after: M14.R
-  - owner: lead
-  - files: —
-  - scope: dropped by the maintainer's decision at M14.R (2026-10-19): "remove the budgets CI
-    from GitHub Actions and only run them locally; it's stupid to expect the slower GitHub CI
-    machines to perform just as well as my local machine". The Budgets workflow is gone and the
-    release budgets run locally at each review (`cargo xtask budgets`, `development.md` §8), so
-    M14's absolute budgets need no same-runner base. The id is kept and never reused; nothing to
-    build.
-  - done when: the block records the decision.
 - ⬜ **M15.44 `ui`: five small look fixes from the M14.R screenshots**
   - after: M14.R
   - files: `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/titlebar.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/collage_room.rs`, `crates/ui/tests/options_dialog.rs`
