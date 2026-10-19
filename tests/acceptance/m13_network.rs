@@ -93,7 +93,7 @@ pub fn network(exe: &Path, home: &Path) {
 
     // Allow: tiles from the tile server only.
     click(c, "button:map.allowTiles");
-    let tiles = proxy.wait_beyond(0);
+    let tiles = proxy.wait_beyond(c, 0);
     assert!(!tiles.is_empty() && tiles.iter().all(|t| t == TILES), "once allowed and open, tiles only: {tiles:?}");
     let before = quiet(c, &proxy);
     c.ok("ui.clickWidget", json!({ "id": "field:places.search" }));
@@ -101,10 +101,11 @@ pub fn network(exe: &Path, home: &Path) {
     pause(c, 1500);
     let typed = proxy.connections().split_off(before);
     assert!(!typed.iter().any(|t| t == GEOCODER), "typing asks nothing: {typed:?}");
+    // The count before Enter: the geocoder's connection can arrive while `key` settles the app.
+    let entered = proxy.count();
     app::key(c, "Enter");
-    let asked = proxy.wait_beyond(proxy.count());
-    let all = proxy.connections();
-    assert!(all[before..].iter().any(|t| t == GEOCODER), "Enter asks the geocoding service: {asked:?}");
+    let asked = proxy.wait_until(c, entered, |new| new.iter().any(|t| t == GEOCODER));
+    assert!(asked.iter().any(|t| t == GEOCODER), "Enter asks the geocoding service: {asked:?}");
     println!("  after Allow: {} connections, all to {TILES}; a place searched on Enter asked {GEOCODER}", tiles.len());
 
     // The pane closed: no more connections, the map moved meanwhile.
@@ -129,7 +130,7 @@ pub fn network(exe: &Path, home: &Path) {
     pause(c, 1000);
     assert_eq!(proxy.count(), closed, "ticking the box connects nothing by itself");
     c.ok("ui.clickWidget", json!({ "id": "button:dialog.download" }));
-    let fetched = proxy.wait_beyond(closed);
+    let fetched = proxy.wait_beyond(c, closed);
     assert_eq!(fetched.first().map(String::as_str), Some(MODEL_SITE), "Download connects to the model's site: {fetched:?}");
     assert!(!models.join(MODEL).exists(), "the refused download installed nothing");
     println!("  a catalogue model: Download disabled and no connection until the box is ticked, then {MODEL_SITE}");

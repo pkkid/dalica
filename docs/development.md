@@ -276,13 +276,15 @@ cargo run --release -p dalica -- --control 7990 --demo
 | The Unnamed grid opening with 10 000 faces (median); scrolled (a frame's p95) | ≤ 32.5 ms; ≤ 1 ms |
 | The Places pane over 10 000 geotagged photos opening (median); panned, its markers grouped (p95) | ≤ 2 ms; ≤ 2 ms |
 
-**At the review, the save, export and search budgets, and the import's first screenful and
-listing, are judged against a base on the same runner** (maintainer decisions, 2026-10-15, and for
-the import at M12.R): the Budgets job runs each of these benches in the last release
+**At the review, the save, export and search budgets, the import's first screenful and listing,
+face inference and the people and places views are judged against a base on the same runner**
+(maintainer decisions, 2026-10-15, for the import at M12.R, and for the M13 rows at M13.R): the
+Budgets job runs each of these benches in the last release
 (`git describe --tags --match 'v*'`; for a bench newer than that release, the commit that first
 measured it) and in the reviewed commit, three times each, interleaved (base, reviewed, base,
-reviewed, base, reviewed; `RELATIVE_ROUNDS`), and each row's median over the reviewed commit's runs
-may be at most 1.3 × its median over the base's (`cargo xtask budgets --baseline <ref>`;
+reviewed, base, reviewed; `RELATIVE_ROUNDS`), and each row's statistic (its median; the people and
+places frames' p95, the statistic their budgets judge) over the reviewed commit's runs may be at
+most 1.3 × the same statistic over the base's (`cargo xtask budgets --baseline <ref>`;
 `RELATIVE_FACTOR` and each budget's `Relative` in `xtask/src/accept.rs`). Every row's verdict is
 printed, also when one misses. GitHub's runners differ by more than the budgets allowed (the index
 build took 446–490 ms on some and 718–769 ms on others, which failed 11 runs in a row); a ratio on
@@ -290,8 +292,15 @@ one runner does not. One run of each, minutes apart, was not enough (M12.26): th
 measured 1.36 × its base once and 1.00–1.02 × on three other runs, and the import listing, the same
 code every time, took 245 to 354 ms on six runs (missing its absolute 320 ms twice) while a
 workstation on two cores listed in 198–203 ms; the listing follows the runner's single-core speed
-(the cold start was 340 ms on both runs that missed it, 236–280 ms on the rest). The import's copy
-rate stays absolute, judged on the reviewed commit's first run. The millisecond figures in the
+(the cold start was 340 ms on both runs that missed it, 236–280 ms on the rest). M13's budgets
+were set on one performance core of the workstation, and the review's two-vCPU runner (M13.R)
+took 1.56 to 1.70 × as long for face inference (one thread: detection 70.4 ms against its
+62.5 ms budget, AuraFace's shape 358.8 against 350) and 1.88 to 2.31 × for the people and places
+views (the Unnamed grid's opening 49.8 ms against 32.5, the Places pane's 2.03 against 2.0, its pan
+2.11 against 2.0 at p95); their base is the commit that first measured them (`ebcc026c`, M13.31),
+which v0.7.0 predates, and the two frames also stay within the 8 ms frame budget. The import's copy
+rate, the face scan (its rate, memory and frame) and the inference's 640 px and the views' 10 000
+photos stay absolute, judged on the reviewed commit's first run. The millisecond figures in the
 table are the budgets without a base (a plain `cargo xtask budgets`, on a workstation); the frame
 budgets (8 ms), the first screenful after adding a folder (1 s) and a query's 100 ms cap are always
 absolute.
@@ -393,7 +402,12 @@ the tile grids and Saves rounded up to 5 ms, the empty final to 1 ms, the upload
   workstation quiet (load average 0.7 to 2.2, no other bench running). Every draft takes 2.3 to
   12.9 ms and every final 13.4 to 66.2 ms. The nine effects whose final takes under 32 ms (B&W,
   Filtered B&W, Infrared, Invert, Grain, Widescreen, Pixelate and the two frames Drop Shadow and
-  Museum Matte: 13.4 to 31.4 ms) draft at ½, the rest at ¼. The thinnest margins: Grain's draft
+  Museum Matte: 13.4 to 31.4 ms) draft at ½, the rest at ¼. Each draft budget holds at the scale
+  it was measured at: the `<effect> draft` row renders at that scale on any machine, and a report
+  of another scale judges nothing (M13.R: the review's runner rendered Glow's, Soften's and
+  Border's finals in under 32 ms, so the engine drafted them at ½, four times the pixels, and the
+  rows missed budgets measured at ¼). The engine's own choice is its own row, `<effect> engine
+  draft`, held to the slider's 16 ms only. The thinnest margins: Grain's draft
   12.9 ms (its budget is the 16 ms cap, not 1.5 × 12.9 = 19.4 ms), Focal Zoom's final 66.2 ms
   (budget 100 ms, the cap) and HDR Look's 62.2 ms (94 ms). An empty recipe's final took 7.0 ms
   and its Save 30.3 ms, within the M12.21 budgets. The Saves measured 73 to 301 ms (Focal Zoom
@@ -479,7 +493,8 @@ holds an upload frame's p95 to its budget, and the job runs the `effects` bench 
 render and the empty recipe; a planted slowdown added once per render) and the `effect_tiles`
 bench (each tab's median, a planted slowdown added once per sample); `--plant-ms 8` misses the
 empty recipe's final, not the Saves or the tiles. Since M13.43 the `effects` judge also holds
-every effect's draft and final p95 to its budget (a planted slowdown added once per render):
+every effect's draft (at its budget's scale) and final p95 to its budget and its draft at the
+engine's scale to 16 ms (a planted slowdown added once per render):
 `--plant-ms 8` misses every draft too, `--plant-ms 17` misses every draft whatever its budget
 (none is above 16 ms) and `--plant-ms 101` every final. Since M13 it also runs the `inference` bench
 (each median, a planted slowdown added once per run), the `faces_scan` bench (faces per second, a
@@ -979,10 +994,11 @@ budgets. Without `--bench` it runs three photos of 640 × 427, one change per tr
 `effects` (M12.21, `dalica-edit`) makes a `--width × --height` `scenes` photo in memory (6000 ×
 4000) and renders each of the 27 effects at its defaults: `--samples` (21) drafts and finals on
 a `--fit` screen (2560 × 1600) as the engine's preview renders them, and `--saves` (3) renders
-of the whole photo at `Target::Full`. Rows: `<effect> draft` (with its `draft_scale`), `<effect>
-final`, `<effect> save` and `no effect final` / `no effect save`, each with its budget
-(`budget_p95_ms` for the drafts and finals, judged on p95; `budget_ms` for the Saves, judged on
-the median). Only the renderer is timed. `--only a,b` measures some effects; `--check` judges
+of the whole photo at `Target::Full`. Rows: `<effect> draft` (at the scale its budget was
+measured at, its `draft_scale`), `<effect> engine draft` (at the scale the engine picks from the
+last final's time, judged against the slider's 16 ms only), `<effect> final`, `<effect> save` and
+`no effect final` / `no effect save`, each with its budget (`budget_p95_ms` for the drafts and
+finals, judged on p95; `budget_ms` for the Saves, judged on the median). Only the renderer is timed. `--only a,b` measures some effects; `--check` judges
 every budget itself (all 27 effects at 24 MP on the 2560 × 1600 screen), `--plant-ms N` adds N ms
 to each judged time. Without `--bench` it runs a 600 × 400 photo on a 256 × 160 screen,
 one sample each.

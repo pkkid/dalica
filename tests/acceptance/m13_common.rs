@@ -73,12 +73,22 @@ impl Proxy {
     }
 
     /// Waits (at most 30 s) until a connection beyond the first `before` arrives; the new ones.
-    pub fn wait_beyond(&self, before: usize) -> Vec<String> {
+    pub fn wait_beyond(&self, c: &mut Client, before: usize) -> Vec<String> {
+        self.wait_until(c, before, |new| !new.is_empty())
+    }
+
+    /// Waits (at most 30 s) until the connections beyond the first `before` satisfy `done`; those
+    /// connections. The app's frames run meanwhile (`ui.settle`), which also keeps the control
+    /// connection busy: the app closes one idle for 30 s (M13.R: a wait that outlasted it reset
+    /// the next request).
+    pub fn wait_until(&self, c: &mut Client, before: usize, done: impl Fn(&[String]) -> bool) -> Vec<String> {
         let end = Instant::now() + Duration::from_secs(30);
-        while self.count() <= before && Instant::now() < end {
+        let new = || self.connections().split_off(before.min(self.count()));
+        while !done(&new()) && Instant::now() < end {
+            c.ok("ui.settle", json!({ "timeoutMs": 50 }));
             std::thread::sleep(Duration::from_millis(20));
         }
-        self.connections().split_off(before.min(self.count()))
+        new()
     }
 
     /// What every launch adds so all of the app's connections come here: `HTTPS_PROXY` (and its
@@ -385,13 +395,18 @@ fn holds_word(line: &str, word: &str) -> bool {
     })
 }
 
-/// The trace log of a people workflow (`faces.md` §7): no line holds a person's name or nickname
-/// (`names`) or a face's corner as it would print (read from the `folders`' sidecars, the app
-/// having quit), and the face code's lines (their target holds "face") hold no rectangle and no
-/// vector.
-pub fn privacy(logs: &str, names: &[&str], folders: &[PathBuf]) {
+/// The trace log of a people workflow (`faces.md` §7) over `launches` runs of the app: every run's
+/// log is there (its `log file:` line, the first a run writes) at trace level, no line holds a
+/// person's name or nickname (`names`) or a face's corner as it would print (read from the
+/// `folders`' sidecars, the app having quit), and the face code's lines (their target holds "face")
+/// hold no rectangle and no vector.
+pub fn privacy(logs: &str, launches: usize, names: &[&str], folders: &[PathBuf]) {
+    // Not a line count: how many lines a run writes depends on the platform (Linux's file watcher
+    // traces every event of the app's own scan; macOS's writes none of them, M13.R).
     let lines = logs.lines().count();
-    assert!(lines > 100, "the trace log has the run's lines ({lines})");
+    let runs = logs.lines().filter(|l| l.contains(" dalica::logging: log file: ")).count();
+    assert_eq!(runs, launches, "each launch's log is here, from its first line ({lines} lines)");
+    assert!(logs.lines().any(|l| l.split_whitespace().nth(1) == Some("TRACE")), "the log is at trace level ({lines} lines)");
     let mut corners: Vec<String> = Vec::new();
     for folder in folders {
         let v: Value = serde_json::from_slice(&std::fs::read(folder.join(".dalica.json")).unwrap()).unwrap();

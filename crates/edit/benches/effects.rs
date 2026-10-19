@@ -16,15 +16,17 @@
 //!   source), then `--samples` (21) times a **draft** and a **final**, as a slider drag renders
 //!   them. The final renders at the largest power-of-two scale of the source that still covers the
 //!   box (`Target::Full` on that base, a frame's too; a crop or a straighten renders from the
-//!   source at that scale); the draft at the scale the engine picks from the last final's time (full size
-//!   when it took at most 8 ms, half when a quarter of it does, else a quarter: `preview.rs`'s
-//!   `DRAFT_TARGET_MS` and `MIN_DRAFT_SCALE`). Only the renderer is timed (the engine's histogram
-//!   and the wait for a worker are not).
+//!   source at that scale); the draft twice: at the scale its budget was measured at (`BUDGETS`,
+//!   ½ or ¼), and at the scale the engine picks from the last final's time (full size when it took
+//!   at most 8 ms, half when a quarter of it does, else a quarter: `preview.rs`'s
+//!   `DRAFT_TARGET_MS` and `MIN_DRAFT_SCALE`), timed once when the two are the same. Only the
+//!   renderer is timed (the engine's histogram and the wait for a worker are not).
 //! - **Save**: `--saves` (3) renders of the whole photo at `Target::Full`, as Save renders it.
 //!
-//! Rows (p50/p95/max by nearest rank): `<effect> draft` and `<effect> final` (judged on p95, with
-//! `budget_p95_ms`: the slider's 16 ms draft and 100 ms final, each effect's own budget within
-//! them, M13.43), `<effect> save` (judged on the median, with `budget_ms`), and an empty recipe's
+//! Rows (p50/p95/max by nearest rank): `<effect> draft` (at its budget's scale, `draft_scale`) and
+//! `<effect> final` (judged on p95, with `budget_p95_ms`: the slider's 16 ms draft and 100 ms final,
+//! each effect's own budget within them, M13.43), `<effect> engine draft` (at the engine's scale,
+//! its last in `draft_scale`; judged on p95 against the slider's 16 ms only, M13.R), `<effect> save` (judged on the median, with `budget_ms`), and an empty recipe's
 //! `no effect final` (judged on p95) and `no effect save` (judged on the median). `cargo xtask
 //! budgets` judges the report; with `--check` the bench judges it itself and exits non-zero when a
 //! budget is missed (in release, at 24 MP and the 2560 × 1600 screen, every effect measured);
@@ -38,39 +40,42 @@ use dalica_edit::{Geometry, Recipe, Source, Target, catalog, render};
 use dalica_image::{Orientation, Rgba8};
 use dalica_scenes::Scene;
 
-/// The budgets (`development.md` §8), per effect, in ms: its slider draft's and final's p95 on the
-/// screen (M13.43: 1.5 × the measurement of 2026-10-18 after M13.34–M13.47, the median of three
-/// runs, release on two cores, `taskset -c 0,1`; drafts rounded up to 0.1 ms, finals to 1 ms; never
-/// above [`DRAFT_CAP_MS`] and [`FINAL_CAP_MS`]) and its 24 MP Save render's median (M12.21: 1.5 ×
-/// the first measurement, rounded up to 5 ms).
-const BUDGETS: [(&str, f64, f64, f64); 27] = [
-    ("sharpen", 3.5, 63.0, 1225.0),
-    ("sepia", 4.2, 65.0, 485.0),
-    ("bw", 5.1, 21.0, 275.0),
-    ("warmify", 4.1, 64.0, 1485.0),
-    ("grain", 16.0, 48.0, 870.0),
-    ("tint", 5.0, 78.0, 460.0),
-    ("saturation", 4.7, 74.0, 2060.0),
-    ("soft_focus", 13.7, 63.0, 1280.0),
-    ("glow", 5.0, 58.0, 2565.0),
-    ("filtered_bw", 5.1, 21.0, 240.0),
-    ("focal_bw", 5.5, 85.0, 505.0),
-    ("graduated_tint", 3.7, 56.0, 370.0),
-    ("infrared", 5.1, 21.0, 245.0),
-    ("plastic_lens", 9.9, 73.0, 2295.0),
-    ("hdr", 6.2, 94.0, 3775.0),
-    ("widescreen", 10.2, 37.0, 765.0),
-    ("dream_glow", 4.4, 60.0, 2250.0),
-    ("invert", 5.4, 22.0, 240.0),
-    ("duotone", 5.3, 82.0, 500.0),
-    ("boost", 4.8, 74.0, 2460.0),
-    ("soften", 6.2, 56.0, 2700.0),
-    ("vignette", 4.4, 69.0, 780.0),
-    ("pixelate", 10.1, 38.0, 670.0),
-    ("focal_zoom", 11.9, 100.0, 22355.0),
-    ("border", 4.2, 64.0, 470.0),
-    ("drop_shadow", 9.1, 36.0, 340.0),
-    ("museum_matte", 10.1, 38.0, 390.0),
+/// The budgets (`development.md` §8), per effect: the scale its draft budget was measured at (the
+/// engine's choice there: ½ after a final within 32 ms, else ¼), and in ms its slider draft's (at
+/// that scale) and final's p95 on the screen (M13.43: 1.5 × the measurement of 2026-10-18 after
+/// M13.34–M13.47, the median of three runs, release on two cores, `taskset -c 0,1`; drafts rounded
+/// up to 0.1 ms, finals to 1 ms; never above [`DRAFT_CAP_MS`] and [`FINAL_CAP_MS`]) and its 24 MP
+/// Save render's median (M12.21: 1.5 × the first measurement, rounded up to 5 ms). The draft is
+/// pinned to its scale (M13.R): on a machine where a final takes under 32 ms the engine drafts at
+/// ½, four times the pixels, and a budget measured at ¼ would compare other work.
+const BUDGETS: [(&str, f64, f64, f64, f64); 27] = [
+    ("sharpen", 0.25, 3.5, 63.0, 1225.0),
+    ("sepia", 0.25, 4.2, 65.0, 485.0),
+    ("bw", 0.5, 5.1, 21.0, 275.0),
+    ("warmify", 0.25, 4.1, 64.0, 1485.0),
+    ("grain", 0.5, 16.0, 48.0, 870.0),
+    ("tint", 0.25, 5.0, 78.0, 460.0),
+    ("saturation", 0.25, 4.7, 74.0, 2060.0),
+    ("soft_focus", 0.25, 13.7, 63.0, 1280.0),
+    ("glow", 0.25, 5.0, 58.0, 2565.0),
+    ("filtered_bw", 0.5, 5.1, 21.0, 240.0),
+    ("focal_bw", 0.25, 5.5, 85.0, 505.0),
+    ("graduated_tint", 0.25, 3.7, 56.0, 370.0),
+    ("infrared", 0.5, 5.1, 21.0, 245.0),
+    ("plastic_lens", 0.25, 9.9, 73.0, 2295.0),
+    ("hdr", 0.25, 6.2, 94.0, 3775.0),
+    ("widescreen", 0.5, 10.2, 37.0, 765.0),
+    ("dream_glow", 0.25, 4.4, 60.0, 2250.0),
+    ("invert", 0.5, 5.4, 22.0, 240.0),
+    ("duotone", 0.25, 5.3, 82.0, 500.0),
+    ("boost", 0.25, 4.8, 74.0, 2460.0),
+    ("soften", 0.25, 6.2, 56.0, 2700.0),
+    ("vignette", 0.25, 4.4, 69.0, 780.0),
+    ("pixelate", 0.5, 10.1, 38.0, 670.0),
+    ("focal_zoom", 0.25, 11.9, 100.0, 22355.0),
+    ("border", 0.25, 4.2, 64.0, 470.0),
+    ("drop_shadow", 0.5, 9.1, 36.0, 340.0),
+    ("museum_matte", 0.5, 10.1, 38.0, 390.0),
 ];
 /// An empty recipe's final on the screen (p95) and its Save render (median), 1.5 × the first
 /// measurement, rounded up to 1 and 5 ms.
@@ -272,25 +277,37 @@ fn row(name: &str, mut times: Vec<f64>, extra: &str) -> String {
 
 struct Measured {
     name: &'static str,
+    /// At the budget's scale.
     drafts: Vec<f64>,
+    /// At the engine's scale.
+    engine_drafts: Vec<f64>,
     finals: Vec<f64>,
     saves: Vec<f64>,
-    draft_scale: f64,
+    /// The engine's scale for the last draft.
+    engine_scale: f64,
 }
 
-fn measure(name: &'static str, entry: &str, photo: &Rgba8, screen: &Screen, a: &Args) -> Measured {
+/// One draft of `recipe` at `scale`, timed.
+fn time_draft(screen: &Screen, recipe: &Recipe, fit: (u32, u32), scale: f64) -> f64 {
+    let t = Instant::now();
+    let draft = screen.render(recipe, fit, scale);
+    let ms = ms_since(t);
+    drop(draft);
+    ms
+}
+
+fn measure(name: &'static str, entry: &str, budget_scale: f64, photo: &Rgba8, screen: &Screen, a: &Args) -> Measured {
     let recipe = Recipe::parse([entry]).expect("an effect at its defaults");
     // One final first, untimed: what the engine's draft rule reads (and the caches warmed).
     let t = Instant::now();
     let _ = screen.render(&recipe, a.fit, 1.0);
     let mut last = Some(ms_since(t));
-    let (mut drafts, mut finals, mut scale) = (Vec::new(), Vec::new(), 1.0);
+    let (mut drafts, mut engine_drafts, mut finals, mut scale) = (Vec::new(), Vec::new(), Vec::new(), 1.0);
     for _ in 0..a.samples {
         scale = draft_scale(last);
-        let t = Instant::now();
-        let draft = screen.render(&recipe, a.fit, scale);
-        drafts.push(ms_since(t));
-        drop(draft);
+        let pinned = time_draft(screen, &recipe, a.fit, budget_scale);
+        drafts.push(pinned);
+        engine_drafts.push(if (scale - budget_scale).abs() < 1e-9 { pinned } else { time_draft(screen, &recipe, a.fit, scale) });
         let t = Instant::now();
         let final_ = screen.render(&recipe, a.fit, 1.0);
         let ms = ms_since(t);
@@ -305,7 +322,7 @@ fn measure(name: &'static str, entry: &str, photo: &Rgba8, screen: &Screen, a: &
         saves.push(ms_since(t));
         drop(saved);
     }
-    Measured { name, drafts, finals, saves, draft_scale: scale }
+    Measured { name, drafts, engine_drafts, finals, saves, engine_scale: scale }
 }
 
 fn main() {
@@ -365,21 +382,34 @@ fn main() {
                 eprintln!("effects: {} has no default entry", op.name);
                 std::process::exit(1);
             };
-            let Some(&(_, draft_budget, final_budget, save_budget)) = BUDGETS.iter().find(|(n, ..)| *n == op.name) else {
+            let Some(&(_, budget_scale, draft_budget, final_budget, save_budget)) = BUDGETS.iter().find(|(n, ..)| *n == op.name) else {
                 eprintln!("effects: {} has no budget", op.name);
                 std::process::exit(1);
             };
-            let m = measure(op.name, &entry, &photo, &screen, &a);
+            let m = measure(op.name, &entry, budget_scale, &photo, &screen, &a);
             measured += 1;
-            let (d, f, s) = (rank_of(&m.drafts, 95), rank_of(&m.finals, 95), rank_of(&m.saves, 50));
-            eprintln!("  {:<16} draft p95 {d:7.2} ms (at {}), final p95 {f:7.2} ms, save p50 {s:8.1} ms", m.name, m.draft_scale);
+            let (d, e, f, s) = (rank_of(&m.drafts, 95), rank_of(&m.engine_drafts, 95), rank_of(&m.finals, 95), rank_of(&m.saves, 50));
+            eprintln!(
+                "  {:<16} draft p95 {d:7.2} ms (at {budget_scale}; the engine's {e:7.2} ms at {}), final p95 {f:7.2} ms, save p50 {s:8.1} ms",
+                m.name, m.engine_scale
+            );
             let (draft_budget, final_budget) = (draft_budget.min(DRAFT_CAP_MS), final_budget.min(FINAL_CAP_MS));
-            for (what, judged, budget) in [("draft p95", d, draft_budget), ("final p95", f, final_budget), ("save median", s, save_budget)] {
+            for (what, judged, budget) in [
+                ("draft p95", d, draft_budget),
+                ("engine draft p95", e, DRAFT_CAP_MS),
+                ("final p95", f, final_budget),
+                ("save median", s, save_budget),
+            ] {
                 if judged + a.plant > budget {
                     missed.push(format!("{} {what}: {:.2} ms over the {budget} ms budget", m.name, judged + a.plant));
                 }
             }
-            rows.push(row(&format!("{} draft", m.name), m.drafts, &format!(",\"draft_scale\":{},\"budget_p95_ms\":{draft_budget:?}", m.draft_scale)));
+            rows.push(row(&format!("{} draft", m.name), m.drafts, &format!(",\"draft_scale\":{budget_scale},\"budget_p95_ms\":{draft_budget:?}")));
+            rows.push(row(
+                &format!("{} engine draft", m.name),
+                m.engine_drafts,
+                &format!(",\"draft_scale\":{},\"budget_p95_ms\":{DRAFT_CAP_MS:?}", m.engine_scale),
+            ));
             rows.push(row(&format!("{} final", m.name), m.finals, &format!(",\"budget_p95_ms\":{final_budget:?}")));
             rows.push(row(&format!("{} save", m.name), m.saves, &format!(",\"budget_ms\":{save_budget:?}")));
         }

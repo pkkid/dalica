@@ -269,7 +269,7 @@ pub fn people(exe: &Path, home: &Path) {
     live::quit(a, cl);
     logs.push_str(&common::log_of(home));
     assert_eq!(proxy.connections(), Vec::<String>::new(), "no connection");
-    common::privacy(&logs, &["Ana", "Rui", "Rafael", "Eva"], std::slice::from_ref(&family));
+    common::privacy(&logs, 2, &["Ana", "Rui", "Rafael", "Eva"], std::slice::from_ref(&family));
     println!("  after a restart: the rejected pair still not suggested, the confirmed face Ana's, the drawn box where it was");
     println!("  M13 suggestions, faces by hand, people and regions in {:.1} s", secs(started));
 }
