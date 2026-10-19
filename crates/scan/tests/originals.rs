@@ -1,15 +1,20 @@
 //! A folder's originals record as the scan reads it (`data-model.md` §6, §7): read on the worker
 //! while the walk still skips `.dalica-originals`, turned into derived `SetSaved` ops, hostile
-//! names kept but never used, a damaged record set aside and reported, a link never followed.
+//! names kept but never used, a damaged record set aside and reported, a link never followed;
+//! and the legacy originals folder read beside it (M14.14, `data-model.md` §9): an original found
+//! with its recipe mapped to Dalica's operations, one equal to its photo not offered, nothing in
+//! the legacy folder written, a link or a hostile sidecar never followed or used.
 
 use std::path::Path;
 
 use crate::common::put;
 use dalica_core::{FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, Library, Op, Photo, Project, SaveState, Saved, SavedAs};
-use dalica_scan::originals::{self, Originals};
+use dalica_image::Orientation;
+use dalica_library::{Folder, LegacyOriginal, Library, Op, Photo, Project, SaveState, Saved, SavedAs};
+use dalica_scan::originals::{self, Legacy, Originals};
 use dalica_scan::scan;
 use dalica_scenes::{Scene, jpeg};
+use dalica_sidecar::legacy::{originals_dir_name, sidecar_names};
 use dalica_sidecar::{Limits, Sidecar};
 
 const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
@@ -76,7 +81,7 @@ fn the_record_becomes_derived_saved_records_and_the_walk_still_skips_the_folder(
     assert_eq!(listed, ["a.jpg"]);
 
     let found = originals::read(d, NOW);
-    let Originals::Read { saved, notes } = &found else { panic!("{found:?}") };
+    let Originals::Read { saved, notes, .. } = &found else { panic!("{found:?}") };
     let names: Vec<&str> = saved.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(names, ["a.jpg", "b.jpg", "gone.jpg"], "plain names with readable entries only");
     assert_eq!(saved[0].1, saved_a());
@@ -197,7 +202,7 @@ fn records_past_the_caps_are_not_used() {
         ),
     );
     let found = originals::read(d, NOW);
-    let Originals::Read { saved, notes } = &found else { panic!("{found:?}") };
+    let Originals::Read { saved, notes, .. } = &found else { panic!("{found:?}") };
     assert_eq!(saved.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["c.jpg"]);
     assert_eq!(notes.len(), 2, "{notes:?}");
     let (mut lib, f, ids) = library(d);
@@ -261,4 +266,129 @@ fn a_scan_alone_brings_back_saved_records_copies_and_the_project_mark() {
     assert!(dalica_scan::diff(&mut lib, &s).is_empty());
     assert_eq!(lib.saved(b).map(|s| s.state), Some(SaveState::Pending));
     assert!(!originals::record_path(&d).exists());
+}
+
+// --- the legacy originals folder (M14.14) ---------------------------------------------------------
+
+/// The legacy originals folder of `dir`.
+fn legacy_dir(dir: &Path) -> std::path::PathBuf {
+    dir.join(originals_dir_name())
+}
+
+/// `md5:` and 32 lowercase hex digits.
+fn md5(bytes: &[u8]) -> String {
+    format!("md5:{:x}", md5::compute(bytes))
+}
+
+/// Every file under `dir` with its bytes and modification time.
+fn snapshot(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>, std::time::SystemTime)> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).unwrap() {
+        let path = e.unwrap().path();
+        out.push((path.clone(), std::fs::read(&path).unwrap(), std::fs::metadata(&path).unwrap().modified().unwrap()));
+    }
+    out.sort();
+    out
+}
+
+/// A folder with photos `a.jpg` (saved by the previous organizer: its original kept, with a
+/// recipe), `b.jpg` (its kept original the same bytes: reverted outside) and `c.jpg` (named in the
+/// legacy sidecar, no kept original); returns the saved and original bytes of `a.jpg`.
+fn legacy_folder(d: &Path) -> (Vec<u8>, Vec<u8>) {
+    let original = jpeg(&Scene::new(1, 32, 24), 90, None).unwrap();
+    let saved = jpeg(&Scene::new(2, 20, 10), 80, None).unwrap();
+    let b = jpeg(&Scene::new(3, 16, 16), 80, None).unwrap();
+    put(&d.join("a.jpg"), &saved);
+    put(&d.join("b.jpg"), &b);
+    put(&d.join("c.jpg"), &b);
+    put(&legacy_dir(d).join("a.jpg"), &original);
+    put(&legacy_dir(d).join("b.jpg"), &b);
+    put(
+        &legacy_dir(d).join(&sidecar_names()[0]),
+        b"[a.jpg]\r\nfilters=sepia=1;redeye=1;\r\nmoddate=5ec020afbcf9dc01\r\nwidth=32\r\nheight=24\r\n[b.jpg]\r\nfilters=bw=1;\r\n[c.jpg]\r\nfilters=warm=1;\r\n",
+    );
+    (saved, original)
+}
+
+#[test]
+fn a_legacy_original_is_found_with_its_recipe_and_one_equal_to_its_photo_is_not_offered() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (_saved, original) = legacy_folder(d);
+    let before = snapshot(&legacy_dir(d));
+
+    let found = originals::read(d, NOW);
+    let Originals::Read { saved, notes, legacy } = &found else { panic!("{found:?}") };
+    assert!(saved.is_empty() && notes.is_empty(), "{found:?}");
+    let recipe: Vec<String> = ["sepia=1", "redeye=1"].iter().map(|t| dalica_edit::legacy::map(t, Orientation::default()).to_string()).collect();
+    assert_eq!(recipe, ["sepia()", "legacy:redeye(1)"]);
+    let a = LegacyOriginal { size: original.len() as u64, digest: md5(&original), recipe };
+    assert_eq!(legacy, &Legacy::Read(vec![("a.jpg".into(), a.clone())]), "b's original is its photo; c has none");
+
+    // Into the model as derived facts; only a.jpg is offered; a second read changes nothing.
+    let (mut lib, f, ids) = library(d);
+    let op = originals::legacy_ops(&lib, f, &found).unwrap();
+    assert_eq!(op, Op::SetLegacyOriginals { originals: vec![(ids[0], Some(a.clone()))] });
+    assert!(op.is_derived());
+    lib.apply(op).unwrap();
+    assert_eq!(lib.legacy_original(ids[0]), Some(&a));
+    assert_eq!(lib.legacy_undo_saves(), [ids[0]], "a differs from its original in size");
+    assert_eq!(originals::legacy_ops(&lib, f, &originals::read(d, NOW)), None);
+    assert_eq!(originals::ops(&lib, f, &found), None, "no saved record of Dalica's");
+
+    // The option off: no legacy original, and the fact goes.
+    let off = originals::read_with(d, NOW, false);
+    assert_eq!(off, Originals::Absent);
+    assert_eq!(originals::legacy_ops(&lib, f, &off), Some(Op::SetLegacyOriginals { originals: vec![(ids[0], None)] }));
+
+    // A whole scan reads it too, and lists neither the kept originals nor the legacy sidecar.
+    let s = scan(&[d.to_path_buf()], None);
+    let listed: Vec<&str> = s.folders.iter().flat_map(|f| f.photos.iter().map(|p| p.name.as_str())).collect();
+    assert_eq!(listed, ["a.jpg", "b.jpg", "c.jpg"]);
+    assert_eq!(s.folders[0].originals.legacy(), legacy);
+
+    // Nothing in the legacy folder was written, renamed or removed.
+    assert_eq!(snapshot(&legacy_dir(d)), before);
+}
+
+#[test]
+fn a_legacy_folder_that_cannot_be_read_changes_nothing_and_is_left_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path().join("photos");
+    let (_saved, original) = legacy_folder(&d);
+    let (mut lib, f, ids) = library(&d);
+    lib.apply(originals::legacy_ops(&lib, f, &originals::read(&d, NOW)).unwrap()).unwrap();
+    assert!(lib.legacy_original(ids[0]).is_some());
+
+    // A sidecar past the reader's limits (a line over 1 MiB): reported, nothing changes, the
+    // file is kept as it is (legacy files are never set aside).
+    let sidecar = legacy_dir(&d).join(&sidecar_names()[0]);
+    let hostile = [b"[a.jpg]\nfilters=".as_slice(), &vec![b'x'; (1 << 20) + 1]].concat();
+    put(&sidecar, &hostile);
+    let found = originals::read(&d, NOW);
+    let Originals::Read { notes, legacy, .. } = &found else { panic!("{found:?}") };
+    assert_eq!(legacy, &Legacy::Unreadable);
+    assert!(notes.iter().any(|n| n.contains("line")), "{notes:?}");
+    assert_eq!(originals::legacy_ops(&lib, f, &found), None, "never remove what was not seen");
+    assert_eq!(std::fs::read(&sidecar).unwrap(), hostile);
+
+    // A link in place of a kept original is not followed.
+    #[cfg(unix)]
+    {
+        put(&sidecar, b"[a.jpg]\nfilters=sepia=1;\n");
+        let elsewhere = dir.path().join("elsewhere.jpg");
+        put(&elsewhere, &original);
+        std::fs::remove_file(legacy_dir(&d).join("a.jpg")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, legacy_dir(&d).join("a.jpg")).unwrap();
+        let found = originals::read(&d, NOW);
+        let Originals::Read { notes, legacy, .. } = &found else { panic!("{found:?}") };
+        assert_eq!(legacy, &Legacy::Read(Vec::new()));
+        assert!(notes.iter().any(|n| n.contains("a.jpg")), "{notes:?}");
+
+        // A link in place of the legacy folder itself: not read.
+        let e = dir.path().join("linked");
+        put(&e.join("a.jpg"), b"saved");
+        std::os::unix::fs::symlink(legacy_dir(&d), legacy_dir(&e)).unwrap();
+        assert_eq!(originals::read(&e, NOW).legacy(), &Legacy::Unreadable);
+    }
 }

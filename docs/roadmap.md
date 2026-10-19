@@ -9189,7 +9189,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     back with nothing written; the notice's count comes once; `legacy.inspect` reports each
     source; each command's contract and graceful failures; the owner thread made no `fs` call;
     `panic_hunt` green.
-- ⬜ **M14.14 `create` + `scan` + `engine`: legacy originals for Undo Save and Revert**
+- ✅ **M14.14 `create` + `scan` + `engine`: legacy originals for Undo Save and Revert**
   - after: M14.1, M14.2, M14.3
   - files: `crates/create/src/save/legacy.rs`, `crates/create/tests/save_legacy.rs`, `crates/scan/src/originals.rs`, `crates/scan/tests/originals.rs`, `crates/engine/src/cmd/save.rs`, `crates/engine/tests/legacy_originals.rs`
   - scope: `data-model.md` §6 and §9 and the decisions above: `scan::originals::read` also reads

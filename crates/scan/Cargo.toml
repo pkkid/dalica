@@ -17,6 +17,8 @@ dalica-core.workspace = true
 dalica-fs.workspace = true
 dalica-image.workspace = true
 dalica-library.workspace = true
+# The legacy originals folder's recipes mapped to Dalica's operations (M14.14; `data-model.md` §9).
+dalica-edit.workspace = true
 dalica-meta.workspace = true
 # Each import candidate's digest (`import.rs`), as `dalica-engine`'s duplicates and Save's records make them.
 md5.workspace = true
