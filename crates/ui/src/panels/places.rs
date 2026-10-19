@@ -11,7 +11,9 @@
 //!   geotag them where they are let go (`crate::drag`, `places.drop`). A click on a marker opens
 //!   its bubble, or zooms in two levels on a group of places until they part; a click on the map
 //!   closes the bubble. The bubble of a marker drawn as a group of places counts, shows, selects
-//!   and removes the location of every photo the group's badge counts ([`group_action`]). The view (`places.centre`, `places.zoom`) is the view state's;
+//!   and removes the location of every photo the group's badge counts, as `places.showPhotos` and
+//!   `places.removeLocation` do for the group the map draws the marker in ([`groups`]). The view
+//!   (`places.centre`, `places.zoom`) is the view state's;
 //! - "Search for a place:" with its field `field:places.search` (the view state's
 //!   `places.search`): Enter on typed coordinates places the pin there and moves the map to it
 //!   (`places.pin {text}`, read without the network); other text goes to `map.search`, the place
@@ -25,18 +27,14 @@ pub mod markers;
 pub mod search;
 pub mod tiles;
 
-use dalica_core::PhotoId;
 use dalica_core::geo::{LatLon as Point, MAX_ZOOM};
-use dalica_engine::CmdError;
-use dalica_engine::cmd::places::CLEAR_ASKS_PAST;
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Ending, MARKER_GROUP, Map, MapBubble, MapMarker, MapView, MarkerGroup, Target};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Id, Rect, Ui, pos2, vec2};
-use serde_json::{Map as Draft, json};
+use serde_json::json;
 
 use crate::app::App;
-use crate::dialogs::{self, DialogKind, geotag_confirm};
 use crate::state::{Bubble, DropAt, MAP_LAT_MAX, MAX_DRAFT};
 
 /// The status line with nothing geotagged.
@@ -165,6 +163,7 @@ fn map_part(app: &mut App, ui: &mut Ui, rect: Rect, places: &[markers::Place]) {
     .and_then(|[lat, lon]| Point::new(lat, lon).ok());
     // Grouped as the map is about to draw them, so a group's bubble speaks for all its places.
     let groups = widgets::group_markers(&view, rect, &marks, MARKER_GROUP);
+    ctx.data_mut(|d| d.insert_temp(map_rect_id(), rect));
     let shown = bubble::shown(app, places, &groups);
     let thumbs = match &shown {
         Some(b) => bubble::thumbs(app, &ctx, &b.ids),
@@ -221,11 +220,8 @@ fn map_part(app: &mut App, ui: &mut Ui, rect: Rect, places: &[markers::Place]) {
         crate::commands::places::close_bubble(app);
     }
     if let Some(b) = out.bubble_button.and_then(|i| shown.as_ref().and_then(|s| s.buttons.get(i))) {
-        let ids = shown.as_ref().map(|s| s.ids.clone()).unwrap_or_default();
-        // A refusal's reason is on the status line.
-        if group_action(app, &groups, b.id, ids).is_some() {
-            return;
-        }
+        // A refusal's reason is on the status line. A marker's buttons take its whole group, as
+        // the commands do.
         let _ = match b.id {
             bubble::OK_ID => app.run("places.put", &json!({})),
             bubble::SHOW_ID => app.run("places.showPhotos", &json!({})),
@@ -235,23 +231,31 @@ fn map_part(app: &mut App, ui: &mut Ui, rect: Rect, places: &[markers::Place]) {
     }
 }
 
-/// A marker bubble's Show These Photos or Remove Location on the photos `ids` it shows, when the
-/// marker whose bubble is open is drawn among `groups` as a group of several places: selects them
-/// (closing the bubble), or removes their location as one undo step, asking first past
-/// [`CLEAR_ASKS_PAST`] as for one place. `None` for any other bubble or button (the commands
-/// `places.showPhotos` and `places.removeLocation` act on the one place).
-fn group_action(app: &mut App, groups: &[MarkerGroup], button: &str, ids: Vec<PhotoId>) -> Option<Result<serde_json::Value, CmdError>> {
-    let Some(Bubble::Marker(n)) = app.state().places.bubble else { return None };
-    let n = usize::try_from(n).ok()?;
-    groups.iter().find(|g| g.members.contains(&n)).filter(|g| g.members.len() > 1)?;
-    match button {
-        bubble::SHOW_ID => Some(app.run("select.set", &json!({ "ids": ids })).inspect(|_| crate::commands::places::close_bubble(app))),
-        bubble::REMOVE_ID if ids.len() > CLEAR_ASKS_PAST => {
-            Some(dialogs::open(app, geotag_confirm::dialog(DialogKind::ClearLocation, Draft::from_iter([("ids".into(), json!(ids))]))))
-        }
-        bubble::REMOVE_ID => Some(crate::commands::places::clear_location(app, ids, false)),
-        _ => None,
-    }
+/// Where the map was last drawn, kept in the panels' context so a command between frames groups
+/// the markers as the map drew them.
+fn map_rect_id() -> Id {
+    Id::new("places.mapRect")
+}
+
+/// The map's size before it was ever drawn (headless, the pane never shown): about the map's in
+/// the side pane of a 1400 × 900 window.
+const UNDRAWN_MAP: egui::Vec2 = vec2(264.0, 560.0);
+
+/// The markers of `places` grouped as the map draws them now: at the view state's centre and zoom,
+/// in the rect the map was last drawn in ([`UNDRAWN_MAP`] centred on the origin when it never
+/// was), with ui-kit's [`widgets::group_markers`] as the pane uses.
+pub fn groups(app: &App, places: &[markers::Place]) -> Vec<MarkerGroup> {
+    let kept = app.panels().and_then(|p| p.ctx.as_ref()).and_then(|ctx| ctx.data(|d| d.get_temp::<Rect>(map_rect_id())));
+    let rect = kept.unwrap_or_else(|| Rect::from_center_size(pos2(0.0, 0.0), UNDRAWN_MAP));
+    let marks: Vec<MapMarker> = places.iter().map(|p| MapMarker { at: p.at, count: p.ids.len() }).collect();
+    widgets::group_markers(&view_of(app), rect, &marks, MARKER_GROUP)
+}
+
+/// Marker `n` as the map draws it now ([`groups`]): place `n` with every other place of its
+/// group, or alone; `None` for a marker not on the map.
+pub fn drawn(app: &App, n: usize) -> Option<markers::Place> {
+    let places = markers::places(app);
+    markers::grouped(&places, &groups(app, &places), n)
 }
 
 #[cfg(test)]
