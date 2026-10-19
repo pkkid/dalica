@@ -9388,8 +9388,26 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     canonicalise before comparing) and finish the faces test on Windows.
   - done when: a test for each fix that fails without it (the picker on a short Windows path, the
     spacing); the review gate's GitHub run green on macOS and Windows within its time limit.
+- ⬜ **M14.28 `scan` + `engine` + `ui` + docs: loose ends left by M14's tasks**
+  - after: M14.13, M14.15, M14.18, M14.19
+  - files: `crates/scan/src/walk.rs`, `crates/scan/tests/originals.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/tests/legacy.rs`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/collage_room.rs`, `docs/control-protocol.md`, `docs/data-model.md`
+  - scope: found while M14 ran (dev log): (1) the scan reads the previous organizer's kept
+    originals even with `files.readLegacyData` off: `walk.rs` calls `originals::read` where it
+    should call `originals::read_with(.., legacy)` with the scan's `Options::legacy`; (2)
+    `photo.inspect` gains the count of `legacy:` edit entries (`library.inspect` already has
+    `legacyEdits`); (3) the thumbnails panel's `begin_frame` never resets its pending count once no
+    cells are drawn, which M14.18 worked around in `app.rs` for rooms only: fix it in
+    `thumbnails.rs` and drop the workaround; (4) `control-protocol.md` §7 lists the Collage room's
+    and canvas's widget ids (`canvas:collage/handle`, `button:collageCanvas.*`, the ids in #969's
+    body) and the legacy commands; (5) `data-model.md` §9 gets M14.13's "Built" paragraph (sources
+    `legacy`/`both`, read-again on Appeared and on the option, scans never write into a
+    legacy-only folder).
+  - done when: a scan test where the option off reads no legacy original (fails before the fix);
+    an engine test for the `photo.inspect` count; the collage room test passes without the
+    `app.rs` workaround and a thumbnails test shows the pending count back to zero with no cells;
+    `cargo xtask docs` green.
 - ⬜ **M14.23 `accept M14`**
-  - after: M14.15, M14.20, M14.21, M14.22, M14.25, M14.26, M14.27
+  - after: M14.15, M14.20, M14.21, M14.22, M14.25, M14.26, M14.27, M14.28
   - files: `tests/acceptance/m14.rs`, `tests/acceptance/m14_*.rs`, `tests/acceptance/m14.md`, `tests/acceptance/fingerprints/m14-*.json`
   - scope: every *Done when* of M14's two areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a collage opened from the tray, a folder header and a
@@ -9463,7 +9481,7 @@ wave 2   M14.8 pile, grid, sheet, exposure  ‖  M14.9 mosaics  ‖  M14.10 coll
 wave 3   M14.13 legacy in the session  ‖  M14.16 collage session  ‖  M14.27 exact-name create
 wave 4   M14.15 legacy in the window  ‖  M14.17 Create, Save Draft, Edit Collage
          ‖  M14.18 Collage room  ‖  M14.19 collage canvas
-wave 5   M14.20 Collage entry points  ‖  M14.21 W15, W16  ‖  M14.22 M14 budgets
+wave 5   M14.20 Collage entry points  ‖  M14.21 W15, W16  ‖  M14.22 M14 budgets  ‖  M14.28 loose ends
 wave 6   M14.23 accept M14 → M14.R          (M14.24 lead: M15 blocks brought up to date, any time after M13.33)
 ```
 
