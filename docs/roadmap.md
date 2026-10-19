@@ -9406,7 +9406,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     an engine test for the `photo.inspect` count; the collage room test passes without the
     `app.rs` workaround and a thumbnails test shows the pending count back to zero with no cells;
     `cargo xtask docs` green.
-- ⬜ **M14.23 `accept M14`**
+- ✅ **M14.23 `accept M14`**
   - after: M14.15, M14.20, M14.21, M14.22, M14.25, M14.26, M14.27, M14.28
   - files: `tests/acceptance/m14.rs`, `tests/acceptance/m14_*.rs`, `tests/acceptance/m14.md`, `tests/acceptance/fingerprints/m14-*.json`
   - scope: every *Done when* of M14's two areas in the real `dalica --headless` over the control
