@@ -73,12 +73,22 @@ impl Proxy {
     }
 
     /// Waits (at most 30 s) until a connection beyond the first `before` arrives; the new ones.
-    pub fn wait_beyond(&self, before: usize) -> Vec<String> {
+    pub fn wait_beyond(&self, c: &mut Client, before: usize) -> Vec<String> {
+        self.wait_until(c, before, |new| !new.is_empty())
+    }
+
+    /// Waits (at most 30 s) until the connections beyond the first `before` satisfy `done`; those
+    /// connections. The app's frames run meanwhile (`ui.settle`), which also keeps the control
+    /// connection busy: the app closes one idle for 30 s (M13.R: a wait that outlasted it reset
+    /// the next request).
+    pub fn wait_until(&self, c: &mut Client, before: usize, done: impl Fn(&[String]) -> bool) -> Vec<String> {
         let end = Instant::now() + Duration::from_secs(30);
-        while self.count() <= before && Instant::now() < end {
+        let new = || self.connections().split_off(before.min(self.count()));
+        while !done(&new()) && Instant::now() < end {
+            c.ok("ui.settle", json!({ "timeoutMs": 50 }));
             std::thread::sleep(Duration::from_millis(20));
         }
-        self.connections().split_off(before.min(self.count()))
+        new()
     }
 
     /// What every launch adds so all of the app's connections come here: `HTTPS_PROXY` (and its
