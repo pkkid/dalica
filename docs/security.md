@@ -772,7 +772,8 @@ retrying. A bounded reply does not imply a bounded command cost.
   only reach files already indexed under a watched folder, so most commands need no path
   authority at all.
 - **Path-bearing commands** (add a watched folder, export destination, Save As, import source,
-  collage destination, `ui.screenshot {path}`, render-to-file) accept a path from automation only
+  a face model file to inspect or install, collage destination, `ui.screenshot {path}`,
+  render-to-file) accept a path from automation only
   if it resolves beneath a root granted at launch (`control-protocol.md` §5.7, `mcp.md` §5). One
   policy serves every surface: `dalica-engine`'s `automation` module, which the control channel
   and the MCP server call (built M10.16, after PhotoCraft's `AuthorizedWorkspace`):

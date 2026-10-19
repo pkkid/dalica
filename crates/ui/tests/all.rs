@@ -37,6 +37,7 @@ mod effect_tiles;
 mod export_dialog;
 mod export_progress;
 mod face_model_ui;
+mod face_scan_pace;
 mod first_run;
 mod folder_manager;
 mod folder_move;

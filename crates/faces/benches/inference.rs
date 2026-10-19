@@ -25,6 +25,10 @@
 //! the bench judge them itself (in release), `--plant-ms N` adds N ms to each judged median.
 //! Without `--bench` (under `cargo test --benches`) it runs a smoke pass: a 160 px detector input
 //! and the SFace shape, one sample, no AuraFace.
+//!
+//! The planted faces are placed for the 640 px side's 40-cell stride-16 grid and scaled to the
+//! grid of the side run (`planted`), so every side keeps two faces apart in the picture; a side
+//! whose grid cannot hold them apart is refused, naming it.
 
 use std::time::{Duration, Instant};
 
@@ -46,7 +50,8 @@ const AURAFACE_BUDGET_MS: f64 = 350.0;
 const SIDE: usize = 640;
 /// The picture searched: a 3:2 photo at the detector's side.
 const PICTURE: (usize, usize) = (640, 427);
-/// The two faces the detector reports (stride-16 cells, box sides in cells), as the scan bench's.
+/// The two faces the detector reports at 640 px (stride-16 cells of its 40-cell grid, box sides in
+/// cells), as the scan bench's; other sides get them scaled to their grid (`planted`).
 pub const PLANTED: [Planted; 2] = [Planted { row: 6, col: 8, side: 5.0 }, Planted { row: 6, col: 18, side: 5.0 }];
 /// The networks' seeds.
 const SEED: u32 = 2026;
@@ -58,6 +63,21 @@ struct Args {
     json: bool,
     check: bool,
     plant_ms: f64,
+}
+
+/// [`PLANTED`] scaled from the 640 px side's grid to `side`'s, or why `side` cannot hold them: a
+/// cell outside its grid, or two faces in one cell.
+fn planted(side: usize) -> Result<[Planted; 2], String> {
+    let (from, to) = (synthetic::planted_grid(SIDE), synthetic::planted_grid(side));
+    let scaled = PLANTED.map(|p| Planted { row: p.row * to / from, col: p.col * to / from, side: p.side * to as f32 / from as f32 });
+    let cells: Vec<(usize, usize)> = scaled.iter().map(|p| (p.row, p.col)).collect();
+    if let Some(p) = scaled.iter().find(|p| p.row >= to || p.col >= to) {
+        return Err(format!("--side {side}: the planted face at row {}, column {} is outside its {to} × {to} grid", p.row, p.col));
+    }
+    if cells.iter().enumerate().any(|(i, c)| cells.iter().skip(i + 1).any(|d| d == c)) {
+        return Err(format!("--side {side}: its {to} × {to} grid cannot hold the {} planted faces apart", PLANTED.len()));
+    }
+    Ok(scaled)
 }
 
 fn args() -> Result<Args, String> {
@@ -90,6 +110,7 @@ fn args() -> Result<Args, String> {
     if !(0.0..=1000.0).contains(&a.plant_ms) {
         return Err("--plant-ms must be 0..=1000".into());
     }
+    planted(a.side)?;
     Ok(a)
 }
 
@@ -124,7 +145,8 @@ fn load(shaped: &Shaped) -> (Model, Duration) {
 }
 
 fn detect(a: &Args) -> Value {
-    let shaped = synthetic::yunet_shaped(SEED, a.side, &PLANTED);
+    let planted = planted(a.side).unwrap_or_else(|e| panic!("{e}"));
+    let shaped = synthetic::yunet_shaped(SEED, a.side, &planted);
     let mut manifest = known::yunet();
     manifest.input.width = a.side as u32;
     manifest.input.height = a.side as u32;
@@ -142,7 +164,7 @@ fn detect(a: &Args) -> Value {
         times.push(t.elapsed());
         found = faces.len();
     }
-    assert_eq!(found, PLANTED.len(), "the network reports the planted faces");
+    assert_eq!(found, planted.len(), "the network reports the planted faces at --side {}", a.side);
     row(&format!("detect {}", a.side), &times, DETECT_BUDGET_MS, &shaped, took, json!({ "faces": found, "picture_px": [w, h] }))
 }
 

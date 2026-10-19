@@ -11,8 +11,9 @@
 //! **The library.** The index-only synthetic library (`dalica_engine::synthetic`, 100 photos per
 //! folder) of `--photos` photos (10 000), each with one unnamed face and a geotag, written as an
 //! index snapshot and opened (not timed). The faces are planted in groups as the face index would
-//! give them after a scan (`panels::faces::model::plant_groups`): sizes falling as 1 500 ÷ k, the
-//! largest first, a long tail of small groups. The places are a trip's: each folder's photos at 20
+//! give them after a scan (`panels::faces::model::plant_groups`): sizes falling as 1 500 ÷ k at
+//! 10 000 photos (the largest scaled with `--photos`, so a smaller library has as many groups and
+//! the grid still overflows the window), the largest first, a long tail of small groups. The places are a trip's: each folder's photos at 20
 //! points close together, the folders spread over Europe (2 000 places for 10 000 photos). There
 //! are no files: face pictures never arrive, so each face draws its placeholder.
 //!
@@ -60,7 +61,8 @@ const WINDOW: (u32, u32) = (1400, 900);
 /// Photos per folder, and places per folder.
 const PER_FOLDER: usize = 100;
 const PLACES_PER_FOLDER: usize = 20;
-/// The largest planted group: group `k` (from 1) holds 1 500 ÷ k faces.
+/// The largest planted group at [`PHOTOS`]: group `k` (from 1) holds 1 500 ÷ k faces, scaled with
+/// the library (`largest_group`).
 const LARGEST_GROUP: usize = 1_500;
 
 struct Args {
@@ -172,17 +174,24 @@ fn library(dir: &std::path::Path, photos: usize) -> (Session, Vec<PhotoId>) {
     (s, ids.into_iter().map(|(_, id)| id).collect())
 }
 
+/// The largest group for a library of `photos`: [`LARGEST_GROUP`] at [`PHOTOS`], in proportion
+/// otherwise, so every library makes about as many groups (hundreds: more than the window holds).
+fn largest_group(photos: usize) -> usize {
+    (LARGEST_GROUP * photos / PHOTOS).max(1)
+}
+
 /// The groups the face index would give the faces, by face: group `k` (from 1) takes the next
-/// 1 500 ÷ k faces in photo order, then one face a group.
+/// `largest_group` ÷ k faces in photo order, then one face a group.
 fn groups(ids: &[PhotoId]) -> Vec<(FaceRef, u64)> {
     let mut out = Vec::with_capacity(ids.len());
-    let (mut group, mut left) = (1u64, LARGEST_GROUP);
+    let largest = largest_group(ids.len());
+    let (mut group, mut left) = (1u64, largest);
     for id in ids {
         out.push((FaceRef { photo: *id, index: 0 }, group));
         left = left.saturating_sub(1);
         if left == 0 {
             group += 1;
-            left = (LARGEST_GROUP / group as usize).max(1);
+            left = (largest / group as usize).max(1);
         }
     }
     out

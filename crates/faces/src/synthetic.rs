@@ -375,6 +375,13 @@ pub struct Planted {
     pub side: f32,
 }
 
+/// The side, in cells, of the stride-16 grid [`yunet_shaped`] plants faces in for a detector input
+/// of `side` pixels (`side` rounded down to a multiple of 32, at least 32, as it builds the
+/// network): a planted cell is reported only when its row and column are below it.
+pub fn planted_grid(side: usize) -> usize {
+    side.max(32) / 32 * 32 / 16
+}
+
 /// Builds a [`Shaped`] node by node, counting its weights and multiply-adds.
 struct Builder {
     r: Seeded,
@@ -656,6 +663,7 @@ mod tests {
         let pixels = probe_picture(64, 64);
         let faces = det.detect(&Rgb { data: &pixels, width: 64, height: 64 }, &det.options()).unwrap();
         // The cell outside the 4 × 4 stride-16 grid is left out; the two inside, one face each.
+        assert_eq!(planted_grid(64), 4);
         assert_eq!(faces.len(), 2, "{faces:?}");
         let centre = |f: &crate::detect::Face| ((f.rect[0] + f.rect[2]) / 2.0, (f.rect[1] + f.rect[3]) / 2.0);
         let mut centres: Vec<_> = faces.iter().map(centre).collect();

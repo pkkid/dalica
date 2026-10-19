@@ -439,6 +439,54 @@ fn engine_execute_with_a_read_root_or_the_demo_adds_folders_and_waits_for_a_libr
 }
 
 #[test]
+fn a_face_model_file_is_read_from_automation_only_under_a_read_root() {
+    let mut t = setup_with(1, |dir| Config { read_roots: vec![dir.join("extra")], allow_external: true, ..Config::default() });
+    let (outside, inside) = (t.dir.path().join("elsewhere").join("model.onnx"), t.dir.path().join("extra").join("model.onnx"));
+    for f in [&outside, &inside] {
+        dalica_fs::create_dir_all(f.parent().unwrap()).unwrap();
+        write(f, b"not a model");
+    }
+    // The window's commands that open the dialog on a file, and the engine's that read one.
+    for (command, param) in
+        [("faceModel.addFile", "path"), ("faceModel.open", "file"), ("faces.models.inspect", "path"), ("faces.models.install", "path")]
+    {
+        let mut params = serde_json::Map::new();
+        params.insert(param.into(), json!(outside));
+        refused(&mut t, "engine.execute", json!({ "command": command, "params": params }), "path_denied");
+    }
+    assert!(t.d.state().dialogs.is_empty() && t.d.state().face_model.is_none(), "no dialog opened");
+    ok(&mut t, "engine.execute", json!({ "command": "faceModel.addFile", "params": { "path": inside } }));
+    assert_eq!(t.d.state().dialogs.last().map(|d| d.kind), Some(crate::state::DialogKind::FaceModel));
+    assert_eq!(t.d.state().face_model.as_ref().and_then(|m| m.file.clone()), Some(inside), "the dialog is on the file");
+}
+
+#[test]
+fn add_model_over_automation_installs_only_the_file_the_dialog_opened_on() {
+    let mut t = setup_with(1, |dir| Config { read_roots: vec![dir.join("extra")], allow_external: true, ..Config::default() });
+    let (outside, inside) = (t.dir.path().join("elsewhere").join("model.onnx"), t.dir.path().join("extra").join("model.onnx"));
+    for f in [&outside, &inside] {
+        dalica_fs::create_dir_all(f.parent().unwrap()).unwrap();
+        write(f, dalica_faces::synthetic::embedder_model(128));
+    }
+    ok(&mut t, "engine.execute", json!({ "command": "faceModel.addFile", "params": { "path": inside } }));
+    // The draft, rewritten after the dialog opened on the allowed file: ticked, another file.
+    ok(&mut t, "ui.set", json!({ "faceModel": { "file": outside, "accepted": true } }));
+    let install = "button:dialog.install";
+    let enabled = |d: &Driver| registry::widgets(d.ctx()).iter().any(|w| w.id == install && w.enabled);
+    for _ in 0..3600 {
+        if enabled(&t.d) {
+            break;
+        }
+        t.d.step();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(enabled(&t.d), "Add Model is enabled once the file was looked at");
+    ok(&mut t, "ui.clickWidget", json!({ "id": install }));
+    let status = t.d.state().status.clone();
+    assert!(status.contains("not the file this dialog opened on"), "Add Model refused the changed file: {status}");
+}
+
+#[test]
 fn engine_commands_lists_engine_and_ui_commands_with_effective_shortcuts() {
     let mut t = setup(1);
     let all = ok(&mut t, "engine.commands", json!({}));

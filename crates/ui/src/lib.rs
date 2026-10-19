@@ -26,6 +26,7 @@ pub mod state;
 pub mod status_text;
 pub mod titlebar;
 pub mod tray;
+pub mod user_activity;
 
 pub use app::App;
 pub use headless::{Driver, DriverError};

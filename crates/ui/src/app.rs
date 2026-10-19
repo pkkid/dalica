@@ -59,6 +59,8 @@ pub struct App {
     /// frame clock's time of the first opening frame.
     opening_detail: Option<String>,
     opening_since: Option<f64>,
+    /// The user's input as last reported to the face scan (`crate::user_activity`).
+    activity: crate::user_activity::Reporter,
 }
 
 /// The persisted part of the view state: the window's (M3) and the library view's options (M4).
@@ -95,6 +97,7 @@ impl App {
             now: 0.0,
             opening_detail: None,
             opening_since: None,
+            activity: Default::default(),
         };
         app.show_open_viewer();
         app
@@ -485,6 +488,8 @@ impl App {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
             return;
         };
+        // The face scan's pace follows the user: this frame's input, read before anything takes it.
+        self.activity.frame(session, &self.state, ui.ctx());
         session.poll();
         let now = ui.input(|i| i.time);
         self.now = now;

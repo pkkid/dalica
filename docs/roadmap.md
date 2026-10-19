@@ -8642,7 +8642,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
     M15 tasks as planned.
-- ⬜ **M13.51 `faces` + `ui`: fixes found by accept M13: the two benches' debug runs, the scan's pace from the window, a model file's path under the read roots**
+- ✅ **M13.51 `faces` + `ui`: fixes found by accept M13: the two benches' debug runs, the scan's pace from the window, a model file's path under the read roots**
   - after: M13.32
   - files: `crates/faces/benches/inference.rs`, `crates/faces/src/synthetic.rs`, `crates/ui/benches/people_places.rs`, `crates/ui/src/user_activity.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/face_scan_pace.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/tests.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/tests/roots.rs`, `docs/control-protocol.md`, `docs/security.md`
   - scope: four bugs M13.32 (`accept M13`, #908) found. (1) **The `inference` bench's debug run:**
