@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use dalica_core::geo::{GeoBox, LatLon, Tile, tiles_covering};
+use dalica_engine::geocode;
 use dalica_engine::map_tiles::{self, MAX_TILE_BYTES, MapTile, SharedTransport};
 use dalica_engine::{CmdError, Session};
 use dalica_fetch::{Limits, MemoryTransport, Reply, Request, Served, Transport, TransportError};
@@ -30,10 +31,12 @@ const WAIT: Duration = Duration::from_secs(30);
 const SERVER: &str = "https://tiles.test/{z}/{x}/{y}.png";
 const GEOCODER: &str = "https://geo.test/search?format=jsonv2&q={query}";
 
-/// The in-memory transport, counting requests, how many run at once, and when each was made.
+/// The in-memory transport, counting requests, how many run at once, and when each reached the
+/// server. `lead` holds the first request back before it arrives (a slow connection's set-up).
 struct Counting {
     inner: MemoryTransport,
     delay: Duration,
+    lead: Mutex<Option<Duration>>,
     active: AtomicUsize,
     most: AtomicUsize,
     seen: Mutex<Vec<(String, Instant)>>,
@@ -44,6 +47,7 @@ impl Counting {
         Arc::new(Counting {
             inner: MemoryTransport::new(),
             delay,
+            lead: Mutex::new(None),
             active: AtomicUsize::new(0),
             most: AtomicUsize::new(0),
             seen: Mutex::new(Vec::new()),
@@ -61,6 +65,8 @@ impl Counting {
 
 impl Transport for Counting {
     fn get(&self, request: &Request, limits: &Limits<'_>) -> Result<Reply, TransportError> {
+        let lead = self.lead.lock().unwrap().take();
+        std::thread::sleep(lead.unwrap_or_default());
         self.seen.lock().unwrap().push((request.url().to_string(), Instant::now()));
         let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
         self.most.fetch_max(now, Ordering::SeqCst);
@@ -303,12 +309,14 @@ fn typed_coordinates_are_found_without_a_request() {
 }
 
 /// A place name asked from the open pane goes to the geocoding service on a worker and lists its
-/// places; asked again, it is answered from memory; two requests are at least a second apart;
-/// hostile replies (too deep, too large, not JSON) are errors, never a panic.
+/// places; asked again, it is answered from memory; two requests arrive at least a second apart,
+/// also when the first is slow to arrive (the interval runs from a request's end, not from its
+/// turn); hostile replies (too deep, too large, not JSON) are errors, never a panic.
 #[test]
 fn a_place_name_is_looked_up_once_and_hostile_replies_are_refused() {
     let (lib, cache) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let t = Counting::new(Duration::ZERO);
+    *t.lead.lock().unwrap() = Some(Duration::from_millis(300));
     let geo = |q: &str| format!("https://geo.test/search?format=jsonv2&q={q}");
     t.inner.serve(
         &geo("Lisbon"),
@@ -343,7 +351,7 @@ fn a_place_name_is_looked_up_once_and_hostile_replies_are_refused() {
     assert_eq!(seen.len(), 4);
     for pair in seen.windows(2) {
         let gap = pair[1].1.duration_since(pair[0].1);
-        assert!(gap >= Duration::from_millis(990), "{gap:?} between two requests to the service");
+        assert!(gap >= geocode::MIN_INTERVAL, "{gap:?} between two requests to the service");
     }
     // Nothing of a hostile reply is kept.
     let kept = off_owner(|| walk_names(cache.path()));

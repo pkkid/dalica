@@ -104,8 +104,31 @@ fn with_path(params: &Value, path: &std::path::Path) -> Value {
     Value::Object(obj)
 }
 
-/// Asks the user for things the OS has dialogs for. Called off the UI thread; may block.
+/// A dialog about to open, as [`Picker::opening`] is told.
+#[derive(Debug, Clone, Copy)]
+pub enum Ask<'a> {
+    /// Add Folder.
+    Folder,
+    FolderFor(&'a FolderRequest),
+    Save(&'a SaveRequest),
+    File(&'a OpenRequest),
+}
+
+/// Asks the user for things the OS has dialogs for. The dialogs are called off the UI thread and
+/// may block.
 pub trait Picker: Send + Sync {
+    /// Called by [`Pending`] on the opener's thread just before the dialog's own thread starts, so a
+    /// picker can show the dialog as open from the moment the call that opened it returns (the
+    /// automation stub does: a `ui.filePicker` sent right after the command finds it, however late
+    /// the dialog's thread starts). By default nothing.
+    fn opening(&self, ask: Ask<'_>) {
+        let _ = ask;
+    }
+
+    /// The dialog [`Picker::opening`] announced did not open (its thread could not start). By
+    /// default nothing.
+    fn not_opened(&self) {}
+
     /// A folder to add, or `None` if the user cancelled.
     fn pick_folder(&self) -> Option<PathBuf>;
 
@@ -188,36 +211,43 @@ pub struct Pending {
 impl Pending {
     /// Starts `pick_folder` on a new thread. `None` if the thread could not start.
     pub fn pick_folder(picker: &Arc<dyn Picker>) -> Option<Pending> {
-        let picker = Arc::clone(picker);
-        Pending::spawn(move || picker.pick_folder())
+        picker.opening(Ask::Folder);
+        let asked = Arc::clone(picker);
+        Pending::spawn(picker, move || asked.pick_folder())
     }
 
     /// Starts `pick_folder_for` on a new thread. `None` if the thread could not start.
     pub fn pick_folder_for(picker: &Arc<dyn Picker>, request: FolderRequest) -> Option<Pending> {
-        let picker = Arc::clone(picker);
-        Pending::spawn(move || picker.pick_folder_for(&request))
+        picker.opening(Ask::FolderFor(&request));
+        let asked = Arc::clone(picker);
+        Pending::spawn(picker, move || asked.pick_folder_for(&request))
     }
 
     /// Starts `pick_save` on a new thread. `None` if the thread could not start.
     pub fn pick_save(picker: &Arc<dyn Picker>, request: SaveRequest) -> Option<Pending> {
-        let picker = Arc::clone(picker);
-        Pending::spawn(move || picker.pick_save(&request))
+        picker.opening(Ask::Save(&request));
+        let asked = Arc::clone(picker);
+        Pending::spawn(picker, move || asked.pick_save(&request))
     }
 
     /// Starts `pick_file` on a new thread. `None` if the thread could not start.
     pub fn pick_file(picker: &Arc<dyn Picker>, request: OpenRequest) -> Option<Pending> {
-        let picker = Arc::clone(picker);
-        Pending::spawn(move || picker.pick_file(&request))
+        picker.opening(Ask::File(&request));
+        let asked = Arc::clone(picker);
+        Pending::spawn(picker, move || asked.pick_file(&request))
     }
 
-    fn spawn(ask: impl FnOnce() -> Option<PathBuf> + Send + 'static) -> Option<Pending> {
+    /// Runs `ask` on the dialog's own thread; when the thread cannot start, `picker` hears that
+    /// the dialog it was told about did not open.
+    fn spawn(picker: &Arc<dyn Picker>, ask: impl FnOnce() -> Option<PathBuf> + Send + 'static) -> Option<Pending> {
         let (tx, rx) = mpsc::channel();
-        std::thread::Builder::new()
-            .name("dalica-dialog".into())
-            .spawn(move || {
-                let _ = tx.send(ask());
-            })
-            .ok()?;
+        let started = std::thread::Builder::new().name("dalica-dialog".into()).spawn(move || {
+            let _ = tx.send(ask());
+        });
+        if started.is_err() {
+            picker.not_opened();
+            return None;
+        }
         Some(Pending { rx })
     }
 
