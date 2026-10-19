@@ -1,4 +1,5 @@
-//! `ui.state`, `ui.set`, `ui.inspect` and `ui.widgets` (`control-protocol.md` §6.5–§6.7).
+//! `ui.state`, `ui.set`, `ui.inspect` and `ui.widgets` (`control-protocol.md` §6.5–§6.7), and the
+//! check that `ui.clickWidget`'s widget is not under an open dialog (§6.8).
 
 use dalica_ui_kit::WidgetInfo;
 use dalica_ui_kit::registry::{self, Role};
@@ -246,7 +247,7 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         "focused": focused,
         "filePicker": call.control.stub().waiting(),
         "toasts": call.host.app().notices().inspect(call.host.ctx().input(|i| i.time)),
-        "jobs": super::jobs::list(call.host),
+        "jobs": super::jobs::list_reply(call.host, call.control.config()),
         "dialog": crate::dialogs::inspect(call.host.app()),
         "drag": crate::drag::inspect(call.host.app()),
         "popup": popup(&widgets),
@@ -330,6 +331,38 @@ fn perf(call: &Call<'_>) -> Value {
         obj.extend(extra);
     }
     perf
+}
+
+/// `ui.clickWidget` (§6.8): the click `input` checks and plays, refused (`disabled`, before any
+/// frame) when the widget lies under the open dialog, whose backdrop would take the click.
+pub(super) fn click_widget(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
+    let outcome = super::input::click_widget(call, params)?;
+    if let Some(id) = params.get("id").and_then(Value::as_str) {
+        under_dialog(call, id)?;
+    }
+    Ok(outcome)
+}
+
+/// `disabled` naming the top dialog when widget `id` lies under it: drawn before the dialog's
+/// backdrop in the last frame (the widgets are listed in paint order, and the dialogs are drawn
+/// last, the top one last of all), so the backdrop takes every click meant for it. The dialog's
+/// own widgets and its popups come after its backdrop. Named by its id only: a dialog's title may
+/// hold a person's name (§6.4).
+fn under_dialog(call: &Call<'_>, id: &str) -> Result<(), Error> {
+    let Some(top) = crate::dialogs::top(call.host.app()) else { return Ok(()) };
+    let dialog = crate::dialogs::widget_id(top.kind);
+    let backdrop = format!("{dialog}/backdrop");
+    let widgets = registry::widgets(call.host.ctx());
+    let (Some(b), Some(w)) = (widgets.iter().rposition(|w| w.id == backdrop), widgets.iter().rposition(|w| w.id == id)) else { return Ok(()) };
+    if w < b {
+        return Err(Error::new(
+            Code::Disabled,
+            format!(
+                "widget `{id}` is under the open dialog `{dialog}`, which takes the click; answer it first (ui.dialog.confirm, ui.dialog.cancel)"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]

@@ -1307,3 +1307,75 @@ fn options_that_reach_outside_and_the_panes_allow_need_the_external_permission()
     ok(&mut t, "engine.execute", json!({ "command": "options.set", "params": { "values": { "network.allowMapTiles": true } } }));
     assert!(t.d.app().session().unwrap().map_tiles_allowed(), "granted: it runs");
 }
+
+/// An export of a person's section confirmed over automation makes its folder under her name
+/// (§6.4, §6.13): without `--automation-allow-people` `jobs.wait`, `jobs.list` and `ui.inspect`'s
+/// `jobs` give that job's `folder`, `name` and `written` as `null`, its counts kept; with it, her
+/// name. Known by the job, not by its text: an export of the folder's section named "Ana" by the
+/// client reads "Ana" either way.
+#[test]
+fn a_persons_export_job_keeps_her_folder_name_from_automation_without_the_people_permission() {
+    for allow in [false, true] {
+        let at = format!("allow_people {allow}");
+        let mut t = setup_with(2, |_| Config { allow_people: allow, ..Config::default() });
+        let out = t.dir.path().join("out");
+        let s = t.d.app_mut().session_mut().unwrap();
+        let face = s.execute("faces.add", &json!({ "id": t.ids[0], "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap()["face"].clone();
+        let ana = s.execute("faces.name", &json!({ "faces": [face], "name": "Ana", "create": true })).unwrap()["person"].clone();
+        let folder = s.library().folder_by_path(&t.folder).unwrap();
+        t.d.settle(600).unwrap();
+        let export = |t: &mut T, section: String, name: Option<&str>| -> Value {
+            ok(t, "engine.execute", json!({ "command": "output.export", "params": { "section": section } }));
+            let mut draft = json!({ "location": out });
+            if let Some(n) = name {
+                draft["folderName"] = json!(n);
+            }
+            ok(t, "ui.set", json!({ "export": draft }));
+            let job = ok(t, "ui.dialog.confirm", json!({}))["job"].clone();
+            ok(t, "jobs.wait", json!({ "job": job }))
+        };
+
+        let hers = export(&mut t, format!("person:{}", ana.as_str().unwrap()), None);
+        let result = &hers["result"];
+        assert_eq!(result["done"], json!(1), "{at}: {hers}");
+        let (name, folder_path, written) = (result["name"].clone(), result["folder"].clone(), result["written"].clone());
+        if allow {
+            assert_eq!(name, json!("Ana"), "{at}");
+            assert_eq!(folder_path, json!(out.join("Ana")), "{at}");
+            assert_eq!(written.as_array().map(Vec::len), Some(1), "{at}");
+        } else {
+            assert_eq!((name, folder_path, written), (Value::Null, Value::Null, Value::Null), "{at}: {hers}");
+            assert!(out.join("Ana").is_dir(), "{at}: the export itself is made as asked");
+        }
+        let listed = ok(&mut t, "jobs.list", json!({})).to_string();
+        let inspected = ok(&mut t, "ui.inspect", json!({}))["jobs"].to_string();
+        for (what, text) in [("jobs.list", listed), ("ui.inspect", inspected)] {
+            assert_eq!(text.contains("Ana"), allow, "{at}: {what}: {text}");
+        }
+
+        // The folder's own section exported as "Ana" by the client: its job is not hers.
+        let ours = export(&mut t, format!("folder:{folder}"), Some("Ana"));
+        assert_eq!(ours["result"]["name"], json!("Ana-001"), "{at}: {ours}");
+        assert_eq!(ours["result"]["written"].as_array().map(Vec::len), Some(2), "{at}");
+    }
+}
+
+/// `ui.clickWidget` on a widget an open dialog covers is `disabled`, naming the dialog by its id,
+/// and runs no frame (§6.8): the dialog's backdrop would take the click and nothing happen. The
+/// dialog's own buttons are clicked as before, and once it is closed the widget is too.
+#[test]
+fn a_click_on_a_widget_under_an_open_dialog_is_refused_naming_the_dialog() {
+    let mut t = setup(2);
+    let thumb = thumb(t.ids[0]);
+    ok(&mut t, "engine.execute", json!({ "command": "app.about", "params": {} }));
+    t.d.settle(60).unwrap();
+    assert!(t.d.widgets().iter().any(|w| w.id == thumb), "drawn under the dialog");
+    let e = refused(&mut t, "ui.clickWidget", json!({ "id": thumb }), "disabled");
+    assert!(e.message.contains("`dialog:about`"), "{e}");
+    assert!(t.d.state().selection.ids.is_empty(), "nothing selected");
+    let close = crate::dialogs::inspect(t.d.app())["buttons"][0].as_str().unwrap().to_string();
+    ok(&mut t, "ui.clickWidget", json!({ "id": close }));
+    assert!(t.d.state().dialogs.is_empty(), "the dialog's own button is clicked");
+    ok(&mut t, "ui.clickWidget", json!({ "id": thumb }));
+    assert_eq!(t.d.state().selection.ids, [PhotoId::new(t.ids[0])]);
+}
