@@ -4,13 +4,15 @@
 #
 # Every other run is a dry run that still builds, checksums and verifies: a manual run on any other
 # branch, and a pull request that touches packaging/, the workflows or the icons. In a dry run the
-# signing jobs are skipped (and the `release` environment, restricted to the `release` branch, would
-# refuse them), so the draft job, which needs them, is skipped too.
+# Windows signing job runs without the `release` environment and without its secrets, signing with
+# a throwaway self-signed certificate it makes itself (trusted on that runner only), so the signing
+# path runs on every packaging pull request; the macOS signing job is skipped (and the `release`
+# environment, restricted to the `release` branch, would refuse it), and the draft job never runs.
 #
 # Least privilege: the workflow reads (`contents: read`); the build jobs read no secrets and run
-# without the `release` environment; only the signing jobs use that environment and its secrets,
-# each secret optional (a missing one is a ::warning:: and an unsigned artifact); only the draft
-# job gets `contents: write`. Inputs reach scripts through `env`, never through `${{ }}` inside a
+# without the `release` environment; only the signing jobs of a release run use that environment
+# and its secrets, each secret optional (a missing one is a ::warning:: and an unsigned artifact);
+# only the draft job gets `contents: write`. Inputs reach scripts through `env`, never through `${{ }}` inside a
 # script. Actions are pinned to full commit hashes (docs/security.md §8.5).
 #
 # Adapted from LightCraft .github/workflows/release.yml @ 25ef65c8 (MIT OR Apache-2.0): the version
@@ -203,14 +205,24 @@ jobs:
           CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
           CRAFT_FONTS_REQUIRED: "1"
           ARCH: ${{ matrix.arch }}
-        run: ./packaging/windows/package.ps1 -Arch $env:ARCH
-      # Unsigned here; on the release branch the signing job replaces it with the signed set.
+        run: ./packaging/windows/package.ps1 -Arch $env:ARCH -NoSign
+      # Unsigned here; the signing job replaces it with the set it builds from the stage below.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows-${{ matrix.arch }}
           path: dist/release/*
           if-no-files-found: error
           retention-days: 14
+      # The tested programs and licence files, for the signing job to sign and package (not a
+      # release asset: the checksum and draft jobs take `release-*` only).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stage-windows-${{ matrix.arch }}
+          path: |
+            target/windows-package/${{ matrix.arch }}/bin/
+            target/windows-package/${{ matrix.arch }}/doc/
+          if-no-files-found: error
+          retention-days: 3
 
   macos:
     name: build macOS universal
@@ -255,48 +267,57 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # The signing jobs: the only jobs in the `release` environment and the only ones that see its
-  # secrets. Signing and notarization arrive in M15 (docs/releasing.md → Secrets); until then they
-  # report which secrets are configured, state every artifact as unsigned in the summary, and pass
-  # the set through unchanged, so the draft job's inputs are already the signed jobs' outputs.
-  # One job per Windows architecture the build matrix makes (x64 only until ARM64 lands).
+  # The signing jobs: in a release run the only jobs in the `release` environment and the only
+  # ones that see its secrets. One job per Windows architecture the build matrix makes (x64 only
+  # until ARM64 lands).
+  #
+  # Windows (M15.10): sign.ps1 signs dalica.exe and dalica-cli.exe from the build job's stage, the
+  # MSI is built around the signed programs and signed, the portable zip is made again, and
+  # test-sign.ps1 checks every signature (package.ps1 -FromStage). A release run signs with the
+  # `.pfx` (WINDOWS_CERTIFICATE) or Azure Trusted Signing (the AZURE_* secrets), whichever is set,
+  # and without either leaves the set unsigned with a ::warning:: naming each file. A dry run never
+  # reads those secrets: it signs with a throwaway self-signed certificate made in the job
+  # (sign.ps1 -Throwaway), and its output is never drafted. The checksum job runs after this one,
+  # so SHA256SUMS.txt is written over the signed set.
   sign-windows:
     name: sign Windows x64
     needs: [version, windows]
-    if: needs.version.outputs.real == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
-    environment: release
+    # A release run only; an empty name runs the dry run without an environment.
+    environment: ${{ needs.version.outputs.real == 'true' && 'release' || '' }}
+    env:
+      DALICA_VERSION: ${{ needs.version.outputs.version }}
+      DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
+      REAL: ${{ needs.version.outputs.real }}
     steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-windows-x64
-          path: dist/release
-      - name: Signing state
-        shell: bash
+          name: stage-windows-x64
+          path: stage
+      - name: Sign and package
+        shell: pwsh
+        # The secrets reach the scripts only through these variables, and only in a release run.
         env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+          WINDOWS_CERTIFICATE: ${{ needs.version.outputs.real == 'true' && secrets.WINDOWS_CERTIFICATE || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+          AZURE_TENANT_ID: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_SIGNING_ENDPOINT: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_SIGNING_ENDPOINT || '' }}
+          AZURE_SIGNING_ACCOUNT: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_SIGNING_ACCOUNT || '' }}
+          AZURE_CERT_PROFILE: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_CERT_PROFILE || '' }}
         run: |
-          pfx=false azure=false
-          if [ -n "$WINDOWS_CERTIFICATE" ] && [ -n "$WINDOWS_CERTIFICATE_PASSWORD" ]; then pfx=true; fi
-          if [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ] &&
-            [ -n "$AZURE_SIGNING_ENDPOINT" ] && [ -n "$AZURE_SIGNING_ACCOUNT" ] && [ -n "$AZURE_CERT_PROFILE" ]; then azure=true; fi
-          if [ "$pfx" = false ] && [ "$azure" = false ]; then
-            echo "::warning::No Windows signing secrets (WINDOWS_CERTIFICATE + WINDOWS_CERTIFICATE_PASSWORD, or the six AZURE_* secrets): the Windows artifacts are unsigned."
-          else
-            echo "::warning::Windows signing secrets are configured, but signing arrives in M15: the Windows artifacts are unsigned."
-          fi
-          {
-            echo "#### Windows signature state"
-            for f in dist/release/*; do echo "- \`${f##*/}\`: unsigned"; done
-          } >>"$GITHUB_STEP_SUMMARY"
+          if ($env:REAL -ne 'true') {
+            Write-Output 'Dry run: signing with a throwaway self-signed certificate (never trusted elsewhere, never drafted)'
+            ./packaging/windows/sign.ps1 -Throwaway
+          }
+          Remove-Item -Recurse -Force dist/release -ErrorAction SilentlyContinue
+          ./packaging/windows/package.ps1 -Arch x64 -FromStage stage -NoTest
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows-x64
@@ -305,6 +326,8 @@ jobs:
           overwrite: true
           retention-days: 14
 
+  # macOS: signing and notarization arrive in M15.13; until then the job reports which secrets are
+  # configured, states every artifact as unsigned in the summary, and passes the set through.
   sign-macos:
     name: sign macOS universal
     needs: [version, macos]
@@ -353,8 +376,9 @@ jobs:
           overwrite: true
           retention-days: 14
 
-  # SHA256SUMS.txt over the complete artifact set: the signed set on the release branch, the
-  # unsigned build outputs in a dry run (the signing jobs are skipped there, never failed).
+  # SHA256SUMS.txt over the complete artifact set, written after signing: the signed set on the
+  # release branch; in a dry run the Windows set signed with the throwaway certificate and the
+  # other build outputs as built (the macOS signing job is skipped there, never failed).
   checksums:
     name: checksums
     needs: [version, linux, windows, macos, sign-windows, sign-macos]
@@ -473,7 +497,7 @@ jobs:
             gh release create "$tag" --draft --title "$title" --target "$GITHUB_SHA" --generate-notes "${pre[@]}" -- *
           fi
           {
-            echo "Draft release **$title** at \`${GITHUB_SHA::9}\` (unsigned until M15):"
+            echo "Draft release **$title** at \`${GITHUB_SHA::9}\` (each platform's signature state is in its signing job's summary):"
             echo
             sed 's/^/    /' SHA256SUMS.txt
           } >>"$GITHUB_STEP_SUMMARY"
