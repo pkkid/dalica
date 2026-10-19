@@ -2,7 +2,8 @@
 //! selection, or, with nothing selected, of the folder selected in the tree. Photos at the same
 //! point (six decimals, a geotag's precision) are one place, one marker `marker:<n>`: `n` is the
 //! place's number in [`places`], in the order its first photo comes in the selection (or the
-//! folder). The map draws markers close on screen as one; a group goes by its first place's number.
+//! folder). The map draws markers close on screen as one; a group goes by its first place's number,
+//! and its bubble speaks for every place in it ([`grouped`]).
 //!
 //! Worked out from the library's model alone (a lookup per photo, never the files); the pane keeps
 //! the result for a library revision and a selection ([`cached`]), so a frame costs nothing more
@@ -15,6 +16,7 @@ use std::sync::Arc;
 use dalica_core::PhotoId;
 use dalica_core::geo::LatLon;
 use dalica_library::Library;
+use dalica_ui_kit::widgets::MarkerGroup;
 use egui::Id;
 
 use crate::app::App;
@@ -69,6 +71,17 @@ pub fn places(app: &App) -> Vec<Place> {
         Some(s) => places_of(s.library(), &photos(app)),
         None => Vec::new(),
     }
+}
+
+/// Marker `n` as the map draws it among `groups`: the place `n` merged with the other places of
+/// its group, their photos in the group's order (the group's first place's point); `n` alone when
+/// no group holds it. `None` for a marker not on the map.
+pub fn grouped(places: &[Place], groups: &[MarkerGroup], n: usize) -> Option<Place> {
+    let own = places.get(n)?;
+    let Some(group) = groups.iter().find(|g| g.members.contains(&n)) else { return Some(own.clone()) };
+    let members: Vec<&Place> = group.members.iter().filter_map(|&i| places.get(i)).collect();
+    let at = members.first().map_or(own.at, |p| p.at);
+    Some(Place { at, ids: members.iter().flat_map(|p| p.ids.iter().copied()).collect() })
 }
 
 /// The places of [`places`], worked out again only when the library's revision, the selection or
@@ -138,5 +151,23 @@ mod tests {
         assert_eq!(cached(&app, &ctx).len(), 2);
         app.run("geo.clear", &json!({ "ids": [n[1]] })).unwrap();
         assert_eq!(cached(&app, &ctx).len(), 1);
+    }
+
+    #[test]
+    fn a_grouped_marker_holds_every_photo_of_its_places() {
+        let at = |lat, lon| LatLon::new(lat, lon).unwrap();
+        let id = PhotoId::new;
+        let places = [
+            Place { at: at(1.0, 1.0), ids: vec![id(1), id(2)] },
+            Place { at: at(2.0, 2.0), ids: vec![id(3)] },
+            Place { at: at(3.0, 3.0), ids: vec![id(4)] },
+        ];
+        let g = |members: Vec<usize>| MarkerGroup { id: members[0], members, count: 0, at: egui::Pos2::ZERO };
+        let groups = [g(vec![0, 2]), g(vec![1])];
+        assert_eq!(grouped(&places, &groups, 0), Some(Place { at: at(1.0, 1.0), ids: vec![id(1), id(2), id(4)] }));
+        assert_eq!(grouped(&places, &groups, 2).map(|p| p.ids.len()), Some(3), "any member speaks for the group");
+        assert_eq!(grouped(&places, &groups, 1).map(|p| p.ids), Some(vec![id(3)]));
+        assert_eq!(grouped(&places, &[], 2).map(|p| p.ids), Some(vec![id(4)]), "no group drawn: the place alone");
+        assert_eq!(grouped(&places, &groups, 3), None);
     }
 }

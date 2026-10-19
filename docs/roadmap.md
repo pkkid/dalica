@@ -9440,7 +9440,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     with its sound, the first languages; M15.1 records the answers).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the
     M15 tasks as planned.
-- ⬜ **M14.29 `ui`: a grouped Places marker's bubble counts every photo the marker counts**
+- ✅ **M14.29 `ui`: a grouped Places marker's bubble counts every photo the marker counts**
   - after: M13.R
   - files: `crates/ui/src/panels/places/bubble.rs`, `crates/ui/src/panels/places/markers.rs`, `crates/ui/src/panels/places.rs`, `crates/ui/tests/places_pane.rs`
   - scope: bug reported by the maintainer (2026-10-19), seen while taking the 0.8.0 website
