@@ -3,7 +3,10 @@
 //!
 //! - every option the build can change set to another value with one `options.set`, read back by
 //!   `options.list`, then again after a restart, while the keys `settings.json` held that Dalica
-//!   does not know stay in the file verbatim, and back to every default at the end;
+//!   does not know stay in the file verbatim, and back to every default at the end; the options
+//!   that let Dalica reach outside (`control-protocol.md` §5.6, M13.28) are refused with
+//!   `external_denied` to automation started without `--automation-allow-external`, so the
+//!   sessions that set every option are started with it;
 //! - Star rebound to F8 through `app.setShortcut`: F8 pressed headless stars the selected photo and
 //!   Ctrl+8 no longer does; Ctrl+1 for Star in the Library refused with the editor's sentence
 //!   naming Small Thumbnails, then taken with `replace`, and Ctrl+1 stars; both keys kept across a
@@ -14,6 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use dalica_engine::automation::EXTERNAL_OPTIONS;
 use serde_json::{Map, Value, json};
 
 use crate::app::{self, click, dialog, key, run, secs};
@@ -98,8 +102,11 @@ fn press_on(c: &mut Client, id: &Value, combo: &str) -> bool {
     starred(c, id)
 }
 
-fn start(exe: &Path, home: &Path) -> (live::App, Client) {
-    let (a, mut c) = live::start(exe, home);
+/// The permission that lets automation change the options of [`EXTERNAL_OPTIONS`].
+const ALLOW_EXTERNAL: &str = "--automation-allow-external";
+
+fn start(exe: &Path, home: &Path, extra: &[&str]) -> (live::App, Client) {
+    let (a, mut c) = live::start_args(exe, home, extra);
     app::idle(&mut c);
     (a, c)
 }
@@ -111,8 +118,28 @@ pub fn preferences(exe: &Path, home: &Path) {
     std::fs::create_dir_all(&out).unwrap();
 
     // Session 1: the library and its folder; then keys of a later version in settings.json.
-    let (a, mut cl) = start(exe, home);
+    // Started without --automation-allow-external: each option that lets Dalica reach outside is
+    // refused, alone and with the others, and nothing changes.
+    let (a, mut cl) = start(exe, home, &[]);
     run(&mut cl, "folders.add", json!({ "path": folder }));
+    let before = values(&mut cl);
+    let external: Map<String, Value> = rows(&mut cl)
+        .into_iter()
+        .filter(|r| EXTERNAL_OPTIONS.contains(&r["key"].as_str().unwrap_or_default()))
+        .filter_map(|r| Some((r["key"].as_str()?.to_string(), other(&r, &out)?)))
+        .collect();
+    assert_eq!(external.len(), EXTERNAL_OPTIONS.len(), "options.list has every network option: {external:?}");
+    for (k, v) in &external {
+        let r = cl.refused("options.set", json!({ "values": { k.clone(): v.clone() } }));
+        assert_eq!(r["code"], "external_denied", "{k} without {ALLOW_EXTERNAL}: {r}");
+        assert!(r["error"].as_str().unwrap().contains(k.as_str()), "the refusal names {k}: {r}");
+    }
+    let mut mixed = external.clone();
+    mixed.insert("interface.tooltips".into(), json!(false));
+    let r = cl.refused("options.set", json!({ "values": mixed }));
+    assert_eq!(r["code"], "external_denied", "{r}");
+    assert_eq!(values(&mut cl), before, "a refused options.set changes nothing");
+    println!("  without {ALLOW_EXTERNAL}: the {} network options refused with external_denied, nothing changed", external.len());
     live::quit(a, cl);
     let mut doc: Value = std::fs::read(settings_file(home)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}));
     doc["future"] = serde_json::from_str(UNKNOWN[0].1).unwrap();
@@ -123,7 +150,7 @@ pub fn preferences(exe: &Path, home: &Path) {
     std::fs::write(settings_file(home), serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
 
     // Session 2.
-    let (a, mut cl) = start(exe, home);
+    let (a, mut cl) = start(exe, home, &[ALLOW_EXTERNAL]);
     let c = &mut cl;
     let photos = app::photos(c, &home.join("Pictures"));
     let id = photos["Harbour/a.jpg"].id.clone();
@@ -192,7 +219,7 @@ pub fn preferences(exe: &Path, home: &Path) {
     unknown_kept(home, "after the quit");
 
     // Session 3: the options and both keys survived the restart.
-    let (a, mut cl) = start(exe, home);
+    let (a, mut cl) = start(exe, home, &[ALLOW_EXTERNAL]);
     let c = &mut cl;
     let now = values(c);
     for (k, v) in &set {
