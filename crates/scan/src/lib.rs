@@ -35,6 +35,7 @@ pub mod devices;
 mod diff;
 pub mod facts;
 pub mod import;
+pub mod legacy;
 pub mod meta;
 pub mod originals;
 pub mod rules;

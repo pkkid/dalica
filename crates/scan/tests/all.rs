@@ -8,6 +8,7 @@ mod devices;
 mod facts;
 mod import_source;
 mod incremental;
+mod legacy;
 mod meta;
 mod originals;
 mod rules;

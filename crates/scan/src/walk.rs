@@ -8,7 +8,7 @@
 //! is read ([`scan_streaming`]), so a caller can show them while the walk goes on.
 
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use dalica_core::geo::LatLon;
 use dalica_core::{AlbumId, Clock, DateTime, PersonId, PosKey, Rect01, SystemClock, Timestamp};
 use dalica_fs::{Entry, Limits};
-use dalica_image::{Format, Header};
+use dalica_image::{Format, Header, Orientation};
 use dalica_library::{
     Face, FacePerson, FolderInfo, Geo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort, Project,
     SavedAs, SortBy,
@@ -28,6 +28,7 @@ use dalica_library::{
 use dalica_sidecar::fields::GeoTag;
 use dalica_sidecar::{Field, PersonName, Sidecar};
 
+use crate::legacy::{FolderSidecar, LegacyFolder, LegacyPerson, LegacyPhoto};
 use crate::meta::{FileValues, ReadMetadata};
 use crate::originals::{self, Originals};
 use crate::skip::{FileTypes, SkipRules};
@@ -76,6 +77,10 @@ pub struct FoundPhoto {
     /// date), read when [`Options::metadata`] asks for it and the file is new or changed; `None`
     /// when not read or unreadable ([`crate::meta`]).
     pub file: Option<FileValues>,
+    /// What the folder's legacy sidecar says about the photo beyond its star, `info` and `geo`
+    /// (its faces and albums, by legacy id; [`crate::legacy`], M14): `None` when the folder's data
+    /// does not come from a legacy sidecar or no section of it names the photo.
+    pub legacy: Option<LegacyPhoto>,
 }
 
 /// A folder holding at least one photo.
@@ -103,6 +108,14 @@ pub struct FoundFolder {
     /// The folder has a sidecar that could not be read or parsed (warned): its photos say nothing,
     /// and their album memberships come from `albums.json`'s copy of the order (M9).
     pub sidecar_unread: bool,
+    /// Which sidecar is in effect (M14): Dalica's (there, read or not), the legacy one (read: the
+    /// folder's and its photos' fields above came from it), both (only Dalica's read), or none.
+    /// With [`Options::legacy`] off, or a legacy sidecar that could not be read, the legacy one
+    /// counts as absent.
+    pub sidecar: FolderSidecar,
+    /// What the legacy sidecar says beyond those fields (album definitions, contact names), when
+    /// the folder's data came from it ([`crate::legacy`], M14).
+    pub legacy: Option<Box<LegacyFolder>>,
 }
 
 /// Something a scan could not read; the scan went on without it.
@@ -223,6 +236,10 @@ pub struct Options {
     /// `None` (set it so when planting a [`Options::reader`]): those photos' headers go through
     /// `reader` too, and their metadata is read from the file again.
     pub bytes_reader: Option<HeaderBytesReader>,
+    /// Options → General → "Read photo data left by the previous organizer"
+    /// (`files.readLegacyData`, on by default): whether a folder without `.dalica.json` has its
+    /// legacy sidecar read ([`crate::legacy`]).
+    pub legacy: bool,
 }
 
 impl Default for Options {
@@ -238,6 +255,7 @@ impl Default for Options {
             reader: default_reader(),
             metadata: ReadMetadata::Off,
             bytes_reader: Some(default_bytes_reader()),
+            legacy: true,
         }
     }
 }
@@ -260,6 +278,7 @@ impl fmt::Debug for Options {
                 },
             )
             .field("bytes_reader", &self.bytes_reader.is_some())
+            .field("legacy", &self.legacy)
             .finish_non_exhaustive()
     }
 }
@@ -332,6 +351,9 @@ struct Scanner<'a> {
     reader: GuardedReader,
     given_back: HashMap<&'a Path, &'a Failure>,
     seen: HashSet<DirKey>,
+    /// The named contacts of each folder whose legacy sidecar the walk read, for the faces of its
+    /// subfolders (M14).
+    contacts: HashMap<PathBuf, BTreeMap<String, String>>,
     entries: usize,
     stopped: bool,
     summary: Summary,
@@ -351,6 +373,7 @@ fn run(roots: &[PathBuf], options: &Options, cancel: Option<&AtomicBool>, emit: 
         reader: GuardedReader::new(options),
         given_back: options.failures.iter().map(|f| (f.path.as_path(), f)).collect(),
         seen: HashSet::new(),
+        contacts: HashMap::new(),
         entries: 0,
         stopped: false,
         summary: Summary::default(),
@@ -529,6 +552,8 @@ impl Scanner<'_> {
     fn read_folder(&mut self, dir: &Path, files: Vec<Entry>) -> Option<FoundFolder> {
         let types = self.options.types;
         let mut photos = Vec::new();
+        // Each read photo's EXIF orientation, for the legacy sidecar's rectangles.
+        let mut orientations: HashMap<String, Orientation> = HashMap::new();
         let mut to_read: Vec<(Entry, String)> = Vec::new();
         // Every file name of the folder, for the RAWs' `.xmp` sidecars.
         let names: Vec<String> = match self.options.metadata {
@@ -592,6 +617,7 @@ impl Scanner<'_> {
                 Outcome::Header(h, file) => {
                     let (width, height) = h.display_size();
                     let date = h.exif.as_ref().and_then(|e| e.date_time_original);
+                    orientations.insert(name.clone(), h.orientation);
                     (Some(FoundPhoto { width, height, date, file: file.map(|f| *f), ..unread(entry, name, h.format) }), None)
                 }
                 // Recognised, not decoded yet: listed (a format tile until its decoder arrives).
@@ -636,11 +662,13 @@ impl Scanner<'_> {
         let mut names = BTreeMap::new();
         let mut people = BTreeMap::new();
         let mut sidecar_unread = false;
+        let mut dalica = false;
         if !photos.is_empty() {
             // Read here, on the scan's thread: everything the user said in the sidecar comes in
             // with the photos, in the same op (`diff`), so no sidecar write can run in between.
             match self.read_sidecar(dir) {
                 Read::Sidecar(sidecar) => {
+                    dalica = true;
                     for p in &mut photos {
                         p.star = sidecar.star(&p.name) == Field::Value(true);
                         p.info = photo_info(&sidecar, &p.name);
@@ -657,7 +685,10 @@ impl Scanner<'_> {
                     people = folder_people(&sidecar);
                 }
                 Read::Absent => {}
-                Read::Unread => sidecar_unread = true,
+                Read::Unread => {
+                    dalica = true;
+                    sidecar_unread = true;
+                }
             }
             // The originals record too (the walk never enters `.dalica-originals`): the saved
             // records come in with the photos, in the same pass.
@@ -666,7 +697,92 @@ impl Scanner<'_> {
             photos.sort_by(|a, b| a.name.cmp(&b.name));
             self.summary.progress.found = self.summary.progress.found.saturating_add(photos.len());
         }
-        Some(FoundFolder { path: dir.to_path_buf(), photos, info, project, originals: kept, sort, album_names: names, people, sidecar_unread })
+        let mut sidecar = if dalica { FolderSidecar::Dalica } else { FolderSidecar::None };
+        let mut legacy = None;
+        if let Some(at) = self.options.legacy.then(|| crate::legacy::locate(dir)).flatten() {
+            // A folder without photos is not handed out, but its contacts may name its
+            // subfolders' faces; its `.dalica.json` was not looked at above.
+            let dalica = dalica || (photos.is_empty() && !matches!(dalica_fs::stat(&dir.join(dalica_sidecar::FILE_NAME)), Ok(None)));
+            if dalica {
+                sidecar = FolderSidecar::Both;
+            } else if let Some((folder_info, found)) = self.read_legacy(dir, &at, &mut photos, &orientations) {
+                sidecar = FolderSidecar::Legacy;
+                info = folder_info;
+                legacy = Some(Box::new(found));
+            }
+        }
+        Some(FoundFolder {
+            path: dir.to_path_buf(),
+            photos,
+            info,
+            project,
+            originals: kept,
+            sort,
+            album_names: names,
+            people,
+            sidecar_unread,
+            sidecar,
+            legacy,
+        })
+    }
+
+    /// Reads the legacy sidecar at `at` of `dir`, a folder without `.dalica.json`, into `photos`
+    /// (their star, info, geotag and legacy data) and keeps its contacts for the subfolders.
+    /// `None` when it could not be read (warned) or the folder has no photos.
+    fn read_legacy(
+        &mut self,
+        dir: &Path,
+        at: &Path,
+        photos: &mut [FoundPhoto],
+        orientations: &HashMap<String, Orientation>,
+    ) -> Option<(FolderInfo, LegacyFolder)> {
+        let sidecar = match crate::legacy::read(at) {
+            Ok(s) => s,
+            Err(why) => {
+                self.warn(at, why);
+                return None;
+            }
+        };
+        let own = crate::legacy::contacts(&sidecar);
+        let found = (!photos.is_empty()).then(|| {
+            let mut lossy = 0usize;
+            let info = crate::legacy::folder_info(&sidecar, &mut lossy);
+            let names: Vec<&str> = photos.iter().map(|p| p.name.as_str()).collect();
+            let sections: Vec<Option<String>> = crate::legacy::matches(&sidecar, &names).into_iter().map(|s| s.map(str::to_string)).collect();
+            let mut shown: BTreeSet<String> = BTreeSet::new();
+            for (p, section) in photos.iter_mut().zip(sections) {
+                let Some(section) = section else { continue };
+                let orientation = orientations.get(&p.name).copied().unwrap_or_default();
+                let c = crate::legacy::photo(&sidecar, &section, orientation, &mut lossy);
+                for f in &c.legacy.faces {
+                    if let LegacyPerson::Contact(id) = &f.person {
+                        shown.insert(id.clone());
+                    }
+                }
+                p.star = c.star;
+                p.info = c.info;
+                p.geo = c.geo;
+                p.legacy = Some(c.legacy);
+            }
+            let contacts = shown
+                .into_iter()
+                .filter_map(|id| {
+                    let name = own.get(&id).or_else(|| dir.ancestors().skip(1).find_map(|a| self.contacts.get(a)?.get(&id)))?;
+                    Some((id, name.clone()))
+                })
+                .collect();
+            let albums = crate::legacy::albums(&sidecar, &mut lossy);
+            (info, LegacyFolder { path: at.to_path_buf(), albums, contacts, lossy })
+        });
+        if let Some((_, f)) = &found
+            && f.lossy > 0
+        {
+            self.warn(at, format!("{} values are not text in the file's encoding: left out", f.lossy));
+        }
+        if !own.is_empty() {
+            self.contacts.insert(dir.to_path_buf(), own);
+        }
+        found
     }
 
     /// Reports what the originals record of `dir` could not give.
@@ -734,6 +850,7 @@ fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
         faces: Vec::new(),
         geo: None,
         file: None,
+        legacy: None,
     }
 }
 
@@ -890,7 +1007,7 @@ fn cut(text: String, max: usize, clean: fn(&str) -> String) -> String {
 }
 
 /// A recipe or redo list, or none past the caps of `dalica-library`.
-fn operations(list: Vec<String>) -> Vec<String> {
+pub(crate) fn operations(list: Vec<String>) -> Vec<String> {
     if list.len() > MAX_OPERATIONS || list.iter().any(|op| op.len() > MAX_OPERATION) { Vec::new() } else { list }
 }
 
