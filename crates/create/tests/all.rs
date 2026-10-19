@@ -13,6 +13,7 @@ mod output;
 mod save;
 mod save_beside;
 mod save_faults;
+mod save_legacy;
 mod save_lossless;
 mod slideshow;
 mod watermark;

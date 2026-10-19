@@ -29,7 +29,8 @@ pub const BATCH: usize = 500;
 /// folder's project mark comes in its `AddFolder` batch (`SetProjects`). The saved records are the
 /// originals record's word for every photo of a folder the scan read (known or new): one
 /// derived `SetSaved` after the adds sets or clears them ([`crate::originals`]); a record that
-/// could not be read changes none.
+/// could not be read changes none. The legacy originals folder's word comes the same way, in one
+/// derived `SetLegacyOriginals` after the saved records (M14.14).
 /// Photos whose files were read ([`FoundPhoto::file`]) follow `xmp-interop.md` §5 ([`crate::meta`]):
 /// a new photo Dalica has nothing for brings every value its file has in its `AddPhotos` batch, and
 /// a last sync op ([`crate::meta::sync_parts`]) imports what changed in another application and
@@ -80,6 +81,7 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
     let mut updates = Vec::new();
     let mut adds: Vec<Add> = Vec::new();
     let mut saved: Vec<(PhotoId, Option<Saved>)> = Vec::new();
+    let mut legacy: Vec<(PhotoId, Option<dalica_library::LegacyOriginal>)> = Vec::new();
     let mut sync = Sync::default();
     let mut renames = folder_renames(library, folders, &gone);
     gone.retain(|id| !renames.values().any(|old| old == id));
@@ -155,6 +157,7 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
             adds.push((photo(id, folder, f, star), info, f.saved_as.clone(), f.changed));
         }
         saved.extend(crate::originals::changes(library, &ids, &found.originals));
+        legacy.extend(crate::originals::legacy_changes(library, &ids, &found.originals));
     }
     // Removals first, so a rename's new name is free; then updates (renames, changes); then adds.
     for chunk in removes.chunks(BATCH) {
@@ -168,6 +171,9 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
     }
     for chunk in saved.chunks(BATCH) {
         ops.push(Op::SetSaved { saved: chunk.to_vec() });
+    }
+    for chunk in legacy.chunks(BATCH) {
+        ops.push(Op::SetLegacyOriginals { originals: chunk.to_vec() });
     }
     // What the files said, once every photo read is in the model.
     ops.extend(sync.op());

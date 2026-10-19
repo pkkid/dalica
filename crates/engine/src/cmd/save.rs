@@ -19,6 +19,13 @@
 //! - `photo.revert {ids, confirm, action?}` asks first (the Revert question, [`REVERT_QUESTION`]):
 //!   with `"confirm": true` it puts the kept original back and drops the edits and the record;
 //!   with `"action": "undoSave"` too it is Undo Save instead.
+//! - A photo the previous organizer saved (M14.14, `data-model.md` §9) has its original in the
+//!   folder's legacy originals folder (the scan's legacy-original fact) and no record of Dalica's
+//!   own (which, once there, takes precedence): while its bytes differ from that original, Undo
+//!   Save and Revert copy the original back through `create::save::legacy` (the saved file goes to
+//!   the OS trash; nothing in the legacy folder is written, moved or removed). Undo Save puts the
+//!   recipe the legacy folder held in front of any newer edits, as unsaved edits; Revert drops the
+//!   edits. Either way the fact goes (the photo is its original again).
 //!
 //! Every check that needs no disk runs on the owner thread before the job starts (unknown photos,
 //! offline folders, recipes holding an operation Dalica cannot render, which fail with the
@@ -38,10 +45,11 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use dalica_core::names::split_ext;
 use dalica_core::{DateTime, PhotoId, Timestamp};
+use dalica_create::save::legacy::{self as legacy_save, Kept};
 use dalica_create::save::{self, Saving, Seen};
 use dalica_edit::Recipe;
 use dalica_image::Format;
-use dalica_library::{Op, SaveState, Saved, SavedAs};
+use dalica_library::{Library, Op, SaveState, Saved, SavedAs};
 use dalica_meta::{Changes, DateTaken, WriteOptions};
 use dalica_sidecar::originals::{Entry, State};
 use serde::Deserialize;
@@ -87,7 +95,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Undo Save",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId]}: puts each saved photo's kept original back and its saved edits in front of any newer ones, as unsaved edits, as a save job (photos never saved are left out). Replies and results as photo.save"#,
+            params: r#"{"ids":[PhotoId]}: puts each saved photo's kept original back and its saved edits in front of any newer ones, as unsaved edits, as a save job (photos never saved are left out). A photo the previous organizer saved, with no record of Dalica's, has its legacy original copied back (the saved file goes to the trash) and the recipe the legacy originals folder held put back. Replies and results as photo.save"#,
             effect: Effect::Files,
             history: History::None,
             enabled: can_restore,
@@ -98,7 +106,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Revert…",
             menu: "File/Revert…",
             keys: &[],
-            params: r#"{"ids":[PhotoId], "confirm":bool, "action"?:"revert"|"undoSave"}: asks first (needs "confirm": true): puts each saved photo's kept original back and drops its edits and its record, as a save job; "action": "undoSave" runs photo.undoSave instead. Photos never saved are left out. Replies and results as photo.save"#,
+            params: r#"{"ids":[PhotoId], "confirm":bool, "action"?:"revert"|"undoSave"}: asks first (needs "confirm": true): puts each saved photo's kept original back and drops its edits and its record, as a save job; "action": "undoSave" runs photo.undoSave instead. A photo the previous organizer saved, with no record of Dalica's, has its legacy original copied back (the saved file goes to the trash). Photos never saved are left out. Replies and results as photo.save"#,
             effect: Effect::Files,
             history: History::None,
             enabled: can_restore,
@@ -189,14 +197,30 @@ fn can_save(s: &Session, p: &Value) -> Result<(), Disabled> {
     }
 }
 
-/// Enabled for photos with a finished in-place save, at least one of them online.
+/// Whether Undo Save and Revert apply to photo `id`: a finished in-place save of Dalica's, or a
+/// legacy original offered while there is none.
+fn restorable(lib: &Library, id: PhotoId) -> bool {
+    lib.can_undo_save(id) || lib.can_undo_legacy_save(id)
+}
+
+/// The legacy original Undo Save and Revert copy back for photo `id`, with the recipe it gives:
+/// only when Dalica has no record of its own for it.
+fn legacy_of(lib: &Library, id: PhotoId) -> Option<(Kept, Vec<String>)> {
+    if !lib.can_undo_legacy_save(id) {
+        return None;
+    }
+    lib.legacy_original(id).map(|o| (Kept { size: o.size, digest: o.digest.clone() }, o.recipe.clone()))
+}
+
+/// Enabled for photos with a finished in-place save or a legacy original, at least one of them
+/// online.
 fn can_restore(s: &Session, p: &Value) -> Result<(), Disabled> {
     let Some(ids) = named(p) else { return Ok(()) };
     let lib = s.library();
     if ids.iter().any(|id| lib.photo(*id).is_none()) {
         return Ok(());
     }
-    let saved: Vec<PhotoId> = ids.into_iter().filter(|id| lib.can_undo_save(*id)).collect();
+    let saved: Vec<PhotoId> = ids.into_iter().filter(|id| restorable(lib, *id)).collect();
     if saved.is_empty() {
         return Err(Disabled(NOTHING_SAVED.into()));
     }
@@ -302,7 +326,7 @@ fn run_revert(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 
 /// Undo Save or Revert of the saved photos among `ids` (each known).
 fn restore(s: &mut Session, action: Action, ids: Vec<PhotoId>) -> Result<Value, CmdError> {
-    let saved: Vec<PhotoId> = ids.into_iter().filter(|id| s.library().can_undo_save(*id)).collect();
+    let saved: Vec<PhotoId> = ids.into_iter().filter(|id| restorable(s.library(), *id)).collect();
     if saved.is_empty() {
         return Err(CmdError::Disabled(NOTHING_SAVED.into()));
     }
@@ -323,6 +347,8 @@ struct Item {
     edits: Vec<String>,
     changes: Changes,
     options: save::Options,
+    /// Undo Save and Revert from a legacy original: what it must still be, and its recipe.
+    legacy: Option<(Kept, Vec<String>)>,
     /// Why it fails without touching the disk, if it does.
     refused: Option<String>,
     before: Option<BeforeItem>,
@@ -345,12 +371,14 @@ enum Did {
     Beside { id: PhotoId, name: String, recipe: Vec<String> },
     /// The original put back (Undo Save, or Revert).
     Restored { id: PhotoId, keep_edits: bool },
+    /// A legacy original copied back: Undo Save's recipe to put back, `None` for Revert.
+    LegacyRestored { id: PhotoId, recipe: Option<Vec<String>> },
 }
 
 impl Did {
     fn id(&self) -> PhotoId {
         match self {
-            Did::InPlace { id, .. } | Did::Beside { id, .. } | Did::Restored { id, .. } => *id,
+            Did::InPlace { id, .. } | Did::Beside { id, .. } | Did::Restored { id, .. } | Did::LegacyRestored { id, .. } => *id,
         }
     }
 }
@@ -402,6 +430,16 @@ fn work(mut item: Item) -> Result<Done<Did>, String> {
                 Err(e) => Err(e.reason()),
             }
         }
+        Action::UndoSave | Action::Revert if item.legacy.is_some() => {
+            let Some((kept, recipe)) = item.legacy else { return Err(NOTHING_SAVED.into()) };
+            match legacy_save::restore(&item.folder, &item.name, &kept, &item.options) {
+                Ok(_) => Ok(Done {
+                    changes: replaced,
+                    value: Did::LegacyRestored { id: item.id, recipe: (item.action == Action::UndoSave).then_some(recipe) },
+                }),
+                Err(e) => Err(e.reason()),
+            }
+        }
         Action::UndoSave | Action::Revert => {
             let keep_edits = item.action == Action::UndoSave;
             let put_back = if keep_edits { save::undo } else { save::revert };
@@ -443,6 +481,19 @@ fn ops_for(s: &Session, did: Did, photos: &[(PathBuf, PhotoId)]) -> Result<Vec<O
         }
         Did::Restored { id, keep_edits: true } => lib.undo_save_op(&[id]).map_err(|e| e.to_string())?,
         Did::Restored { id, keep_edits: false } => lib.revert_op(&[id]).map_err(|e| e.to_string())?,
+        Did::LegacyRestored { id, recipe } => {
+            // The legacy recipe in front of any edits made since (the redo list stays), as M8's
+            // Undo Save; Revert drops them all.
+            let info = lib.info(id);
+            let recipe = match recipe {
+                Some(mut edits) => {
+                    edits.extend(info.edits.iter().cloned());
+                    dalica_library::Recipe { edits, redo: info.redo.clone() }
+                }
+                None => dalica_library::Recipe::default(),
+            };
+            Op::Batch { ops: vec![Op::SetLegacyOriginals { originals: vec![(id, None)] }, Op::SetRecipes { recipes: vec![(id, recipe)] }] }
+        }
     };
     Ok(vec![op])
 }
@@ -543,6 +594,7 @@ pub fn start(s: &mut Session, action: Action, ids: &[PhotoId], before: Option<Be
             edits: if action == Action::Save { lib.info(id).edits.clone() } else { Vec::new() },
             changes: owned_changes(s, id, photo.star),
             options,
+            legacy: if action == Action::Save { None } else { legacy_of(lib, id) },
             refused,
             before: before.clone(),
             flusher: flusher.clone(),

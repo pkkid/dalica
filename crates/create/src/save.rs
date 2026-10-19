@@ -47,6 +47,7 @@
 pub mod beside;
 pub mod copy;
 mod journal;
+pub mod legacy;
 pub mod lossless;
 mod record;
 pub mod recover;
