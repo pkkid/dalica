@@ -9440,8 +9440,21 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     with its sound, the first languages; M15.1 records the answers).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the
     M15 tasks as planned.
+- ⬜ **M14.29 `ui`: a grouped Places marker's bubble counts every photo the marker counts**
+  - after: M13.R
+  - files: `crates/ui/src/panels/places/bubble.rs`, `crates/ui/src/panels/places/markers.rs`, `crates/ui/src/panels/places.rs`, `crates/ui/tests/places_pane.rs`
+  - scope: bug reported by the maintainer (2026-10-19), seen while taking the 0.8.0 website
+    screenshots: in the Places pane a marker badged "2" (two Faroe photos at two nearby places,
+    grouped at that zoom) opened a bubble saying "1 photo here". The badge counts the group's
+    photos while the bubble describes only one of its places. A bubble opened on a grouped marker
+    names and shows every photo the marker counts ("2 photos here"), Show These Photos selects all
+    of them and Remove Location acts on all of them (asking first past 5, as now); a marker of one
+    place is unchanged (`organizing.md` §7).
+  - done when: a `places_pane.rs` test with two photos at two places grouped at a low zoom: the
+    badge and the bubble agree on 2, Show These Photos selects both and Remove Location clears
+    both; it fails without the fix; one zoom level in, the two single markers each say 1.
 - ⬜ **M14.R Release 0.9 gate**
-  - after: M14.23
+  - after: M14.23, M14.29
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.9): the lead runs `/milestone-review M14.R` to prepare it, with
