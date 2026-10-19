@@ -64,6 +64,11 @@ to import and the old files never touched.
 - Folder Properties says which photo data a folder uses. Options ▸ General ▸ Read photo data left
   by the previous organizer turns all this off (and back on) without writing anything.
 
+### Places
+
+- A map marker that groups nearby places now opens a bubble for all of its photos: "2 photos
+  here", and Show These Photos and Remove Location take both (it used to describe only one).
+
 ### Reliability
 
 - A folder's first Dalica file is now created in a way that can never replace a file another
