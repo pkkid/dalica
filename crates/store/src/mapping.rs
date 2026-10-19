@@ -56,6 +56,14 @@
 //! ([`apply`]); a face naming a person the file's `"people"` names but the library no longer has
 //! (deleted, or its creation undone) is Dalica's own and goes with the model's word. Embeddings, landmarks and which photos were searched
 //! are a cache beside the index ([`crate::faces_cache`]), never in a sidecar.
+//!
+//! **M14** (M14.12): albums' and people's legacy ids (the previous organizer's album tokens and
+//! contact ids) live in their entries of `albums.json` and `people.json` as `"legacy"`
+//! ([`LIBRARY_DATA_M14`]); the sidecar in effect per folder ([`FOLDER_DATA_M14`],
+//! [`FolderState::sidecar`]) and each photo's legacy original ([`LEGACY_ORIGINAL_FIELDS`]) are
+//! derived facts the scan finds again (index-only). A folder whose fact is `legacy` gets its first
+//! `.dalica.json` from [`crate::legacy::first_write`]. The folder mark `"project": "collages"`
+//! reads and writes like `"exported"`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -63,8 +71,8 @@ use std::path::PathBuf;
 use dalica_core::geo::LatLon;
 use dalica_core::{AlbumId, Date, DateTime, FolderId, PersonId, PosKey, Rect01, Timestamp};
 use dalica_library::{
-    Face, FacePerson, FolderInfo, Geo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FACES, MAX_FILE_NAME, MAX_OPERATION, MAX_OPERATIONS,
-    MAX_PERSON_NAME, MAX_PLACE, PhotoInfo, PhotoSort, Project, SaveState, Saved, SavedAs, SortBy,
+    Face, FacePerson, FolderInfo, FolderSidecar, Geo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FACES, MAX_FILE_NAME, MAX_OPERATION,
+    MAX_OPERATIONS, MAX_PERSON_NAME, MAX_PLACE, PhotoInfo, PhotoSort, Project, SaveState, Saved, SavedAs, SortBy,
 };
 use dalica_sidecar::fields::GeoTag;
 use dalica_sidecar::originals::{self, Entry, Originals, State};
@@ -219,6 +227,21 @@ pub const LIBRARY_DATA_M13: [(&str, Source); 1] = [("people", Source::Fields("PE
 pub const PERSON_FIELDS: [(&str, Source); 3] =
     [("name", Source::People("name")), ("nickname", Source::People("nickname")), ("thumbnail", Source::People("thumbnail"))];
 
+/// Library data M14 adds: the legacy ids of albums and people, each under `"legacy"` in its entry
+/// of `albums.json` or `people.json`.
+pub const LIBRARY_DATA_M14: [(&str, Source); 2] = [("albumLegacy", Source::Albums("legacy")), ("personLegacy", Source::People("legacy"))];
+
+/// Folder data M14 adds: the sidecar in effect ([`FolderSidecar`]), a derived fact the scan finds
+/// again (index-only).
+pub const FOLDER_DATA_M14: [(&str, Source); 1] = [("sidecar", Source::Index)];
+
+/// Per-photo data M14 adds: the legacy original ([`dalica_library::LegacyOriginal`]).
+pub const PHOTO_DATA_M14: [(&str, Source); 1] = [("legacyOriginal", Source::Fields("LEGACY_ORIGINAL_FIELDS"))];
+
+/// Every field of [`dalica_library::LegacyOriginal`]: derived facts the scan reads from the legacy
+/// originals folder again (index-only; the legacy files are never written).
+pub const LEGACY_ORIGINAL_FIELDS: [(&str, Source); 3] = [("size", Source::Index), ("digest", Source::Index), ("recipe", Source::Index)];
+
 /// Every field of [`dalica_library::FolderInfo`] (Folder Properties, Hide Folder).
 pub const FOLDER_INFO_FIELDS: [(&str, Source); 4] = [
     ("description", Source::FolderSidecar("description")),
@@ -267,6 +290,9 @@ pub struct FolderState {
     /// Every person the model has (M13): a face naming anyone else the file's `"people"` does not
     /// name either is kept in the file, not used.
     pub known_people: BTreeSet<PersonId>,
+    /// The sidecar in effect (M14): a folder whose fact is [`FolderSidecar::Legacy`] gets its
+    /// first `.dalica.json` from [`crate::legacy::first_write`].
+    pub sidecar: FolderSidecar,
 }
 
 impl Default for FolderState {
@@ -283,6 +309,7 @@ impl Default for FolderState {
             known_albums: BTreeSet::new(),
             people: BTreeMap::new(),
             known_people: BTreeSet::new(),
+            sidecar: FolderSidecar::None,
         }
     }
 }
@@ -308,6 +335,7 @@ pub fn folder_state(library: &Library, folder: FolderId) -> Option<FolderState> 
         known_albums: library.albums().map(|(id, _)| id.clone()).collect(),
         people,
         known_people: library.people().map(|(id, _)| id.clone()).collect(),
+        sidecar: library.folder_sidecar(folder),
     })
 }
 

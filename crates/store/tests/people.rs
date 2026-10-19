@@ -296,7 +296,7 @@ proptest! {
         std::fs::write(people::path(dir.path()), doc.to_string()).unwrap();
         let PeopleRead::Read(r) = people::read(dir.path(), NOW) else { panic!("readable JSON") };
         prop_assert!(r.people.contains_key(&pid("p0002")));
-        let state = PeopleState { people: r.people.clone(), rejected: None };
+        let state = PeopleState { people: r.people.clone(), rejected: None, ..Default::default() };
         prop_assert!(matches!(people::write(dir.path(), &state, NOW), PeopleWrite::Written | PeopleWrite::Unchanged));
         prop_assert_eq!(&json_of(dir.path())["rejected"], &v);
     }

@@ -29,6 +29,11 @@
 //!   written only when the state carries them (the model does not: the suggestions engine does),
 //!   and the file is written only when its bytes change, through `fs`'s atomic replace over the
 //!   version just read. A damaged file is set aside first and a new one written.
+//! - **Legacy ids** (M14, `data-model.md` §9): a person found in the previous organizer's
+//!   sidecars keeps that program's contact id as `"legacy"` in their entry
+//!   ([`PeopleReading::legacy`], [`PeopleState::legacy`]), so the same person seen again is one
+//!   person. A write sets the model's ids and never removes one from an entry; a value that is not
+//!   a clean id ([`crate::legacy::clean_id`]) is kept in the file, reported and not used.
 //! - Photos are named by absolute path (photo ids belong to one index). A path that is not UTF-8
 //!   cannot be written in JSON: such a thumbnail or rejected pair is left out.
 //! - Printing is the folder sidecar's: UTF-8, keys sorted by their bytes at every level, two-space
@@ -48,6 +53,8 @@ pub const FILE: &str = "people.json";
 pub const PEOPLE: &str = "people";
 /// The list of rejected suggestions.
 pub const REJECTED: &str = "rejected";
+/// The key of a person's entry holding their legacy id (M14).
+pub const LEGACY: &str = "legacy";
 /// The format version this crate writes.
 pub const VERSION: u64 = 1;
 /// The largest file read.
@@ -89,6 +96,8 @@ pub struct PeopleReading {
     pub people: BTreeMap<PersonId, PersonDef>,
     /// The rejected suggestions, in file order.
     pub rejected: Vec<Rejected>,
+    /// The legacy ids of people in `people` (M14), clean.
+    pub legacy: BTreeMap<PersonId, String>,
     /// One sentence per value or entry not used (it stays in the file).
     pub notes: Vec<String>,
 }
@@ -114,6 +123,9 @@ pub struct PeopleState {
     pub people: BTreeMap<PersonId, PersonDef>,
     /// The rejected suggestions to write, or `None` to keep the file's as they are.
     pub rejected: Option<Vec<Rejected>>,
+    /// The legacy ids of people in `people` (M14): set in their entries; a person not listed
+    /// keeps the file's.
+    pub legacy: BTreeMap<PersonId, String>,
 }
 
 /// What [`write`] did.
@@ -291,6 +303,17 @@ pub fn reading(root: &Map<String, Value>) -> PeopleReading {
                 let mut notes = Vec::new();
                 match person_of(id, v, &mut notes) {
                     Some((person, def)) => {
+                        match v.get(LEGACY) {
+                            None => {}
+                            Some(l) => match l.as_str().and_then(crate::legacy::clean_id) {
+                                Some(l) => {
+                                    out.legacy.insert(person.clone(), l.to_string());
+                                }
+                                None => {
+                                    notes.push(format!("{FILE}: person {person}'s legacy id is not one Dalica takes: kept in the file, not used"))
+                                }
+                            },
+                        }
                         out.people.insert(person, def);
                         out.notes.append(&mut notes);
                     }
@@ -349,6 +372,7 @@ pub fn state(library: &Library) -> PeopleState {
             .and_then(|k| Some((path_of(k.photo)?, k.rect)));
         out.people.insert(id.clone(), PersonDef { name: person.name.clone(), nickname: person.nickname.clone(), thumbnail });
     }
+    out.legacy = library.person_legacies().map(|(id, l)| (id.clone(), l.to_string())).collect();
     out
 }
 
@@ -403,6 +427,9 @@ pub fn merged(existing: Option<&Map<String, Value>>, state: &PeopleState) -> Map
                 entry.remove("thumbnail");
             }
             None => {}
+        }
+        if let Some(legacy) = state.legacy.get(id) {
+            entry.insert(LEGACY.into(), Value::String(legacy.clone()));
         }
     }
     if !people.is_empty() || !state.people.is_empty() {

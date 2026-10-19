@@ -15,6 +15,7 @@ pub mod carry;
 pub mod faces_cache;
 pub mod intents;
 pub mod journal;
+pub mod legacy;
 pub mod mapping;
 pub mod metawrite;
 pub mod people;
@@ -29,6 +30,7 @@ use dalica_core::{DateTime, Timestamp};
 use dalica_library::{Library, Op};
 
 pub use journal::Journal;
+pub use legacy::LegacyWrite;
 pub use mapping::FolderState;
 pub use metawrite::{FileResult, MetaWriteQueue};
 pub use rebuild::{Import, import_sidecars};

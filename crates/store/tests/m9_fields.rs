@@ -112,8 +112,19 @@ fn every_m9_field_is_mapped() {
     assert!(ENTRY_KEYS.contains(&"cover") && ENTRY_KEYS.contains(&"order"));
     // The sidecar state names each M9 field.
     let PhotoState { star: _, info: _, saved_as: _, albums: _, changed: _, faces: _, geo: _ } = PhotoState::default();
-    let FolderState { id: _, path: _, folder: _, photos: _, project: _, sort: _, album_names: _, known_albums: _, people: _, known_people: _ } =
-        FolderState::default();
+    let FolderState {
+        id: _,
+        path: _,
+        folder: _,
+        photos: _,
+        project: _,
+        sort: _,
+        album_names: _,
+        known_albums: _,
+        people: _,
+        known_people: _,
+        sidecar: _,
+    } = FolderState::default();
 }
 
 #[test]

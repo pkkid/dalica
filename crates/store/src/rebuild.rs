@@ -29,6 +29,13 @@
 //! not used. The rejected
 //! suggestions live only in `people.json` and are not the model's; the embeddings cache is not
 //! read here (`crate::faces_cache`).
+//!
+//! M14 (`data-model.md` §9): the legacy ids `albums.json` and `people.json` keep (the previous
+//! organizer's album tokens and contact ids) come back with their albums and people, as one
+//! `SetLegacyIds`, so a legacy folder scanned after the rebuild finds them by legacy id instead of
+//! making them again. An id another album or person holds is reported and not given. A folder
+//! with only a legacy sidecar has no `.dalica.json` to import: the scan reads its legacy sidecar
+//! again and gives the model what the first scan gave; nothing here clears it.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -54,7 +61,7 @@ pub struct Import {
     /// most one `SetFolderSorts`, `CreateAlbums`, `SetAlbumInfo`, `RemoveMembers`, `SetMemberKeys`,
     /// `AddMembers` and `SetCovers`, in that order; then M13's: at most one batch of `AddPerson`
     /// and `RenamePerson`, one `SetFaces`, one `SetGeo` and one batch of `SetPersonThumbnail`; then
-    /// at most one derived `SetLastChanged` (M10).
+    /// at most one `SetLegacyIds` (M14) and one derived `SetLastChanged` (M10).
     pub ops: Vec<Op>,
     /// Folders whose sidecar was damaged: kept aside, folder read-only.
     pub read_only: Vec<FolderId>,
@@ -255,7 +262,8 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, people: Option<&Peo
         out.ops.push(Op::SetFolderSorts { sorts });
     }
     album_ops(library, albums, &names, read_members, &unread, &mut out);
-    people_ops(library, people, &person_names, read_faces, geo, &mut out);
+    let who = people_ops(library, people, &person_names, read_faces, geo, &mut out);
+    legacy_ops(library, albums, people, &who, &mut out);
     if !changed.is_empty() {
         out.ops.push(Op::SetLastChanged { changed });
     }
@@ -399,7 +407,7 @@ fn people_ops(
     read_faces: Vec<(PhotoId, FolderId, Vec<Face>)>,
     geo: Vec<(PhotoId, Option<Geo>)>,
     out: &mut Import,
-) {
+) -> People {
     // Who each person is: people.json's word, else the first folder's.
     let mut defs: BTreeMap<&PersonId, (String, String)> = BTreeMap::new();
     if let Some(p) = people {
@@ -469,6 +477,53 @@ fn people_ops(
     }
     if !thumbs.is_empty() {
         out.ops.push(Op::Batch { ops: thumbs });
+    }
+    who
+}
+
+/// The legacy ids `albums.json` and `people.json` give (M14): one `SetLegacyIds` for the albums
+/// (all of `albums.json`'s are in the model once the album ops apply) and the people the model
+/// will have whose id differs from the files'. An id another album or person holds once the
+/// others are given is reported and left out (the file keeps it).
+fn legacy_ops(library: &Library, albums: Option<&AlbumsReading>, people: Option<&PeopleReading>, who: &People, out: &mut Import) {
+    let mut album_ids: BTreeMap<String, AlbumId> = library.album_legacies().map(|(a, l)| (l.to_string(), a.clone())).collect();
+    let mut set_albums = Vec::new();
+    for (id, def) in albums.map(|a| &a.albums).into_iter().flatten() {
+        let Some(legacy) = def.legacy.as_ref().filter(|l| library.album_legacy(id) != Some(l.as_str())) else { continue };
+        match album_ids.get(legacy) {
+            Some(holder) if holder != id => {
+                out.library_problems.push(format!("album {id}'s legacy id is album {holder}'s already: kept in {}, not used", crate::albums::FILE));
+            }
+            _ => {
+                if let Some(old) = library.album_legacy(id) {
+                    album_ids.remove(old);
+                }
+                album_ids.insert(legacy.clone(), id.clone());
+                set_albums.push((id.clone(), Some(legacy.clone())));
+            }
+        }
+    }
+    let mut person_ids: BTreeMap<String, PersonId> = library.person_legacies().map(|(p, l)| (l.to_string(), p.clone())).collect();
+    let mut set_people = Vec::new();
+    for (id, legacy) in people.map(|p| &p.legacy).into_iter().flatten() {
+        if !who.knows(id) || library.person_legacy(id) == Some(legacy.as_str()) {
+            continue;
+        }
+        match person_ids.get(legacy) {
+            Some(holder) if holder != id => {
+                out.library_problems.push(format!("person {id}'s legacy id is person {holder}'s already: kept in {}, not used", crate::people::FILE));
+            }
+            _ => {
+                if let Some(old) = library.person_legacy(id) {
+                    person_ids.remove(old);
+                }
+                person_ids.insert(legacy.clone(), id.clone());
+                set_people.push((id.clone(), Some(legacy.clone())));
+            }
+        }
+    }
+    if !set_albums.is_empty() || !set_people.is_empty() {
+        out.ops.push(Op::SetLegacyIds { albums: set_albums, people: set_people });
     }
 }
 
