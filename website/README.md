@@ -122,7 +122,16 @@ generated demo library: `dalica-cli snapshot --demo-fresh --size 1800x1200 --sca
 Hills photo (`view.edit` with id 22 or 26), picks an effects tab (`edit.tab` with `effects` or `effects3`), opens an
 effect's panel (`edit.tool.open {"tool": "effect", "name": "graduated_tint"}`), or applies one
 (`museum_matte`, then `edit.tool.apply`), and zooms in one step with `edit.zoom.in` (the demo photos are 480 × 320).
-The photos inside the 0.2, 0.5 and 0.6 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
+The three 0.8 shots (`feat-face-model.jpg`, `feat-places.jpg`, `feat-focal-zoom.jpg`, 1500 × 1000) use the
+library of 25 corpus photos again (Highlands, Spring, Old towns, By train), snapshotted with
+`dalica-cli snapshot --library … --size 2400x1600 --scale 2` (a 1200 × 800 window) and resized. Four Highlands
+photos got places with `dalica-cli run` (`photo.geo.set` with `confirm`, at the places their captions name); the
+Places shot is `select.set` on them, `pane.places`, `map.allowTiles {"on": false}` (the offline map, nothing
+fetched) and `map.pan`. The People feature is shown by its Face Model dialog (`faceModel.open`), not by faces:
+the corpus photos hold no faces, and the public-faces set's portraits of public figures are kept out of the
+page. Focal Zoom is `view.edit` on the castle photo, `edit.tab {"tab": "effects3"}` and
+`edit.tool.open {"tool": "effect", "name": "focal_zoom"}`.
+The photos inside the 0.2, 0.5, 0.6 and 0.8 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.
