@@ -21,6 +21,77 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.9.0 — October 2026
+
+Dalica can now make collages, and it reads the photo data your previous organizer left in your
+folders: stars, captions, edits, albums, people and places show up on the first scan, with nothing
+to import and the old files never touched.
+
+### Creating
+
+- Collage: hold photos in the Photo Tray and press Collage on the bottom bar, use a folder's or a
+  person's Collage button, or Create ▸ Picture Collage…. The Collage room opens with your photos
+  laid out on a page.
+- Six styles: Picture Pile, Mosaic, Frame Mosaic, Grid, Contact Sheet and Multiple Exposure. Each
+  offers the options that suit it: picture borders (none, white or instant), grid spacing, a
+  background colour (with an eyedropper) or one of your photos as the background, drop shadows and
+  captions. The page can take any crop ratio or your display's shape, landscape or portrait.
+- On the canvas, drag pile pictures to move them and use the round handle to turn and size them;
+  drag a picture onto another in the grids and mosaics to swap them. Right-click for Bring to Top,
+  Send to Bottom, Set as Background, Set as Frame Center, View and Edit. Scramble Collage tries a
+  new arrangement and Shuffle Pictures deals the pictures into the same places again. Ctrl+Z takes
+  back changes in the room.
+- The Clips tab lists the collage's pictures: + and − add and remove them, and Get More takes you
+  back to the library to pick more (Back to Collage returns).
+- Create Collage writes a JPEG (3000 px on its long side, or your display's size) into
+  Pictures/Dalica/Collages, beside a small recipe file, and opens it. It never replaces a file.
+  The Collages folder appears under Projects.
+- Edit Collage, in the edit view's top bar, reopens a collage you made with its pictures and
+  settings. Closing the room with unsaved changes asks: Save Draft, Discard or Cancel.
+
+### Folders
+
+- Folders your previous organizer managed show their stars, hidden photos, captions, tags,
+  rotations, crops, supported edits, albums, people and places right after the first scan. A note
+  tells you once how many folders it found.
+- Dalica only reads those files: the first change you make in such a folder writes Dalica's own
+  file beside them, and the old files stay exactly as they were. A folder that has both reads
+  Dalica's.
+- Photos the previous organizer saved with edits can be taken back from the originals it kept:
+  the edit view's Undo (it reads Undo Save) or File ▸ Revert….
+- Edits Dalica can't reproduce are kept and shown in the edit panel as "1 edit from the previous
+  program (not supported)".
+- Folder Properties says which photo data a folder uses. Options ▸ General ▸ Read photo data left
+  by the previous organizer turns all this off (and back on) without writing anything.
+
+### Places
+
+- A map marker that groups nearby places now opens a bubble for all of its photos: "2 photos
+  here", and Show These Photos and Remove Location take both (it used to describe only one).
+
+### Reliability
+
+- A folder's first Dalica file is now created in a way that can never replace a file another
+  program wrote there at the same moment.
+
+### Agents
+
+- Collages over MCP and the control channel (`create.collage`, `collage.*`), and `legacy.inspect`
+  for which photo data each folder uses. A collage is written only inside the folders automation
+  may write to, whether it is made by a command or by clicking the room's buttons.
+
+### Not in this release yet
+
+- Collages of videos, printing a contact sheet and setting a collage as the desktop background are
+  not here.
+- The canvas doesn't show pile captions or contact-sheet file names; the created JPEG has them.
+- Some of the previous organizer's edits aren't reproduced (Straighten, the effects that take a
+  centre point, borders with rounded corners or captions); they are kept, listed in the edit panel
+  and left out of the picture. Its central database, contacts file and thumbnail caches outside
+  your folders are not read.
+- Slideshow music, videos, importing from cameras over a cable, translations and making Dalica
+  your default viewer still come later.
+
 ## 0.8.0 — October 2026
 
 Dalica now knows who and where: it can find the faces in your photos, group them so you can name

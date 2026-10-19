@@ -79,7 +79,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// `cargo xtask budgets`: the release frame budgets (`.github/workflows/budgets.yml`)
+// `cargo xtask budgets`: the release budgets, run locally at each review (`docs/development.md` §8)
 // ---------------------------------------------------------------------------------------------
 
 /// The UI frame budget, p95, in milliseconds (`docs/development.md` §8; `tests/acceptance/m4_thumb.rs`
@@ -99,7 +99,7 @@ pub struct Budget {
     pub cargo: &'static [&'static str],
     pub judge: fn(&str, f64) -> Result<String, String>,
     /// Judged against a base commit measured on the same runner, when `budgets --baseline` names
-    /// one (the review's Budgets job does); `None` keeps the absolute budget.
+    /// one (the review's Budgets job did until M14.R); `None` keeps the absolute budget.
     pub relative: Option<Relative>,
 }
 
@@ -914,7 +914,7 @@ fn base_checkout_is_healthy(dir: &Path, sha: &str, listing: &str) -> bool {
 }
 
 /// `cargo xtask budgets [--plant-ms N] [--baseline <git ref>]`: builds in release and runs
-/// [`BUDGETS`]. With `--baseline` (the review's Budgets job: the last release tag), each relative
+/// [`BUDGETS`]. With `--baseline` (a release tag; the review's Budgets job until M14.R), each relative
 /// budget first runs its bench in that commit, or in the commit that first measured it when the
 /// release predates the bench, checked out under `target/budget-base/` (its own target directory),
 /// and is judged against it.

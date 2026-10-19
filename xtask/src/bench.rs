@@ -419,7 +419,7 @@ pub fn judge_import(stdout: &str, plant: f64) -> Result<String, String> {
     ))
 }
 
-/// What the review's Budgets job judges absolutely when the first screenful and the listing are
+/// What `budgets --baseline` judges absolutely when the first screenful and the listing are
 /// judged against a base commit on the same runner (M12.26, `accept.rs` → `Relative::rest`): the
 /// card's size and the import's files and MB per second, as [`judge_import`] does.
 pub fn judge_import_copy(stdout: &str, plant: f64) -> Result<String, String> {

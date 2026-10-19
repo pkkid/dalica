@@ -200,8 +200,9 @@ is developer tooling; the Dalica app itself never touches the network for this.
 **GitHub checks** (maintainer decision, 2026-10-15). Testing during a milestone is cut to a
 minimum, and the full list of tests runs once, at the review. A worker's `cargo xtask ci` tests only
 the packages its branch changed, quick; the lead's `cargo xtask ci --merge` runs no tests; the
-review runs `cargo xtask ci --full` (`development.md` §3). On GitHub, CI (`ci.yml`, with its corpus
-job), Budgets and Fuzz run only on the pull request of a `review/M<n>.R` branch and when dispatched
+review runs `cargo xtask ci --full` and the release budgets (`cargo xtask budgets`, locally only:
+maintainer decision, 2026-10-19; `development.md` §8). On GitHub, CI (`ci.yml`, with its corpus
+job) and Fuzz run only on the pull request of a `review/M<n>.R` branch and when dispatched
 by hand; a task's pull request and a push to `main` run no tests. A failure there becomes a fix task,
 merged before the review closes.
 

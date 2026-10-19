@@ -43,7 +43,7 @@ cargo xtask ci --full                               # the review gate: every tes
 | `xtask corpus [--all \| <set>…] [--local] [--update-manifest]` | the test corpora of §11: without arguments, each set's pin and state (present, missing, stale, not published yet); with `--all` or set names, fetches what is missing or stale into the gitignored `corpus/`, every download checked against its pin and every file against `xtask/corpus/<set>.sha256` | |
 | `xtask test-corpus [-p <crate>] [-- args]` | fetches like `corpus --all`, then runs each corpus crate's `tests/corpus.rs` with `--release --features corpus,heif`, holding every set to its committed floors; sets not published yet are reported as skipped (§11) | the CI `corpus` job |
 | `xtask bench [name…] [-- args]` | builds the registered benches in release (`cargo bench`), runs each with `--json` (plus `args`), prints its rows, appends the run to `<target dir>/bench/history.jsonl` and fails on a CPU-time regression over 20 % against the last run of the same bench with the same arguments on the same machine (§13 *Bench runs*); no name runs them all | |
-| `xtask budgets [--plant-ms N]` | builds in release and runs the frame budgets the milestones assert (§8 *The budgets job*): M4's 100 k scroll (`library_bench`) and thumb at top speed, UI frame time p95 ≤ 8 ms, cells visited flat; one line per budget, fails when one is missed; `--plant-ms` adds a planted slowdown to every frame | the `budgets` workflow |
+| `xtask budgets [--plant-ms N]` | builds in release and runs the frame budgets the milestones assert (§8 *The release budgets*): M4's 100 k scroll (`library_bench`) and thumb at top speed, UI frame time p95 ≤ 8 ms, cells visited flat; one line per budget, fails when one is missed; `--plant-ms` adds a planted slowdown to every frame | |
 | `xtask version [set X.Y.Z[-pre]]` | prints `[workspace.package] version` from the root `Cargo.toml`; `set` checks that the new value is a semantic version (a hyphen makes it a pre-release, `0.2.0-rc.1`; no build metadata), rewrites that line and the version line of every workspace member in `Cargo.lock` and nothing else, then asks `cargo metadata --locked --offline` whether the lock file is current and puts both files back if not ([`releasing.md`](releasing.md) → Cutting a release) | |
 | `xtask contributors [--check] [--ref <rev>]` | regenerates `contributors/contributors.json` (About ▸ Contributors and Models) from `git log` on `main` (`origin/main` when it exists) and, through `gh` (read-only), each commit's GitHub username, the merged pull requests and, for verified `people.toml` entries that ask for it, the public profile name; models from `Co-Authored-By` trailers of known model vendors; never records an author name or email and never writes `people.toml`; `--check` verifies `people.toml` offline: malformed TOML, unknown tables and keys, and an entry added by someone other than its owner without `consent_source` ([`contributors.md`](contributors.md) → Refreshing) | `--check` ✓ |
 | `xtask clean [--dry-run] [--keep <name>]… [--only <name>]… [--older-than <days>]` | removes the cargo build dirs of the main checkout to free disk space, skipping any cargo is building in (§9 *Freeing disk space*) | |
@@ -118,7 +118,7 @@ own baselines never rewrites a crate's.
 **On GitHub.** CI (`.github/workflows/ci.yml`: Linux `ci --full`, Windows and macOS
 `ci --full --platform`, each system's gate as two jobs side by side, `--tests-only` and
 `--accept-only`, so each half finishes within the job's 60 minutes (the whole took 65 on Windows at
-M13.R); and the corpus job of §11), Budgets (§8) and Fuzz (`security.md` §7) run
+M13.R); and the corpus job of §11) and Fuzz (`security.md` §7) run
 only on the pull request of a `review/M<n>.R` branch and when dispatched by hand (*Run workflow* on
 the Actions tab, any branch). A task's pull request and a push to `main` run no tests: every merge
 is decided by the local gates (the packaging lint and the release dry run still run when
@@ -284,10 +284,12 @@ cargo run --release -p dalica -- --control 7990 --demo
 | A folder whose legacy sidecar is 64 MiB, the reader's limit, scanned (median) | ≤ 995 ms |
 | The Collage room's frame with 100 pictures on the page while one is dragged (p95; never above 16 ms) | ≤ 0.5 ms |
 
-**At the review, the save, export and search budgets, the import's first screenful and listing,
-face inference and the people and places views are judged against a base on the same runner**
-(maintainer decisions, 2026-10-15, for the import at M12.R, and for the M13 rows at M13.R): the
-Budgets job runs each of these benches in the last release
+**Judged against a base on the same machine** (`cargo xtask budgets --baseline <ref>`; maintainer
+decisions, 2026-10-15, for the import at M12.R, and for the M13 rows at M13.R): the save, export
+and search budgets, the import's first screenful and listing, face inference and the people and
+places views were judged this way while the budgets ran on GitHub's runners (until M14.R; since
+then they run locally, *The release budgets* below, and a plain `cargo xtask budgets` judges them
+on their absolute budgets). With `--baseline`, each of these benches runs in the last release
 (`git describe --tags --match 'v*'`; for a bench newer than that release, the commit that first
 measured it) and in the reviewed commit, three times each, interleaved (base, reviewed, base,
 reviewed, base, reviewed; `RELATIVE_ROUNDS`), and each row's statistic (its median; the people and
@@ -503,18 +505,21 @@ the performance cores (`taskset -c 0-15 cargo xtask budgets`).
 
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
-**The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` once per milestone,
-on the pull request of its `review/M<n>.R` branch (and when dispatched by hand), on Linux only
-(`ubuntu-latest`), with its own release cache: it builds in release and runs
-the budgets the acceptance tests assert only with `DALICA_ACCEPT_RELEASE=1`, and the run fails when
-one is missed. Today (M4) that is the 100 k scroll of `library_bench` in full (UI frame time p95
+**The release budgets.** The lead runs `cargo xtask budgets` once per milestone, at its review, on
+the maintainer's workstation (`taskset -c 0-15`, the performance cores), and puts every row's
+number on the check-in page. They run only locally (maintainer decision, 2026-10-19: "remove the
+budgets CI from GitHub Actions and only run them locally; it's stupid to expect the slower GitHub
+CI machines to perform just as well as my local machine"; until M14.R a Budgets workflow ran them
+on the review pull request, `ubuntu-latest`). It builds in release and runs the budgets the
+acceptance tests assert only with `DALICA_ACCEPT_RELEASE=1`, and exits 1 when one is missed. Today
+(M4) that is the 100 k scroll of `library_bench` in full (UI frame time p95
 ≤ 8 ms; cells visited per frame flat from 10 k to 100 k) and `m4.rs`'s thumb held at its top speed
 through 100 k sketched photos (p95 ≤ 8 ms, no placeholder, cells flat); since M5 also the first
 screenful of a just-added folder of 1 k and of 10 k JPEGs (≤ 1 s each, `first_thumbnails`) and a
 scanned 20 k pass at top thumb speed (no placeholder, p95 ≤ 8 ms); the scanned 100 k pass runs in
-the release acceptance only. Since M7 the job also runs the `edit_preview` bench in its own step
-(`cargo bench -p dalica-engine --bench edit_preview -- --check --plant-ms …`, which fails on a
-missed budget itself): a 24 MP JPEG opened to its screen preview cold and with the screen entry
+the release acceptance only. Since M7 the review also runs the `edit_preview` bench on its own
+(`cargo bench -p dalica-engine --bench edit_preview -- --check --json`, which fails on a missed
+budget itself): a 24 MP JPEG opened to its screen preview cold and with the screen entry
 cached (median ≤ 150 ms), a Tuning drag's drafts (p95 ≤ 16 ms) and finals (p95 ≤ 100 ms), and
 next/previous with the neighbours prefetched (p95 ≤ 50 ms). Since M8 `cargo xtask budgets` also
 runs the `save_export` bench and judges its medians: Save of a 24 MP JPEG with an edit and with
@@ -530,7 +535,7 @@ planted slowdown added to each median) and the `slideshow` bench (no change wait
 median and a transition frame's p95, a planted slowdown added to every frame). `--plant-ms 8`
 misses Batch Edit's and the slideshow's budgets but not the import's (8 s over 1 000 files is
 inside its headroom); `--plant-ms 15` misses all three. Since M12 the slideshow's judge also
-holds an upload frame's p95 to its budget, and the job runs the `effects` bench (each effect's Save
+holds an upload frame's p95 to its budget, and `cargo xtask budgets` runs the `effects` bench (each effect's Save
 render and the empty recipe; a planted slowdown added once per render) and the `effect_tiles`
 bench (each tab's median, a planted slowdown added once per sample); `--plant-ms 8` misses the
 empty recipe's final, not the Saves or the tiles. Since M13.43 the `effects` judge also holds
@@ -550,18 +555,18 @@ scan's median, a planted slowdown added once per scan) and the `collage_canvas` 
 frame's p95, a planted slowdown added); `--plant-ms 8` misses the layouts and the drag frame, not
 the render (seconds) or the scans (a hundred milliseconds and more), and `--plant-ms 1000` misses
 every M14 time. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
-review (maintainer decision, 2026-10-15); *Run workflow* on the Actions tab runs the job on any
-branch, with a planted slowdown (`plant_ms`) if asked. The same check locally:
+review (maintainer decision, 2026-10-15), locally:
 
 ```sh
 cargo xtask budgets                  # release build, then every budget; exit 1 when one is missed
 cargo xtask budgets --plant-ms 8     # a planted 8 ms in every frame: must fail
+cargo bench -p dalica-engine --bench edit_preview -- --check --json   # the edit view's budgets (M7)
 DALICA_ACCEPT_RELEASE=1 cargo xtask accept M4   # the whole M4 acceptance, these budgets included
 ```
 
 A planted slowdown of *n* ms in every frame moves every percentile of the frame times by exactly
 *n*, so `--plant-ms` adds *n* to each measured p95 before judging it; the `xtask` tests plant
-slow reports and slow runs and check that the job fails.
+slow reports and slow runs and check that the run fails.
 
 ## 9. Repository hygiene
 
@@ -960,8 +965,8 @@ decoded whole and halved to between one and two screen sizes, its histogram coun
 (a new session on the cache the cold opens filled: the ladder's screen entry read instead), seven
 each; `drag` (40 steps of a Tuning drag: each step's draft and final, `draft_…` and `final_…`);
 `next previous` (forward through the photos and back with the neighbours prefetched while each is
-shown). The budgets hold on the budgets job's 2-vCPU runner: check them locally with
-`taskset -c 0,1` on the bench binary. With `--bench` or `--check` it exits non-zero when a budget of §8 is missed (in release
+shown). The budgets were set for two hardware threads: check them with `taskset -c 0,1` on the
+bench binary. With `--bench` or `--check` it exits non-zero when a budget of §8 is missed (in release
 only); `--plant-ms N` adds N ms to every judged time. Without `--bench` it runs a smoke pass on
 600 × 400 photos and judges nothing.
 
@@ -991,7 +996,7 @@ smoke pass over 2 000 photos, two samples each.
 
 `scan_throughput` (M10.22) writes `--photos` `scenes` JPEGs (5 000, `--side` 1024 px, each with a
 160 px EXIF thumbnail, in folders of about 100) under `--dir` (this target directory's temporary
-folder: on the budgets job, the runner's SSD), then runs `folders.add` on them in a new library on
+folder), then runs `folders.add` on them in a new library on
 an empty thumbnail cache, polling at 60 frames a second as the app does. Row `scan <n>`: `scan_s`
 and `photos_per_s` (until the scan has ended and every photo is in the library, its header read,
 so its embedded thumbnail is available), `thumbs_s` and `thumbs_photos_per_s` (until every photo

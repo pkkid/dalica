@@ -7,6 +7,29 @@ and git.
 
 ## Current
 
+- **Milestone:** M14, collage and legacy sidecars and Release 0.9, is done: M14.1–M14.29 are merged (26 planned
+  tasks, three added during the run: M14.27 an exact-name create so a folder's first `.dalica.json` never replaces
+  another program's file, M14.28 five loose ends, M14.29 the maintainer's Places bubble fix) and `cargo xtask accept
+  M14` passes (130 s; 137 s with the release budgets). The Collage room with six styles, the canvas, Create Collage,
+  Save Draft and Edit Collage, the Collages project; the previous organizer's per-folder files read on the first scan,
+  never written, the first change writing `.dalica.json`, Undo Save and Revert from its kept originals; W15 and W16
+  over MCP. Version 0.9.0: M14.R is the 0.9 release gate, published once the review PR's GitHub runs are green and the
+  maintainer merges it. Next: M15, video, languages, the OS and Release 1.0; its issues open when the M14.R review PR
+  is merged.
+- **M14 review (2026-10-19):** reserved decision 2 = pure-Rust decoders for H.264 and HEVC after a spike on real
+  phone files (tiles only for a codec that fails); sound = pure-Rust output per OS; the first languages = English and
+  Thai for 1.0 if Thai can be done (shaping and line breaking to be proven), the maintainer's wife reviews the Thai;
+  the release budgets run locally only, the Budgets workflow removed from GitHub (M15.43, a same-runner base for
+  M14's budgets, dropped); accept M12's narrower frame check accepted; five look issues from the screenshots carried
+  to M15 (M15.44); all 56 fingerprint baselines approved; ship 0.9 once the review PR's runs are green; the by-hand checks EDIT-ZOOM and SYS-WINDOW split off as P2 rows that never gate CI (the maintainer, after the review PR's accept jobs failed on them).
+- **Numbers (M14.R, 01170527, 2026-10-19):** `cargo xtask ci --full` 18.7 min (i7-13700K, 10 jobs): tests 4 329
+  passed, 0 failed, 2 ignored on purpose; every milestone's acceptance M0–M14 passes; M14 release budgets: layouts of
+  200 pictures 0.00–0.68 ms (budgets 0.05–1.10), a 50-photo 3000 px render 1 400 ms and 43 MiB (2 105 ms, 65 MiB), a
+  10 000-photo legacy scan 124.5 ms (195), a 64 MiB legacy file 648 ms (995), the canvas drag frame p95 0.22 ms (0.5);
+  parity ✅ 176 · 🟡 45 · ⬜ 29 · 🚫 17 (267 rows, 387 commands); workflows 16 / 16 (floor 16); +44 630 / −1 791 lines.
+  Run: 29 tasks with 7 workers from 23:53 on 2026-10-18 to 10:35 on 2026-10-19; median claim→merge about 27 min;
+  5 send-backs (3 rebase conflicts in `docs/parity.md`); 14 tasks needed files outside their list; `main` red on GitHub
+  for 5 h after the merges, fixed by #976, #977, #978; accept M14 found a write-roots bug, fixed by #982.
 - **Milestone:** M13, people and places and Release 0.8, is done: M13.1–M13.51 are merged (44 planned tasks, seven
   tasks added during the run and at the review: M13.45 a data-loss gap, M13.46 a flaky test, M13.47 effect speed
   margin, M13.48–M13.51 follow-ups and the maintainer's answers) and `cargo xtask accept M13` passes (64 s warm). Local

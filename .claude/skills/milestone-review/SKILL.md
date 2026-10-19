@@ -82,7 +82,12 @@ end; there are no mid-milestone reviews (maintainer rule, 2026-10-10).
     against the registered commands, and every milestone's acceptance test (this milestone's in
     its `test acceptance` step, until the review's ✅ is ticked); it replaces separate
     `accept M<k>` runs. Its result is the acceptance result of §2;
-  - the review pull request's GitHub runs (§4 step 4): CI per OS, the corpus job, Budgets, Fuzz;
+  - the release budgets, run locally once on the review's commit (maintainer decision,
+    2026-10-19: GitHub's slower runners can't be expected to perform like this machine):
+    `taskset -c 0-15 cargo xtask budgets` and
+    `cargo bench -p dalica-engine --bench edit_preview -- --check --json`, every row's number on
+    the page;
+  - the review pull request's GitHub runs (§4 step 4): CI per OS, the corpus job, Fuzz;
   - the target dir size, free disk, and the `cargo xtask parity` counts;
   - every number the milestone's *Done when* lines name, plus benchmarks once they exist.
   - With parallel agents, also record: tasks per agent, time from claim to merge, rebase
@@ -181,7 +186,7 @@ The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
    - the attribution line the environment requires.
 
    The pull request runs CI on all three systems (Linux `cargo xtask ci --full`, Windows and macOS
-   `--full --platform`), the corpus job, Budgets and Fuzz (every target for 60 s): the only time a
+   `--full --platform`), the corpus job and Fuzz (every target for 60 s): the only time a
    milestone's code runs on GitHub (maintainer decision, 2026-10-15). Watch them in the background
    (`gh pr checks <pr> --watch`). Each failure is fixed before the review closes, the way a red
    `main` is (`/milestone-start` §3 step 8: a worker on a fix branch, merged through a PR); then
