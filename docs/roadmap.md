@@ -9246,7 +9246,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     alone; removing a picture keeps it in the Clips and + puts it back; deleting a custom ratio
     here removes it from the Crop panel's list; closing with changes needs confirm; each command's
     contract and graceful failures; the owner thread made no `fs` call; `panic_hunt` green.
-- ⬜ **M14.17 `engine`: Create Collage, Save Draft and Edit Collage**
+- ✅ **M14.17 `engine`: Create Collage, Save Draft and Edit Collage**
   - after: M14.10, M14.12, M14.16
   - files: `crates/engine/src/cmd/collage_output.rs`, `crates/engine/src/collage_output.rs`, `crates/engine/tests/collage_output.rs`, `docs/security.md`
   - scope: `creating.md` §1 and §3 and the decisions above: `collage.create {path?, display?}` and

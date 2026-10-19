@@ -158,6 +158,30 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
             Ok(_) => Next::Resume(Box::new(move |host| checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from))),
         })));
     }
+    // A collage is written into `path`, else beside the collage the room reopened, else
+    // `<Pictures>/Dalica/Collages`: the folder the engine names is checked as an export's `dir`
+    // is, the default too. A path the engine itself refuses is the command's own refusal.
+    if COLLAGE_WRITES.contains(&id.as_str())
+        && let Some(session) = call.host.app().session()
+    {
+        let given = match cmd_params.get("path") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(p)) => Some(PathBuf::from(p)),
+            Some(other) => return Err(call.bad(format!("`path` must be a path, not {other}"))),
+        };
+        if let Some(p) = &given {
+            paths::lexical(p, "path")?;
+        }
+        if let Ok(folder) = session.collage_destination(given.as_deref()) {
+            let watched = session.roots().to_vec();
+            return Ok(Outcome::Work(Box::new(move || {
+                match paths::check_output(&folder, &config.effective_write_roots(), &watched, paths::Output::Folder) {
+                    Err(e) => Next::Reply(Err(e)),
+                    Ok(_) => Next::Resume(Box::new(move |host| checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from))),
+                }
+            })));
+        }
+    }
     // The Import room's buttons write where the destination strip's draft says: that folder is
     // checked as `import.run`'s destination would be.
     if DRAFT_WRITES.contains(&id.as_str()) {
@@ -179,6 +203,9 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
     }
     checked(call.host, &config, method, id, cmd_params, wait)
 }
+
+/// The commands that write a collage (§5.7): their folder is `Session::collage_destination`.
+const COLLAGE_WRITES: &[&str] = &["collage.create", "collage.saveDraft"];
 
 /// UI commands that run `import.run` into the destination drafted in the view state.
 const DRAFT_WRITES: &[&str] = &["import.importAll", "import.importSelected"];
@@ -470,6 +497,34 @@ mod tests {
         let waiting = wait_for(&mut d, json!({ "new": true, "scanning": true }), vec![job], later);
         let v = run(&mut d, waiting).unwrap();
         assert_eq!((v["state"].as_str(), v["scanning"].as_bool(), v.get("pending")), (Some("done"), Some(false), None), "{v}");
+    }
+
+    /// Over automation a collage is written only inside a write root or a watched folder
+    /// (`control-protocol.md` §5.7): the default `<Pictures>/Dalica/Collages` and a `path`
+    /// elsewhere are refused before the command runs, nothing made; a `path` in a write root is
+    /// written.
+    #[test]
+    fn a_collage_is_written_over_automation_only_inside_the_write_roots() {
+        let (dir, mut session, ids) = crate::app::tests::session_with_photos(2);
+        session.set_pictures_dir(Some(dir.path().join("Pictures")));
+        session.execute("create.collage", &json!({ "ids": ids })).unwrap();
+        let allowed = dir.path().join("allowed");
+        dalica_fs::create_dir_all(&allowed).unwrap();
+        let control = Control::new(Config { write_roots: vec![allowed.clone()], ..Config::default() });
+        let mut d = Driver::new(App::new(Some(session)), 320, 200, 1.0);
+        let mut conn = Connection::new();
+        let mut execute = |command: &str, params: Value| {
+            serve(&control, &mut conn, &mut d, &Request::new("engine.execute", json!({ "command": command, "params": params })))
+        };
+        let code = |r: Result<Value, crate::control::Error>| r.map_or_else(|e| e.code.as_str().to_string(), |_| "ok".into());
+        assert_eq!(code(execute("collage.create", json!({}))), "path_denied", "Pictures is no write root");
+        assert_eq!(code(execute("collage.saveDraft", json!({ "path": dir.path().join("elsewhere") }))), "path_denied");
+        assert_eq!(code(execute("collage.create", json!({ "path": "relative" }))), "bad_params");
+        assert!(!dir.path().join("Pictures").exists() && !dir.path().join("elsewhere").exists(), "nothing was made");
+        let done = execute("collage.create", json!({ "path": allowed.join("Collages") })).unwrap();
+        assert_eq!(done["state"], "done", "{done}");
+        let written = std::fs::read_dir(allowed.join("Collages")).unwrap().count();
+        assert_eq!(written, 2, "the JPEG and its recipe: {done}");
     }
 
     /// The shortcuts `engine.commands` shows, before and after a library is open: none carries a
