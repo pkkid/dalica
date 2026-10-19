@@ -11,7 +11,11 @@
     painted). Among the tokens, `crosshair` and `crosshair_outer` paint an effect's crosshair on
     the photo and its dark outline (M12.4).
   - `fonts`: Inter, installed in code (`install`, `definitions`, `regular`, `semibold`,
-    `SEMIBOLD_FAMILY`).
+    `SEMIBOLD_FAMILY`, `INTER_REGULAR`, `INTER_SEMIBOLD`), and the fallback faces by script from
+    the optional craft-fonts build input (M15.8: `CRAFT_FONTS` + `CraftFont`, embedded by
+    `build.rs` from `CRAFT_FONTS_DIR`, required with `CRAFT_FONTS_REQUIRED=1`; `script_of`,
+    `is_cjk_script`, `DEFAULT_SCRIPT`, `ui_fallback`, `definitions_for`, `script`, `set_script`,
+    `set_language(code)`, `licences`).
   - `icons`: `Icon` (+ `Icon::ALL`, `name`, `from_name`), `paint`, `paint_activity` (the activity
     spinner at a phase), `stroke_width`; the folder-tree marks `FolderIcon`, `paint_folder`,
     `state_color`, `INHERITED_OPACITY`; the edit view's glyphs `EditIcon` (+ `EditIcon::ALL`,
