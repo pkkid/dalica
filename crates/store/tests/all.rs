@@ -10,6 +10,7 @@ mod faces_cache;
 mod fields;
 mod intents;
 mod journal;
+mod legacy;
 mod m6_fields;
 mod m8_fields;
 mod m9_fields;

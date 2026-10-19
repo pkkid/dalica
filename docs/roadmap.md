@@ -9151,7 +9151,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     in case matches once and an ambiguous one not at all; a contact named only in the parent
     folder names the face; a legacy file through a link is not read; every legacy file's bytes and
     time are unchanged after the scan; a hostile file is skipped with a warning and no panic.
-- ⬜ **M14.12 `store` + `sidecar`: legacy ids on disk, the first write of a legacy folder and the rebuild**
+- ✅ **M14.12 `store` + `sidecar`: legacy ids on disk, the first write of a legacy folder and the rebuild**
   - after: M14.1, M14.2, M13.9
   - files: `crates/store/src/legacy.rs`, `crates/store/src/writer.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/mapping.rs`, `crates/store/src/albums.rs`, `crates/store/src/people.rs`, `crates/sidecar/src/albums.rs`, `crates/sidecar/src/fields.rs`, `crates/store/tests/legacy.rs`, `crates/store/README.md`, `docs/data-model.md`
   - scope: `data-model.md` §3–§4 and §9 and the decisions above: albums' and people's `legacy`

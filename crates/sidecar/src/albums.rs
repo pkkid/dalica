@@ -24,6 +24,12 @@
 //! empty. Photos are named by path because photo ids belong to one index and a rebuild makes new
 //! ones. The sidecars stay the source of the memberships: the order here is a copy.
 //!
+//! M14: an album found in the legacy organizer's sidecars keeps that program's album token as
+//! `"legacy"` (a string, [`LEGACY_KEY`]; [`AlbumsFile::legacy_ids`], [`AlbumsFile::set_legacy`]),
+//! so the same album seen in many folders, or again after a rebuild, is one album
+//! (`data-model.md` §9). It is not in [`ENTRY_KEYS`] or [`Album`]: it is read and written on its
+//! own, and never removed by [`AlbumsFile::set`].
+//!
 //! An entry whose id is not an album id, that is not an object or that has no usable name is kept
 //! verbatim and reported, never used ([`AlbumsRead::bad`]). A known key of the wrong type reads as
 //! empty and is reported; an `order` item that is not a path with a position key is left out and
@@ -44,6 +50,8 @@ pub const FILE_NAME: &str = "albums.json";
 pub const KEY: &str = "albums";
 /// The keys of an entry that Dalica reads, in the order of `data-model.md` §4.
 pub const ENTRY_KEYS: [&str; 7] = ["name", "description", "date", "useNewest", "place", "cover", "order"];
+/// The key of an entry holding the album's legacy id (M14).
+pub const LEGACY_KEY: &str = "legacy";
 
 /// One album, as the file says.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -189,6 +197,28 @@ impl AlbumsFile {
         }
     }
 
+    /// The legacy id (a non-empty string under [`LEGACY_KEY`], as written) of every usable entry
+    /// that has one, by album id. The caller checks the ids' shape.
+    pub fn legacy_ids(&self) -> BTreeMap<AlbumId, String> {
+        let Some(Value::Object(albums)) = self.root.get(KEY) else { return BTreeMap::new() };
+        albums
+            .iter()
+            .filter(|(_, v)| v.as_object().and_then(album).is_some())
+            .filter_map(|(id, v)| {
+                let legacy = v.get(LEGACY_KEY)?.as_str().filter(|l| !l.is_empty())?;
+                Some((AlbumId::parse(id).ok()?, legacy.to_string()))
+            })
+            .collect()
+    }
+
+    /// Sets album `id`'s legacy id in its entry, when the entry is an object (written by
+    /// [`AlbumsFile::set`] first); a value of another type under the key is written over.
+    pub fn set_legacy(&mut self, id: &AlbumId, legacy: &str) {
+        if let Some(Value::Object(entry)) = self.root.get_mut(KEY).and_then(|a| a.get_mut(id.as_str())) {
+            entry.insert(LEGACY_KEY.into(), Value::String(legacy.to_string()));
+        }
+    }
+
     /// Removes the entry under `id` (as written), if there is one.
     pub fn remove(&mut self, id: &str) {
         if let Some(Value::Object(albums)) = self.root.get_mut(KEY) {
@@ -226,7 +256,7 @@ fn entry_problems(e: &Map<String, Value>, at: &str, out: &mut Vec<Problem>) {
         Some(Value::String(n)) if !n.is_empty() => {}
         _ => push("name", "a name (a non-empty string)"),
     }
-    for key in ["description", "place", "cover"] {
+    for key in ["description", "place", "cover", LEGACY_KEY] {
         if e.get(key).is_some_and(|v| !v.is_string()) {
             push(key, "a string");
         }

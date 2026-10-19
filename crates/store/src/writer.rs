@@ -34,6 +34,15 @@
 //! changes are written first, then the entries are carried, then the destination is written again
 //! from the model so the model's values stand over the carried keys. A star made just before a
 //! move, still waiting for its write, therefore lands in the destination.
+//!
+//! **Legacy-only folders** (M14, `data-model.md` §9): the first write of a folder whose state says
+//! [`FolderSidecar::Legacy`] is [`crate::legacy::first_write`]: a whole new `.dalica.json`, checked
+//! by reading it back, never written over a `.dalica.json` that appeared since the scan. The writer
+//! remembers the folders it converted (their later writes are ordinary ones, whatever the state
+//! still says until the engine records the fact `both`) and reports each first write once
+//! ([`SidecarWriter::take_legacy`]): [`LegacyWrite::Converted`], or [`LegacyWrite::Appeared`] (the
+//! write is reported failed, the folder is no longer dirty, and the caller reads it again). A carry
+//! into or out of a legacy-only folder writes that folder's first `.dalica.json` before the carry.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -43,11 +52,12 @@ use std::time::Duration;
 
 use dalica_core::{DateTime, FolderId, Timestamp};
 use dalica_fs::Expect;
-use dalica_library::Library;
+use dalica_library::{FolderSidecar, Library};
 use dalica_sidecar::{FILE_NAME, Limits, Sidecar};
 use serde_json::Value;
 
 use crate::carry::{self, Carried, Carry, CarryError};
+use crate::legacy::{self, FirstWrite, LegacyWrite};
 use crate::mapping::{self, FolderState};
 
 /// The shortest time between two writes of one folder's sidecar.
@@ -101,10 +111,12 @@ pub struct CarryReport {
 }
 
 /// Writes one folder's sidecar now. Any thread but the UI thread may call it. A folder that is not
-/// there is never created: the write fails.
+/// there is never created: the write fails. A legacy-only folder ([`FolderSidecar::Legacy`]) gets
+/// its first `.dalica.json` ([`crate::legacy::first_write`]); one that has a `.dalica.json`
+/// already fails, nothing written.
 pub fn write_folder(state: &FolderState, now: Timestamp) -> Outcome {
-    match attempt(state, now) {
-        Attempt::Done(outcome) => outcome,
+    match attempt(state, now, true) {
+        Attempt::Done(outcome) | Attempt::Legacy(outcome, _) => outcome,
         Attempt::Missing => missing(state),
     }
 }
@@ -114,6 +126,8 @@ enum Attempt {
     Done(Outcome),
     /// The folder is not there (an offline volume, or renamed or removed): nothing was written.
     Missing,
+    /// A legacy-only folder's first write: what it did, and what that means for the folder.
+    Legacy(Outcome, LegacyWrite),
 }
 
 fn missing(state: &FolderState) -> Outcome {
@@ -128,12 +142,28 @@ fn not_verified(state: &FolderState, root: &Path) -> Outcome {
     ))
 }
 
-fn attempt(state: &FolderState, now: Timestamp) -> Attempt {
+/// One write of `state`; `first` when a legacy-only folder's state still means its first write
+/// (the writer has not converted it yet).
+fn attempt(state: &FolderState, now: Timestamp, first: bool) -> Attempt {
     // Checked first, so a missing folder is told apart from other failures and never created.
     match dalica_fs::identity(&state.path) {
         Ok(Some(_)) => {}
         Ok(None) => return Attempt::Missing,
         Err(e) => return Attempt::Done(Outcome::Failed(e.to_string())),
+    }
+    if first && state.sidecar == FolderSidecar::Legacy {
+        return match legacy::first_write(state, now) {
+            FirstWrite::Converted => Attempt::Legacy(Outcome::Written, LegacyWrite::Converted),
+            FirstWrite::Appeared => Attempt::Legacy(
+                Outcome::Failed(format!(
+                    "{}: a {FILE_NAME} appeared since the folder was read: nothing was written; the folder is read again",
+                    state.path.display()
+                )),
+                LegacyWrite::Appeared,
+            ),
+            FirstWrite::Nothing => Attempt::Done(Outcome::Unchanged),
+            FirstWrite::Failed(why) => Attempt::Done(Outcome::Failed(why)),
+        };
     }
     Attempt::Done(write_present(state, now))
 }
@@ -219,6 +249,11 @@ pub struct SidecarWriter {
     held: Vec<PathBuf>,
     /// Roots checked right before each write under them.
     guards: Vec<Guard>,
+    /// Legacy-only folders whose first `.dalica.json` this writer wrote (M14): written as ordinary
+    /// folders from then on.
+    converted: BTreeSet<FolderId>,
+    /// First writes of legacy-only folders not yet taken by [`SidecarWriter::take_legacy`].
+    legacy: BTreeMap<FolderId, LegacyWrite>,
 }
 
 impl SidecarWriter {
@@ -299,6 +334,18 @@ impl SidecarWriter {
         None
     }
 
+    /// What the first writes of legacy-only folders did since the last call, by folder (M14): a
+    /// [`LegacyWrite::Converted`] folder's fact is now `both`; an [`LegacyWrite::Appeared`] one is
+    /// to be read again.
+    pub fn take_legacy(&mut self) -> BTreeMap<FolderId, LegacyWrite> {
+        std::mem::take(&mut self.legacy)
+    }
+
+    /// Whether this writer wrote legacy-only folder `folder`'s first `.dalica.json`.
+    pub fn converted(&self, folder: FolderId) -> bool {
+        self.converted.contains(&folder)
+    }
+
     /// Lets writes into `folder` happen again (after the user reset or restored its sidecar).
     pub fn clear_read_only(&mut self, folder: FolderId) {
         self.read_only.remove(&folder);
@@ -371,8 +418,26 @@ impl SidecarWriter {
                 return CarryReport { carried: Err(e), writes };
             }
         }
+        // A legacy-only folder gets its whole first `.dalica.json` before entries are carried into
+        // or out of it, so the carry never starts a file holding only the carried entries.
+        let first: Vec<FolderId> = folders
+            .iter()
+            .map(|(f, _)| *f)
+            .filter(|f| !self.converted.contains(f) && state_of(*f).is_some_and(|s| s.sidecar == FolderSidecar::Legacy))
+            .collect();
+        self.dirty.extend(first.iter().copied());
         let pending: Vec<FolderId> = folders.iter().map(|(f, _)| *f).filter(|f| self.dirty.contains(f)).collect();
         writes.extend(self.write(&state_of, &pending, now, true));
+        for f in first {
+            match writes.get(&f) {
+                // Converted, or nothing to say yet: what is there from here on is Dalica's own.
+                Some(Outcome::Written | Outcome::Unchanged) => {
+                    self.converted.insert(f);
+                }
+                Some(Outcome::Failed(why)) => return CarryReport { carried: Err(CarryError::Fs(why.clone())), writes },
+                _ => {}
+            }
+        }
         // A pending write that found a damaged sidecar kept it aside: nothing goes there now.
         if let Some(&(_, path)) = folders.iter().find(|(f, _)| self.read_only.contains(f)) {
             return CarryReport { carried: Err(CarryError::ReadOnly(path.to_path_buf())), writes };
@@ -421,9 +486,25 @@ impl SidecarWriter {
                     Some(state) => match self.failed_root(&state.path, &mut verdicts) {
                         // Checked right before the write: not the library's volume (M6.43).
                         Some(root) => (not_verified(&state, &root), true),
-                        None => match attempt(&state, now) {
+                        None => match attempt(&state, now, !self.converted.contains(&f)) {
                             Attempt::Done(outcome) => (outcome, false),
                             Attempt::Missing => (missing(&state), true),
+                            Attempt::Legacy(outcome, what) => {
+                                self.legacy.insert(f, what);
+                                match what {
+                                    LegacyWrite::Converted => {
+                                        self.converted.insert(f);
+                                    }
+                                    // Not retried: the file there wins, and the folder is read again.
+                                    LegacyWrite::Appeared => {
+                                        self.dirty.remove(&f);
+                                        self.waiting.remove(&f);
+                                        out.insert(f, outcome);
+                                        continue;
+                                    }
+                                }
+                                (outcome, false)
+                            }
                         },
                     },
                 }

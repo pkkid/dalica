@@ -12,6 +12,12 @@
 //!   no longer has go, keys and entries Dalica does not know stay, and the file is written only
 //!   when its bytes change, through `fs`'s atomic replace over the version just read. A damaged
 //!   file is set aside first and a new one written.
+//! - **Legacy ids** (M14, `data-model.md` §9): an album found in the previous organizer's
+//!   sidecars keeps that program's album token as `"legacy"` in its entry ([`AlbumDef::legacy`],
+//!   [`AlbumsState::legacy`]), so the same album seen again (in another folder, after a rebuild) is
+//!   one album. A write sets the model's ids and never removes one from an entry: an album the
+//!   session did not see, or whose id the model lost, keeps the file's. A value that is not a clean
+//!   id ([`crate::legacy::clean_id`]) is kept in the file, reported and not used.
 //! - Photos are named by absolute path (photo ids belong to one index). A path that is not UTF-8
 //!   cannot be written in JSON: such a cover or member is left out of the copy (the sidecar keeps
 //!   the membership).
@@ -37,6 +43,8 @@ pub struct AlbumDef {
     pub cover: Option<PathBuf>,
     /// The members in album order, with their keys (a copy: the sidecars hold the memberships).
     pub order: Vec<(PathBuf, PosKey)>,
+    /// The album's legacy id (M14), clean.
+    pub legacy: Option<String>,
 }
 
 /// What `albums.json` gives the model.
@@ -66,6 +74,9 @@ pub enum AlbumsRead {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AlbumsState {
     pub albums: BTreeMap<AlbumId, Album>,
+    /// The legacy ids of albums in `albums` (M14): set in their entries; an album not listed keeps
+    /// the file's.
+    pub legacy: BTreeMap<AlbumId, String>,
 }
 
 /// What [`write`] did.
@@ -96,6 +107,7 @@ pub fn reading(f: &AlbumsFile) -> AlbumsReading {
     for p in f.problems() {
         out.notes.push(format!("{FILE}{} should be {}", p.pointer, p.expected));
     }
+    let mut legacy = f.legacy_ids();
     for (id, a) in f.albums().albums {
         let Some(name) = dalica_library::clean_album_name(&a.name) else {
             out.notes.push(format!("{FILE}: album {id} has no usable name: kept in the file, not used"));
@@ -113,7 +125,14 @@ pub fn reading(f: &AlbumsFile) -> AlbumsReading {
         let place = cut(a.place, MAX_PLACE, dalica_library::clean_place, "place");
         let info = AlbumInfo { name, description, date: a.date, use_newest: a.use_newest, place };
         let order = a.order.into_iter().map(|(p, k)| (PathBuf::from(p), k)).collect();
-        out.albums.insert(id, AlbumDef { info, cover: a.cover.map(PathBuf::from), order });
+        let legacy = legacy.remove(&id).and_then(|l| {
+            let clean = crate::legacy::clean_id(&l).map(str::to_string);
+            if clean.is_none() {
+                out.notes.push(format!("{FILE}: album {id}'s legacy id is not one Dalica takes: kept in the file, not used"));
+            }
+            clean
+        });
+        out.albums.insert(id, AlbumDef { info, cover: a.cover.map(PathBuf::from), order, legacy });
     }
     out
 }
@@ -156,6 +175,7 @@ pub fn state(library: &Library) -> AlbumsState {
         };
         out.albums.insert(id.clone(), album);
     }
+    out.legacy = library.album_legacies().map(|(id, l)| (id.clone(), l.to_string())).collect();
     out
 }
 
@@ -169,6 +189,9 @@ pub fn merged(existing: Option<&AlbumsFile>, state: &AlbumsState) -> AlbumsFile 
     }
     for (id, album) in &state.albums {
         f.set(id, album);
+    }
+    for (id, legacy) in state.legacy.iter().filter(|(id, _)| state.albums.contains_key(*id)) {
+        f.set_legacy(id, legacy);
     }
     f
 }

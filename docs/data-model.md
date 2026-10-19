@@ -455,6 +455,12 @@ their bytes at every level, unknown keys and entries kept verbatim):
 }
 ```
 
+An album found in the legacy organizer's sidecars (§9) also has `"legacy"`: that program's album
+token, so the same album seen in another folder, or after a rebuild, is one album (M14.12). A
+write sets the model's legacy ids and never removes one from an entry; a value that is not a
+clean id (at most 256 bytes, no control characters or surrounding spaces) is kept, reported and
+not used. People in `people.json` (below) keep their legacy contact id the same way.
+
 - One entry per album under `"albums"`, keyed by its id. `name` is required; `description`,
   `place`, `date`, `useNewest`, `cover` (the cover photo's absolute path) and `order` (the members
   in album order, each `[absolute path, position key]`) are absent when empty. Photos are named
@@ -1033,8 +1039,8 @@ Rules:
   that changed, so switching files never loses data. The conversion is verified by re-reading
   before the write is committed.
 - Legacy edit operations are mapped to Dalica operations where an equivalent exists; operations
-  without an equivalent are kept as opaque `legacy:<name>(…)` entries at the end of the recipe,
-  shown in the edit panel as "1 edit from the previous program (not supported)".
+  without an equivalent are kept as opaque `legacy:<name>(…)` entries in their place in the
+  recipe (the order is kept), shown in the edit panel as "1 edit from the previous program (not supported)".
 - Album definitions and person names found in legacy sidecars become Dalica albums and people
   (matched by the legacy id, so the same album seen in many folders is one album).
 - The legacy hidden originals directory is recognised and offered as the original for Revert and
@@ -1042,6 +1048,27 @@ Rules:
   from it.
 - Which file is in effect for a folder (Dalica, legacy, both, none) is shown in folder Properties
   and reported by the control API.
+
+**Built (M14.12: `dalica-store` `legacy`, `writer`, `albums`, `people`, `rebuild`, `snapshot`).**
+The folder's fact (the sidecar in effect) travels in the writer's folder state. The first write
+of a folder whose fact is `legacy` (`store::legacy::first_write`) prints everything the model
+has for the folder (every photo's data, not only the change) into a new `.dalica.json`, parses it
+back and checks that it says the same, then creates it through `fs`'s atomic replace expecting no
+file: the absence is checked when the write starts and again right before its rename. A
+`.dalica.json` found there was made by another program since the scan: it wins, nothing is
+written, the write is reported unsaved and the folder is to be read again. (`fs` has no
+exact-name create that never replaces, so a file made in the microseconds between the last check
+and the rename is the one window left; one process per library keeps other Dalica processes
+out.) The writer remembers the folders it converted, writes them as ordinary folders from then
+on and reports each first write once, so the engine records the fact `both`. A move or copy into
+or out of a legacy-only folder writes that folder's whole first `.dalica.json` before carrying
+the entries. The legacy file is never opened for writing, renamed or deleted. Albums' and
+people's legacy ids are kept as `"legacy"` in their entries of `albums.json` and `people.json`
+(§4); a write sets the model's and never removes one. A rebuild gives them back with their
+albums and people, so a legacy folder scanned afterwards finds them by legacy id. A legacy-only
+folder has no `.dalica.json` to import, so the scan's reading of its legacy sidecar stands. The
+index snapshot keeps the legacy ids and both derived facts (the sidecar in effect, legacy
+originals).
 
 ## 10. Lessons encoded as tests
 
