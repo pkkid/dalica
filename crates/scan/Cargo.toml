@@ -25,11 +25,23 @@ md5.workspace = true
 dalica-sidecar.workspace = true
 notify.workspace = true
 
+# Cameras and phones over PTP/MTP (`src/ptp/usb.rs`, M15.9); see the root manifest. Optional
+# only so the fuzz workspace can leave it out (`nusb` does not build under `--cfg fuzzing`).
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+nusb = { workspace = true, optional = true }
+
+[features]
+default = ["usb"]
+# The USB transport (Linux and Windows).
+usb = ["dep:nusb"]
+
 [dev-dependencies]
 dalica-scenes.workspace = true
 tempfile.workspace = true
 # The legacy_scan bench's `--json` report (M14.22); already in the product graph.
 serde_json.workspace = true
+# Random containers against the PTP reader (`tests/ptp.rs`).
+proptest.workspace = true
 
 [[test]]
 name = "all"

@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask", "tests/acceptance"]
 # cargo-fuzz workspaces: nightly-only, outside the product graph (security.md §7.1).
-exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz", "crates/fetch/fuzz", "crates/sidecar/fuzz"]
+exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz", "crates/fetch/fuzz", "crates/sidecar/fuzz", "crates/scan/fuzz"]
 
 [workspace.package]
 version = "0.9.0"
@@ -114,6 +114,10 @@ rustix = { version = "1.1.5", default-features = false, features = ["std", "fs"]
 # A file's volume serial number and file index on Windows (dalica-fs `Identity`, security.md §5.2):
 # a safe wrapper over `GetFileInformationByHandle`; already in the graph through walkdir/same-file.
 winapi-util = "0.1.11"
+# Cameras and phones over PTP/MTP (dalica-scan, M15.9): USB bulk transfers through the OS's own
+# USB interface (usbfs on Linux, WinUSB on Windows) in pure Rust, no libusb (MIT OR Apache-2.0).
+# Linked on Linux and Windows only: on macOS it needs `io-kit-sys`, not in `SYS_ALLOW`.
+nusb = { version = "0.2.8", default-features = false }
 
 # Parallelism, serialization, errors, logging
 rayon = "1.12"
