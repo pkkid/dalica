@@ -132,8 +132,10 @@ pub fn from_egui(key: egui::Key, modifiers: egui::Modifiers) -> Option<Key> {
 /// The photo commands that act on the Photo Tray's photos (the held ones and the selection,
 /// [`crate::tray::photos`]) rather than only the selection: the star and rotate buttons under the
 /// tray act on it (`ui-layout.md` §6.3), and their shortcuts and menu items act on the same set;
-/// so do the quick tags' Ctrl+Alt+1 … Ctrl+Alt+0 (`organizing.md` §5.2).
-pub const TRAY_COMMANDS: [&str; 14] = [
+/// so do the quick tags' Ctrl+Alt+1 … Ctrl+Alt+0 (`organizing.md` §5.2), and Create ▸ Picture
+/// Collage… as the bottom bar's Collage does (`creating.md` §1).
+pub const TRAY_COMMANDS: [&str; 15] = [
+    "create.collage",
     "photo.star.toggle",
     "photo.star.set",
     "photo.rotate.cw",

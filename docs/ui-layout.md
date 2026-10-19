@@ -112,7 +112,9 @@ finished row.
 ## 4. Library tree (left pane)
 
 - **Groups** (collapsible, each shown only when non-empty), in this order: **Albums**, **People**,
-  **Projects** (flat mode only: Exported, Collages, Video Frames),
+  **Projects** (flat mode only: Exported, Collages, Video Frames; the folder Create Collage writes
+  into, `Pictures/Dalica/Collages`, is marked a Collages project and drawn with the project
+  briefcase like an export folder),
   **Folders**, **Other** (flat mode only: folders of mostly tiny images), **Hidden Folders** (only
   with View → Hidden Pictures).
 - **Group header**: 30 high, full width, disclosure triangle, SemiBold 13 title with count "Albums
@@ -188,7 +190,8 @@ Add a description
   **Select starred** ("Select the starred photos in this folder"; disabled when none), |
   **Save** ("Save edited photos to disk"; enabled when the section has unsaved edits), **Export**
   ("Export these photos to a folder"). Play/Collage/Export use the selection when the selection
-  is inside this section, else the whole section.
+  is inside this section, else the whole section (Collage passes `create.collage` one or the other:
+  `ids`, else `section`; it opens the Collage room, `creating.md` §3).
 - Top-right, only when the section has unsaved edits: "%d edited" (`text_dim`) and a **Save**
   text button (same as the 💾 button).
 - **Description** line: the description (`text_label`) or the placeholder **"Add a description"**
@@ -208,7 +211,8 @@ Add a description
 - **Sticky**: the header of the section being scrolled through stays pinned at the top of the
   light table (collapsed to its first line, 32 high) and is pushed up by the next header.
 - Person sections: the person's face (32 pt) in the icon's place, their name, the newest photo's
-  date, no description row; buttons **Play**, **Collage** | **Zoom to Faces** (a toggle drawn
+  date, no description row; buttons **Play**, **Collage** (the person's photos, or the selection
+  inside the section) | **Zoom to Faces** (a toggle drawn
   `pressed × 0.6` while on, its tooltip then **Show Whole Photos**) | **Set as Person
   Thumbnail** (the bust); a right-click opens the person menu. Zoomed, each cell is the person's
   face tile filling the square. The Unnamed section: **Expand Groups**, **Show Ignored Faces**.
@@ -394,7 +398,9 @@ buttons appear to its left.
 ### 6.5 Action buttons
 
 Second row (below a 1 pt separator): `action_button`s (64 × 56: icon over label) acting on the
-tray: **Export** ┆ **Collage**, **Slideshow**. The set is fixed (not configurable). When the
+tray: **Export** ┆ **Collage**, **Slideshow**. The set is fixed (not configurable). Collage opens
+the Collage room on the tray's photos (the held ones and the selection; with none the engine's
+refusal lands on the status line). When the
 window is narrower than 1100 (§11), all three collapse behind a **More…** button (an `action_button`
 with a three-dot icon) that opens a vertical menu upward: one row per action, its icon in the left
 gutter, enabled exactly when the button would be.
@@ -457,7 +463,7 @@ rest (`editing.md` §2):
 
 | Region | Size | Notes |
 |---|---|---|
-| Edit top bar | 40 high, the whole width | Back to Library and Play on the left (240 wide with margins), the compare toggle and the two compare buttons on the right (220) |
+| Edit top bar | 40 high, the whole width | Back to Library and Play on the left (240 wide with margins), the compare toggle and the two compare buttons on the right (220); for a collage (a readable recipe beside it) **Edit Collage** (120) left of the compare toggle, the filmstrip giving way by its width and a gap |
 | Filmstrip | the top bar between its two groups | W − 460 wide: seven 56 pt thumbnails and the arrows at 900, nine at 1400 |
 | Edit panel | **280** wide, the height of the middle | hidden by Ctrl+9 / View ▸ Show Edit Controls; the photo area takes its width |
 | Photo area | the rest of the middle | the photo (`canvas`) above the caption bar |

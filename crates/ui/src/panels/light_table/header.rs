@@ -48,8 +48,7 @@
 //!
 //! **Person sections** (`organizing.md` §6.3) show the person's thumbnail face in the icon's place
 //! (the plain bust until the picture arrives; its tooltip is their name), their name, the newest
-//! photo's date, and their own button row: **Play** and **Collage** ("Arrives with Collage." until
-//! Collage is made), | **Zoom to Faces** (`/zoomToFaces`, `people.zoomToFaces`: active while the
+//! photo's date, and their own button row: **Play** and **Collage**, | **Zoom to Faces** (`/zoomToFaces`, `people.zoomToFaces`: active while the
 //! cells show the person's faces; then its tooltip is Show Whole Photos), | **Set as Person
 //! Thumbnail** (`/thumbnail`, `people.thumbnail` with the person's face on the focused photo
 //! selected in the section; disabled until one is). There is no description row: in its place,
@@ -217,8 +216,6 @@ impl Button {
 /// The Zoom to Faces toggle's tooltip while the cells show whole photos, and while they show faces.
 pub const ZOOM_TO_FACES: &str = "Zoom to Faces";
 pub const WHOLE_PHOTOS: &str = "Show Whole Photos";
-/// Why a person section's Collage is greyed.
-pub const COLLAGE_LATER: &str = "Arrives with Collage.";
 /// Why Set as Person Thumbnail is greyed with no photo of the person selected.
 pub const NO_FACE: &str = "Select a photo of this person first.";
 
@@ -466,8 +463,9 @@ fn live(session: &Session, id: &str, params: impl FnOnce() -> Value) -> bool {
     session.spec(id).is_some_and(|spec| (spec.enabled)(session, &params()).is_ok())
 }
 
-/// The parameters Play, Collage, Save and Export pass: the section, and the selection when it lies
-/// inside it (they use it, else the whole section). Select Starred passes the section alone.
+/// The parameters Play and Export pass: the section, and the selection when it lies inside it (they
+/// use it, else the whole section). Select Starred passes the section alone; Collage one or the
+/// other ([`collage_params`]).
 fn params(f: &Frame<'_>, section: &Section) -> Value {
     let sel = &f.state.selection;
     if sel.section == Some(section.id) && !sel.ids.is_empty() {
@@ -475,6 +473,13 @@ fn params(f: &Frame<'_>, section: &Section) -> Value {
     } else {
         json!({ "section": section.id })
     }
+}
+
+/// The parameters Collage passes (`creating.md` §1): the selection when it lies inside the section,
+/// else the whole section; never both, as `create.collage` takes exactly one.
+fn collage_params(f: &Frame<'_>, section: &Section) -> Value {
+    let sel = &f.state.selection;
+    if sel.section == Some(section.id) && !sel.ids.is_empty() { json!({ "ids": sel.ids }) } else { json!({ "section": section.id }) }
 }
 
 /// `text` on one line in `font`, cut short with "…" past `max` points.
@@ -762,11 +767,11 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
             Button::Save => save_params(&unsaved),
             Button::ZoomToFaces => json!({ "person": person }),
             Button::Thumbnail => json!({ "face": thumb }),
+            Button::Collage => collage_params(f, section),
             _ => row_params.get_or_insert_with(|| params(f, section)).clone(),
         };
         let enabled = match b {
             Button::Save => save_state.as_ref().map(|_| ()).map_err(String::as_str),
-            Button::Collage if person.is_some() => Err(COLLAGE_LATER),
             Button::Thumbnail if thumb.is_none() => Err(NO_FACE),
             _ => button_enabled(b, live(f.session, b.command(), || p.clone()), facts.starred, 0),
         };

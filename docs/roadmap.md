@@ -9300,7 +9300,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     Frame Center moves the centre; each picture's centre on the canvas matches its placement within
     one pixel; Ctrl+Z undoes the last change; the canvas never waits on the disk; fingerprints of a
     pile with a selection and of a frame mosaic at 1400 × 900.
-- ⬜ **M14.20 `ui`: Collage everywhere it starts, Edit Collage and the Collages project**
+- ✅ **M14.20 `ui`: Collage everywhere it starts, Edit Collage and the Collages project**
   - after: M14.17, M14.18, M13.25
   - files: `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/folders/model.rs`, `crates/ui/tests/collage_entry.rs`, `crates/ui/tests/fingerprints/collage-entry-*.json`, `docs/ui-layout.md`
   - scope: `creating.md` §1 and `ui-layout.md` §5–§6: the bottom bar's Collage (the tray, and its
