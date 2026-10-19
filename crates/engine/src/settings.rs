@@ -118,8 +118,8 @@
 //!   answered; off) ([`LegacySettings`]).
 //! - `"collage"`: the Collage room's last style and settings ([`CollageSettings`]): `{style,
 //!   borders, gridSpacing, shadows, captions, pageFormat, orientation, backgroundColor}`: Picture
-//!   Pile (`"pile"`, one of the six [`CollageStyle`]s), `"white"` borders (`"none"`, `"white"` or
-//!   `"instant"`), no grid spacing (percent of the page's short side, in [`GRID_SPACING_RANGE`]),
+//!   Pile (`"pile"`, one of the six [`CollageStyle`]s), no borders (`"none"`, `"white"` or
+//!   `"instant"`), 1 % grid spacing (percent of the page's short side, in [`GRID_SPACING_RANGE`]),
 //!   shadows on, captions off, the page format by the Crop panel's ratio name or `"Current
 //!   Display"` ([`COLLAGE_PAGE_FORMAT_DEFAULT`], 16:9), `"landscape"` or `"portrait"` (landscape)
 //!   and a `"#rrggbb"` background (black).
@@ -1004,9 +1004,9 @@ impl CollageStyle {
 /// The collage's picture borders (Picture Pile and Contact Sheet; `creating.md` §3).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PictureBorder {
+    #[default]
     None,
     /// White, 3 % of the picture's short side.
-    #[default]
     White,
     /// An instant print's: 5 %, with 20 % at the bottom.
     Instant,
@@ -1067,9 +1067,9 @@ pub const CURRENT_DISPLAY: &str = "Current Display";
 pub struct CollageSettings {
     /// The style (`style`; Picture Pile).
     pub style: CollageStyle,
-    /// Picture borders (`borders`; white).
+    /// Picture borders (`borders`; none).
     pub borders: PictureBorder,
-    /// Grid spacing (`gridSpacing`; none), in percent of the page's short side, in
+    /// Grid spacing (`gridSpacing`; 1 %), in percent of the page's short side, in
     /// [`GRID_SPACING_RANGE`].
     pub grid_spacing: f64,
     /// Draw shadows (`shadows`; on).
@@ -1090,8 +1090,8 @@ impl Default for CollageSettings {
     fn default() -> Self {
         CollageSettings {
             style: CollageStyle::Pile,
-            borders: PictureBorder::White,
-            grid_spacing: 0.0,
+            borders: PictureBorder::None,
+            grid_spacing: 1.0,
             shadows: true,
             captions: false,
             page_format: COLLAGE_PAGE_FORMAT_DEFAULT.into(),
@@ -2067,7 +2067,7 @@ impl Settings {
             Some(v) => match v.as_f64().filter(|s| GRID_SPACING_RANGE.contains(s)) {
                 Some(s) => c.grid_spacing = s,
                 None => problems.push(format!(
-                    "collage.gridSpacing is not a number from {} to {}; the default (none) is used",
+                    "collage.gridSpacing is not a number from {} to {}; the default (1) is used",
                     GRID_SPACING_RANGE.start(),
                     GRID_SPACING_RANGE.end()
                 )),

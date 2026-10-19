@@ -10,6 +10,7 @@ mod automation_roots;
 mod batch_edit;
 mod busy_writes;
 mod captions;
+mod collage;
 mod crop_commands;
 mod dates;
 mod dates_undo_written;

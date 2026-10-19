@@ -1472,14 +1472,14 @@ fn a_collage_key_does_nothing_in_the_library() {
     assert_eq!(state(&mut t)["collage"]["selection"], json!([]));
 }
 
-/// Create ▸ Picture Collage… waits for the engine's `create.collage` (greyed), and the canvas's
+/// Create ▸ Picture Collage… is live with the engine's `create.collage` (M14.16), and the canvas's
 /// picture menu is listed and greyed until the room is open and M14.19 makes it act.
 #[test]
 fn the_collage_menu_items_are_listed_and_greyed() {
     use dalica_ui::commands::{collage, collage_canvas};
     let mut t = setup();
     let r = row(&mut t, "create.collage", Value::Null);
-    assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(false), &json!(false), &json!("Not available yet.")), "{r}");
+    assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(true), &Value::Null), "{r}");
     let check = |t: &mut T, want: &str| {
         let menu = ok(t, "ui.menu.tree", json!({ "context": "collage" }));
         let rows = rows_of(&menu);

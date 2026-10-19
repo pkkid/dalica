@@ -160,6 +160,8 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
                     assert!(button.enabled, "{case}: Export opens the Export dialog (output.export, M8.4)");
                 } else if b == Button::Play {
                     assert!(button.enabled, "{case}: Play plays a slideshow of the section (section.slideshow, M11.19)");
+                } else if b == Button::Collage {
+                    assert!(button.enabled, "{case}: Collage opens the Collage room on the section (create.collage, M14.16)");
                 } else if b == Button::Save {
                     assert!(!button.enabled, "{case}: Save needs an unsaved edit in the folder (M8.19, `save_ui.rs`)");
                 } else {
