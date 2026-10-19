@@ -22,7 +22,10 @@ and git.
   people names and face points withheld from automation without the people permission (M13.49); the task gate also
   tests direct dependents (M13.50); Focal Zoom's half-resolution blur accepted. At sign-off: ship 0.8 after the slideshow fix and green
   review-PR runs; all 57 fingerprint baselines approved; the security fuzz targets, SBOMs and an
-  advisory check planned as M15.39 and M15.40; M13's automation follow-ups as M14.25.
+  advisory check planned as M15.39 and M15.40; M13's automation follow-ups as M14.25. The review PR's
+  GitHub runs: Ubuntu, corpus, the four fuzz targets and the release budgets green; macOS (one
+  geocoder spacing test) and Windows (cancelled at the 60-minute limit, with two acceptance
+  failures) deferred by the maintainer to M14.26.
 - **Numbers (M13.R, 75b83f7c, 2026-10-18):** `cargo xtask ci --full` 12.7 min cold / 8.9 min warm (i7-13700K, 16
   jobs): tests 4 158 passed, 2 ignored, 1 failed (an intermittent slideshow upload test: the test raced a worker
   thread; fixed by #914, 0 / 200 under load); every milestone's acceptance M0–M13 passes; release budgets: face detection 41 ms, SFace

@@ -9355,8 +9355,26 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     load and fix the race (product or test synchronisation, never a looser check).
   - done when: one test per item, each failing without its fix; the flaky test passes 200 runs
     under `taskset -c 0`.
+- ⬜ **M14.26 `xtask` + `ui` + `engine`: the M13.R review's macOS and Windows failures**
+  - after: M13.R
+  - files: `.github/workflows/ci.yml`, `xtask/src/ci.rs`, `crates/engine/tests/map_tiles.rs`, `crates/engine/src/geocode.rs`, `crates/ui/src/picker.rs`, `crates/ui/src/control/picker.rs`, `tests/acceptance/m11_live.rs`, `tests/acceptance/fingerprints/m11-1400x900-slideshow-wipe.json`, `tests/acceptance/m13_common.rs`, `tests/acceptance/m13_faces.rs`, `docs/development.md`
+  - scope: deferred by the maintainer at M13.R (2026-10-18), from the review PR's GitHub runs:
+    (1) macOS: engine `map_tiles::a_place_name_is_looked_up_once_and_hostile_replies_are_refused`
+    measured 985 ms between two place searches at the test server (asserted ≥ 990 ms) although
+    the engine waits `MIN_INTERVAL` (1 s) per send: measure the gap where it is made, or give the
+    spacing a margin so arrivals keep 1 s, never a looser assertion; (2) Windows: `ci --full
+    --platform` hit the job's 60-minute limit (every package's tests took 34.5 min there, 20 on
+    macOS) while `accept M13` ran: split the acceptance steps into their own job or raise the
+    limit, so the review's Windows run completes; (3) Windows: `accept M11`'s
+    `m11-1400x900-slideshow-wipe` was 2.18 from its fingerprint (tolerance 2): find what differs
+    on Windows and fix it, or re-bless with the images shown at the next review; (4) Windows:
+    `accept M13`'s faces test got "no file picker is open" from `ui.filePicker` with a short-form
+    temp path (`C:\Users\RUNNER~1\…`): make the picker match long and short path forms (or
+    canonicalise before comparing) and finish the faces test on Windows.
+  - done when: a test for each fix that fails without it (the picker on a short Windows path, the
+    spacing); the review gate's GitHub run green on macOS and Windows within its time limit.
 - ⬜ **M14.23 `accept M14`**
-  - after: M14.15, M14.20, M14.21, M14.22, M14.25
+  - after: M14.15, M14.20, M14.21, M14.22, M14.25, M14.26
   - files: `tests/acceptance/m14.rs`, `tests/acceptance/m14_*.rs`, `tests/acceptance/m14.md`, `tests/acceptance/fingerprints/m14-*.json`
   - scope: every *Done when* of M14's two areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: a collage opened from the tray, a folder header and a
