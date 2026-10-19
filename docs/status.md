@@ -7,6 +7,32 @@ and git.
 
 ## Current
 
+- **Milestone:** M13, people and places and Release 0.8, is done: M13.1–M13.51 are merged (44 planned tasks, seven
+  tasks added during the run and at the review: M13.45 a data-loss gap, M13.46 a flaky test, M13.47 effect speed
+  margin, M13.48–M13.51 follow-ups and the maintainer's answers) and `cargo xtask accept M13` passes (64 s warm). Local
+  faces with downloadable or file-installed models behind a licence dialog, the background face scan, the Unnamed
+  grid, suggestions, the People group, person sections and the People pane, MWG names in files; geotags in the files,
+  the Places pane with an offline map, drag-to-geotag and opt-in OpenStreetMap tiles and search; every effect within
+  its 16 ms / 100 ms caps, now budgets; W13 and W14 over MCP. Version 0.8.0: M13.R is the 0.8 release gate,
+  published once the review PR is merged. Next: M14, collage and legacy sidecars; its issues open when the M13.R
+  review PR is merged.
+- **M13 review (2026-10-18):** asked early, when nothing else could run: reserved decision 9 = pure-Rust TLS (rustls +
+  rustls-rustcrypto, a licence exception for webpki-roots); 5 = YuNet + SFace (default) / AuraFace, pinned; the
+  public-faces corpus published to `dalica-corpus`; 4 = OpenStreetMap tiles and Nominatim, off until allowed;
+  people names and face points withheld from automation without the people permission (M13.49); the task gate also
+  tests direct dependents (M13.50); Focal Zoom's half-resolution blur accepted. Sign-off questions on the check-in
+  page.
+- **Numbers (M13.R, 75b83f7c, 2026-10-18):** `cargo xtask ci --full` 12.7 min cold / 8.9 min warm (i7-13700K, 16
+  jobs): tests 4 158 passed, 2 ignored, 1 failed (an intermittent slideshow upload test, fixed on its own PR before
+  the review closes); every milestone's acceptance M0–M13 passes; release budgets: face detection 41 ms, SFace
+  embedding 45 ms, face scan 11 faces/s with the frame at 0.2 ms p95, Unnamed grid of 10 000 faces opens in 21.5 ms,
+  Places pane of 10 000 photos 1.05 ms; all 27 effects' drafts 2.3–12.9 ms and finals 13.4–66.2 ms at p95 on two
+  cores; public-faces floors: detection 45 / 45, SFace 8 / 10 people grouped, AuraFace 10 / 10, every group pure,
+  every suggestion right; parity ✅ 172 · 🟡 47 · ⬜ 29 · 🚫 17 (265 rows, 324 commands); workflows 14 / 14 (floor
+  14); +100 139 / −2 822 lines. Run: 51 tasks with 7 workers from 10:30 to 20:00 on 2026-10-18; median claim→merge
+  28 min; 10 send-backs (3 rebase conflicts in `docs/parity.md`), 18 tasks needed files outside their list; `main`
+  red twice through a dependent's test; one GitHub rate-limit stall (15 min); one 50-minute stop on unasked
+  reserved decisions.
 - **Milestone:** M12, effects and Release 0.7, is done: M12.1–M12.32 are merged (25 planned tasks, seven fix tasks
   added during the run and at the review, and the lead's M14 blocks) and `cargo xtask accept M12` passes (122 s; 309 s
   with the release budgets). The edit view's tabs 3–5 with all 27 effects: background tile grids, one-click effects,
