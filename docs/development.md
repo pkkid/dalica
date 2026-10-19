@@ -30,7 +30,7 @@ cargo xtask ci --full                               # the review gate: every tes
 
 | Command | What it does | In `ci` |
 |---|---|---|
-| `xtask ci [--merge \| --full [--platform]]` | the gates (below): plain, a task's gate (fmt check, clippy `-D warnings` over the whole workspace with all targets, the static checks `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `contributors --check`, `tasks sync --check`, and the tests of the packages the branch changed and of their direct dependents, quick); `--merge`, the same without tests; `--full`, the review gate; runs every step, prints a table with each step's time, and on a clean worktree records the green commit for `tasks submit` | — |
+| `xtask ci [--merge \| --full [--platform] [--tests-only \| --accept-only]]` | the gates (below): plain, a task's gate (fmt check, clippy `-D warnings` over the whole workspace with all targets, the static checks `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `contributors --check`, `tasks sync --check`, and the tests of the packages the branch changed and of their direct dependents, quick); `--merge`, the same without tests; `--full`, the review gate; runs every step, prints a table with each step's time, and on a clean worktree records the green commit for `tasks submit` | — |
 | `xtask layers` | checks crate dependencies against the layer table in `xtask/src/layers.rs` (`architecture.md` §2); unregistered crates fail; UI crates only in L5; only `crates/fs` calls `std::fs` write functions | ✓ |
 | `xtask deps` | offline dependency audit (`security.md` §8): licence allow-list over the whole graph; on the product graph of `dalica` and `dalica-cli` for Linux, Windows and macOS, no banned crate, no C build script (reviewed exceptions are checked against the resolved features) and `*-sys` only from the allow-list; sources; duplicate versions warn | ✓ |
 | `xtask assets` | every image/icon/font/sound file is matched by a row in `ATTRIBUTION.md`; referenced licence files exist; forbidden file names/extensions fail | ✓ |
@@ -69,6 +69,7 @@ decision, 2026-10-15).
 | `cargo xtask ci --merge` | `tasks merge`, after its rebase | fmt, clippy, the static checks; no tests (the worker's gate ran them on the same changes, and tasks never share files) |
 | `cargo xtask ci --full` | the lead at the review (`/milestone-review`), and the review's GitHub run on Linux | every test of every package at full strength, the heif decoder's tests, `parity` with every cited `cmd:` id checked against the registered commands, and the acceptance test of every finished milestone |
 | `cargo xtask ci --full --platform` | the review's GitHub run on Windows and macOS | `--full` without what gives the same answer on every system: fmt, the static checks, the heif tests, and the pure packages (`dalica-core`, `-library`, `-scenes`, `-edit`, `-image`, `-meta`, `-sidecar`, `xtask`) |
+| `… --full [--platform] --tests-only` / `--accept-only` | the review's GitHub run, as two jobs per system | the two halves of the gate above: `--accept-only` runs steps 3 and 4 below (`test acceptance` and each `accept M<k>`), `--tests-only` everything else; together exactly the whole |
 
 **Which packages a task's gate tests.** A file belongs to the workspace member whose directory
 holds it; the gate tests those packages, and every workspace member that depends on one of them
@@ -115,7 +116,9 @@ acceptance tests never see `DALICA_BLESS` (`dalica_acceptance::cargo`), so bless
 own baselines never rewrites a crate's.
 
 **On GitHub.** CI (`.github/workflows/ci.yml`: Linux `ci --full`, Windows and macOS
-`ci --full --platform`, and the corpus job of §11), Budgets (§8) and Fuzz (`security.md` §7) run
+`ci --full --platform`, each system's gate as two jobs side by side, `--tests-only` and
+`--accept-only`, so each half finishes within the job's 60 minutes (the whole took 65 on Windows at
+M13.R); and the corpus job of §11), Budgets (§8) and Fuzz (`security.md` §7) run
 only on the pull request of a `review/M<n>.R` branch and when dispatched by hand (*Run workflow* on
 the Actions tab, any branch). A task's pull request and a push to `main` run no tests: every merge
 is decided by the local gates (the packaging lint and the release dry run still run when

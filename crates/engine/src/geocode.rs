@@ -52,8 +52,29 @@ const MEMORY: usize = 32;
 /// a request waits for its turn.
 const WAIT_STEP: Duration = Duration::from_millis(5);
 
-/// When the next request to a geocoding service may go, for the whole process.
-static NEXT_SLOT: Mutex<Option<Instant>> = Mutex::new(None);
+/// The process's turn at the geocoding service: whether a request is on its way, and when the
+/// next one may go ([`MIN_INTERVAL`] after the last one ended).
+struct Slot {
+    in_flight: bool,
+    next: Option<Instant>,
+}
+
+static SLOT: Mutex<Slot> = Mutex::new(Slot { in_flight: false, next: None });
+
+/// A turn at the geocoding service, held while its request is made. Dropping it (the request
+/// ended, failed or was abandoned) lets the next request go [`MIN_INTERVAL`] later. The interval
+/// is counted from the end of a request, not from when its turn was given, so the time between
+/// being given the turn and the request leaving (or reaching the server) never shortens the gap
+/// between two arrivals.
+struct Turn;
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let mut slot = lock(&SLOT);
+        slot.in_flight = false;
+        slot.next = Some(Instant::now() + MIN_INTERVAL);
+    }
+}
 
 /// One place found.
 #[derive(Clone, Debug, PartialEq)]
@@ -220,23 +241,27 @@ pub fn parse_reply(bytes: &[u8]) -> Result<Vec<Place>, String> {
     Ok(out)
 }
 
-/// Waits for this process's next turn at the geocoding service ([`MIN_INTERVAL`] after the last
-/// request); `false` when cancelled while waiting.
-fn wait_turn(cancel: &AtomicBool) -> bool {
-    let at = {
-        let mut next = lock(&NEXT_SLOT);
-        let now = Instant::now();
-        let at = next.map_or(now, |n| n.max(now));
-        *next = Some(at + MIN_INTERVAL);
-        at
-    };
-    while Instant::now() < at {
+/// Waits for this process's next turn at the geocoding service: no other request on its way and
+/// [`MIN_INTERVAL`] since the last one ended; `None` when cancelled while waiting.
+fn wait_turn(cancel: &AtomicBool) -> Option<Turn> {
+    loop {
         if cancel.load(Ordering::Relaxed) {
-            return false;
+            return None;
         }
-        std::thread::sleep(WAIT_STEP.min(at.saturating_duration_since(Instant::now())));
+        let wait = {
+            let mut slot = lock(&SLOT);
+            let now = Instant::now();
+            match slot.next {
+                _ if slot.in_flight => WAIT_STEP,
+                Some(next) if now < next => WAIT_STEP.min(next.saturating_duration_since(now)),
+                _ => {
+                    slot.in_flight = true;
+                    return Some(Turn);
+                }
+            }
+        };
+        std::thread::sleep(wait);
     }
-    !cancel.load(Ordering::Relaxed)
 }
 
 /// The search job: the disk cache's reply when it is fresh, else the service's (in its turn),
@@ -258,11 +283,13 @@ fn search(url: &str, folder: &str, net: &Net, cancel: &AtomicBool) -> Done {
             if let Err(e) = dalica_fs::remove_shaped(&path, own_shape) {
                 return failed(e.to_string());
             }
-            if !wait_turn(cancel) {
+            let Some(turn) = wait_turn(cancel) else {
                 return failed("cancelled".into());
-            }
+            };
             // One attempt: a second would come sooner than the service's interval.
-            match fetch_into(url, &dir, &name, MAX_REPLY_BYTES, 1, net, cancel) {
+            let fetched_into = fetch_into(url, &dir, &name, MAX_REPLY_BYTES, 1, net, cancel);
+            drop(turn);
+            match fetched_into {
                 Ok(size) => {
                     fetched = true;
                     net.upkeep.after_adding(&root, size);

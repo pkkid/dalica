@@ -21,6 +21,11 @@
 //!   leaves out what is the same on every system: the format and static checks, the heif tests and
 //!   the packages in [`PURE`].
 //!
+//! `--full` also takes `--tests-only` or `--accept-only`, which split it into two parts that run
+//! side by side as separate GitHub jobs (each within its time limit; Windows took 65 minutes for
+//! the whole at M13.R): the acceptance part is the `test acceptance` step and every `accept M<k>`;
+//! the tests part is everything else. Together they run exactly what `--full` runs.
+//!
 //! `stats --check` (the workflow floor, `crate::stats`) runs in the review gate and in a task gate
 //! that tests `dalica-mcp`, as a changed package or as a dependent.
 
@@ -108,22 +113,51 @@ pub enum Gate {
     Task,
     /// `tasks merge` after its rebase: compile and static checks, no tests.
     Merge,
-    /// The review gate: everything, full strength; `platform` leaves out what no system changes.
-    Full { platform: bool },
+    /// The review gate: everything, full strength; `platform` leaves out what no system changes;
+    /// `part` is all of it or one of its two halves.
+    Full { platform: bool, part: Part },
+}
+
+/// Which part of the review gate runs (`--tests-only`, `--accept-only`; both, by default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    All,
+    /// Everything but the acceptance steps.
+    Tests,
+    /// The acceptance steps: `test acceptance` and each finished milestone's `accept M<k>`.
+    Accept,
+}
+
+impl Part {
+    fn tests(self) -> bool {
+        self != Part::Accept
+    }
+
+    fn accept(self) -> bool {
+        self != Part::Tests
+    }
 }
 
 impl Gate {
     pub fn parse(args: &[String]) -> Result<Gate, String> {
+        const USAGE: &str = "usage: cargo xtask ci [--merge | --full [--platform] [--tests-only | --accept-only]]";
         let has = |f: &str| args.iter().any(|a| a == f);
-        if let Some(a) = args.iter().find(|a| !["--full", "--platform", "--merge"].contains(&a.as_str())) {
-            return Err(format!("ci: unknown argument `{a}` (usage: cargo xtask ci [--merge | --full [--platform]])"));
+        if let Some(a) = args.iter().find(|a| !["--full", "--platform", "--merge", "--tests-only", "--accept-only"].contains(&a.as_str())) {
+            return Err(format!("ci: unknown argument `{a}` ({USAGE})"));
         }
+        let part = match (has("--tests-only"), has("--accept-only")) {
+            (false, false) => Part::All,
+            (true, false) => Part::Tests,
+            (false, true) => Part::Accept,
+            (true, true) => return Err(format!("ci: --tests-only and --accept-only are the two halves; give one or neither ({USAGE})")),
+        };
         match (has("--full"), has("--platform"), has("--merge")) {
+            (true, platform, false) => Ok(Gate::Full { platform, part }),
+            (true, _, true) => Err("ci: --merge and --full are separate gates".into()),
+            _ if part != Part::All => Err("ci: --tests-only and --accept-only go with --full".into()),
             (false, false, false) => Ok(Gate::Task),
             (false, false, true) => Ok(Gate::Merge),
-            (true, platform, false) => Ok(Gate::Full { platform }),
             (false, true, _) => Err("ci: --platform goes with --full".into()),
-            (true, _, true) => Err("ci: --merge and --full are separate gates".into()),
         }
     }
 }
@@ -354,7 +388,11 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     let roadmap = tasks::load_roadmap(root);
     let accepted = roadmap.as_ref().map(finished_milestones).unwrap_or_default();
     let full = matches!(gate, Gate::Full { .. });
-    let platform = matches!(gate, Gate::Full { platform: true });
+    let platform = matches!(gate, Gate::Full { platform: true, .. });
+    let part = match gate {
+        Gate::Full { part, .. } => part,
+        Gate::Task | Gate::Merge => Part::All,
+    };
     // Full strength in the review gate; quick otherwise (the default when the variable is unset).
     let strength: &[(&str, &str)] = if full { &[(FULL_TESTS, "1")] } else { &[] };
     // The crate suites the acceptance tests would re-run have run in the test step by the time
@@ -386,8 +424,10 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             (false, changed.union(dependents).cloned().collect())
         }
     };
-    let test_acceptance = test_all || picked.contains(ACCEPTANCE);
-    let crate_tests: Option<Vec<String>> = if test_all {
+    let test_acceptance = (test_all || picked.contains(ACCEPTANCE)) && part.accept();
+    let crate_tests: Option<Vec<String>> = if !part.tests() {
+        None
+    } else if test_all {
         let mut args: Vec<String> = ["test", "--no-fail-fast", "--workspace", "--exclude", ACCEPTANCE].iter().map(|s| s.to_string()).collect();
         if platform {
             for p in PURE {
@@ -408,12 +448,17 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
 
     type Step<'a> = (String, Box<dyn Fn() -> Result<(), String> + 'a>);
     let mut steps: Vec<Step> = Vec::new();
-    if !platform {
+    if !platform && part.tests() {
         steps.push(("fmt".into(), Box::new(|| cargo_env(root, &["fmt", "--all", "--", "--check"], &[]))));
     }
     // Clippy covers every package and every target, so a change that breaks another crate's code or
     // tests is caught by every gate, also where that crate's tests do not run.
-    steps.push(("clippy".into(), Box::new(|| cargo_env(root, &["clippy", "--workspace", "--all-targets", "-j", &n, "--", "-D", "warnings"], &[]))));
+    if part.tests() {
+        steps.push((
+            "clippy".into(),
+            Box::new(|| cargo_env(root, &["clippy", "--workspace", "--all-targets", "-j", &n, "--", "-D", "warnings"], &[])),
+        ));
+    }
     if let Some(args) = &crate_tests {
         let n = &n;
         let threads = &threads;
@@ -427,10 +472,10 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         ));
     }
     // The workflow pass rate holds its floor wherever the workflows' package is tested.
-    if full || test_all || picked.contains(crate::stats::PACKAGE) {
+    if (full || test_all || picked.contains(crate::stats::PACKAGE)) && part.tests() {
         steps.push(("stats --check".into(), Box::new(move || crate::stats::check(root, strength))));
     }
-    if full && !platform {
+    if full && !platform && part.tests() {
         // The optional HEIF decoder (`docs/formats.md` §3) is off by default: its own tests, once,
         // and the engine's Save of a HEIC photo, which only a build with the decoder can make
         // (`crates/engine/tests/save_formats.rs`). Both run even when the first fails.
@@ -486,7 +531,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             }),
         ));
     }
-    if !platform {
+    if !platform && part.tests() {
         steps.push(("layers".into(), Box::new(|| crate::layers::run(root))));
         steps.push(("deps".into(), Box::new(|| crate::deps::run(root))));
         steps.push(("assets".into(), Box::new(|| crate::assets::run(root))));
@@ -505,7 +550,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             }),
         ));
     }
-    if full {
+    if full && part.accept() {
         for &m in &accepted {
             steps.push((format!("accept M{m}"), Box::new(move || crate::accept::accept_with(root, m, false, true, true, true))));
         }
@@ -525,8 +570,12 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     let label = match gate {
         Gate::Task => "task gate",
         Gate::Merge => "merge gate",
-        Gate::Full { platform: false } => "review gate",
-        Gate::Full { platform: true } => "review gate, platform part",
+        Gate::Full { platform: false, part: Part::All } => "review gate",
+        Gate::Full { platform: true, part: Part::All } => "review gate, platform part",
+        Gate::Full { platform: false, part: Part::Tests } => "review gate, tests",
+        Gate::Full { platform: true, part: Part::Tests } => "review gate, platform part, tests",
+        Gate::Full { platform: false, part: Part::Accept } => "review gate, acceptance",
+        Gate::Full { platform: true, part: Part::Accept } => "review gate, platform part, acceptance",
     };
     println!("\nci summary: {label} (test threads / build jobs: {n})");
     for (name, ok, secs) in &results {
@@ -611,8 +660,13 @@ mod tests {
         let a = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         assert_eq!(Gate::parse(&a(&[])), Ok(Gate::Task));
         assert_eq!(Gate::parse(&a(&["--merge"])), Ok(Gate::Merge));
-        assert_eq!(Gate::parse(&a(&["--full"])), Ok(Gate::Full { platform: false }));
-        assert_eq!(Gate::parse(&a(&["--full", "--platform"])), Ok(Gate::Full { platform: true }));
+        assert_eq!(Gate::parse(&a(&["--full"])), Ok(Gate::Full { platform: false, part: Part::All }));
+        assert_eq!(Gate::parse(&a(&["--full", "--platform"])), Ok(Gate::Full { platform: true, part: Part::All }));
+        assert_eq!(Gate::parse(&a(&["--full", "--tests-only"])), Ok(Gate::Full { platform: false, part: Part::Tests }));
+        assert_eq!(Gate::parse(&a(&["--full", "--platform", "--accept-only"])), Ok(Gate::Full { platform: true, part: Part::Accept }));
+        assert!(Gate::parse(&a(&["--full", "--tests-only", "--accept-only"])).is_err(), "the halves are exclusive");
+        assert!(Gate::parse(&a(&["--accept-only"])).is_err(), "a half goes with --full");
+        assert!(Gate::parse(&a(&["--merge", "--tests-only"])).is_err());
         assert!(Gate::parse(&a(&["--platform"])).is_err());
         assert!(Gate::parse(&a(&["--full", "--merge"])).is_err());
         assert!(Gate::parse(&a(&["--fast"])).is_err());

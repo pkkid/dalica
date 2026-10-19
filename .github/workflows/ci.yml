@@ -4,8 +4,10 @@
 # tests what the task changed and the lead's merge gate checks that everything still builds.
 # Linux runs the whole review gate; Windows and macOS run its platform part (`--full --platform`),
 # which leaves out what gives the same answer on every system (format and static checks, the heif
-# tests, the pure crates), so no test runs twice. Actions are pinned to full commit hashes
-# (docs/security.md §8.5).
+# tests, the pure crates), so no test runs twice. Each system's gate runs as two jobs side by side,
+# its tests (`--tests-only`) and its acceptance steps (`--accept-only`), so each half finishes within
+# the job's time limit (the whole took 65 minutes on Windows at M13.R). Actions are pinned to full
+# commit hashes (docs/security.md §8.5).
 name: CI
 
 on:
@@ -25,12 +27,13 @@ env:
 
 jobs:
   ci:
-    name: ci (${{ matrix.os }})
+    name: ci (${{ matrix.os }}, ${{ matrix.part }})
     if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        part: [tests, accept]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -54,18 +57,22 @@ jobs:
         with:
           toolchain: "1.98"
           components: rustfmt, clippy
+      # One cache per half: the two build different things (every test; the app and the acceptance
+      # tests).
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.part }}
       - name: Linux packages for eframe
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
-      - name: cargo xtask ci --full
+      - name: cargo xtask ci --full --${{ matrix.part }}-only
         if: runner.os == 'Linux'
-        run: cargo xtask ci --full
-      - name: cargo xtask ci --full --platform
+        run: cargo xtask ci --full --${{ matrix.part }}-only
+      - name: cargo xtask ci --full --platform --${{ matrix.part }}-only
         if: runner.os != 'Linux'
-        run: cargo xtask ci --full --platform
+        run: cargo xtask ci --full --platform --${{ matrix.part }}-only
 
   # The test corpora (docs/development.md §11): every published set fetched from its pin and
   # sha256-verified, then the corpus tests with their committed floors. `corpus/` is cached under a
