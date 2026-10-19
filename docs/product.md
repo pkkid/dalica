@@ -65,7 +65,7 @@ important parity, **P2** later / niche, **OOS** out of scope.
 | People (faces) | P1 | local models only |
 | Places (geotagging, map pane) | P1 | OpenStreetMap-compatible tiles, opt-in |
 | Collage | P1 | |
-| Video playback/trim | P2 | needs a pure-Rust video decision |
+| Video playback/trim | P2 | pure-Rust decoders for H.264 and HEVC (reserved decision 2, decided by the maintainer 2026-10-19): a spike on real phone files decides each codec, and a codec that fails stays a tile only (probe, cells, the Videos filter, "This video can't be played" with Open With); sound through a pure-Rust output per OS (PulseAudio protocol on Linux, WASAPI on Windows, CoreAudio on macOS) |
 | Legacy sidecar compatibility | P1 | reads the previous organizer's sidecars where no `.dalica.json` exists; never writes them |
 | OS integration: talking to other apps (drag photos out to other apps, files on the clipboard, Open With ▸, Open in External Editor, Locate on Disk with the file selected, default-viewer registration, camera import over MTP/PTP) | P2 | the last milestone (maintainer decision, 2026-10-09): cross-platform and needs per-OS code; until then these items render disabled |
 | Check for updates | — | deferred, not planned yet (maintainer decision, 2026-10-09); updates come from the release page |
