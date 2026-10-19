@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use dalica_core::{FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, Library, Op, Photo, PhotoInfo, Saved, SavedAs};
+use dalica_library::{Folder, Library, Op, Photo, PhotoInfo, Saved, SavedAs, VideoFacts};
 
 /// A photo new to the model with what its sidecar brings: its info, its copy saved beside it and
 /// its last-changed time.
@@ -30,7 +30,9 @@ pub const BATCH: usize = 500;
 /// originals record's word for every photo of a folder the scan read (known or new): one
 /// derived `SetSaved` after the adds sets or clears them ([`crate::originals`]); a record that
 /// could not be read changes none. The legacy originals folder's word comes the same way, in one
-/// derived `SetLegacyOriginals` after the saved records (M14.14).
+/// derived `SetLegacyOriginals` after the saved records (M14.14). A video's facts from its
+/// container ([`FoundPhoto::video`], M15.11) come the same way, in derived `SetVideos` ops after
+/// those, for every photo whose record the model does not hold yet.
 /// Photos whose files were read ([`FoundPhoto::file`]) follow `xmp-interop.md` §5 ([`crate::meta`]):
 /// a new photo Dalica has nothing for brings every value its file has in its `AddPhotos` batch, and
 /// a last sync op ([`crate::meta::sync_parts`]) imports what changed in another application and
@@ -82,6 +84,7 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
     let mut adds: Vec<Add> = Vec::new();
     let mut saved: Vec<(PhotoId, Option<Saved>)> = Vec::new();
     let mut legacy: Vec<(PhotoId, Option<dalica_library::LegacyOriginal>)> = Vec::new();
+    let mut videos: Vec<(PhotoId, Option<VideoFacts>)> = Vec::new();
     let mut sync = Sync::default();
     let mut renames = folder_renames(library, folders, &gone);
     gone.retain(|id| !renames.values().any(|old| old == id));
@@ -158,6 +161,11 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
         }
         saved.extend(crate::originals::changes(library, &ids, &found.originals));
         legacy.extend(crate::originals::legacy_changes(library, &ids, &found.originals));
+        let by_name: HashMap<&str, &FoundPhoto> = on_disk;
+        videos.extend(ids.iter().filter_map(|&(name, id)| {
+            let f = by_name.get(name)?;
+            (library.video_facts(id) != f.video.as_ref()).then(|| (id, f.video.clone()))
+        }));
     }
     // Removals first, so a rename's new name is free; then updates (renames, changes); then adds.
     for chunk in removes.chunks(BATCH) {
@@ -174,6 +182,9 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
     }
     for chunk in legacy.chunks(BATCH) {
         ops.push(Op::SetLegacyOriginals { originals: chunk.to_vec() });
+    }
+    for chunk in videos.chunks(BATCH) {
+        ops.push(Op::SetVideos { videos: chunk.to_vec() });
     }
     // What the files said, once every photo read is in the model.
     ops.extend(sync.op());

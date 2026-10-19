@@ -636,19 +636,17 @@ fn formats_dalica_cannot_write_get_a_jpeg_beside_and_stay_byte_identical() {
 /// AVIF (never decoded) cannot be saved, nor HEIC in a build without the `heif` feature:
 /// `photo.save` is disabled up front with the reason when every photo named is such a file, and
 /// beside a photo that can be saved such a file is left out with the reason while the other is
-/// saved. Nothing of it is written or kept, and it keeps its edits. A video is not listed until
-/// M15 decodes videos, so Save never reaches one; its file stays as it is.
+/// saved. Nothing of it is written or kept, and it keeps its edits. A video (listed since M15.11)
+/// is refused the same way: Save never writes to a video file.
 #[test]
 fn avif_and_video_cannot_be_saved_and_nothing_is_written() {
     #[allow(unused_mut)]
-    let mut refused = vec![("still.avif", avif(), "AVIF files can't be displayed")];
+    let mut refused = vec![("still.avif", avif(), "AVIF files can't be displayed"), ("clip.mp4", mp4(), "This video can't be played")];
     #[cfg(not(feature = "heif"))]
     refused.push(("iphone.heic", heic::build(64, 48), "HEIC support isn't included in this build"));
     let mut files: Vec<(&str, Vec<u8>)> = refused.iter().map(|(name, bytes, _)| (*name, bytes.clone())).collect();
-    files.push(("clip.mp4", mp4()));
     files.push(("fine.jpg", camera(51, 160, 120, 85)));
     let mut lib = Lib::new(&files);
-    assert!(!lib.has("clip.mp4"), "videos are not listed yet");
     let fine = lib.edit("fine.jpg", &[TUNING]);
     let mut ids = Vec::new();
     for (name, _, why) in &refused {
@@ -680,7 +678,6 @@ fn avif_and_video_cannot_be_saved_and_nothing_is_written() {
         assert!(lib.s.library().saved(*id).is_none() && lib.s.library().saved_as(*id).is_none(), "{name}");
         assert!(!lib.kept(name).exists(), "{name}: nothing kept");
     }
-    assert_eq!(read(&lib.path("clip.mp4")), mp4());
     let mut want: Vec<String> = files.iter().map(|(name, _)| name.to_string()).collect();
     want.sort();
     assert_eq!(lib.names(), want, "nothing written beside");

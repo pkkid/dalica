@@ -36,6 +36,10 @@
 //! making them again. An id another album or person holds is reported and not given. A folder
 //! with only a legacy sidecar has no `.dalica.json` to import: the scan reads its legacy sidecar
 //! again and gives the model what the first scan gave; nothing here clears it.
+//!
+//! M15 (M15.11): a video is rebuilt as a photo is (its star, caption, tags and recipe from its
+//! entry); its video facts are index-only and come back from the rebuild's scan, which probes the
+//! container again. Nothing here reads or clears them.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};

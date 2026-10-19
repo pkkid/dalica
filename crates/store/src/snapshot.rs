@@ -29,13 +29,15 @@
 //! id]` pairs), and the derived facts `folderSidecars` (`[folder id, sidecar in effect]` pairs)
 //! and `legacyOriginals` (`[photo id, original]` pairs), each left out when empty. Loading puts
 //! them back after the albums and people they name.
+//!
+//! M15's too: the derived `videos` (`[photo id, video facts]` pairs, M15.11), left out when empty.
 
 use std::path::Path;
 
 use dalica_core::{AlbumId, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 use dalica_library::{
     AlbumInfo, ContentDigest, Face, Facts, Folder, FolderInfo, FolderSidecar, Geo, LegacyOriginal, Library, Op, Person, Photo, PhotoInfo, PhotoSort,
-    Project, Saved, SavedAs, Sketch, Synced,
+    Project, Saved, SavedAs, Sketch, Synced, VideoFacts,
 };
 use serde::{Deserialize, Serialize};
 
@@ -98,6 +100,8 @@ struct Snapshot {
     folder_sidecars: Vec<(FolderId, FolderSidecar)>,
     #[serde(rename = "legacyOriginals", default, skip_serializing_if = "Vec::is_empty")]
     legacy_originals: Vec<(PhotoId, LegacyOriginal)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    videos: Vec<(PhotoId, VideoFacts)>,
 }
 
 /// Writes the model of `library` as of op `seq`.
@@ -129,6 +133,7 @@ pub fn write(path: &Path, library: &Library, seq: u64) -> Result<()> {
         person_legacy: library.person_legacies().map(|(id, l)| (id.clone(), l.to_string())).collect(),
         folder_sidecars: library.folder_sidecars().collect(),
         legacy_originals: library.legacy_originals().map(|(id, o)| (id, o.clone())).collect(),
+        videos: library.video_facts_all().map(|(id, v)| (id, v.clone())).collect(),
     };
     let json = serde_json::to_vec(&snap).map_err(|e| Error::Json(e.to_string()))?;
     write_whole(path, &encode(&json))
@@ -210,6 +215,9 @@ pub fn read(bytes: &[u8]) -> std::result::Result<(Library, u64), String> {
     }
     if !snap.legacy_originals.is_empty() {
         ops.push(Op::SetLegacyOriginals { originals: snap.legacy_originals.into_iter().map(|(id, o)| (id, Some(o))).collect() });
+    }
+    if !snap.videos.is_empty() {
+        ops.push(Op::SetVideos { videos: snap.videos.into_iter().map(|(id, v)| (id, Some(v))).collect() });
     }
     library.apply(Op::Batch { ops }).map_err(|e| format!("inconsistent snapshot: {e}"))?;
     Ok((library, snap.seq))

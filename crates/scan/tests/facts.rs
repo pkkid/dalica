@@ -289,7 +289,7 @@ fn jpeg_tiff_png_and_raw_files_give_their_camera_and_location() {
     let Ok(SidecarWrite::Write(xmp)) = xmp_sidecar::merge(None, None, &place, &options()) else { panic!("a new sidecar") };
     put(&dir.join("IMG_0002.xmp"), &xmp, 0);
     put(&dir.join("IMG_0003.CR3"), CR3, 0);
-    // A video: not a photo before M15.
+    // A video (M15.11): listed as one; this container has no movie box, so nothing is known.
     put(&dir.join("clip.mp4"), &mp4(), 0);
 
     let scan = scan_with(&[tmp.path().to_path_buf()], &reading());
@@ -305,7 +305,7 @@ fn jpeg_tiff_png_and_raw_files_give_their_camera_and_location() {
         assert!(found(&scan, name).file.is_some(), "{name} was read");
         assert_eq!(facts_of(&scan, name), Facts::default(), "{name}: no EXIF, no facts");
     }
-    assert!(scan.folders.iter().flat_map(|f| &f.photos).all(|p| p.name != "clip.mp4"), "a video is not listed before M15");
+    assert_eq!(found(&scan, "clip.mp4").video, Some(dalica_library::VideoFacts::default()), "a video whose container says nothing");
     assert!(scan.folders.iter().flat_map(|f| &f.photos).all(|p| p.file.as_ref().is_none_or(|f| !f.1.video)));
 
     // Without metadata reading, nothing is read (facts included).

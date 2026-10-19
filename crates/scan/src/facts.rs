@@ -8,8 +8,8 @@
 //!   header's EXIF ([`of_header`]). Each is kept as read (no case change, the make never taken out
 //!   of the model) once made safe: control characters dropped, line breaks and tabs turned into
 //!   spaces, trimmed, cut at [`MAX_CAMERA`] bytes on a character boundary ([`camera`]).
-//! - **Video:** the file's type ([`FileType::Video`]). Videos are listed from M15
-//!   (`formats.md` §1): until then a video file is no photo and has no facts.
+//! - **Video:** the file's type ([`FileType::Video`]). Videos are listed from M15.11
+//!   (`formats.md` §1, [`crate::video`]), their container's facts beside these.
 //! - **Geotagged:** the file holds a usable GPS location: the EXIF GPS IFD's latitude and
 //!   longitude, else XMP `exif:GPSLatitude` and `exif:GPSLongitude` (a RAW's `.xmp` sidecar
 //!   included), the place `dalica-meta` resolves (`xmp-interop.md` §2). A GPS block without a
@@ -92,9 +92,12 @@ mod tests {
     }
 
     #[test]
-    fn no_image_format_is_a_video() {
+    fn every_video_kind_is_a_video_and_no_image_format_is() {
         for f in [Format::Jpeg, Format::Png, Format::Tiff, Format::WebP, Format::Heif, Format::Raw(dalica_image::RawKind::Cr3)] {
             assert!(!is_video(f));
+        }
+        for kind in dalica_image::sniff::VideoKind::ALL {
+            assert!(is_video(Format::Video(kind)), "{kind:?}, not RAW");
         }
     }
 }

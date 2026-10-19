@@ -10053,7 +10053,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `linebreak::mark` breaks a 60-word Thai paragraph only at dictionary word boundaries and
     leaves Latin and CJK text unchanged; a label wrapped at 200 px breaks only there; the cost of
     `mark` on the release notes' length is in the PR; `docs/thai-text.md` gives the verdict.
-- ⬜ **M15.11 `scan` + `store`: videos listed on scan**
+- ✅ **M15.11 `scan` + `store`: videos listed on scan**
   - after: M15.2, M15.3, M9.7, M10.11
   - files: `crates/scan/src/skip.rs`, `crates/scan/src/facts.rs`, `crates/scan/src/video.rs`, `crates/scan/tests/video.rs`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/snapshot.rs`, `crates/store/tests/video.rs`
   - scope: `formats.md` §1: `FileType::of` maps `Format::Video` to Video (the wildcard that sends

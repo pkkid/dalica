@@ -20,3 +20,4 @@ mod people;
 mod sidecars;
 mod sketch;
 mod stale;
+mod video;

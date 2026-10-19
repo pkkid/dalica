@@ -23,7 +23,7 @@ use dalica_fs::{Entry, Limits};
 use dalica_image::{Format, Header, Orientation};
 use dalica_library::{
     Face, FacePerson, FolderInfo, Geo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort, Project,
-    SavedAs, SortBy,
+    SavedAs, SortBy, VideoFacts,
 };
 use dalica_sidecar::fields::GeoTag;
 use dalica_sidecar::{Field, PersonName, Sidecar};
@@ -81,6 +81,9 @@ pub struct FoundPhoto {
     /// (its faces and albums, by legacy id; [`crate::legacy`], M14): `None` when the folder's data
     /// does not come from a legacy sidecar or no section of it names the photo.
     pub legacy: Option<LegacyPhoto>,
+    /// A video's facts from its container ([`crate::video`], M15.11): the empty record for a video
+    /// whose container could not be probed; `None` for a still picture.
+    pub video: Option<VideoFacts>,
 }
 
 /// A folder holding at least one photo.
@@ -620,6 +623,12 @@ impl Scanner<'_> {
                     orientations.insert(name.clone(), h.orientation);
                     (Some(FoundPhoto { width, height, date, file: file.map(|f| *f), ..unread(entry, name, h.format) }), None)
                 }
+                Outcome::Video(f, p) => {
+                    // What the file says comes in only where its metadata is read (new or changed).
+                    let read = paths.get(i).is_some_and(|(_, meta)| meta.is_some());
+                    let crate::video::Probed { width, height, date, facts, file } = *p;
+                    (Some(FoundPhoto { width, height, date, video: Some(facts), file: read.then_some(file), ..unread(entry, name, f) }), None)
+                }
                 // Recognised, not decoded yet: listed (a format tile until its decoder arrives).
                 Outcome::HeaderError(f, dalica_image::Error::Unsupported(_)) => (Some(unread(entry, name, f)), None),
                 Outcome::HeaderError(f, e) => (Some(unread(entry, name, f)), Some(failed(Some(f), e.to_string()))),
@@ -851,6 +860,7 @@ fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
         geo: None,
         file: None,
         legacy: None,
+        video: crate::facts::is_video(format).then(VideoFacts::default),
     }
 }
 
@@ -1026,6 +1036,8 @@ enum Outcome {
     TypeOff,
     /// The header, and what the file says about the owned fields when they were read.
     Header(Header, Option<Box<FileValues>>),
+    /// A video of this format, probed (M15.11).
+    Video(Format, Box<crate::video::Probed>),
     /// Recognised as this format, but its header could not be read.
     HeaderError(Format, dalica_image::Error),
     /// The read panicked, ran out of time or could not open the file; the format if it was
@@ -1041,6 +1053,7 @@ enum Reply {
     Sniffed(Option<Format>),
     TypeOff,
     Header(dalica_image::Result<Header>, Option<Box<FileValues>>),
+    Video(dalica_image::Result<crate::video::Probed>),
     Io(String),
     Panicked(String),
     Cancelled,
@@ -1192,6 +1205,18 @@ fn outcome(replies: impl Iterator<Item = Result<Reply, RecvTimeoutError>>) -> Ou
                     None => Outcome::Failed(None, e.to_string()),
                 };
             }
+            Ok(Reply::Video(Ok(p))) => {
+                return match format {
+                    Some(f) => Outcome::Video(f, Box::new(p)),
+                    None => Outcome::Failed(None, format!("{STOPPED} while reading the file")),
+                };
+            }
+            Ok(Reply::Video(Err(e))) => {
+                return match format {
+                    Some(f) => Outcome::HeaderError(f, e),
+                    None => Outcome::Failed(None, e.to_string()),
+                };
+            }
             Ok(Reply::Io(e)) => return Outcome::Failed(format, format!("cannot read the file: {e}")),
             Ok(Reply::Panicked(m)) => return Outcome::Failed(format, format!("reading the header panicked: {m}")),
             Err(RecvTimeoutError::Timeout) => return Outcome::Failed(format, OVERRUN.to_string()),
@@ -1224,6 +1249,10 @@ fn run_job(job: &Job, reader: &Readers, limits: &dalica_image::Limits, reply: &m
         match format {
             Some(f) if !job.types.allows_format(f) => {
                 send(Reply::TypeOff);
+            }
+            // A video's container is probed, not its header read (M15.11).
+            Some(Format::Video(_)) => {
+                send(Reply::Video(crate::video::read(&job.path, limits)));
             }
             Some(f) => {
                 let (header, file) = match job.meta {
