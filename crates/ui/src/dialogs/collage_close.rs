@@ -19,6 +19,8 @@ use crate::state::CollageClose;
 
 pub const TITLE: &str = "Close Collage";
 pub const QUESTION: &str = "Save the changes to this collage?";
+/// Save Draft's action (`dialog.saveDraft`).
+pub const SAVE_DRAFT: &str = "saveDraft";
 /// The dialog's width (points).
 pub const WIDTH: f32 = 420.0;
 
@@ -27,7 +29,7 @@ pub fn look(_app: &App, _d: &Dialog) -> Look {
         title: TITLE.into(),
         width: WIDTH,
         buttons: vec![
-            Button::new("saveDraft", "Save Draft", ButtonKind::Default),
+            Button::new(SAVE_DRAFT, "Save Draft", ButtonKind::Default),
             Button::new("discard", "Discard", ButtonKind::Other),
             Button::cancel(),
         ],
@@ -41,7 +43,7 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
 pub fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     let closing = app.state().collage.close.unwrap_or(CollageClose::Tab);
     match action {
-        "saveDraft" => crate::commands::collage::save_draft(app, Some(closing)),
+        SAVE_DRAFT => crate::commands::collage::save_draft(app, Some(closing)),
         "discard" => crate::commands::collage::close(app, true, closing),
         _ => Err(CmdError::NotFound(format!("the {} dialog has no button `dialog.{action}`", d.kind.name()))),
     }
