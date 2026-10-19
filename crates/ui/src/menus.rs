@@ -2,8 +2,8 @@
 //! ([`UI_COMMANDS`], defined in [`crate::commands`]) and the running app, and the in-window menus
 //! drawn from it.
 //!
-//! - **The model** ([`bar`], [`section_menu`], [`photo_menu`], and M13's [`face_menu`] and
-//!   [`person_menu`]) is the catalog with the app's state applied: an
+//! - **The model** ([`bar`], [`section_menu`], [`photo_menu`], M13's [`face_menu`] and
+//!   [`person_menu`], and M14's [`collage_menu`]) is the catalog with the app's state applied: an
 //!   item is *live* when its command is registered (a UI command or an engine command; an item
 //!   that opens a dialog also needs that dialog; an opener's item, `crate::commands::OPENERS`,
 //!   is live with its dialog), *enabled* when live and its command's `enabled`
@@ -105,8 +105,10 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("geo.clear", "clearLocation"),
 ];
 
-/// `…` items that open a room rather than a dialog (`ui-layout.md` §8): live without one.
-pub const ROOM_OPENERS: &[&str] = &["import.open"];
+/// `…` items that open a room rather than a dialog (`ui-layout.md` §8): live without one, once
+/// their command is registered (Create ▸ Picture Collage… with the engine's `create.collage`,
+/// M14.16; greyed until then).
+pub const ROOM_OPENERS: &[&str] = &["import.open", "create.collage"];
 
 /// The dialog an item running `id` opens in a section of `kind`: [`DIALOGS`]'s, but Album
 /// Properties for `section.properties` on an album.
@@ -277,6 +279,12 @@ pub fn face_menu(app: &App, platform: Platform) -> Vec<Node> {
 /// Merge Into ▸'s rows join when the people do (M13.25).
 pub fn person_menu(app: &App, platform: Platform) -> Vec<Node> {
     nodes(&Facts::new(app, platform), menu_catalog::PERSON, "Person")
+}
+
+/// The context menu of a picture on the collage canvas (`creating.md` §3: Bring to Top, Send to
+/// Bottom, View and Edit; M14.19).
+pub fn collage_menu(app: &App, platform: Platform) -> Vec<Node> {
+    nodes(&Facts::new(app, platform), menu_catalog::COLLAGE_PICTURE, "Collage")
 }
 
 fn menu_node(facts: &Facts<'_>, menu: &Menu) -> MenuNode {

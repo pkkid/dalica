@@ -619,10 +619,14 @@ pub enum DialogKind {
     /// Find faces in my photos turned off: "Also delete the face data …?" [Delete Face Data] [Keep]
     /// (`faceModel.dropData`, `faces.md` §7; M13.27).
     DropFaceData,
+    /// Closing the Collage room (its tab's ×, its Close, or the window) with unsaved changes:
+    /// [Save Draft] [Discard] [Cancel] (`creating.md` §3); what is closing is
+    /// [`CollageRoom::close`] (M14.18).
+    CollageClose,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 45] = [
+    pub const ALL: [DialogKind; 46] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -668,6 +672,7 @@ impl DialogKind {
         DialogKind::WritePeopleNames,
         DialogKind::RemoveFaceModel,
         DialogKind::DropFaceData,
+        DialogKind::CollageClose,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -718,6 +723,7 @@ impl DialogKind {
             DialogKind::WritePeopleNames => "writePeopleNames",
             DialogKind::RemoveFaceModel => "removeFaceModel",
             DialogKind::DropFaceData => "dropFaceData",
+            DialogKind::CollageClose => "collageClose",
         }
     }
 
@@ -2213,23 +2219,26 @@ impl OptionsDraft {
 // ---------------------------------------------------------------------------------------------
 
 /// A room: a tab of the room strip (`ui-layout.md` §8), named as in its widget id
-/// (`tab:room.import`). The Library tab is always there; Collage joins with its milestone.
+/// (`tab:room/import`). The Library tab is always there; Import (M11) and Collage (M14) open as
+/// rooms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Room {
     #[default]
     Library,
     Import,
+    Collage,
 }
 
 impl Room {
-    pub const ALL: [Room; 2] = [Room::Library, Room::Import];
+    pub const ALL: [Room; 3] = [Room::Library, Room::Import, Room::Collage];
 
-    /// The room as the protocol writes it (`import`), the `<room>` of `tab:room.<room>`.
+    /// The room as the protocol writes it (`import`), the `<room>` of `tab:room/<room>`.
     pub fn name(self) -> &'static str {
         match self {
             Room::Library => "library",
             Room::Import => "import",
+            Room::Collage => "collage",
         }
     }
 }
@@ -2796,6 +2805,132 @@ fn dedup_people(v: &mut Vec<PersonId>) {
     v.retain(|x| seen.insert(x.clone()));
 }
 
+// ---------------------------------------------------------------------------------------------
+// M14: the Collage room (`creating.md` §3)
+// ---------------------------------------------------------------------------------------------
+
+/// The most clips a collage holds (`creating.md` §3), and so the most pictures on its page: an
+/// item's number (`item:<n>`) is below it.
+pub const MAX_CLIPS: usize = 1000;
+/// How far outside the page a canvas gesture's points may lie, in page widths and heights (the
+/// page is 0 … 1 both ways; a drag may leave it).
+pub const GESTURE_MIN: f32 = -1.0;
+pub const GESTURE_MAX: f32 = 2.0;
+
+/// The Collage room's left panel: its Settings tab or its Clips tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CollageTab {
+    #[default]
+    Settings,
+    Clips,
+}
+
+/// What a gesture on the canvas does: a drag moves a picture (in a pile) or swaps two (in the
+/// mosaics and the grid); a turn turns and scales it with its wheel handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GestureKind {
+    Move,
+    Turn,
+}
+
+/// A drag or turn under way on the canvas: the picture (`item:<n>`), what the gesture does, and
+/// where the pointer went down and is now, normalised to the page (0 … 1, a little outside it
+/// allowed: [`GESTURE_MIN`] … [`GESTURE_MAX`]). Nothing changes in the collage before the
+/// gesture ends (one room step).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CollageGesture {
+    pub item: u32,
+    pub kind: GestureKind,
+    pub from: [f32; 2],
+    pub to: [f32; 2],
+}
+
+impl CollageGesture {
+    /// Its item is a picture's number and its points are finite and near the page.
+    fn fits(&self) -> bool {
+        (self.item as usize) < MAX_CLIPS && self.from.iter().chain(&self.to).all(|v| within(*v, GESTURE_MIN, GESTURE_MAX))
+    }
+}
+
+/// What the close question ([`DialogKind::CollageClose`]) closes: the Collage room's tab (its ×
+/// or Close) or the whole window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CollageClose {
+    Tab,
+    Window,
+}
+
+/// The Collage room's view state (`creating.md` §3): its tab (Settings or Clips), the pictures
+/// selected on the canvas by number (`item:<n>`, in the engine's placements' order), the clips
+/// selected in the Clips tab (`clip:<PhotoId>`), the drag or turn under way, Get More's mode (the
+/// Library tab in front while the tray offers Back to Collage) and the close question while it is
+/// asked. The collage itself (style, settings, clips, placements) is the engine's
+/// (`collage.inspect`). Everything but the tab is empty while the room is not open.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct CollageRoom {
+    pub tab: CollageTab,
+    pub selection: Vec<u32>,
+    pub clips: Vec<PhotoId>,
+    pub gesture: Option<CollageGesture>,
+    pub get_more: bool,
+    pub close: Option<CollageClose>,
+}
+
+impl CollageRoom {
+    /// Why this view state cannot be used with the Collage room `open` (and in `front`), if it
+    /// cannot: anything but the tab while the room is not open, a list over [`MAX_CLIPS`], an item
+    /// number past it, a gesture's point far off the page, Get More with the room in front.
+    pub fn check(&self, open: bool, front: bool) -> Result<(), String> {
+        let idle = CollageRoom { tab: self.tab, ..CollageRoom::default() };
+        if !open && *self != idle {
+            return Err("`collage` holds a selection, a gesture, Get More or the close question only while the Collage room is open".into());
+        }
+        if self.selection.len() > MAX_CLIPS || self.clips.len() > MAX_CLIPS {
+            return Err(format!("`collage.selection` and `collage.clips` hold at most {MAX_CLIPS} pictures each"));
+        }
+        if let Some(n) = self.selection.iter().find(|n| **n as usize >= MAX_CLIPS) {
+            return Err(format!("`collage.selection` names picture {n}; pictures are 0 … {}", MAX_CLIPS - 1));
+        }
+        if self.gesture.as_ref().is_some_and(|g| !g.fits()) {
+            return Err(format!(
+                "`collage.gesture` is {{item: 0 … {}, kind: \"move\" | \"turn\", from: [x, y], to: [x, y]}} with x and y {GESTURE_MIN} … {GESTURE_MAX}",
+                MAX_CLIPS - 1
+            ));
+        }
+        if self.get_more && front {
+            return Err("`collage.getMore` shows the Library tab: the Collage room is not in front while it is on".into());
+        }
+        Ok(())
+    }
+
+    /// This view state within its limits with the Collage room `open` (and in `front`): back to
+    /// its defaults (the tab kept) while the room is not open; lists without repeats and cut to
+    /// [`MAX_CLIPS`], item numbers past it dropped, a gesture far off the page dropped, Get More off
+    /// while the room is in front.
+    pub fn sanitize(&mut self, open: bool, front: bool) {
+        if !open {
+            *self = CollageRoom { tab: self.tab, ..CollageRoom::default() };
+            return;
+        }
+        self.selection.truncate(MAX_CLIPS);
+        self.selection.retain(|n| (*n as usize) < MAX_CLIPS);
+        dedup(&mut self.selection);
+        self.clips.truncate(MAX_CLIPS);
+        dedup(&mut self.clips);
+        if self.gesture.as_ref().is_some_and(|g| !g.fits()) {
+            self.gesture = None;
+        }
+        if front {
+            self.get_more = false;
+        }
+    }
+}
+
 /// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
 pub const MAX_DIALOGS: usize = 8;
 
@@ -2948,6 +3083,10 @@ pub struct UiState {
     /// The face model dialog's draft while it is open (M13).
     #[serde(default)]
     pub face_model: Option<FaceModelDraft>,
+    /// The Collage room: its tab, the pictures selected on the canvas, the clips selected, the drag
+    /// or turn under way, Get More's mode and the close question (M14).
+    #[serde(default)]
+    pub collage: CollageRoom,
     /// A drag of photos in progress (`crate::drag`); `ui.inspect` reports it, `ui.state` does not.
     #[serde(skip)]
     pub drag: Option<Drag>,
@@ -3003,7 +3142,32 @@ impl UiState {
             self.view = View::Library;
         }
         self.sanitize_m13();
+        self.sanitize_m14();
         self
+    }
+
+    /// Whether the Collage room is open (it has a tab) and whether it is in front.
+    fn collage_room(&self) -> (bool, bool) {
+        (self.rooms.contains(&Room::Collage), self.room == Room::Collage)
+    }
+
+    /// Every M14 field within its limits ([`CollageRoom::sanitize`]): the Collage room's view
+    /// state back to its defaults (its tab kept) while the room is not open.
+    fn sanitize_m14(&mut self) {
+        let (open, front) = self.collage_room();
+        self.collage.sanitize(open, front);
+    }
+
+    /// Why the M14 fields of this state cannot be used, if they cannot ([`CollageRoom::check`]).
+    /// What `ui.set` refuses (`bad_params`).
+    pub fn check_m14(&self) -> Result<(), String> {
+        let (open, front) = self.collage_room();
+        self.collage.check(open, front)
+    }
+
+    /// Every photo the M14 fields name (the clips selected), for `ui.set` to check that they exist.
+    pub fn m14_photos(&self) -> impl Iterator<Item = PhotoId> + '_ {
+        self.collage.clips.iter().copied()
     }
 
     /// Every M13 field within its limits: lists cut to their lengths without repeats, texts cut,
@@ -3435,6 +3599,7 @@ impl Default for UiState {
             people_pane: PeoplePane::default(),
             places: PlacesPane::default(),
             face_model: None,
+            collage: CollageRoom::default(),
             drag: None,
             focus_search: false,
             status_line: String::new(),
@@ -3906,6 +4071,40 @@ mod tests {
         let key = PersonKey::of(&ana);
         assert_eq!((key.to_string(), key.id()), ("p00a1".to_string(), Some(ana)));
         assert_ne!(PersonKey::of(&PersonId::parse("p0a1f").unwrap()), PersonKey::of(&PersonId::parse("p00a1f").unwrap()));
+    }
+
+    #[test]
+    fn the_collage_rooms_view_state_is_checked_and_made_safe() {
+        let gesture = |to: [f32; 2]| Some(CollageGesture { item: 2, kind: GestureKind::Turn, from: [0.5, 0.5], to });
+        let busy = CollageRoom {
+            tab: CollageTab::Clips,
+            selection: vec![4, 4, 1],
+            clips: vec![PhotoId::new(3)],
+            gesture: gesture([1.5, -0.5]),
+            get_more: true,
+            close: None,
+        };
+        assert_eq!(busy.check(true, false), Ok(()));
+        assert!(busy.check(false, false).is_err(), "only while the room is open");
+        assert!(busy.check(true, true).is_err(), "Get More shows the Library tab");
+        let idle = CollageRoom { tab: CollageTab::Clips, ..CollageRoom::default() };
+        assert_eq!(idle.check(false, false), Ok(()), "the tab stays while the room is closed");
+        for bad in [
+            CollageRoom { selection: vec![1000], ..CollageRoom::default() },
+            CollageRoom { selection: vec![0; MAX_CLIPS + 1], ..CollageRoom::default() },
+            CollageRoom { gesture: gesture([2.5, 0.0]), ..CollageRoom::default() },
+            CollageRoom { gesture: gesture([f32::NAN, 0.0]), ..CollageRoom::default() },
+        ] {
+            assert!(bad.check(true, false).is_err(), "{bad:?}");
+            let mut safe = bad.clone();
+            safe.sanitize(true, false);
+            assert_eq!(safe.check(true, false), Ok(()), "{safe:?}");
+        }
+        let mut s = busy.clone();
+        s.sanitize(true, true);
+        assert_eq!((s.selection.as_slice(), s.get_more), (&[4, 1][..], false));
+        s.sanitize(false, false);
+        assert_eq!(s, idle);
     }
 
     #[test]

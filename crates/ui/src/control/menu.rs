@@ -11,7 +11,7 @@ use super::{Call, Code, Error, Next, Outcome, people};
 use crate::menus::{self, Lookup, Platform};
 
 /// The context menus `ui.menu.tree {context}` names (§6.10).
-const CONTEXTS: &[&str] = &["photo", "section", "tray", "treeGroup", "tag", "face", "person"];
+const CONTEXTS: &[&str] = &["photo", "section", "tray", "treeGroup", "tag", "face", "person", "collage"];
 
 /// How long `ui.menu.invoke` waits for a dialog it opened to show.
 const DIALOG_WAIT: Duration = Duration::from_secs(5);
@@ -49,6 +49,8 @@ pub(super) fn tree(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error
             None => shown(menus::person_menu(app, platform)),
         },
         Some("face") => shown(crate::panels::faces::menu::nodes(app, platform)),
+        // A picture on the collage canvas (M14.19 selects the one right-clicked first).
+        Some("collage") => shown(menus::collage_menu(app, platform)),
         Some(c) if CONTEXTS.contains(&c) => {
             return Err(Error::new(Code::Unsupported, format!("the {c} context menu is not built yet; it comes with its region")));
         }

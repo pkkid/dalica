@@ -11,6 +11,14 @@
   "caption": "none",
   "captionEdit": null,
   "clipboard": null,
+  "collage": {
+    "clips": [],
+    "close": null,
+    "gesture": null,
+    "getMore": false,
+    "selection": [],
+    "tab": "settings"
+  },
   "collapsedFolders": [],
   "collapsedGroups": [],
   "collision": null,

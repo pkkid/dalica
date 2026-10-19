@@ -44,6 +44,12 @@
 //!   `faces.confirm` and `map.allow` stay the engine's): a UI command of the same id would hide the
 //!   engine's from `engine.execute`. The person menu's rows and Clear Location… are openers of the
 //!   engine's `people.rename`, `people.merge`, `people.delete` and `geo.clear`.
+//! - M14's areas, stubs until the tasks that fill them, so those tasks never share a file:
+//!   [`collage`] (the Collage room: its tabs, settings, clips, Get More, Create, Save Draft, Reset
+//!   and Close, M14.18) and [`collage_canvas`] (the canvas: selection, moving, turning, ordering,
+//!   swapping, M14.19). Their ids are the UI's own (`collage.open`, `collage.tab`,
+//!   `collageCanvas.*`, …): `create.collage` and the `collage.*` of the engine's collage session
+//!   stay the engine's.
 //!
 //! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
 //! (`photo.rename {ids, name}`, `photo.moveToNewFolder`, `folder.move`) opens its dialog in the UI,
@@ -67,6 +73,8 @@ pub mod albums;
 pub mod batch;
 pub mod caption;
 pub mod clipboard;
+pub mod collage;
+pub mod collage_canvas;
 pub mod compare;
 pub mod dialogs;
 pub mod edit_view;
@@ -162,6 +170,8 @@ const AREAS: &[&[UiCommand]] = &[
     face_model::COMMANDS,
     places::COMMANDS,
     map::COMMANDS,
+    collage::COMMANDS,
+    collage_canvas::COMMANDS,
 ];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it
@@ -191,6 +201,8 @@ const CHECKS: &[&[(&str, Check)]] = &[
     face_model::CHECKS,
     places::CHECKS,
     map::CHECKS,
+    collage::CHECKS,
+    collage_canvas::CHECKS,
 ];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
@@ -245,7 +257,8 @@ pub fn opener(id: &str) -> Option<&'static Opener> {
 pub const UI_COMMANDS: &[UiCommand] = &JOINED;
 
 const COUNT: usize = count(AREAS);
-const JOINED: [UiCommand; COUNT] = join(AREAS);
+/// A static, not a const: the list is past clippy's `large_const_arrays` threshold since M14.
+static JOINED: [UiCommand; COUNT] = join(AREAS);
 
 const fn count(areas: &[&[UiCommand]]) -> usize {
     let (mut n, mut a) = (0, 0);

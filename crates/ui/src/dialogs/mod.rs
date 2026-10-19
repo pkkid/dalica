@@ -63,6 +63,10 @@
 //!   ([`face_model`], its draft the view state's `faceModel`) and the geotag confirmations
 //!   ([`geotag_confirm`]); and Options gains its Network and People tabs.
 //!
+//! - **M14's dialog** (a stub: its title, buttons and question are final, Save Draft waits for
+//!   M14.18): the Collage room's close question ([`collage_close`]), whose draft is the view
+//!   state's `collage.close`.
+//!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
 //! and `act` (what a button other than Cancel does). A new kind adds its [`DialogKind`] variant,
@@ -76,6 +80,7 @@ pub mod about;
 pub mod adjust_date;
 pub mod album_properties;
 pub mod apply_changes;
+pub mod collage_close;
 pub mod collision;
 pub mod confirm;
 pub mod copy_confirm;
@@ -212,6 +217,7 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::RenamePerson | DialogKind::MergePeople | DialogKind::DeletePerson => people::look(app, d),
         DialogKind::FaceModel => face_model::look(app, d),
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::look(app, d),
+        DialogKind::CollageClose => collage_close::look(app, d),
     }
 }
 
@@ -257,6 +263,7 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::RenamePerson | DialogKind::MergePeople | DialogKind::DeletePerson => people::body(app, ui, d),
         DialogKind::FaceModel => face_model::body(app, ui, d),
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::body(app, ui, d),
+        DialogKind::CollageClose => collage_close::body(app, ui, d),
     }
 }
 
@@ -302,6 +309,7 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::RenamePerson | DialogKind::MergePeople | DialogKind::DeletePerson => people::act(app, d, action),
         DialogKind::FaceModel => face_model::act(app, d, action),
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::act(app, d, action),
+        DialogKind::CollageClose => collage_close::act(app, d, action),
     }
 }
 
@@ -384,6 +392,7 @@ fn close(app: &mut App, kind: DialogKind) -> Option<Dialog> {
         DialogKind::DeleteFolder => state.delete_folder = None,
         DialogKind::Options => state.options = None,
         DialogKind::FaceModel => state.face_model = None,
+        DialogKind::CollageClose => state.collage.close = None,
         _ => {}
     }
     let dialogs = &mut state.dialogs;
