@@ -314,6 +314,7 @@ rather than relying on defaults.
 | ICC profile | `image` | APP2 chunk sequence validated; ≤ 16 MiB; tag count ≤ 1,000; LUT sizes bounded by the colour library | **Implemented** (M5.1; `color.rs`: over the limits or inconsistent, a profile is unusable and the pixels show as untagged) |
 | `.dalica.json` | `sidecar` | file ≤ 64 MiB; nesting depth ≤ 16; string ≤ 1 MiB; ≤ 1,000,000 photo entries; ≤ 1,000 keys per entry; ≤ 10,000 operations per recipe; ≤ 1,000 regions per operation; list entries ≤ 100,000 | M1; the M6 fields' caps **implemented** (M6.2, M6.8: caption and folder description ≤ 16 KiB, a tag ≤ 256 bytes, ≤ 1,000 tags per photo, a place ≤ 1 KiB, ≤ 10,000 operations per recipe and ≤ 64 KiB per operation, `crates/library/src/tags.rs`; a longer text is shown cut and kept whole in the file, a recipe past them is not used and kept; a value of the wrong type is reported once and kept) |
 | Legacy sidecars | `sidecar` | file ≤ 64 MiB; line ≤ 1 MiB; ≤ 1,000,000 sections; ≤ 1,000 keys per section; the recipe limits above; encoding detection never fails the whole file | The reader **implemented** (M14.2; `crates/sidecar/src/legacy.rs`, `legacy/`: `LegacyLimits`, a file past one refused naming it (`LegacyError`); duplicate sections and keys merged, garbage sections skipped; UTF-8 when the file says so, else Windows-1252, bytes that do not decode shown as U+FFFD and marked lossy; a text overlay's record ≤ the line limit; fuzz target `legacy`); the recipe limits apply where M14.3 maps the edit list |
+| `.dalica-collage` recipes | `create`, `engine` | file ≤ 1 MiB (read with that limit: a longer file is refused before it is parsed); nesting depth ≤ 32; ≤ 1,000 clips, none twice; a clip's path ≤ 32 KiB; every number finite and in range (the seed and shuffle as 16 hex digits, a page format's sides, the output ≤ 16,384 px a side); a newer version refused; a path in it only compared with the photos already indexed (§5.5) | **Implemented** (M14.4: `crates/create/src/collage/recipe.rs`, `crates/create/tests/collage_doc.rs`; M14.17: Edit Collage and Can Edit read it on a worker under that limit, a hostile recipe failing the job without a panic, `crates/engine/src/collage_output.rs`, `crates/engine/tests/collage_output.rs`) |
 | JSON files (`folders`, `albums`, `people`, `settings`) | `library` | file ≤ 64 MiB; depth ≤ 64 | M1 |
 | Index journal / snapshot | `library` | checksummed records ≤ 16 MiB; a torn tail is discarded, a bad checksum stops replay at that record; version checked | M1 |
 | Control / MCP JSON | `ui`, `mcp` | see §6.5 | M2 / M10 |
@@ -478,7 +479,13 @@ boundary; gives a Windows device name (`CON`, `nul.txt`, `COM1`, `LPT¹`, `CONIN
 a leading `_`; and takes the fallback, sanitized the same way, then `Untitled`, when nothing is
 left. Its result always passes `create::new_file`'s check, and a second pass changes nothing
 (property-tested). Export uses it for the export folder's name and each exported photo's stem;
-import folders (M11) and collage files (M14) will.)**
+import folders (M11) will.) Collage files are built (M14.17): `Collage 2026-10-19.jpg` through
+`names::sanitize`, then the JPEG and its `.dalica-collage` recipe each written by `fs::exact_file`
+(never replacing a file) under the first pair of `names::candidates` free for both
+(`Collage 2026-10-19-001.jpg` and `Collage 2026-10-19-001.dalica-collage`); a pair half taken is
+passed over, and a JPEG whose recipe name was taken between the look and the write is removed
+again, so a picture never sits beside another collage's recipe
+(`crates/engine/src/collage_output.rs`, `crates/engine/tests/collage_output.rs`).**
 
 **Names from the file system.** File names that are not valid UTF-8 are indexed and shown with a
 lossy display form, but the lossy form is never written into a sidecar and never used to open a
