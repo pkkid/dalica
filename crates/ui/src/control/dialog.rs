@@ -48,8 +48,19 @@ pub(super) fn confirm(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         return Err(no_dialog());
     }
     never_automated_button(call.host.app(), action.as_deref())?;
-    let reply = crate::dialogs::answer(call.host.app_mut(), action.as_deref())?;
-    Ok(Outcome::play_then_reply(Input::Frames(1), reply))
+    let saves = crate::dialogs::top(call.host.app()).map(|d| d.kind) == Some(crate::state::DialogKind::CollageClose)
+        && matches!(action.as_deref(), None | Some(crate::dialogs::collage_close::SAVE_DRAFT));
+    let answer: super::Resume = Box::new(move |host| match crate::dialogs::answer(host.app_mut(), action.as_deref()) {
+        Ok(reply) => Outcome::play_then_reply(Input::Frames(1), reply),
+        Err(e) => Outcome::from(Error::from(e)),
+    });
+    // The close question's Save Draft writes into the Collage room's folder: checked first
+    // (`control-protocol.md` §5.7).
+    if saves {
+        let config = call.control.config().clone();
+        return Ok(super::vet::collage_first(call.host, &config, answer));
+    }
+    Ok(answer(call.host))
 }
 
 /// Refuses pressing button `action` of the top dialog when it runs a command automation never

@@ -599,36 +599,45 @@ pub fn automated() -> Option<Arc<Config>> {
 /// What the app asks before it runs command `id` with `params` on behalf of whoever is driving it:
 /// nothing while no control request runs on this thread (the person's own clicks); otherwise a
 /// command automation never runs (`automation::never_automated`) is refused, and `import.run`'s
-/// `destination` must lie inside a write root or a watched folder (`watched`): compared as written
-/// first, then with its links resolved, from the check made off the UI thread before the request's
-/// input played or its command ran ([`vet`]; no disk access here, this runs on the UI thread). A
-/// destination that check did not see is refused.
+/// `destination` must be a folder automation may write into ([`refuse_folder`]).
 pub fn refuse(id: &str, params: &Value, watched: &[PathBuf]) -> Result<(), CmdError> {
-    let Some(config) = automated() else { return Ok(()) };
+    if automated().is_none() {
+        return Ok(());
+    }
     dalica_engine::automation::never_automated(id).map_err(|r| CmdError::Disabled(r.message))?;
     if id == "import.run" {
         let Some(dest) = params.get("destination").and_then(Value::as_str).map(PathBuf::from) else {
             return Err(CmdError::BadParams("`destination` must be a path".into()));
         };
-        dalica_engine::automation::lexical(&dest, "destination").map_err(|r| CmdError::BadParams(r.message))?;
-        if !inside_any(&dest, &config.effective_write_roots()) && !inside_any(&dest, watched) {
-            return Err(CmdError::Disabled(format!(
-                "{} is outside every automation write root (--automation-write-root; default: the temporary folder) and every watched folder",
-                dest.display()
-            )));
-        }
-        match vet::verdict(&dest, watched) {
-            Some(Ok(())) => {}
-            Some(Err(why)) => return Err(CmdError::Disabled(why)),
-            None => {
-                return Err(CmdError::Disabled(format!(
-                    "{} was not checked with its links resolved before this request ran (the destination changed while it played); send it again",
-                    dest.display()
-                )));
-            }
-        }
+        refuse_folder(&dest, "destination", watched)?;
     }
     Ok(())
+}
+
+/// What the app asks before a command of its own writes new files into folder `dest` (the
+/// parameter `what`; the Import room's destination, the Collage room's folder) on behalf of whoever
+/// is driving it: nothing while no control request runs on this thread; otherwise `dest` must lie
+/// inside a write root or a watched folder (`watched`): compared as written first, then with its
+/// links resolved, from the check made off the UI thread before the request's input played or its
+/// command ran ([`vet`]; no disk access here, this runs on the UI thread). A folder that check did
+/// not see is refused.
+pub fn refuse_folder(dest: &Path, what: &str, watched: &[PathBuf]) -> Result<(), CmdError> {
+    let Some(config) = automated() else { return Ok(()) };
+    dalica_engine::automation::lexical(dest, what).map_err(|r| CmdError::BadParams(r.message))?;
+    if !inside_any(dest, &config.effective_write_roots()) && !inside_any(dest, watched) {
+        return Err(CmdError::Disabled(format!(
+            "{} is outside every automation write root (--automation-write-root; default: the temporary folder) and every watched folder",
+            dest.display()
+        )));
+    }
+    match vet::verdict(dest, watched) {
+        Some(Ok(())) => Ok(()),
+        Some(Err(why)) => Err(CmdError::Disabled(why)),
+        None => Err(CmdError::Disabled(format!(
+            "{} was not checked with its links resolved before this request ran (the folder changed while it played); send it again",
+            dest.display()
+        ))),
+    }
 }
 
 /// Whether `path` is one of `roots` or inside one, as written.

@@ -182,6 +182,13 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
             })));
         }
     }
+    // The Collage room's Create Collage and Save Draft write where `collage.create` would without
+    // a `path`: that folder is checked first, and the verdict kept for the room's command.
+    if COLLAGE_UI_WRITES.contains(&id.as_str()) {
+        let then: super::Resume = Box::new(move |host| checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from));
+        let config = call.control.config().clone();
+        return Ok(super::vet::collage_first(call.host, &config, then));
+    }
     // The Import room's buttons write where the destination strip's draft says: that folder is
     // checked as `import.run`'s destination would be.
     if DRAFT_WRITES.contains(&id.as_str()) {
@@ -206,6 +213,9 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
 
 /// The commands that write a collage (§5.7): their folder is `Session::collage_destination`.
 const COLLAGE_WRITES: &[&str] = &["collage.create", "collage.saveDraft"];
+
+/// The Collage room's commands that run them (`crate::commands::collage`).
+const COLLAGE_UI_WRITES: &[&str] = &["collage.createCollage", "collage.saveAsDraft"];
 
 /// UI commands that run `import.run` into the destination drafted in the view state.
 const DRAFT_WRITES: &[&str] = &["import.importAll", "import.importSelected"];

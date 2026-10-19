@@ -35,6 +35,10 @@ egui.workspace = true
 png.workspace = true
 tempfile.workspace = true
 
+[target.'cfg(windows)'.dev-dependencies]
+# The Recycle Bin as Windows lists it, to find what the app trashed (M14).
+trash.workspace = true
+
 [[test]]
 name = "m0"
 path = "m0.rs"

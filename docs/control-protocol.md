@@ -322,6 +322,13 @@ normalised paths; `..` components are refused; symlinks are resolved before the 
   the command or the input runs, and the app refuses the import (its reason on the status line) when it
   lies outside every write root and watched folder; a folder that changed while the input played
   was not checked, and is refused too.
+- **A collage's folder**: `collage.create` and `collage.saveDraft` write into their `path`, else
+  beside the collage the room reopened, else `<Pictures>/Dalica/Collages`; that folder follows the
+  same rule, checked first. The Collage room's Create Collage, Save Draft and the close question's
+  Save Draft write into the same folder: `engine.execute` of `collage.createCollage` /
+  `collage.saveAsDraft` and `ui.dialog.confirm` of Save Draft answer `path_denied` before anything
+  runs, and a click, key, pointer event or batch step that presses one is checked on a worker
+  first, as the Import room's are, the refusal on the status line and nothing written.
 - In-library file operations (Save with backup, Save a Copy, move/rename between watched folders,
   delete to trash) are ordinary commands with their usual safety and undo; they need no root, but
   the destructive ones need `confirm` (§5.5).

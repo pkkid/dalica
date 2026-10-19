@@ -387,6 +387,13 @@ fn done(app: &mut App, job: JobId, purpose: Purpose, result: &Value) {
 /// a reply without a job (written at once) does what the job's end would.
 fn write(app: &mut App, command: &str, purpose: Purpose) -> Result<Value, CmdError> {
     need(if command == CREATE { can_create } else { can_save_draft }, app)?;
+    // Over automation the folder keeps to the write roots and the watched folders, as
+    // `engine.execute` of the engine's command does (`control-protocol.md` §5.7).
+    if let Some(s) = app.session()
+        && let Ok(folder) = s.collage_destination(None)
+    {
+        crate::control::refuse_folder(&folder, "path", s.roots())?;
+    }
     let params = match (command, app.collage.display) {
         (CREATE, Some(d)) => json!({ "display": d }),
         _ => json!({}),

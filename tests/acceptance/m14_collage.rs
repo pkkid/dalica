@@ -56,9 +56,14 @@ const PHOTOS: [(&str, u32, u32); 8] = [
 ];
 
 /// The app with `Pictures/Dalica` (where collages go) a write root beside its temporary folder
-/// (where the screenshots go).
+/// (where the screenshots go); its Pictures folder `home/Pictures` on Windows too (`USERPROFILE`).
 fn launch(home: &Path) -> Launch {
-    Launch::default().arg("--automation-write-root").arg(home.join("Pictures").join("Dalica")).arg("--automation-write-root").arg(home.join("tmp"))
+    Launch::default()
+        .env("USERPROFILE", home)
+        .arg("--automation-write-root")
+        .arg(home.join("Pictures").join("Dalica"))
+        .arg("--automation-write-root")
+        .arg(home.join("tmp"))
 }
 
 /// The ids of the eight photos in [`PHOTOS`]' order.
@@ -216,6 +221,8 @@ pub fn collage_room(exe: &Path, home: &Path) {
     }
     let photos_of = |dir: &Path| -> Vec<(String, Vec<u8>)> { common::files(dir).into_iter().filter(|(n, _)| n.ends_with(".jpg")).collect() };
     let originals = photos_of(&garden);
+    // The write root exists (a root that does not exist holds nothing, `security.md` §5.7).
+    std::fs::create_dir_all(pictures.join("Dalica")).unwrap();
     let (a, mut cl) = live::start_with(exe, home, launch(home));
     let c = &mut cl;
     app::resize(c, LARGE);

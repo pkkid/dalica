@@ -319,9 +319,9 @@ pub fn legacy(exe: &Path, home: &Path) {
     assert_eq!(edits(&c.inspect(&s1)), ["sepia()", "legacy:redeye(1)"], "Undo Save brings the legacy recipe back as unsaved edits");
     assert!(edits(&c.inspect(&s2)).is_empty(), "Revert drops the edits");
     assert!(common::tree(&kept_dir) == kept_before, "the legacy originals folder is never written");
-    let trashed = common::tree(&home.join("data"));
+    let trashed = in_trash(home);
     for (n, bytes) in saved.iter().enumerate() {
-        assert!(trashed.values().any(|b| b == bytes), "the saved IMG_{:04}.jpg went to the trash", n + 1);
+        assert!(trashed.iter().any(|b| b == bytes), "the saved IMG_{:04}.jpg went to the trash ({} files there)", n + 1, trashed.len());
     }
     println!("  Undo Save and Revert brought the legacy originals back (the saved files in the trash, the originals folder untouched)");
     live::quit(a, cl);
@@ -340,4 +340,29 @@ pub fn legacy(exe: &Path, home: &Path) {
     }
     live::quit(a, cl);
     println!("  M14 legacy sidecars in {:.1} s", secs(started));
+}
+
+/// The files in the trash where the system keeps what the app (launched with `home` as its home)
+/// sends there from a folder under `home`: on Linux the freedesktop trash under its
+/// `XDG_DATA_HOME` (`<home>/data`); on Windows the Recycle Bin, each item read where the system
+/// lists it; on macOS the user's `~/.Trash`, where `NSFileManager` puts it (the app's `HOME` or
+/// the account's own).
+fn in_trash(home: &Path) -> Vec<Vec<u8>> {
+    #[cfg(windows)]
+    {
+        let _ = home;
+        let listed = trash::os_limited::list().unwrap_or_else(|e| panic!("the Recycle Bin cannot be listed: {e}"));
+        listed.iter().filter_map(|item| std::fs::read(&item.id).ok()).collect()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let account = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let trashes = [home.join(".Trash"), account.join(".Trash")];
+        assert!(trashes.iter().any(|t| t.is_dir()), "no trash at {trashes:?}");
+        trashes.iter().flat_map(|t| common::tree(t).into_values()).collect()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        common::tree(&home.join("data")).into_values().collect()
+    }
 }

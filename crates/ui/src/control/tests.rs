@@ -993,6 +993,61 @@ fn an_import_destination_linked_out_of_the_write_roots_is_refused_over_automatio
     nothing_imported(&mut t, &outside);
 }
 
+/// The Collage room's writes keep to automation's write roots on every route (`control-protocol.md`
+/// §5.7), as `engine.execute` of `collage.create` does: with the folder the room writes into (the
+/// default `<Pictures>/Dalica/Collages`) outside them, Create Collage and the close question's Save
+/// Draft are refused whether clicked, run by `engine.execute` or confirmed, nothing written; inside a
+/// write root the click writes the collage.
+#[test]
+fn the_collage_rooms_writes_keep_to_the_write_roots_on_every_route() {
+    let mut t = setup_with(2, |dir| Config { write_roots: vec![dir.join("allowed")], ..Config::default() });
+    let (pictures, allowed) = (t.dir.path().join("Pictures"), t.dir.path().join("allowed").join("Pictures"));
+    t.d.app_mut().session_mut().unwrap().set_pictures_dir(Some(pictures.clone()));
+    let ids = t.ids.clone();
+    ok(&mut t, "engine.execute", json!({ "command": "collage.open", "params": { "ids": ids } }));
+    ok(&mut t, "engine.execute", json!({ "command": "collage.style", "params": { "style": "grid" } }));
+    ok(&mut t, "ui.settle", json!({}));
+    let refused_here = |t: &mut T| {
+        ok(t, "ui.settle", json!({}));
+        assert!(t.d.state().status.contains("outside every automation write root"), "{}", t.d.state().status);
+        assert!(!pictures.exists(), "nothing was written");
+    };
+    let create = crate::panels::collage::settings::CREATE_ID;
+    ok(&mut t, "ui.clickWidget", json!({ "id": create }));
+    refused_here(&mut t);
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "collage.createCollage" })), "path_denied");
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "collage.saveAsDraft" })), "path_denied");
+    // Close asks first; its Save Draft writes into the same folder.
+    ok(&mut t, "ui.clickWidget", json!({ "id": crate::panels::collage::settings::CLOSE_ID }));
+    ok(&mut t, "ui.settle", json!({}));
+    assert!(crate::dialogs::top(t.d.app()).is_some_and(|d| d.kind == crate::state::DialogKind::CollageClose), "the close question");
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.saveDraft" }));
+    refused_here(&mut t);
+    assert_eq!(code(&mut t, "ui.dialog.confirm", json!({ "button": "dialog.saveDraft" })), "path_denied");
+    assert_eq!(code(&mut t, "ui.dialog.confirm", json!({})), "path_denied", "Save Draft is the default button");
+    assert!(!pictures.exists(), "nothing was written");
+    ok(&mut t, "ui.dialog.cancel", json!({}));
+
+    // Inside a write root the click writes the collage and its recipe.
+    dalica_fs::create_dir_all(&allowed).unwrap();
+    t.d.app_mut().session_mut().unwrap().set_pictures_dir(Some(allowed.clone()));
+    ok(&mut t, "ui.clickWidget", json!({ "id": create }));
+    let collages = allowed.join("Dalica").join("Collages");
+    let written = || {
+        let names: Vec<String> =
+            std::fs::read_dir(&collages).map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+        ["jpg", "dalica-collage"].iter().all(|ext| names.iter().any(|n| n.ends_with(&format!(".{ext}"))))
+    };
+    for _ in 0..3000 {
+        if written() {
+            break;
+        }
+        t.d.step();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert!(written(), "the JPEG and its recipe: {}", t.d.state().status);
+}
+
 /// No import ran, and nothing was made in `outside`.
 fn nothing_imported(t: &mut T, outside: &Path) {
     assert_eq!(t.d.app_mut().session_mut().unwrap().execute("import.status", &json!({})).unwrap()["state"], Value::Null, "no import ran");
