@@ -1,0 +1,33 @@
+# The fuzz target of the control channel's request parser and handlers in `dalica-ui`
+# (`docs/security.md` §7.1). A separate cargo-fuzz workspace, outside the product graph and
+# excluded from the root workspace, because cargo-fuzz needs nightly Rust and sanitizer
+# instrumentation. Run: `cargo +nightly fuzz run request_line corpus/request_line
+# seeds/request_line` from this directory (`seeds/` holds a few starting requests).
+[package]
+name = "dalica-ui-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+dalica-ui = { path = ".." }
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+# Its own workspace, so the root manifest's members and lockfile are untouched.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "request_line"
+path = "fuzz_targets/request_line.rs"
+test = false
+doc = false
+bench = false

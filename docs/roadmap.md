@@ -10752,7 +10752,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `video_probe` and `ptp` targets, §10's signing), each marked built with its task.
   - done when: `cargo xtask parity` passes and the summary is regenerated; the PR lists every row
     changed with its evidence and every `security.md` line with its task.
-- ⬜ **M15.39 `sidecar` + `store` + `ui`: the fuzz targets security.md lists**
+- ✅ **M15.39 `sidecar` + `store` + `ui`: the fuzz targets security.md lists**
   - after: M14.R
   - files: `crates/sidecar/fuzz/**`, `crates/store/fuzz/**`, `crates/ui/fuzz/**`, `.github/workflows/fuzz.yml`, `Cargo.toml`, `docs/security.md`
   - scope: by the maintainer's answer at M13.R (2026-10-18): the fuzz targets `security.md` lists

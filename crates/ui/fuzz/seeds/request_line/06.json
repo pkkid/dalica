@@ -1,0 +1,1 @@
+{"id": 6, "method": "ui.dragWidget", "params": {"id": "sidebar.splitter", "dx": 40, "dy": 0, "steps": 10}}

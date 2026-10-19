@@ -1,0 +1,1 @@
+{"id": 7, "method": "ui.pointer", "params": {"events": [{"kind": "move", "x": 10, "y": 10}, {"kind": "down", "x": 10, "y": 10}, {"kind": "up", "x": 12, "y": 10}], "space": "points"}}

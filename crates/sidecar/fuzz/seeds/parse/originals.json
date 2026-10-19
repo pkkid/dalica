@@ -1,0 +1,5 @@
+{"dalica": {"version": 1}, "originals": {
+  "ok.jpg": {"recipe": ["rotate(90)", "sepia()"], "size": 1234, "mtime": 1700000000, "width": 640, "height": 480, "digest": "abc", "state": "done", "time": 1700000001, "x": [1]},
+  "../x": {"size": 1, "mtime": 0, "state": "done"},
+  "CON": {"size": 1, "mtime": 0, "state": "moving"}
+}}

@@ -1,0 +1,14 @@
+{"journal":1,"base":0}
+{"op":"addFolder","folder":{"id":1,"path":"/home/ana/Pictures/Lisbon"}}
+{"op":"addPhotos","photos":[{"id":1,"folder":1,"name":"IMG_0001.jpg","size":1001,"mtime":0,"width":640,"height":480,"date":null,"star":false},{"id":2,"folder":1,"name":"IMG_0002.jpg","size":1002,"mtime":0,"width":640,"height":480,"date":null,"star":false},{"id":3,"folder":1,"name":"IMG_0003.jpg","size":1003,"mtime":0,"width":640,"height":480,"date":null,"star":false}]}
+{"op":"setStars","stars":[[1,true]]}
+{"op":"setCaptions","captions":[[2,"Tram 28"]]}
+{"op":"addTags","ids":[1,3],"tags":["lisbon","tram"]}
+{"op":"setHidden","hidden":[[3,true]]}
+{"op":"addPerson","id":"p7f3a2c","person":{"name":"Ana Costa","nickname":"Aninhas"}}
+{"op":"setFaces","faces":[[1,[{"rect":[0.41,0.22,0.52,0.38],"person":{"person":"p7f3a2c"}}]]]}
+{"op":"createAlbums","albums":[["a91c0e",{"name":"Best of 2026"}]]}
+{"op":"addMembers","members":[["a91c0e",1,"a0"],["a91c0e",2,"a1"]]}
+{"op":"setCovers","covers":[["a91c0e",2]]}
+{"op":"batch","ops":[{"op":"setStars","stars":[[2,true]]},{"op":"renameTag","from":"tram","to":"Tram"}]}
+{"op":"removePhotos","ids":[3]}

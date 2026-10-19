@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask", "tests/acceptance"]
 # cargo-fuzz workspaces: nightly-only, outside the product graph (security.md §7.1).
-exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz", "crates/fetch/fuzz", "crates/sidecar/fuzz", "crates/scan/fuzz"]
+exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz", "crates/fetch/fuzz", "crates/sidecar/fuzz", "crates/scan/fuzz", "crates/store/fuzz", "crates/ui/fuzz"]
 
 [workspace.package]
 version = "0.9.0"
