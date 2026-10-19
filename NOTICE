@@ -192,6 +192,11 @@ file and revision in its first lines:
   crates/fetch/src/http.rs                   LightCraft crates/fetch/src/http.rs @ f34c7a8a, with the name-lookup
                                              timeout of e65b97e2 (M13.13; with crates/fetch/src/http/response.rs,
                                              http/wire.rs)
+  crates/create/src/collage/layout/grid.rs   LightCraft crates/engine/src/print/layout.rs (Rect, grid_rects_for),
+                                             crates/engine/src/print/compose.rs (place) @ 20ccedf5 (M14.8; the
+                                             contact sheet, crates/create/src/collage/layout/sheet.rs, uses them)
+  crates/create/src/collage/render.rs        LightCraft crates/engine/src/print/compose.rs (px_rect) @ 20ccedf5 (M14.10;
+                                             with crates/create/src/collage/render/**)
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

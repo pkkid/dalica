@@ -36,6 +36,9 @@ moxcms.workspace = true
 # The export watermark: Inter SemiBold's glyphs, laid out and rasterised (M8.11).
 ab_glyph.workspace = true
 thiserror.workspace = true
+# The collage document and its `.dalica-collage` recipe (M14.4); already in the product graph.
+serde.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Save in place (M8.12; `core` and `fs` above also give it the clock's timestamps, the originals
 # backup and atomic writes): the originals record's format, and its `md5:` digests.
 dalica-sidecar.workspace = true

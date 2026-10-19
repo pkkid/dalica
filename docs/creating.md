@@ -162,3 +162,47 @@ folder prefix, then the name's middle.
   in the edit view. **Reset** restores defaults.
   **Close** with unsaved changes: [Save Draft] [Discard] [Cancel]. Double-clicking a collage in the
   library shows an **Edit Collage** button in the edit view's top bar that reopens the room.
+
+### 3.1 The collage document (M14.4)
+
+A collage is a document of plain data (`create::collage`), the same for the canvas, the render, the
+room's thumbnail and an MCP reply:
+
+- **What it holds:** the style; the settings (picture border none / white / instant, grid spacing,
+  Draw shadows, Show captions); the page (format and orientation); a 64-bit **seed** for the
+  arrangement and a 64-bit **shuffle** for the assignment of pictures to its slots (0 = clip order);
+  the Clips (photo ids in order, each on the page or not, at most 1 000, none twice); the background
+  (a solid colour, and optionally a clip covering the page); the frame centre (a clip, or the first
+  picture on the page); and the user's own placements: per pile picture its centre, scale (0.05 to
+  20 times the layout's size) and angle (±180°), a layer for Bring to Top (above 0) and Send to
+  Bottom (below 0), and the slot swaps of the mosaics and the grid, applied in order. A document
+  whose numbers are not finite or not in range, or whose background, frame centre, moves or swaps
+  name a picture that is not in the Clips, is refused.
+- **Defaults:** Picture Pile, black background, 16:9 (HD video) landscape, no border, grid spacing
+  1 % of the page's short side (the slider runs from none to 5 %), shadows on, captions off. Borders
+  are relative to the picture's short side: white 3 % all round, instant 5 % with a 20 % bottom.
+- **Page formats:** the Crop tool's list (`editing.md` §6.1: the locale's photo sizes, the fixed
+  ratios, the custom ratios, which are shared with the Crop tool) and **Current Display**, which
+  keeps the display's size in pixels from when it was chosen, so a reopened collage lays out the same
+  on another screen. A ratio is orientation-free; the orientation decides which side is long.
+  Formats whose long side is more than 1 000 times the short side are not offered. The output is
+  3000 px on the long side, or the display's own size for Current Display.
+- **Layouts** are pure functions of the document and the pictures' aspect ratios, answering per
+  picture a placement normalised to the page: centre, size, angle, stacking order and the part of
+  the picture shown. Every random choice comes from a small seeded generator of our own (SplitMix64,
+  integer arithmetic), so a seed lays out the same on every system. The user's moves apply to
+  Picture Pile only; layers apply to every style.
+- **Scramble Collage** draws a new seed from the current one and drops the moves and swaps; the
+  assignment of pictures stays. **Shuffle Pictures** draws a new shuffle that changes the order
+  whenever two or more pictures are on the page; the slots stay, the swaps are dropped (they named
+  slots of the old assignment) and a pile's moves stay with their pictures. Both are
+  deterministic: the same document scrambles and shuffles the same way.
+- **The recipe** `<stem>.dalica-collage` is JSON: `dalica.version` (1), `draft`, `output` (the
+  picture's size), the style, settings, page, seed and shuffle (16 hex digits each, so readers that
+  hold numbers as doubles keep every bit), the background (`#rrggbb` and the picture), the frame
+  centre, the clips (`id`, `path`, `onPage`), the moves and the swaps. It is printed as a sidecar is
+  (keys sorted, two spaces, LF, a final newline), so a document round-trips byte for byte; keys
+  Dalica does not know are kept and printed back. It is read under limits (1 MiB, depth 32, 1 000
+  clips, paths up to 32 KiB, every number finite and in range); a recipe past any of them, of another
+  shape or of a newer version is refused without a panic. A path in a recipe is only matched among
+  the photos already indexed, never opened (`security.md` §5.5).
