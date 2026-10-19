@@ -9265,7 +9265,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     the same clips, settings and placements and a clip deleted meanwhile is reported; a recipe path
     pointing outside the library is never opened; over automation a destination outside the write
     roots is refused; the owner thread made no `fs` call; `panic_hunt` green.
-- ⬜ **M14.18 `ui`: the Collage room: settings, clips, Create and Close**
+- ✅ **M14.18 `ui`: the Collage room: settings, clips, Create and Close**
   - after: M14.6, M14.7, M14.16
   - files: `crates/ui/src/panels/collage.rs`, `crates/ui/src/panels/collage/settings.rs`, `crates/ui/src/panels/collage/clips.rs`, `crates/ui/src/commands/collage.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/dialogs/collage_close.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/collage_room.rs`, `crates/ui/tests/fingerprints/collage-room-*.json`
   - scope: `creating.md` §3 and `ui-layout.md` §8: the room's layout (the Settings and Clips tabs

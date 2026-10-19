@@ -40,6 +40,9 @@ pub struct App {
     pub(crate) face_models: crate::commands::face_model::Models,
     /// The Save As job its picker started, and a picker to open again (`crate::commands::save_as`).
     pub(crate) save_as: crate::commands::save_as::Following,
+    /// The Collage room's Create Collage or Save Draft job and the display's size
+    /// (`crate::commands::collage`).
+    pub(crate) collage: crate::commands::collage::Following,
     /// Restore the view state from the library's settings and save it when it changes
     /// ([`App::persist_view`]); off for headless and snapshot sessions, which never read or write
     /// the user's settings (`control-protocol.md` §8).
@@ -89,6 +92,7 @@ impl App {
             open_request: None,
             face_models: Default::default(),
             save_as: Default::default(),
+            collage: Default::default(),
             persist_view: false,
             saved_view: None,
             quit_requested: false,
@@ -291,6 +295,7 @@ impl App {
         }
         crate::commands::save_as::ran(self, id, params, &result);
         crate::commands::batch::ran(self, id, &result);
+        crate::commands::collage::ran(self, id, &result);
         result
     }
 
@@ -421,6 +426,11 @@ impl App {
         &self.save_as
     }
 
+    /// What the Collage room follows (`crate::commands::collage`).
+    pub fn collage(&self) -> &crate::commands::collage::Following {
+        &self.collage
+    }
+
     /// Opens the folder picker (File ▸ Add Folder…) unless [`App::can_pick_folder`] says no: now
     /// between frames, or on the next frame when the panels are drawing.
     pub fn add_folder(&mut self) {
@@ -496,6 +506,12 @@ impl App {
         self.notices.poll(session, now);
         self.poll_save_dialog();
         crate::commands::save_as::follow(self);
+        crate::commands::collage::follow(self);
+        // Closing the window with unsaved changes in the collage asks Save Draft, Discard or
+        // Cancel first; the window stays open meanwhile.
+        if ui.input(|i| i.viewport().close_requested()) && crate::commands::collage::ask_before_window_closes(self) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
         self.poll_folder_request();
         self.poll_open_request();
         // The face models: a model file dropped on the window, the face model dialog's downloads
@@ -530,6 +546,15 @@ impl App {
         }
         self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
+        // A room in front draws no light table: the library's thumbnails end the frame with no
+        // cell on screen, as an empty light table ends it, so none stays counted as on its way
+        // (the window would never idle) and what the library asked for is no longer wanted.
+        if matches!(self.state.view, crate::state::View::Library | crate::state::View::Edit)
+            && self.state.room != crate::state::Room::Library
+            && let Some(session) = &mut self.session
+        {
+            p.thumbnails.end_frame(session, &crate::panels::thumbnails::Motion::default());
+        }
         crate::panels::places::tiles::end_frame(self, ui.ctx());
         // A drag of photos: its target, its pill, and its drop on release (`crate::drag`).
         crate::drag::frame(&mut p, self, ui.ctx());
@@ -736,6 +761,41 @@ pub(crate) mod tests {
         let mut app = App::new(Some(session));
         app.persist_view();
         assert_eq!(app.state().tree_width, TREE_DEFAULT);
+    }
+
+    /// Closing the window with unsaved changes in the collage asks Save Draft, Discard or Cancel
+    /// (what closes: the window), keeping the window open; Discard then closes the room and asks
+    /// the window to close again, which it now may.
+    #[test]
+    fn closing_the_window_with_an_unsaved_collage_asks_first() {
+        use crate::state::{CollageClose, Room};
+        let (_dir, s, ids) = session_with_photos(2);
+        let mut app = App::new(Some(s));
+        let ctx = egui::Context::default();
+        app.install(&ctx);
+        let close = |app: &mut App| {
+            let mut input = dalica_ui_kit::raw_input(1400, 900, 1.0);
+            input.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+            let mut out = ctx.run_ui(input, |ui| app.frame(ui));
+            out.textures_delta.clear();
+            out.viewport_output.get(&egui::ViewportId::ROOT).is_some_and(|v| v.commands.contains(&egui::ViewportCommand::CancelClose))
+        };
+        // Nothing unsaved: the window closes.
+        assert!(!close(&mut app));
+        app.run("collage.open", &json!({ "ids": ids })).unwrap();
+        assert!(!close(&mut app), "a collage without changes");
+        app.run("collage.settings", &json!({ "orientation": "portrait" })).unwrap();
+        app.run("room.select", &json!({ "room": "library" })).unwrap();
+        assert!(close(&mut app), "kept open while it asks");
+        let state = app.state();
+        assert_eq!((state.room, state.collage.close), (Room::Collage, Some(CollageClose::Window)));
+        assert_eq!(crate::dialogs::top(&app).map(|d| d.kind.name()), Some("collageClose"));
+        assert!(close(&mut app), "asked once, still open");
+        assert_eq!(app.state().dialogs.len(), 1);
+        crate::dialogs::answer(&mut app, Some("discard")).unwrap();
+        assert!(app.quit_requested(), "Discard closes the window after the room");
+        assert_eq!(app.state().rooms, [Room::Library]);
+        assert!(!close(&mut app));
     }
 
     #[test]
