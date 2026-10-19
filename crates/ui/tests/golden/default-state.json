@@ -23,10 +23,12 @@
   "collapsedGroups": [],
   "collision": null,
   "copyFiles": null,
+  "defaultViewer": null,
   "deleteFolder": null,
   "deletePhotos": null,
   "descriptionEdit": null,
   "dialogs": [],
+  "dragOut": null,
   "edit": {
     "compare": "one",
     "crop": null,
@@ -62,8 +64,10 @@
     "preview": null,
     "selection": []
   },
+  "language": "en",
   "moveFiles": null,
   "newFolder": null,
+  "openWith": null,
   "options": null,
   "pane": null,
   "paneLarge": false,
@@ -140,6 +144,13 @@
     "open": false,
     "selection": [],
     "showIgnored": false
+  },
+  "video": {
+    "fullScreen": false,
+    "playing": false,
+    "position": 0,
+    "trim": null,
+    "volume": 80
   },
   "view": "library",
   "viewer": null

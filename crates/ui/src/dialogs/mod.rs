@@ -67,6 +67,10 @@
 //!   M14.18): the Collage room's close question ([`collage_close`]), whose draft is the view
 //!   state's `collage.close`.
 //!
+//! - **M15's dialog** (a stub: its title, question and buttons are final, Use Dalica waits for
+//!   M15.24): the default-viewer question offered once after the first run ([`default_viewer`]),
+//!   whose draft is the view state's `defaultViewer`.
+//!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
 //! and `act` (what a button other than Cancel does). A new kind adds its [`DialogKind`] variant,
@@ -85,6 +89,7 @@ pub mod collision;
 pub mod confirm;
 pub mod copy_confirm;
 pub mod custom_ratio;
+pub mod default_viewer;
 pub mod delete;
 pub mod export;
 pub mod export_progress;
@@ -218,6 +223,7 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::FaceModel => face_model::look(app, d),
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::look(app, d),
         DialogKind::CollageClose => collage_close::look(app, d),
+        DialogKind::DefaultViewer => default_viewer::look(app, d),
     }
 }
 
@@ -264,6 +270,7 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::FaceModel => face_model::body(app, ui, d),
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::body(app, ui, d),
         DialogKind::CollageClose => collage_close::body(app, ui, d),
+        DialogKind::DefaultViewer => default_viewer::body(app, ui, d),
     }
 }
 
@@ -310,6 +317,7 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::FaceModel => face_model::act(app, d, action),
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::act(app, d, action),
         DialogKind::CollageClose => collage_close::act(app, d, action),
+        DialogKind::DefaultViewer => default_viewer::act(app, d, action),
     }
 }
 
@@ -393,6 +401,7 @@ fn close(app: &mut App, kind: DialogKind) -> Option<Dialog> {
         DialogKind::Options => state.options = None,
         DialogKind::FaceModel => state.face_model = None,
         DialogKind::CollageClose => state.collage.close = None,
+        DialogKind::DefaultViewer => state.default_viewer = None,
         _ => {}
     }
     let dialogs = &mut state.dialogs;

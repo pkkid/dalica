@@ -33,6 +33,13 @@
 //! `collage.open` opens the Collage tab and the strip shows it, with the stub room's region, tabs and
 //! canvas; a Collage-context key does nothing in the library; Create ▸ Picture Collage… and the
 //! canvas's picture menu are listed and greyed; the close question is drawn with its ids.
+//!
+//! M15's view state (M15.5): the player while the edit view shows a video, the Open With ▸
+//! submenu, a drag out of the window, the default-viewer question and the language in effect
+//! round-trip the same way; the video keys act only on a video (in the library and on a still
+//! photo they do nothing to the player, and Space still stars); the stub video, its bar and its
+//! tab are drawn with their ids; the OS integration's menu rows are greyed with what they wait for;
+//! the default-viewer question is drawn with its ids.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -1523,4 +1530,277 @@ fn the_collage_close_question_is_drawn_with_its_ids() {
         assert_eq!(s["collage"]["close"], Value::Null, "{answer}: the question's draft goes with it");
         assert_eq!(s["rooms"].as_array().unwrap().contains(&json!("collage")), open_after, "{answer}");
     }
+}
+
+/// A library of four photos in one folder, built through ops (no files: thumbnails off), whose
+/// second photo the library's facts say is a video. The driver and the photo ids in order.
+fn video_setup() -> (tempfile::TempDir, Control, Connection, Driver, Vec<u64>) {
+    use dalica_engine::synthetic::{self, Spec};
+    use dalica_library::{Facts, Op};
+    let dir = tempfile::tempdir().unwrap();
+    let mut lib = synthetic::library(dir.path(), &Spec { photos: 4, folders: 1, seed: 15 }).unwrap();
+    let mut ids: Vec<u64> = lib.photos().map(|p| p.id.get()).collect();
+    ids.sort_unstable();
+    let video = dalica_core::PhotoId::new(ids[1]);
+    lib.apply(Op::SetFacts { facts: vec![(video, Facts { video: true, ..Facts::default() })] }).unwrap();
+    let lib_dir = synthetic::library_dir(dir.path());
+    std::fs::create_dir_all(&lib_dir).unwrap();
+    dalica_store::snapshot::write(&lib_dir.join(dalica_store::snapshot::FILE), &lib, 0).unwrap();
+    let roots = json!({ "version": 1, "folders": [{ "path": synthetic::photos_dir(dir.path()) }] });
+    std::fs::write(lib_dir.join(dalica_engine::session::FOLDERS_FILE), serde_json::to_vec(&roots).unwrap()).unwrap();
+    let options = dalica_engine::Options { thumbs: dalica_engine::ThumbOptions { cache: dalica_engine::CacheDir::Off, ..Default::default() } };
+    let s = Session::open_with(&lib_dir, Arc::new(dalica_core::SystemClock), &options).unwrap();
+    let control = Control::new(Config::default());
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    (dir, control, Connection::new(), d, ids)
+}
+
+struct V {
+    _dir: tempfile::TempDir,
+    control: Control,
+    conn: Connection,
+    d: Driver,
+    /// The photos in order; the second is the video.
+    ids: Vec<u64>,
+}
+
+impl V {
+    fn new() -> V {
+        let (_dir, control, conn, d, ids) = video_setup();
+        V { _dir, control, conn, d, ids }
+    }
+
+    fn call(&mut self, method: &str, params: Value) -> Reply {
+        serve(&self.control, &mut self.conn, &mut self.d, &Request::new(method, params))
+    }
+
+    fn ok(&mut self, method: &str, params: Value) -> Value {
+        self.call(method, params.clone()).unwrap_or_else(|e| panic!("{method} {params}: {e}"))
+    }
+
+    fn code(&mut self, method: &str, params: Value) -> &'static str {
+        match self.call(method, params.clone()) {
+            Ok(v) => panic!("{method} {params} succeeded: {v}"),
+            Err(e) => e.code.as_str(),
+        }
+    }
+
+    fn state(&mut self) -> Value {
+        let mut v = self.ok("ui.state", json!({}));
+        v.as_object_mut().unwrap().remove("status");
+        v
+    }
+
+    fn video(&self) -> u64 {
+        self.ids[1]
+    }
+
+    fn rect_of(&self, id: &str) -> Option<[f32; 4]> {
+        self.d.widgets().into_iter().find(|w| w.id == id).map(|w| w.rect)
+    }
+}
+
+/// Each M15 field round-trips through `ui.set` and `ui.state` (`video` merges field by field), and
+/// the player goes idle, its volume kept, when the edit view leaves the video.
+#[test]
+fn every_m15_field_round_trips_through_ui_set_and_ui_state() {
+    let mut t = V::new();
+    let (v, still) = (t.video(), t.ids[0]);
+    let defaults = t.state();
+    assert_eq!(defaults["video"], json!({ "playing": false, "position": 0, "trim": null, "volume": 80, "fullScreen": false }));
+    assert_eq!(
+        (&defaults["openWith"], &defaults["dragOut"], &defaults["defaultViewer"], &defaults["language"]),
+        (&Value::Null, &Value::Null, &Value::Null, &json!("en"))
+    );
+    for (field, value) in [
+        ("language", json!("pt-BR")),
+        ("language", json!("qps")),
+        ("openWith", json!({ "photo": still, "handlers": null })),
+        ("openWith", json!({ "photo": v, "handlers": [{ "id": "org.gnome.Totem.desktop", "name": "Videos" }] })),
+        ("openWith", json!({ "photo": still, "handlers": [] })),
+        ("dragOut", json!({ "ids": [still, v] })),
+        ("defaultViewer", json!({ "types": ["jpeg", "png"] })),
+        ("defaultViewer", json!({ "types": [] })),
+    ] {
+        let reply = t.ok("ui.set", json!({ field: value }));
+        assert_eq!(t.state()[field], value, "{field}");
+        assert_eq!(reply[field], value, "the reply is the new state: {field}");
+    }
+    // Repeats are kept once.
+    t.ok("ui.set", json!({ "dragOut": { "ids": [v, v, still] }, "defaultViewer": { "types": ["png", "png"] } }));
+    let s = t.state();
+    assert_eq!((&s["dragOut"]["ids"], &s["defaultViewer"]["types"]), (&json!([v, still]), &json!(["png"])));
+    // The player, with the video in the edit view.
+    t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": v } }));
+    for change in [
+        json!({ "playing": true }),
+        json!({ "position": 9000 }),
+        json!({ "trim": "start" }),
+        json!({ "trim": "end", "position": 86_400_000 }),
+        json!({ "volume": 0 }),
+        json!({ "volume": 35, "fullScreen": true }),
+    ] {
+        let reply = t.ok("ui.set", json!({ "video": change.clone() }));
+        let now = t.state();
+        for (k, value) in change.as_object().unwrap() {
+            assert_eq!(&now["video"][k], value, "video.{k}");
+            assert_eq!(&reply["video"][k], value, "the reply is the new state: video.{k}");
+        }
+        assert_eq!(now["edit"]["photo"], json!(v));
+    }
+    // Back to the library: the player is idle, its volume kept; a change elsewhere is not refused.
+    t.ok("engine.execute", json!({ "command": "view.library" }));
+    t.ok("ui.set", json!({ "thumbSize": 160 }));
+    assert_eq!(t.state()["video"], json!({ "playing": false, "position": 0, "trim": null, "volume": 35, "fullScreen": false }));
+}
+
+/// Bad M15 values are `bad_params` (photos that do not exist `not_found`), and nothing changes.
+#[test]
+fn bad_m15_values_are_refused_and_change_nothing() {
+    let mut t = V::new();
+    let (v, still) = (t.video(), t.ids[0]);
+    let before = t.state();
+    let long = "x".repeat(600);
+    for bad in [
+        // The player only while the edit view shows a video.
+        json!({ "video": { "playing": true } }),
+        json!({ "video": { "position": 10 } }),
+        json!({ "view": "edit", "edit": { "photo": still }, "video": { "playing": true } }),
+        json!({ "view": "edit", "edit": { "photo": v }, "video": { "position": 86_400_001 } }),
+        json!({ "view": "edit", "edit": { "photo": v }, "video": { "position": -1 } }),
+        json!({ "view": "edit", "edit": { "photo": v }, "video": { "volume": 101 } }),
+        json!({ "view": "edit", "edit": { "photo": v }, "video": { "trim": "middle" } }),
+        json!({ "view": "edit", "edit": { "photo": v }, "video": { "speed": 2 } }),
+        json!({ "video": 3 }),
+        json!({ "openWith": { "photo": still, "handlers": [{ "id": "", "name": "Viewer" }] } }),
+        json!({ "openWith": { "photo": still, "handlers": [{ "id": long, "name": "Viewer" }] } }),
+        json!({ "openWith": { "photo": still, "handlers": [{ "id": "a", "name": "  " }] } }),
+        json!({ "openWith": { "handlers": [] } }),
+        json!({ "dragOut": { "ids": [] } }),
+        json!({ "dragOut": { "ids": "all" } }),
+        json!({ "defaultViewer": { "types": ["JPEG"] } }),
+        json!({ "defaultViewer": { "types": [""] } }),
+        json!({ "defaultViewer": { "types": ["jpeg"], "all": true } }),
+        json!({ "language": "system" }),
+        json!({ "language": "" }),
+        json!({ "language": "en_US" }),
+        json!({ "language": 7 }),
+        // A good field next to a bad one: neither is applied.
+        json!({ "language": "de", "dragOut": { "ids": [] } }),
+    ] {
+        assert_eq!(t.code("ui.set", bad.clone()), "bad_params", "{bad}");
+        assert_eq!(t.state(), before, "{bad}");
+    }
+    let no_photo = t.ids.iter().max().unwrap() + 100;
+    for bad in [json!({ "openWith": { "photo": no_photo, "handlers": null } }), json!({ "dragOut": { "ids": [still, no_photo] } })] {
+        assert_eq!(t.code("ui.set", bad.clone()), "not_found", "{bad}");
+        assert_eq!(t.state(), before, "{bad}");
+    }
+}
+
+/// The video keys act only on a video: in the library and on a still photo `/`, `,` and `.` do
+/// nothing to the player and Space still stars the photo; on the video Space and `/` play and
+/// pause, `.` steps (waiting for the player), and the edit view's star is left alone.
+#[test]
+fn a_video_key_does_nothing_in_the_library_or_on_a_still_photo() {
+    use dalica_ui::commands::video;
+    let mut t = V::new();
+    let (v, still) = (t.video(), t.ids[0]);
+    let idle = t.state()["video"].clone();
+    let star = |t: &V, id: u64| t.d.app().session().unwrap().library().photo(dalica_core::PhotoId::new(id)).unwrap().star;
+    t.ok("engine.execute", json!({ "command": "select.set", "params": { "ids": [v] } }));
+    for key in ["/", ",", ".", "Space"] {
+        t.ok("ui.key", json!({ "combo": key }));
+        assert_eq!(t.state()["video"], idle, "{key} in the library");
+        assert_ne!(t.d.app().state().status, video::LATER, "{key} in the library");
+    }
+    t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": still } }));
+    let starred = star(&t, still);
+    for key in ["/", ",", "."] {
+        t.ok("ui.key", json!({ "combo": key }));
+        assert_eq!(t.state()["video"], idle, "{key} on a still photo");
+        assert_ne!(t.d.app().state().status, video::LATER, "{key} on a still photo");
+    }
+    t.ok("ui.key", json!({ "combo": "Space" }));
+    assert_eq!(star(&t, still), !starred, "Space stars a still photo");
+    assert_eq!(t.state()["video"], idle);
+
+    t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": v } }));
+    let starred = star(&t, v);
+    t.ok("ui.key", json!({ "combo": "Space" }));
+    assert_eq!(t.state()["video"]["playing"], true, "Space plays the video");
+    t.ok("ui.key", json!({ "combo": "/" }));
+    assert_eq!(t.state()["video"]["playing"], false, "/ pauses it");
+    assert_eq!(star(&t, v), starred, "Space did not star the video");
+    t.ok("ui.key", json!({ "combo": "." }));
+    assert_eq!(t.d.app().state().status, video::LATER, ". steps a frame once the player arrives");
+}
+
+/// The stub video is drawn over the photo area with its bar and its tab, by id; the bar's Play
+/// plays and the trim buttons wait; a still photo draws none of it.
+#[test]
+fn the_stub_video_is_drawn_with_its_ids() {
+    use dalica_ui::panels::edit::video::{bar, tab};
+    let mut t = V::new();
+    let (v, still) = (t.video(), t.ids[0]);
+    t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": still } }));
+    t.ok("ui.wait", json!({ "ms": 50 }));
+    assert_eq!(t.rect_of("region:video"), None, "a still photo");
+    t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": v } }));
+    t.ok("ui.wait", json!({ "ms": 50 }));
+    let area = t.rect_of("region:video").expect("the video's area");
+    assert_eq!(Some(area), t.rect_of("region:canvas"), "over the photo area");
+    assert_eq!(t.ok("ui.inspect", json!({}))["regions"]["video"], json!(area));
+    let widgets = t.d.widgets();
+    for id in [
+        bar::TOGGLE_ID,
+        bar::POSITION_ID,
+        bar::TRIM_START_ID,
+        bar::TRIM_END_ID,
+        bar::SET_START_ID,
+        bar::SET_END_ID,
+        bar::VOLUME_ID,
+        bar::FULL_SCREEN_ID,
+        tab::SAVE_FRAME_ID,
+        tab::EXPORT_CLIP_ID,
+    ] {
+        let w = widgets.iter().find(|w| w.id == id).unwrap_or_else(|| panic!("{id} drawn"));
+        let waits = [bar::SET_START_ID, bar::SET_END_ID, tab::SAVE_FRAME_ID, tab::EXPORT_CLIP_ID].contains(&id);
+        assert_eq!(w.enabled, !waits, "{id}");
+    }
+    t.ok("ui.clickWidget", json!({ "id": bar::TOGGLE_ID }));
+    assert_eq!(t.state()["video"]["playing"], true);
+    t.ok("ui.clickWidget", json!({ "id": bar::FULL_SCREEN_ID }));
+    assert_eq!(t.state()["video"]["fullScreen"], true);
+}
+
+/// The OS integration's rows are wired to the engine's commands and greyed with what they wait
+/// for; the default-viewer question is drawn with its ids, Use Dalica waits for a type and then
+/// for the engine, Not Now closes it.
+#[test]
+fn the_os_rows_wait_and_the_default_viewer_question_is_drawn() {
+    use dalica_ui::commands::os;
+    let mut t = setup();
+    let first = t.photos[0];
+    ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [first] } }));
+    for id in ["photo.locate", "photo.openExternal", "folder.locate"] {
+        let r = row(&mut t, id, Value::Null);
+        assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(false), &json!(false), &json!(os::LATER)), "{r}");
+    }
+    assert_eq!(ok(&mut t, "engine.execute", json!({ "command": "defaultViewer.ask" })), json!({ "dialog": "defaultViewer" }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    let v = ok(&mut t, "ui.inspect", json!({}));
+    assert_eq!(v["dialog"]["widget"], "dialog:defaultViewer");
+    assert_eq!(v["dialog"]["buttons"], json!(["button:dialog.use", "button:dialog.cancel"]));
+    assert_eq!(state(&mut t)["defaultViewer"], json!({ "types": [] }), "nothing chosen");
+    let use_button = |t: &T| t.d.widgets().into_iter().find(|w| w.id == "button:dialog.use").map(|w| w.enabled);
+    assert_eq!(use_button(&t), Some(false), "nothing to use Dalica for");
+    ok(&mut t, "ui.set", json!({ "defaultViewer": { "types": ["jpeg"] } }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert_eq!(use_button(&t), Some(true));
+    assert!(matches!(dalica_ui::dialogs::answer(t.d.app_mut(), None), Err(CmdError::Disabled(m)) if m == os::LATER), "Use Dalica waits");
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.cancel" }));
+    assert!(t.d.app().state().dialogs.is_empty(), "Not Now closes it");
+    assert_eq!(state(&mut t)["defaultViewer"], Value::Null);
 }

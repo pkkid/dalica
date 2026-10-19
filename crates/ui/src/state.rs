@@ -623,10 +623,14 @@ pub enum DialogKind {
     /// [Save Draft] [Discard] [Cancel] (`creating.md` §3); what is closing is
     /// [`CollageRoom::close`] (M14.18).
     CollageClose,
+    /// The default-viewer question offered once after the first run: "Use Dalica as the default
+    /// viewer for these file types:" with a checkbox per type, nothing chosen [Use Dalica] [Not Now]
+    /// (`viewing.md` §3.3); its draft is [`UiState::default_viewer`] (M15.24).
+    DefaultViewer,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 46] = [
+    pub const ALL: [DialogKind; 47] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -673,6 +677,7 @@ impl DialogKind {
         DialogKind::RemoveFaceModel,
         DialogKind::DropFaceData,
         DialogKind::CollageClose,
+        DialogKind::DefaultViewer,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -724,6 +729,7 @@ impl DialogKind {
             DialogKind::RemoveFaceModel => "removeFaceModel",
             DialogKind::DropFaceData => "dropFaceData",
             DialogKind::CollageClose => "collageClose",
+            DialogKind::DefaultViewer => "defaultViewer",
         }
     }
 
@@ -2931,6 +2937,207 @@ impl CollageRoom {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// M15: a video in the edit view, the OS integration's view state, the language in effect
+// ---------------------------------------------------------------------------------------------
+
+/// The furthest a video's playhead goes, in milliseconds (24 hours): a position past it is no
+/// position of any clip Dalica opens.
+pub const MAX_POSITION_MS: u64 = 24 * 60 * 60 * 1000;
+/// The loudest the player plays (`video.volume`'s range is 0 … 100).
+pub const VOLUME_MAX: u8 = 100;
+/// The volume a session starts with: the setting `video.volume`'s default.
+pub const VOLUME_DEFAULT: u8 = 80;
+/// The most handlers the Open With ▸ submenu lists.
+pub const MAX_HANDLERS: usize = 64;
+/// The longest handler id (a desktop entry's name, a ProgID, a bundle id), in bytes.
+pub const MAX_HANDLER_ID: usize = 512;
+/// The longest handler name shown, in characters.
+pub const MAX_HANDLER_NAME: usize = 256;
+/// The most file types the default-viewer question offers.
+pub const MAX_FILE_TYPES: usize = 64;
+/// The longest file type's name (`jpeg`, `heif`, `raw`), in bytes.
+pub const MAX_FILE_TYPE: usize = 16;
+/// The longest language tag in effect (BCP 47 allows 35 characters before extensions).
+pub const MAX_LANGUAGE: usize = 35;
+/// The language in effect before the localisation core says otherwise (M15.7).
+pub const LANGUAGE_DEFAULT: &str = "en";
+
+/// A trim handle of the player's trim ruler (`editing.md` §11): the clip's start or its end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrimHandle {
+    Start,
+    End,
+}
+
+/// The player's view state while the edit view shows a video (`editing.md` §11, `viewing.md`
+/// §4): playing or paused, the playhead (milliseconds from the clip's start, 0 …
+/// [`MAX_POSITION_MS`]), the trim handle being dragged, the volume (0 … [`VOLUME_MAX`]) and the
+/// video filling the screen. The clip itself (its frames, its trim in the recipe) is the engine's
+/// (M15.25). Everything but the volume is idle while no video is shown, and the volume carries over
+/// from one video to the next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct VideoView {
+    pub playing: bool,
+    pub position: u64,
+    pub trim: Option<TrimHandle>,
+    pub volume: u8,
+    pub full_screen: bool,
+}
+
+impl Default for VideoView {
+    fn default() -> Self {
+        VideoView { playing: false, position: 0, trim: None, volume: VOLUME_DEFAULT, full_screen: false }
+    }
+}
+
+impl VideoView {
+    /// This view state with nothing playing, the playhead at the start, no handle dragged and the
+    /// video not filling the screen: the volume kept.
+    pub fn idle(self) -> VideoView {
+        VideoView { volume: self.volume, ..VideoView::default() }
+    }
+
+    /// Why this view state cannot be used, `shown` saying whether the edit view shows a video, if
+    /// it cannot: anything but the volume while no video is shown, a position past
+    /// [`MAX_POSITION_MS`], a volume past [`VOLUME_MAX`].
+    pub fn check(&self, shown: bool) -> Result<(), String> {
+        if !shown && *self != self.idle() {
+            return Err("`video` plays, seeks, trims or fills the screen only while the edit view shows a video".into());
+        }
+        if self.position > MAX_POSITION_MS {
+            return Err(format!("`video.position` is 0 … {MAX_POSITION_MS} milliseconds, not {}", self.position));
+        }
+        if self.volume > VOLUME_MAX {
+            return Err(format!("`video.volume` is 0 … {VOLUME_MAX}, not {}", self.volume));
+        }
+        Ok(())
+    }
+
+    /// This view state within its limits, `shown` saying whether the edit view shows a video:
+    /// idle while none is shown, the position and the volume clamped.
+    pub fn sanitize(&mut self, shown: bool) {
+        if !shown {
+            *self = self.idle();
+        }
+        self.position = self.position.min(MAX_POSITION_MS);
+        self.volume = self.volume.min(VOLUME_MAX);
+    }
+}
+
+/// One application the Open With ▸ submenu offers for a file (`organizing.md` §9): its id as the
+/// operating system names it (a desktop entry, a ProgID, a bundle id; what `photo.openWith` takes)
+/// and its name as shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Handler {
+    pub id: String,
+    pub name: String,
+}
+
+impl Handler {
+    fn fits(&self) -> bool {
+        !self.id.is_empty()
+            && self.id.len() <= MAX_HANDLER_ID
+            && !self.id.chars().any(char::is_control)
+            && !self.name.trim().is_empty()
+            && self.name.chars().count() <= MAX_HANDLER_NAME
+            && !self.name.chars().any(char::is_control)
+    }
+}
+
+/// The Open With ▸ submenu while it is open: the photo it opens and the applications the
+/// operating system offers for it, asked when the submenu opens (`null` while they are asked:
+/// "Loading…"; `[]`: "No other applications").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenWithMenu {
+    pub photo: PhotoId,
+    #[serde(default)]
+    pub handlers: Option<Vec<Handler>>,
+}
+
+impl OpenWithMenu {
+    /// Why this submenu cannot be shown, if it cannot: more than [`MAX_HANDLERS`] handlers, or one
+    /// with an empty or overlong id or name.
+    pub fn check(&self) -> Result<(), String> {
+        let handlers = self.handlers.as_deref().unwrap_or_default();
+        if handlers.len() > MAX_HANDLERS {
+            return Err(format!("`openWith.handlers` lists at most {MAX_HANDLERS} applications"));
+        }
+        if handlers.iter().any(|h| !h.fits()) {
+            return Err(format!(
+                "`openWith.handlers` is [{{id, name}}]: an id of 1 … {MAX_HANDLER_ID} bytes and a name of 1 … {MAX_HANDLER_NAME} characters, no control characters"
+            ));
+        }
+        Ok(())
+    }
+
+    fn sanitize(&mut self) {
+        if let Some(h) = &mut self.handlers {
+            h.retain(Handler::fits);
+            h.truncate(MAX_HANDLERS);
+        }
+    }
+}
+
+/// A drag of photos that has left the window (`ui-layout.md` §5): the photos whose files the
+/// operating system's drag carries to another application (a copy; M15.23).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DragOut {
+    pub ids: Vec<PhotoId>,
+}
+
+/// The default-viewer question's draft (`viewing.md` §3.3): the file types chosen for Dalica, by
+/// the names `viewer.fileTypes` gives them (`jpeg`, `png`, …), none to start with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct DefaultViewerDraft {
+    pub types: Vec<String>,
+}
+
+/// A file type's name as the default-viewer question takes it: 1 … [`MAX_FILE_TYPE`] lowercase
+/// ASCII letters and digits.
+pub fn is_file_type(name: &str) -> bool {
+    (1..=MAX_FILE_TYPE).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+}
+
+impl DefaultViewerDraft {
+    /// Why this draft cannot be shown, if it cannot.
+    pub fn check(&self) -> Result<(), String> {
+        if self.types.len() > MAX_FILE_TYPES || !self.types.iter().all(|t| is_file_type(t)) {
+            return Err(format!(
+                "`defaultViewer.types` is at most {MAX_FILE_TYPES} file types, each 1 … {MAX_FILE_TYPE} lowercase letters and digits (\"jpeg\")"
+            ));
+        }
+        Ok(())
+    }
+
+    fn sanitize(&mut self) {
+        self.types.retain(|t| is_file_type(t));
+        self.types.truncate(MAX_FILE_TYPES);
+        let mut seen = HashSet::with_capacity(self.types.len());
+        self.types.retain(|t| seen.insert(t.clone()));
+    }
+}
+
+/// A language tag Dalica can be in effect in: 1 … [`MAX_LANGUAGE`] ASCII letters, digits and `-`,
+/// starting with a letter (`en`, `pt-BR`, `zh-Hant`, the pseudo-locale `qps`); never `system`,
+/// which the setting `interface.language` resolves before it is in effect.
+pub fn is_language(tag: &str) -> bool {
+    (1..=MAX_LANGUAGE).contains(&tag.len())
+        && tag.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+        && tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && !tag.eq_ignore_ascii_case("system")
+}
+
+fn language_default() -> String {
+    LANGUAGE_DEFAULT.to_string()
+}
+
 /// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
 pub const MAX_DIALOGS: usize = 8;
 
@@ -3087,6 +3294,23 @@ pub struct UiState {
     /// or turn under way, Get More's mode and the close question (M14).
     #[serde(default)]
     pub collage: CollageRoom,
+    /// The player while the edit view shows a video: playing, the playhead, the trim handle being
+    /// dragged, the volume, full screen (M15).
+    #[serde(default)]
+    pub video: VideoView,
+    /// The Open With ▸ submenu while it is open: its photo and the applications offered (M15).
+    #[serde(default)]
+    pub open_with: Option<OpenWithMenu>,
+    /// A drag of photos that has left the window, handed to the operating system (M15).
+    #[serde(default)]
+    pub drag_out: Option<DragOut>,
+    /// The default-viewer question's draft while it is open (M15).
+    #[serde(default)]
+    pub default_viewer: Option<DefaultViewerDraft>,
+    /// The language the interface is drawn in, as a tag (`en`): the setting `interface.language`
+    /// resolved and mirrored here for the next draw (M15.7).
+    #[serde(default = "language_default")]
+    pub language: String,
     /// A drag of photos in progress (`crate::drag`); `ui.inspect` reports it, `ui.state` does not.
     #[serde(skip)]
     pub drag: Option<Drag>,
@@ -3143,7 +3367,69 @@ impl UiState {
         }
         self.sanitize_m13();
         self.sanitize_m14();
+        self.sanitize_m15();
         self
+    }
+
+    /// Whether the edit view is up with a photo in it: where a video can be shown (whether the
+    /// photo is a video is the library's to say, `crate::commands::video::shown`).
+    pub fn edit_photo_shown(&self) -> bool {
+        self.view == View::Edit && self.room == Room::Library && self.edit.photo.is_some()
+    }
+
+    /// Every M15 field within its limits: the player idle outside the edit view (its volume kept),
+    /// the Open With ▸ handlers and the default-viewer types cut to their lengths without bad
+    /// entries, a drag out without photos dropped, a language that is no tag back to English.
+    fn sanitize_m15(&mut self) {
+        let shown = self.edit_photo_shown();
+        self.video.sanitize(shown);
+        if let Some(m) = &mut self.open_with {
+            m.sanitize();
+        }
+        if let Some(d) = &mut self.drag_out {
+            d.ids.truncate(MAX_IDS);
+            dedup(&mut d.ids);
+        }
+        if self.drag_out.as_ref().is_some_and(|d| d.ids.is_empty()) {
+            self.drag_out = None;
+        }
+        if let Some(d) = &mut self.default_viewer {
+            d.sanitize();
+        }
+        if !is_language(&self.language) {
+            self.language = language_default();
+        }
+    }
+
+    /// Why the M15 fields of this state cannot be used, if they cannot: the player's
+    /// ([`VideoView::check`], with the edit view up on a photo), Open With ▸'s, a drag out without
+    /// photos or past [`MAX_IDS`], the default-viewer draft's, a language that is no tag. What
+    /// `ui.set` refuses (`bad_params`); that the edit view's photo is a video, and that the photos
+    /// named exist, `ui.set` checks against the library.
+    pub fn check_m15(&self) -> Result<(), String> {
+        self.video.check(self.edit_photo_shown())?;
+        if let Some(m) = &self.open_with {
+            m.check()?;
+        }
+        if self.drag_out.as_ref().is_some_and(|d| d.ids.is_empty() || d.ids.len() > MAX_IDS) {
+            return Err(format!("`dragOut.ids` names 1 … {MAX_IDS} photos"));
+        }
+        if let Some(d) = &self.default_viewer {
+            d.check()?;
+        }
+        if !is_language(&self.language) {
+            return Err(format!(
+                "`language` is a language tag of 1 … {MAX_LANGUAGE} letters, digits and `-` starting with a letter (\"en\", \"pt-BR\"), not {:?}",
+                self.language
+            ));
+        }
+        Ok(())
+    }
+
+    /// Every photo the M15 fields name (Open With ▸'s, the drag out's), for `ui.set` to check that
+    /// they exist.
+    pub fn m15_photos(&self) -> impl Iterator<Item = PhotoId> + '_ {
+        self.open_with.iter().map(|m| m.photo).chain(self.drag_out.iter().flat_map(|d| d.ids.iter().copied()))
     }
 
     /// Whether the Collage room is open (it has a tab) and whether it is in front.
@@ -3600,6 +3886,11 @@ impl Default for UiState {
             places: PlacesPane::default(),
             face_model: None,
             collage: CollageRoom::default(),
+            video: VideoView::default(),
+            open_with: None,
+            drag_out: None,
+            default_viewer: None,
+            language: language_default(),
             drag: None,
             focus_search: false,
             status_line: String::new(),
@@ -4105,6 +4396,57 @@ mod tests {
         assert_eq!((s.selection.as_slice(), s.get_more), (&[4, 1][..], false));
         s.sanitize(false, false);
         assert_eq!(s, idle);
+    }
+
+    #[test]
+    fn the_m15_fields_are_checked_and_made_safe() {
+        let busy = VideoView { playing: true, position: 9_000, trim: Some(TrimHandle::End), volume: 30, full_screen: true };
+        assert_eq!(busy.check(true), Ok(()));
+        assert!(busy.check(false).is_err(), "only while a video is shown");
+        assert_eq!(busy.idle(), VideoView { volume: 30, ..VideoView::default() }, "the volume carries over");
+        assert_eq!(busy.idle().check(false), Ok(()));
+        for bad in [VideoView { position: MAX_POSITION_MS + 1, ..VideoView::default() }, VideoView { volume: 101, ..VideoView::default() }] {
+            assert!(bad.check(true).is_err(), "{bad:?}");
+            let mut safe = bad;
+            safe.sanitize(true);
+            assert_eq!(safe.check(true), Ok(()), "{safe:?}");
+        }
+        let mut s = busy;
+        s.sanitize(false);
+        assert_eq!(s, busy.idle());
+
+        let handler = |id: &str, name: &str| Handler { id: id.into(), name: name.into() };
+        let mut menu = OpenWithMenu { photo: PhotoId::new(1), handlers: Some(vec![handler("gimp.desktop", "GNU Image Manipulation Program")]) };
+        assert_eq!(menu.check(), Ok(()));
+        assert_eq!(OpenWithMenu { photo: PhotoId::new(1), handlers: None }.check(), Ok(()), "Loading…");
+        for bad in [handler("", "Viewer"), handler("a.desktop", " "), handler("a\nb", "Viewer"), handler(&"x".repeat(MAX_HANDLER_ID + 1), "Viewer")] {
+            let m = OpenWithMenu { photo: PhotoId::new(1), handlers: Some(vec![bad.clone(), handler("ok", "OK")]) };
+            assert!(m.check().is_err(), "{bad:?}");
+        }
+        menu.handlers = Some(vec![handler("", "x"); MAX_HANDLERS + 3]);
+        menu.sanitize();
+        assert_eq!(menu.handlers, Some(vec![]));
+
+        let draft = DefaultViewerDraft { types: vec!["jpeg".into(), "png".into(), "jpeg".into()] };
+        assert_eq!(draft.check(), Ok(()));
+        let mut d = draft.clone();
+        d.sanitize();
+        assert_eq!(d.types, ["jpeg", "png"]);
+        for bad in ["", "JPEG", "jp eg", "averyverylongname"] {
+            assert!(DefaultViewerDraft { types: vec![bad.into()] }.check().is_err(), "{bad:?}");
+        }
+
+        for tag in ["en", "pt-BR", "zh-Hant", "qps"] {
+            assert!(is_language(tag), "{tag}");
+        }
+        for tag in ["", "system", "System", "1en", "en_US", "en US", &"a".repeat(MAX_LANGUAGE + 1)] {
+            assert!(!is_language(tag), "{tag}");
+        }
+        let mut state = UiState { language: "system".into(), drag_out: Some(DragOut { ids: vec![] }), video: busy, ..UiState::default() };
+        assert!(state.check_m15().is_err());
+        state = state.sanitized();
+        assert_eq!((state.language.as_str(), state.drag_out.is_none(), state.video), ("en", true, busy.idle()));
+        assert_eq!(state.check_m15(), Ok(()));
     }
 
     #[test]

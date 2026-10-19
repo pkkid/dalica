@@ -25,6 +25,10 @@
 //! Library (the edit view resolves its own, the open tool first,
 //! `crate::commands::edit_view::dispatch`). Only the library routes Delete by section and to the
 //! focused tree.
+//!
+//! While the edit view shows a video its video keys (`/` and Space play or pause, `,` and `.` step
+//! a frame) are taken before the edit view's keymap sees them ([`capture_video_keys`], M15), so
+//! they act only on a video: in the library and on a still photo they are what they were.
 
 use dalica_engine::keymap::DefaultKeys;
 use dalica_engine::{Context, Key, Session};
@@ -168,7 +172,10 @@ pub fn targets(app: &App, id: &str) -> Vec<dalica_core::PhotoId> {
 /// ([`targets`]); Remove from Album passes the album of the selected section too, and Delete from
 /// Disk its photos whether or not the engine has registered it yet (the question counts them).
 pub fn params_for(app: &App, id: &str) -> Value {
-    if let Some(p) = crate::commands::batch::params_for(app, id).or_else(|| crate::commands::places::params_for(app, id)) {
+    if let Some(p) = crate::commands::batch::params_for(app, id)
+        .or_else(|| crate::commands::places::params_for(app, id))
+        .or_else(|| crate::commands::os::params_for(app, id))
+    {
         return p;
     }
     let takes_ids = app.session().and_then(|s| s.spec(id)).is_some_and(|spec| spec.params.contains("\"ids\""));
@@ -209,8 +216,12 @@ pub fn run_key(app: &mut App, id: &str) -> Result<Value, dalica_engine::CmdError
 /// frame's keys. Call at the start of the frame.
 ///
 /// [`MAX_CAPTURED`]: crate::state::MAX_CAPTURED
+///
+/// When no cell records, the video keys are taken instead while the edit view shows a video
+/// ([`capture_video_keys`]).
 pub fn capture_for_editor(app: &mut App, ctx: &egui::Context) -> bool {
     let Some(editor) = app.state_mut().options.as_mut().map(|o| &mut o.shortcuts).filter(|e| e.recording.is_some()) else {
+        capture_video_keys(app, ctx);
         return false;
     };
     let presses: Vec<Key> = ctx.input_mut(|i| {
@@ -243,6 +254,56 @@ pub fn capture_for_editor(app: &mut App, ctx: &egui::Context) -> bool {
     let extra = editor.captured.len().saturating_sub(crate::state::MAX_CAPTURED);
     editor.captured.drain(..extra);
     true
+}
+
+/// The video keys of the edit view (`editing.md` §11): `/` and Space play or pause, `,` and `.`
+/// step a frame back and forward. Each with the command it runs and its parameters.
+pub const VIDEO_KEYS: [(egui::Key, &str, i32); 4] = [
+    (egui::Key::Slash, "player.toggle", 0),
+    (egui::Key::Space, "player.toggle", 0),
+    (egui::Key::Comma, "player.step", -1),
+    (egui::Key::Period, "player.step", 1),
+];
+
+/// While the edit view shows a video (`crate::commands::video::shown`) with no dialog open, no
+/// text field focused and no tool open, takes this frame's presses of the video keys
+/// ([`VIDEO_KEYS`], without Ctrl, Alt or Cmd) out of the input before the edit view's keymap sees
+/// them, and runs their commands (a held key's repeats step again; they never toggle again). So
+/// Space plays the video rather than starring it, and in the library or on a still photo the keys
+/// stay what they were. Returns the commands that ran.
+pub fn capture_video_keys(app: &mut App, ctx: &egui::Context) -> Vec<String> {
+    let state = app.state();
+    if !state.dialogs.is_empty() || state.edit.tool.is_some() || ctx.egui_wants_keyboard_input() || crate::commands::video::shown(app).is_none() {
+        return Vec::new();
+    }
+    let presses: Vec<(&'static str, i32)> = ctx.input_mut(|i| {
+        let mut out = Vec::new();
+        i.events.retain(|e| match e {
+            egui::Event::Key { key, pressed, repeat, modifiers, .. }
+                if !(modifiers.ctrl || modifiers.alt || modifiers.command || modifiers.mac_cmd) =>
+            {
+                match VIDEO_KEYS.iter().find(|(k, ..)| k == key) {
+                    Some((_, id, frames)) => {
+                        if *pressed && (*frames != 0 || !*repeat) {
+                            out.push((*id, *frames));
+                        }
+                        false
+                    }
+                    None => true,
+                }
+            }
+            _ => true,
+        });
+        out
+    });
+    let mut ran = Vec::new();
+    for (id, frames) in presses {
+        let params = if frames == 0 { json!({}) } else { json!({ "frames": frames }) };
+        // A refusal's reason goes to the status line (`App::run`).
+        let _ = app.run(id, &params);
+        ran.push(id.to_string());
+    }
+    ran
 }
 
 /// The view context a key press is resolved in (then Global): what fills the window. A slideshow and
