@@ -9282,7 +9282,7 @@ M14 needs a maintainer decision mid-run; reserved decision 2 (video) is asked at
     the selection; Create Collage opens the new photo in the edit view; Close with changes asks and
     Save Draft writes a draft; at 900 × 600 the room fits; fingerprints of both tabs at
     1400 × 900.
-- ⬜ **M14.19 `ui`: the collage canvas**
+- ✅ **M14.19 `ui`: the collage canvas**
   - after: M14.6, M14.7, M14.16
   - files: `crates/ui/src/panels/collage/canvas.rs`, `crates/ui/src/panels/collage/canvas/**`, `crates/ui/src/commands/collage_canvas.rs`, `crates/ui/tests/collage_canvas.rs`, `crates/ui/tests/fingerprints/collage-canvas-*.json`
   - scope: `creating.md` §3: the page at its ratio drawn from the thumbnail ladder with the
