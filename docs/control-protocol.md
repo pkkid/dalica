@@ -294,9 +294,13 @@ dialog's location; it never adds a watched folder (only File ▸ Add Folder…'s
 All path params (folder to add, export target, screenshot `path`, render `path`) are absolute,
 normalised paths; `..` components are refused; symlinks are resolved before the check.
 
-- **Reading** (adding a watched folder, `library.openFile`, import from a folder): the path must be
-  inside an `--automation-read-root` or an already watched folder. With no read root, adding new
-  folders over automation is refused (`path_denied`), except in `--demo`.
+- **Reading** (adding a watched folder, `library.openFile`, import from a folder, a face model
+  file: `faceModel.addFile {path}`, `faceModel.open {file}`, `faces.models.inspect {path}` and
+  `faces.models.install {path}`): the path must be inside an `--automation-read-root` or an
+  already watched folder. With no read root, adding new folders or reading a model file over
+  automation is refused (`path_denied`), except in `--demo`. The window's own Add a Model File…
+  picker and a `.onnx` file dropped on it are the user's and are not checked (the picker's answer
+  to automation is, §5.6).
 - **Writing new files** (export, collage, screenshots, renders): the target must be inside an `--automation-write-root`. With no write root
   given, the defaults are the OS temporary directory and `<cache>/Dalica/automation/`.
 - Never inside a watched folder or any `.dalica-originals/` (a screenshot or render there would turn

@@ -43,8 +43,17 @@ const CONFIRM: &[(&str, &str)] = &[(
     "Rebuild the library? Dalica forgets its index and reads every watched folder again; stars and captions come back from the folders.",
 )];
 
-/// Commands that read a path the user would pick (§5.7 reading), and the parameter.
-const READ_PATHS: &[(&str, &str)] = &[("folders.add", "path"), ("import.openSource", "path")];
+/// Commands that read a path the user would pick (§5.7 reading), and the parameter: a folder to
+/// add, a card to import from, a face model file (the face model dialog inspects the file it opens
+/// on at once; the engine's inspect and install read theirs).
+const READ_PATHS: &[(&str, &str)] = &[
+    ("folders.add", "path"),
+    ("import.openSource", "path"),
+    ("faceModel.addFile", "path"),
+    ("faceModel.open", "file"),
+    ("faces.models.inspect", "path"),
+    ("faces.models.install", "path"),
+];
 
 /// Commands that make new files at a path (§5.7 writing), the parameter, and what it names: the
 /// folder an export folder is made in, the file Save As writes, the folder an import makes its

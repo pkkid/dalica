@@ -394,7 +394,7 @@ impl Headless {
     }
 
     /// The control channel's path rules (`control-protocol.md` §5.7) for the commands that read a
-    /// folder or make new files.
+    /// folder or a face model file, or make new files.
     fn check_paths(&self, id: &str, cmd: &Map<String, Value>) -> Result<(), ToolError> {
         let watched = self.session.roots().to_vec();
         let path = |param: &str| -> Result<Option<PathBuf>, ToolError> {
@@ -408,7 +408,9 @@ impl Headless {
             "export.run" => path("dir")?.map_or(Ok(()), |p| self.roots.check_output(&p, "dir", &watched, Output::Folder).map(|_| ())),
             "photo.saveTo" => path("path")?.map_or(Ok(()), |p| self.roots.check_output(&p, "path", &watched, Output::File).map(|_| ())),
             "import.run" => path("destination")?.map_or(Ok(()), |p| self.roots.check_output(&p, "destination", &watched, Output::Folder).map(|_| ())),
-            "folders.add" => path("path")?.map_or(Ok(()), |p| self.roots.check_read(&p, "path", &watched).map(|_| ())),
+            "folders.add" | "faces.models.inspect" | "faces.models.install" => {
+                path("path")?.map_or(Ok(()), |p| self.roots.check_read(&p, "path", &watched).map(|_| ()))
+            }
             "folders.set" => {
                 let changes = cmd.get("changes").and_then(Value::as_array).cloned().unwrap_or_default();
                 for c in changes.iter().filter(|c| c.get("mode").and_then(Value::as_str) != Some("remove")) {

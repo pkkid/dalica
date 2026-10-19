@@ -2,7 +2,8 @@
 //! server asks `roots/list` after `initialized` and on `notifications/roots/list_changed`; a client
 //! root becomes a read root and never a write root; a refresh drops a removed root; an answer to an
 //! older request is ignored; `--no-client-roots` and a client without the capability are never
-//! asked; `--read-only` reaches the engine. Driven through [`Server::handle_line`].
+//! asked; `--read-only` reaches the engine; a face model file is read only inside a root, even with
+//! `--automation-allow-external`. Driven through [`Server::handle_line`].
 
 use std::path::{Path, PathBuf};
 
@@ -161,4 +162,21 @@ fn a_read_only_launch_refuses_an_export_with_read_only() {
     let mut s = Server::new(Box::new(h));
     start(&mut s, false);
     assert_eq!(export_into(&mut s, &t.out), "read_only");
+}
+
+#[test]
+fn a_face_model_file_outside_every_root_is_refused_even_with_the_external_permission() {
+    let t = tree();
+    let mut policy = Policy::default();
+    policy.set_allow_external(true);
+    let mut s = Server::new(Box::new(Headless::open_with(Source::Empty, &[], policy, false).unwrap())).with_client_roots(true);
+    let first = roots_request(start(&mut s, true));
+    answer(&mut s, &first, &[&t.one]);
+    let (outside, inside) = (t.two.join("model.onnx"), t.one.join("model.onnx"));
+    for f in [&outside, &inside] {
+        std::fs::write(f, b"not a model").unwrap();
+    }
+    let inspect = |s: &mut Server, file: &Path| tool(s, "command_run", json!({ "id": "faces.models.inspect", "params": { "path": file } }));
+    assert_eq!(inspect(&mut s, &outside), "path_denied");
+    assert_ne!(inspect(&mut s, &inside), "path_denied", "inside a client root");
 }
