@@ -41,6 +41,9 @@ egui = { version = "0.36.2", default-features = false }
 # bundled fonts carry the Ubuntu Font Licence, and Inter is Dalica's one committed font (assets.md §4).
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu_no_default_features", "accesskit", "wayland", "x11"] }
 egui_extras = "0.36.2"
+# Thai line breaks from a dictionary (ui-kit `linebreak`, M15.47, docs/thai-text.md): the baked
+# Unicode-3.0 data, no LSTM models.
+icu_segmenter = { version = "2.3", default-features = false, features = ["compiled_data"] }
 # Metal / Vulkan / DX12 only, no GL (architecture.md §1).
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "wgsl"] }
 # Each user picks its backend (the app: the XDG portal only).
