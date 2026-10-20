@@ -1,0 +1,42 @@
+# The fuzz targets of `dalica-engine` (`docs/security.md` §7.1): the library's `folders.json` and
+# `settings.json`. A separate cargo-fuzz workspace, outside the product graph and excluded from the
+# root workspace, because cargo-fuzz needs nightly Rust and sanitizer instrumentation. Run:
+# `cargo +nightly fuzz run <target> corpus/<target> seeds/<target>` from this directory (`seeds/`
+# holds a few starting inputs per target).
+[package]
+name = "dalica-engine-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# Without the camera USB transport: `nusb` does not build under `--cfg fuzzing` (M15.52).
+dalica-engine = { path = "..", default-features = false }
+dalica-scan = { path = "../../scan", default-features = false }
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+# Its own workspace, so the root manifest's members and lockfile are untouched.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "folders_json"
+path = "fuzz_targets/folders_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "settings_json"
+path = "fuzz_targets/settings_json.rs"
+test = false
+doc = false
+bench = false

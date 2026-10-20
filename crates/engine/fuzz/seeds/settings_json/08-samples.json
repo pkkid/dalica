@@ -1,0 +1,19 @@
+{
+  "files": {"writeCaptionsTagsPlaces": false, "writeStarsAsRatings": true, "updateModificationTime": true, "writeRawXmpSidecars": true, "writeDates": false, "readLegacyData": false, "legacyNoticeShown": true, "externalEditor": "gimp"},
+  "tags": {"quick": ["a", null, "b", null, null, null, null, null, null, "z"], "useRecent": false, "recent": ["lisbon", "family"]},
+  "edit": {"cropRatios": [{"name": "Panorama", "width": 3.0, "height": 1.0}], "lastCropRatio": "Panorama", "photoSizes": "us", "singleClickLeaves": true},
+  "save": {"explain": false, "lastFolder": "/home/ana/Saved As", "lastFormat": "png"},
+  "export": {"location": "/home/ana/Exports", "resize": false, "size": 2048, "quality": "custom", "customQuality": 42, "numbers": true, "watermark": true, "watermarkText": "(c) Ana Costa 2026", "removeLocation": true},
+  "organize": {"askBeforeMoving": false, "removeFromAlbumsWithoutAsking": true, "deleteWithoutAsking": true, "recentDays": 90, "lastMoveFolder": "/home/ana/Trips"},
+  "interface": {"animations": false, "tooltips": false, "systemTitleBar": true, "uiScale": 150, "fontSize": "large", "language": "pt-BR"},
+  "fileTypes": {"smallPictureThreshold": 128, "png": false},
+  "slideshow": {"loop": true, "displayTime": 10, "transition": "panAndZoom", "captions": false, "music": true, "musicFolder": "/home/ana/Music", "videoSound": true},
+  "viewer": {"wheel": "navigate", "hideControls": false, "translucent": false},
+  "import": {"folder": "/home/ana/Imports", "detectDuplicates": false, "after": "delete", "recentSources": ["/media/card/DCIM"], "recentDestinations": ["/a", "/b"], "recentFolderNames": ["Lisbon", "2026-06-04"]},
+  "compare": {"askBeforeApplying": false, "keep": "right"},
+  "people": {"findFaces": false, "suggestNames": false, "suggestionConfidence": 60, "groupingConfidence": 95, "storeNamesInPhotos": true, "model": "sface-2021dec"},
+  "network": {"allowMapTiles": true, "tileServer": "https://tiles.example.org/{z}/{x}/{y}.png", "tileAttribution": "(c) Example Maps", "geocoder": "https://geo.example.org/search?q={query}", "proxy": "manual", "proxyHost": "proxy.example.org", "proxyPort": 3128, "logLevel": "details"},
+  "collage": {"style": "frameMosaic", "borders": "instant", "gridSpacing": 2.5, "shadows": false, "captions": true, "orientation": "portrait"},
+  "window": {"x": 10, "y": -20, "width": 1200, "height": 800, "maximized": true},
+  "keymap": [{"command": "view.zoomIn", "context": "global", "key": "Ctrl+="}, {"command": "future.thing", "context": "global", "key": null}]
+}
