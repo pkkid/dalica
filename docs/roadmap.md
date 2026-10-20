@@ -10262,7 +10262,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     never decodes an unplayable one; the owner thread made no `fs` call. If the record passes no
     video codec, only the tile-kept tests land and the PR names `LIB-LT-VIDEO`'s posters as
     leaving for M15.R.
-- ⬜ **M15.21 `ui`: video cells, and a video in the edit view**
+- ✅ **M15.21 `ui`: video cells, and a video in the edit view**
   - after: M15.5, M15.6, M15.16
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/tests/video_tiles.rs`, `crates/ui/tests/fingerprints/video-*.json`, `docs/ui-layout.md`
   - scope: needed under any answer: `ui-layout.md` §5's video cells (the sprocket edge and the

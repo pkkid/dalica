@@ -231,7 +231,11 @@ Add a description
   turn on).
 - **Badges** (`design-system.md` §7): a right-aligned row inside the image's bottom-right corner in
   the order edited ✎ · geotag 📍 · held 📌 · star ★ (star rightmost); videos: a film-sprocket edge
-  on the left side of the image and a duration pill "1:23" at its bottom-left. The edited mark
+  on the left side of the image and a duration pill "1:23" at its bottom-left (whole seconds, the
+  nearest, at least 1; no pill while the length is unknown). A video with no poster frame yet is
+  the **video tile**: the placeholder grey with a Play triangle centred, a third of its shorter
+  side, in `text_dim`; the filmstrip draws the same tile with the sprocket edge (its 32 pt squares
+  have no room for the pill). The edited mark
   shows on every photo with edits not yet saved into its file, a rotation or flip alone included:
   exactly the photos the section header counts as "%d edited", so it goes after a Save
   (maintainer, 2026-10-14).
@@ -474,6 +478,19 @@ At 1400 × 900 the edit panel is `[0, 72, 280, 712]`, the photo `[280, 72, 1120,
 bar `[280, 748, 1120, 36]`; at 900 × 600 the photo is `[280, 72, 620, 376]`. `ui.inspect` → `regions`
 names them `editTopBar`, `filmstrip`, `editPanel`, `canvas` and `captionBar`
 (`control-protocol.md` §6.6).
+
+**A video in the edit view** (`editing.md` §11, M15.21): the photo area (`region:video`) holds the
+video above its 40 pt control bar: its poster frame, else the video tile (`picture:video`) with its
+sprocket edge, fitted inside the 24 pt padding at the shape the video shows at (16:9 while unknown;
+a tile has no pixels, so it may grow past its size). One Dalica cannot play says **"This video can't
+be played"** under the Play triangle (`text:video.cannotPlay`, semibold body) with **Open With ▸**
+10 pt under it (`button:video.openWith`: the photo menu's Open With rows in a popup to its right).
+The edit panel's strip leads with the **video tab** (`tab:edit.video`, the Video Frames glyph,
+shown) followed by tabs 1–5 greyed, their tooltips adding "A video takes no photo edits."; Show
+original is not drawn. The video tab's page is a grid of tool buttons two to a row: **Save Frame as
+Picture**, **Export Clip** (greyed until the player), **Rotate Left**, **Rotate Right**
+(`button:video.saveFrame`, `…exportClip`, `…rotateCcw`, `…rotateCw`); Undo / Redo and the histogram
+box stay. At 900 × 600 both rows and the six tabs fit the 280 pt panel.
 
 ## 11. Responsiveness rules
 

@@ -3,7 +3,8 @@
 //! selection's `cell_selected` surround and 2 pt outline (`photo_focus` on the anchor,
 //! `photo_selected` on the rest); the hover surround; the badges and video marks
 //! ([`widgets::badges`], fed what the model knows); the caption line under the cell, middle-elided;
-//! the `caution` "!" of a photo that cannot be shown; the inline caption editor under the cell it
+//! the `caution` "!" of a photo that cannot be shown; a video's tile ([`video_tile`]) while it has
+//! no picture, under its sprocket edge and duration pill ([`video_of`]); the inline caption editor under the cell it
 //! is open for ([`caption_edit`]); and, after the pointer has rested on the cell
 //! for [`TOOLTIP_SECONDS`], the tooltip (file name; date taken, pixel size, file size; or why the
 //! photo cannot be shown, with its format's hint), unless Options ▸ Show tooltips is off (`interface.tooltips`, which
@@ -40,6 +41,7 @@ use std::collections::{HashMap, HashSet};
 
 use dalica_core::{PersonId, PhotoId};
 use dalica_library::{Library, Photo};
+use dalica_ui_kit::icons::VideoIcon;
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Badge, Badges, FACE_TILE_MIN, FACE_TILE_PAD, FaceTile, Target};
 use dalica_ui_kit::{Tokens, fonts};
@@ -278,9 +280,40 @@ pub fn is_hidden(library: &Library, photo: &Photo) -> bool {
 /// folder header's "n edited" test), and geotagged by its effective geotag
 /// ([`Library::is_geotagged`], `organizing.md` §7: the library's word when it has one, a point
 /// set in Dalica or a location removed, else its file's GPS as the scan read it; a lookup per cell
-/// drawn, never the file); videos once the model carries them.
+/// drawn, never the file); and a video's sprocket edge and duration pill ([`video_of`]).
 pub fn badges_of(photo: &Photo, library: &Library, edited: bool, held: bool) -> Badges {
-    Badges { starred: photo.star, edited, geotagged: library.is_geotagged(photo.id), held, ..Badges::default() }
+    Badges { starred: photo.star, edited, geotagged: library.is_geotagged(photo.id), held, video: video_of(library, photo.id) }
+}
+
+/// A video's marks for photo `id` (`ui-layout.md` §5.3), `None` for a still: a video by the
+/// session's rule (`dalica_engine::video::is_video`: the library's word, else a video's
+/// extension), its length from the container's facts in whole seconds, rounded to the nearest
+/// and at least 1 for a clip shorter than half a second, so "0:00" never shows; unknown (no pill)
+/// when the container did not say.
+pub fn video_of(library: &Library, id: PhotoId) -> Option<widgets::Video> {
+    if !dalica_engine::video::is_video(library, id) {
+        return None;
+    }
+    Some(widgets::Video { seconds: library.video_facts(id).and_then(|f| seconds_of(f.duration_ms)) })
+}
+
+/// A length of `ms` milliseconds as the duration pill counts it: whole seconds, the nearest, at
+/// least 1 (a clip of 0.3 s is not "0:00"); `None` for 0 (unknown).
+pub fn seconds_of(ms: u64) -> Option<u32> {
+    (ms > 0).then(|| u32::try_from(ms.saturating_add(500) / 1000).unwrap_or(u32::MAX).max(1))
+}
+
+/// The video tile (`formats.md` §1: a video Dalica has no poster frame for): the `placeholder`
+/// filling `image` with a Play triangle centred on it, a third of its shorter side (10–64 pt), in
+/// `text_dim`. The light table's cells and the filmstrip draw it under a video's marks, and the
+/// edit view draws it fitted in the photo area. Nothing for an empty or non-finite rect.
+pub fn video_tile(painter: &Painter, t: &Tokens, image: Rect) {
+    if !(image.is_finite() && image.is_positive()) {
+        return;
+    }
+    painter.rect_filled(image, 0, t.placeholder);
+    let size = (image.width().min(image.height()) / 3.0).clamp(10.0, 64.0);
+    dalica_ui_kit::icons::paint_video(painter, Rect::from_center_size(image.center(), egui::Vec2::splat(size)), VideoIcon::Play, t.text_dim);
 }
 
 /// The caption line's text for `mode` (`ui-layout.md` §5.3), before fitting: the file name; the
@@ -464,6 +497,10 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     paint_under(&painter, t, &look);
     let device_px = image.width().max(image.height()) * f.pixels_per_point;
     let drawn = thumbs.paint(&painter, PhotoRef { session: f.session, photo: c.photo }, image, device_px);
+    // A video with no picture yet (its poster frame arrives with M15.20) is the video tile.
+    if look.badges.video.is_some() && matches!(drawn, Drawn::Placeholder | Drawn::Failed) {
+        video_tile(&painter, t, image);
+    }
     let marks = paint_over(&painter, t, &look, drawn == Drawn::Failed);
     let editing = f.state.caption_edit.as_ref().filter(|e| e.photo == id && primary);
     let caption = match (c.caption, caption_of(c.photo, f.session.library(), f.state.caption, (width, height))) {
@@ -614,6 +651,15 @@ pub fn paint_over(painter: &Painter, t: &Tokens, look: &Look, failed: bool) -> w
 mod tests {
     use super::*;
     use egui::pos2;
+
+    #[test]
+    fn a_video_counts_whole_seconds_to_the_nearest_and_never_shows_none() {
+        assert_eq!(seconds_of(0), None, "unknown");
+        assert_eq!(seconds_of(300), Some(1));
+        assert_eq!(seconds_of(83_400), Some(83));
+        assert_eq!(seconds_of(83_500), Some(84));
+        assert_eq!(seconds_of(u64::MAX), Some(u32::MAX), "any length, no panic");
+    }
 
     #[test]
     fn photos_are_letterboxed_never_cropped() {
