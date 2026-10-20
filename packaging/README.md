@@ -43,6 +43,12 @@ or a manual run off `release`) never reads the secrets: the job runs `sign.ps1 -
 which makes a self-signed certificate valid for a day and trusted on that runner only, so every
 packaging pull request runs the signing path and `test-sign.ps1` end to end.
 
+**Unsigned releases.** `RELEASE_SIGNING` in `.github/workflows/release.yml` says whether a release
+run signs (`signed`: every signing secret is required, a missing one fails the run) or ships
+unsigned (`unsigned`: the signing jobs read no secret and keep the build jobs' sets, Windows
+unsigned and macOS signed ad hoc; the draft's notes start with `release-notes-unsigned.md`, which
+tells users how to open an unsigned build). 1.0 ships unsigned (maintainer decision, 2026-10-20).
+
 **macOS signing.** `package.sh` signs inside-out with the hardened runtime and a secure timestamp
 (the executable, `Dalica.app`, the DMG, and `dalica-cli` before it is zipped; no `--deep`, empty
 `entitlements.plist`) with `MACOS_SIGN_IDENTITY`, or ad hoc with a warning without it. With a
