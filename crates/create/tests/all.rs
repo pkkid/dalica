@@ -10,6 +10,7 @@ mod collage_layouts;
 mod collage_mosaic;
 mod collage_render;
 mod export;
+mod export_video;
 mod output;
 mod save;
 mod save_beside;

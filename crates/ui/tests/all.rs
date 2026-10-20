@@ -40,6 +40,7 @@ mod effect_panel;
 mod effect_tiles;
 mod export_dialog;
 mod export_progress;
+mod export_video;
 mod face_model_ui;
 mod face_scan_pace;
 mod first_run;

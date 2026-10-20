@@ -9,7 +9,9 @@
 //! in memory (`Session::thumbnail`, which asks for what is missing; never a decode or a disk read
 //! here), else the photo's colour sketch, else a placeholder, uploaded as textures at most
 //! [`UPLOADS_PER_FRAME`] a frame and dropped once unseen for [`KEEP_PASSES`] passes; each is
-//! drawn whole in its square cell, turned as its recipe turns it.
+//! drawn whole in its square cell, turned as its recipe turns it. A clip that is a video (M15.28:
+//! its poster frame is its thumbnail) carries the light table's sprocket edge and duration pill
+//! (`clip:<PhotoId>/duration`, its text the length as `0:04`).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -48,6 +50,11 @@ pub const EMPTY: &str = "No pictures yet. Click Get More to choose some.";
 /// A clip's automation id: `clip:<PhotoId>`.
 pub fn clip_id(photo: PhotoId) -> String {
     format!("clip:{photo}")
+}
+
+/// The automation id of a video clip's duration pill: `clip:<PhotoId>/duration`.
+pub fn duration_id(photo: PhotoId) -> String {
+    format!("clip:{photo}/duration")
 }
 
 /// What a clip's texture shows: a ladder image (by its address, so a better one replaces it) or
@@ -268,10 +275,22 @@ fn cells(app: &mut App, ui: &mut Ui, t: &Tokens, grid: Rect, clips: &[(PhotoId, 
             let texture = tex.get(&ctx, s, *id, need)?;
             Some((texture, fit_within(cell.shrink(3.0), w, h), shape.turn))
         });
-        match drawn {
-            Some((texture, rect, turn)) => paint_turned(&painter, rect, texture, turn),
+        let image = match drawn {
+            Some((texture, rect, turn)) => {
+                paint_turned(&painter, rect, texture, turn);
+                rect
+            }
             None => {
                 painter.rect_filled(cell.shrink(3.0), 0, t.placeholder);
+                cell.shrink(3.0)
+            }
+        };
+        let video = app.session().and_then(|s| crate::panels::light_table::cell::video_of(s.library(), *id));
+        if let Some(video) = video {
+            let marks = widgets::badges(&painter, t, image, &widgets::Badges { video: Some(video), ..widgets::Badges::default() });
+            if let (Some(pill), Some(seconds)) = (marks.duration, video.seconds) {
+                let text = widgets::duration_text(seconds);
+                widgets::register(&ctx, &duration_id(*id), Role::Badge, &text, Target::Painted { rect: pill, clip: clip_rect }, true);
             }
         }
         if *on_page {

@@ -10442,7 +10442,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     and plays 0.5 s of silence where a sound server is reachable (skipped and named otherwise), and
     no server answers "No sound output on this system"; `crates/ui/tests/slideshow_video.rs`
     (headless): the Sound rows are live and the clip's frames show in the show.
-- ⬜ **M15.28 `create` + `engine` + `ui` (reserved decision 2): videos in Export and in collages**
+- ✅ **M15.28 `create` + `engine` + `ui` (reserved decision 2): videos in Export and in collages**
   - after: M15.20, M14.17, M14.18, M8.16, M15.46
   - files: `crates/create/src/export.rs`, `crates/create/src/export/plan.rs`, `crates/create/tests/export_video.rs`, `crates/engine/src/cmd/export.rs`, `crates/engine/src/collage.rs`, `crates/engine/src/collage_output.rs`, `crates/engine/tests/collage_video.rs`, `crates/ui/src/dialogs/export.rs`, `crates/ui/src/panels/collage/clips.rs`, `crates/ui/tests/export_video.rs`, `docs/creating.md`
   - scope: `creating.md` §2 and §3, for the codecs M15.46's record passes: Export's "Export videos as: (•)
@@ -10788,7 +10788,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     builds and an engine test under it lists no camera with `usb: false`; the release package
     graph still has `nusb` (`cargo xtask deps` green, `cargo tree` output on the PR); `fuzz.yml`
     has no `--no-cfg-fuzzing`.
-- ✅ **M15.53 `engine` + `dalica`: the fuzz targets security.md still lacks: `folders.json`, `settings.json` and `auth`**
+- ⬜ **M15.53 `engine` + `dalica`: the fuzz targets security.md still lacks: `folders.json`, `settings.json` and `auth`**
   - after: M14.R, M15.39, M15.52, M15.12
   - files: `crates/engine/fuzz/**`, `crates/engine/src/folders.rs`, `apps/dalica/fuzz/**`, `apps/dalica/Cargo.toml`, `apps/dalica/src/lib.rs`, `apps/dalica/src/control/transport.rs`, `.github/workflows/fuzz.yml`, `Cargo.toml`, `docs/security.md`
   - scope: what M15.39 recorded as missing from `security.md` §7.1: (1) `crates/engine/fuzz`, a

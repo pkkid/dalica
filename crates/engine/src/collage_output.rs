@@ -5,7 +5,8 @@
 //!   [`JobKind::Collage`]) of two steps on one worker, so Cancel has a boundary before anything is
 //!   written: **render** (each picture rendered with its edits at the size its place needs, one at
 //!   a time, by the edit view's renderer, `thumbs::ladder::render_edited`; then
-//!   `create::collage::render` draws the page and encodes the JPEG at quality 92 with the date of
+//!   a clip (M15.28) is its poster frame, `thumbs::video::poster`, decoded at that size and turned
+//!   by its own rotations; then `create::collage::render` draws the page and encodes the JPEG at quality 92 with the date of
 //!   making as its date), then **write** (the folder made when missing; the JPEG and its
 //!   `.dalica-collage` recipe through `fs::exact_file`, which never replaces a file, under the first
 //!   free pair of names of `core::names::candidates`: `Collage 2026-10-19.jpg`, else
@@ -221,6 +222,8 @@ struct Source {
     edits: Vec<String>,
     caption: String,
     name: String,
+    /// A clip: drawn from its poster frame.
+    video: bool,
 }
 
 /// Everything both steps of one collage job share.
@@ -313,6 +316,9 @@ fn render(shared: &Shared) -> Result<Vec<u8>, String> {
 fn picture_of(source: &Source, (w, h): (u32, u32)) -> Option<Picture> {
     let path = source.path.as_ref()?;
     let recipe = dalica_edit::Recipe::parse(&source.edits).unwrap_or_default();
+    if source.video {
+        return poster_of(path, &recipe, w.max(h).max(1)).map(|image| Picture { image, caption: source.caption.clone(), name: source.name.clone() });
+    }
     let key = dalica_edit::version::key_with(&recipe, dalica_edit::ops::version);
     let edits = dalica_thumbs::ladder::Edits { recipe, key };
     let file = dalica_thumbs::ladder::Source { path: path.clone(), file_size: 0, mtime_ms: 0 };
@@ -321,6 +327,14 @@ fn picture_of(source: &Source, (w, h): (u32, u32)) -> Option<Picture> {
     let long = w.max(h).max(1);
     let image = catch_unwind(AssertUnwindSafe(|| dalica_thumbs::ladder::render_edited(&file, &render, &edits, long, &limits))).ok()?.ok()?;
     Some(Picture { image, caption: source.caption.clone(), name: source.name.clone() })
+}
+
+/// A clip's poster frame fitted to `long` pixels on its long side (never enlarged), turned by its
+/// recipe's rotations and flips (a clip takes no other edits). `None` when it cannot be decoded.
+fn poster_of(path: &Path, recipe: &dalica_edit::Recipe, long: u32) -> Option<dalica_image::Rgba8> {
+    let limits = dalica_image::Limits::default();
+    let frame = catch_unwind(AssertUnwindSafe(|| dalica_thumbs::video::poster(path, Some(long), &limits))).ok()?.ok()?;
+    recipe.orientation().apply(frame).ok()
 }
 
 /// Whether something (a file, a folder, a link) is at `path`.
@@ -426,6 +440,7 @@ impl Session {
                 edits: info.edits.clone(),
                 caption: info.caption.clone(),
                 name: found.map(|(p, _)| p.name.clone()).unwrap_or_default(),
+                video: crate::video::is_video(lib, clip.id),
             });
         }
         let recipe = Recipe::new(doc.clone(), paths, r.draft, Some(size)).map_err(|e| CmdError::BadParams(e.to_string()))?;

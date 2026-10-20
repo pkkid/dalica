@@ -6,12 +6,29 @@
 //! The history keeps whole documents (a document is plain data, at most 1 000 clips), so an undo
 //! gives back exactly what was there. The placements are `create`'s layouts over the pictures'
 //! aspect ratios from the model (never a decode), kept until the document or the library changes.
+//! **Videos** (M15.28, `creating.md` §3): a clip whose codec this build decodes goes in a collage
+//! as any photo ([`Session::collage_photos`]), laid out at its poster frame's ratio (the model's
+//! size, which the scan turns as the player does, then its own rotations) and drawn from its poster frame
+//! (`collage_output`). A clip whose codec failed, or whose facts are not read yet, has no poster:
+//! it is left out and counted, and the commands say so with M15.16's notice.
+//!
 //! Nothing here touches the disk.
 
+use std::collections::HashSet;
+
+use dalica_core::PhotoId;
 use dalica_create::collage::{Collage as Doc, Placement, layout};
 use dalica_edit::Cropping;
+use dalica_library::{AlbumRef, Library, Section};
 
+use crate::error::CmdError;
 use crate::session::Session;
+
+/// Whether photo `id` is a clip with a poster frame: a video whose codec this build decodes, by
+/// its scan's facts (`video::playback`).
+pub(crate) fn has_poster(lib: &Library, id: PhotoId) -> bool {
+    crate::video::is_video(lib, id) && lib.video_facts(id).is_some_and(|f| crate::video::playback(f).video.is_ok())
+}
 
 /// The most steps the room's history keeps; the oldest go first.
 pub const MAX_HISTORY: usize = 100;
@@ -130,7 +147,9 @@ impl Session {
 
     /// Each clip's aspect ratio (width over height) by its position in the open collage's Clips:
     /// the photo as its recipe shows it (turns, frames and crop counted), from the model's size;
-    /// `NaN` (laid out as square) for a size the model does not know or a photo no longer indexed.
+    /// `NaN` (laid out as square) for a size
+    /// the model does not know or a photo no longer indexed. A clip's model size is its poster
+    /// frame's (the scan turns it as the player does).
     pub fn collage_aspects(&self) -> Vec<f64> {
         let Some(doc) = self.collage.document() else { return Vec::new() };
         let lib = self.library();
@@ -144,6 +163,54 @@ impl Session {
                 None => f64::NAN,
             })
             .collect()
+    }
+
+    /// The photos of `ids` or `section` a collage takes, in order (`create.collage`,
+    /// `collage.clips.add`): the slideshow's stills (hidden photos left out), and the clips with a
+    /// poster frame where they stand; the other clips are left out and counted (the second
+    /// value), for M15.16's notice.
+    pub(crate) fn collage_photos(&mut self, section: Option<&str>, ids: Option<&[PhotoId]>) -> Result<(Vec<PhotoId>, usize), CmdError> {
+        let list = crate::cmd::slideshow::playlist(self, section, ids, None, false)?;
+        if list.videos == 0 {
+            return Ok((list.photos, 0));
+        }
+        // The order the stills came in, with the clips where they stand.
+        let order: Vec<PhotoId> = match (ids, section) {
+            (Some(ids), _) => ids.to_vec(),
+            (None, Some(text)) => match text.parse::<Section>() {
+                Ok(Section::Album(AlbumRef::Search)) => self.search_results_now()?.unwrap_or_default(),
+                Ok(section) => {
+                    let options = self.search_tree_options();
+                    dalica_library::section_photos(self.library(), std::slice::from_ref(&section), &options)
+                        .into_iter()
+                        .flat_map(|(_, ids)| ids)
+                        .collect()
+                }
+                Err(_) => Vec::new(),
+            },
+            (None, None) => Vec::new(),
+        };
+        let hidden_shown = self.search_tree_options().hidden_pictures;
+        let stills: HashSet<PhotoId> = list.photos.iter().copied().collect();
+        let lib = self.library();
+        let mut seen = HashSet::with_capacity(order.len());
+        let (mut out, mut playable) = (Vec::with_capacity(order.len()), 0usize);
+        for id in order {
+            if !seen.insert(id) {
+                continue;
+            }
+            if stills.contains(&id) {
+                out.push(id);
+                continue;
+            }
+            let Some(p) = lib.photo(id) else { continue };
+            let hidden = lib.is_hidden(id) || lib.is_folder_hidden(p.folder);
+            if (hidden_shown || !hidden) && has_poster(lib, id) {
+                out.push(id);
+                playable += 1;
+            }
+        }
+        Ok((out, list.videos.saturating_sub(playable)))
     }
 
     /// The open collage's placements, bottom first (`create::collage::layout`): laid out again only

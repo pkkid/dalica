@@ -445,14 +445,13 @@ fn new_seed(s: &Session, ids: &[PhotoId]) -> u64 {
     Rng::stream(h, 0x00c0_11a6).next_u64()
 }
 
-/// The photos of `ids` or `section` a collage takes (videos and hidden photos left out), and how
-/// many videos it left out.
+/// The photos of `ids` or `section` a collage takes (hidden photos and clips without a poster
+/// frame left out, M15.28), and how many videos it left out.
 fn photos(s: &mut Session, section: Option<&str>, ids: Option<&[PhotoId]>) -> Result<(Vec<PhotoId>, usize), CmdError> {
     if let Some(ids) = ids {
         check_ids(ids)?;
     }
-    let list = crate::cmd::slideshow::playlist(s, section, ids, None, false)?;
-    Ok((list.photos, list.videos))
+    s.collage_photos(section, ids)
 }
 
 /// Adds `ids` to the open document as one step; answers how many were added.

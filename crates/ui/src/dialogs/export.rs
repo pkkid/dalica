@@ -17,8 +17,10 @@
 //!   `choice:dialog.quality/<preset>` with their descriptions) and the custom quality's slider
 //!   (`slider:dialog.quality`, 1–100), enabled for Custom, which the dropdown then reads
 //!   "Custom (75)";
-//! - **Export videos as**: First frame or Full video (`choice:dialog.videos/<firstFrame|fullVideo>`),
-//!   disabled: no video is exported until M15 decodes them;
+//! - **Export videos as**: First frame (the poster frame as a picture, the default) or Full video
+//!   (no resizing: the file copied as it is), `choice:dialog.videos/<firstFrame|fullVideo>`; live
+//!   only while a video is among what is exported (`export.defaults`' `videos`, asked once when
+//!   the dialog first draws and kept in its draft as [`VIDEOS_HELD`]), disabled otherwise;
 //! - **Watermark**: "Add watermark" (`check:dialog.watermark`) enabling its text
 //!   (`field:dialog.watermarkText`), and the hint under it.
 //!
@@ -69,6 +71,10 @@ pub fn quality_item_id(q: Quality) -> String {
 
 /// The size slider's stops (`creating.md` §2), in pixels of the longest side.
 pub const STOPS: [f64; 8] = [480.0, 640.0, 800.0, 1024.0, 1280.0, 1600.0, 2048.0, 3840.0];
+
+/// The dialog's draft field that says whether a video is among what is exported (the videos row
+/// is live only then), asked of `export.defaults` once.
+pub const VIDEOS_HELD: &str = "videosHeld";
 
 /// The row labels, top to bottom.
 pub const LABELS: [&str; 6] = ["Export location:", "Name of exported folder:", "Image size:", "Image quality:", "Export videos as:", "Watermark:"];
@@ -141,9 +147,9 @@ pub fn slider_value(draft: &ExportDraft) -> u32 {
 
 /// The `export.run` parameters of `draft` (`creating.md` §2): what it exports, `dir`,
 /// `folderName`, `numbers`, `size` (pixels of the longest side, or `"original"`), `quality` (the
-/// preset's name, or the custom value) and `watermark` (its text, or `false` when off: a
-/// `watermark` left out would take the stored setting). Remove location is an option of the
-/// settings, so it is left out and the stored one applies.
+/// preset's name, or the custom value), `videos` (`"firstFrame"` or `"fullVideo"`) and `watermark`
+/// (its text, or `false` when off: a `watermark` left out would take the stored setting). Remove
+/// location is an option of the settings, so it is left out and the stored one applies.
 pub fn run_params(draft: &ExportDraft) -> Result<Value, CmdError> {
     draft.ready().map_err(CmdError::Disabled)?;
     let mut p = Map::new();
@@ -165,6 +171,11 @@ pub fn run_params(draft: &ExportDraft) -> Result<Value, CmdError> {
         q => json!(q.name()),
     };
     p.insert("quality".into(), quality);
+    let videos = match draft.videos {
+        Videos::FirstFrame => "firstFrame",
+        Videos::FullVideo => "fullVideo",
+    };
+    p.insert("videos".into(), json!(videos));
     let watermark = if draft.watermark { json!(draft.watermark_text.trim()) } else { json!(false) };
     p.insert("watermark".into(), watermark);
     Ok(Value::Object(p))
@@ -175,11 +186,12 @@ pub fn look(app: &App, _d: &Dialog) -> Look {
     Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new("export", "Export", ButtonKind::Default).enabled(ready)] }
 }
 
-pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
+pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let t = *app.tokens();
     let Some(before) = app.state().export.clone() else { return };
+    let held = videos_held(app, d, &before);
     let mut e = before.clone();
-    let browse = rows(ui, &t, &mut e, can_browse(app));
+    let browse = rows(ui, &t, &mut e, can_browse(app), held);
     if e != before
         && let Some(slot) = app.state_mut().export.as_mut()
     {
@@ -188,6 +200,21 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     if browse {
         browse_clicked(app);
     }
+}
+
+/// Whether a video is among what `draft` exports: the dialog's [`VIDEOS_HELD`], asked of
+/// `export.defaults` (a query of the model: no file is read) the first time the dialog draws.
+fn videos_held(app: &mut App, d: &mut Dialog, draft: &ExportDraft) -> bool {
+    if let Some(held) = d.fields.get(VIDEOS_HELD).and_then(Value::as_bool) {
+        return held;
+    }
+    let params = match draft.section {
+        Some(section) if draft.ids.is_empty() => json!({ "section": section }),
+        _ => json!({ "ids": draft.ids }),
+    };
+    let held = app.session_mut().and_then(|s| s.execute("export.defaults", &params).ok()).and_then(|v| v["videos"].as_bool()).unwrap_or(false);
+    d.fields.insert(VIDEOS_HELD.into(), json!(held));
+    held
 }
 
 /// Whether Browse… can open the folder picker: there is one, and no file dialog is open.
@@ -218,7 +245,7 @@ fn browse_clicked(app: &mut App) {
 }
 
 /// Draws the form for `e` and edits it in place. Returns whether Browse… was clicked.
-fn rows(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft, browse_on: bool) -> bool {
+fn rows(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft, browse_on: bool, videos_on: bool) -> bool {
     let form = Form::new(ui, t, &LABELS);
     let controls_w = (ui.available_width() - form.label_w - FORM_GAP).max(120.0);
     let mut browse = false;
@@ -268,12 +295,16 @@ fn rows(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft, browse_on: bool) -> bool {
         });
     });
 
-    // Videos are skipped until M15 decodes them: the row stays disabled.
-    form_group(ui, false, |ui| {
+    // Live only while a video is among what is exported.
+    form_group(ui, videos_on, |ui| {
         form.row(ui, t, LABELS[4], |ui| {
             ui.horizontal(|ui| {
-                radio(ui, t, FIRST_FRAME_ID, "First frame", e.videos == Videos::FirstFrame);
-                radio(ui, t, FULL_VIDEO_ID, "Full video (no resizing)", e.videos == Videos::FullVideo);
+                if radio(ui, t, FIRST_FRAME_ID, "First frame", e.videos == Videos::FirstFrame).clicked() {
+                    e.videos = Videos::FirstFrame;
+                }
+                if radio(ui, t, FULL_VIDEO_ID, "Full video (no resizing)", e.videos == Videos::FullVideo).clicked() {
+                    e.videos = Videos::FullVideo;
+                }
             });
         });
     });
@@ -334,7 +365,7 @@ mod tests {
         let mut d = ExportDraft { ids: vec![PhotoId::new(2)], location: "/tmp/out".into(), folder_name: " Lisbon ".into(), ..ExportDraft::default() };
         assert_eq!(
             run_params(&d).unwrap(),
-            json!({ "ids": [2], "dir": "/tmp/out", "folderName": "Lisbon", "numbers": false, "size": 1600, "quality": "automatic", "watermark": false })
+            json!({ "ids": [2], "dir": "/tmp/out", "folderName": "Lisbon", "numbers": false, "size": 1600, "quality": "automatic", "videos": "firstFrame", "watermark": false })
         );
         d.quality = Quality::Custom;
         d.custom = 40;
@@ -343,10 +374,11 @@ mod tests {
         d.watermark_text = "© Ana".into();
         d.ids.clear();
         d.section = Some(Section::Folder(FolderId::new(5)));
+        d.videos = Videos::FullVideo;
         let p = run_params(&d).unwrap();
         assert_eq!(
-            (&p["section"], &p["size"], &p["quality"], &p["watermark"]),
-            (&json!("folder:5"), &json!("original"), &json!(40), &json!("© Ana"))
+            (&p["section"], &p["size"], &p["quality"], &p["watermark"], &p["videos"]),
+            (&json!("folder:5"), &json!("original"), &json!(40), &json!("© Ana"), &json!("fullVideo"))
         );
         for bad in ["", "0", "99", "4001", "99999", "abc", "16 00"] {
             let e = ExportDraft { resize: bad.into(), original_size: false, ..d.clone() };
