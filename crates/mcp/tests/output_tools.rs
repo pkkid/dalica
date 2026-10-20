@@ -123,7 +123,7 @@ fn export_writes_jpegs_at_the_long_edge() {
     assert_eq!(code(&c.call(4, "export", json!({ "dir": out.path() }))), "disabled", "an empty tray");
 
     // Graceful failures and strict arguments.
-    assert_eq!(code(&c.call(5, "export", json!({ "ids": [1], "dir": out.path(), "videos": "frame" }))), "unsupported");
+    invalid(&mut c, 5, "export", json!({ "ids": [1], "dir": out.path(), "videos": "sideways" }));
     assert_eq!(code(&c.call(6, "export", json!({ "ids": [1], "dir": out.path(), "size": 50 }))), "bad_params");
     assert_eq!(code(&c.call(7, "export", json!({ "ids": [99], "dir": out.path(), "folder_name": "X" }))), "not_found");
     let outside = std::env::temp_dir().parent().unwrap().join("dalica-mcp-export-denied");

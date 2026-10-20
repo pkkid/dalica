@@ -16,9 +16,12 @@
 //!   videos?, remove_location?}`: `export.run` with the Export dialog's options mapped (`size` 1600
 //!   by default, `0` the original size; `quality` `auto` is `automatic`; `folder_name` by default
 //!   the one `export.defaults` suggests; without a target, the Photo Tray's photos), waiting for
-//!   its job with progress and cancellation per photo (the backend's). `videos` is refused until
-//!   M15 exports them. The result names each file written with the photo it came from (matched
-//!   by the new name `create::export::names` gives it), its size in pixels and in bytes.
+//!   its job with progress and cancellation per photo (the backend's). `videos` is `frame` (the
+//!   default: a playable clip's first frame as a picture, a clip Dalica cannot play skipped with
+//!   the reason) or `full` (every clip copied as it is), `export.run`'s `firstFrame` and
+//!   `fullVideo`. The result names each file written with the photo it came from (matched by the
+//!   new name `create::export::names_as` gives it, the clips the job skipped left out), its size in
+//!   pixels (`null` for a copied clip) and in bytes.
 
 use std::path::{Path, PathBuf};
 
@@ -89,7 +92,7 @@ pub(crate) fn tools() -> Vec<Tool> {
                     "quality": {"type": ["string", "integer"], "description": "auto, normal, maximum, minimum, or 1–100"},
                     "numbered": {"type": "boolean", "description": "Number the files in order (001-…)"},
                     "watermark": {"type": ["string", "boolean"], "description": "The watermark's text, true (the stored text) or false"},
-                    "videos": {"type": "string", "enum": ["frame", "full"], "description": "How videos are exported (not built until M15: refused)"},
+                    "videos": {"type": "string", "enum": ["frame", "full"], "description": "How videos are exported: frame (default; a playable clip's first frame as a picture, a clip Dalica cannot play skipped with the reason) or full (every clip copied as it is, byte for byte)"},
                     "remove_location": {"type": "boolean", "description": "Remove GPS coordinates from the files"},
                 }),
                 &["dir"],
@@ -257,6 +260,17 @@ fn run_params(args: &Value, tray: Option<Vec<u64>>, folder_name: Value) -> Map<S
     if let Some(r) = args.get("remove_location").filter(|v| !v.is_null()) {
         p.insert("removeLocation".into(), r.clone());
     }
+    if let Some(v) = args.get("videos").filter(|v| !v.is_null()) {
+        p.insert(
+            "videos".into(),
+            match v.as_str() {
+                Some("frame") => json!("firstFrame"),
+                Some("full") => json!("fullVideo"),
+                // The engine refuses it with its own words.
+                _ => v.clone(),
+            },
+        );
+    }
     p
 }
 
@@ -295,18 +309,21 @@ fn named_from(file: &Path, stem: &str) -> bool {
 
 /// Each written file as `{id, path, width, height, bytes}`: the photo it came from by the name
 /// the export planned for it (`null` when no photo matches), its size read from its header.
-fn files(written: &[PathBuf], photos: Vec<(u64, PathBuf, bool)>, numbers: bool) -> Vec<Value> {
+fn files(written: &[PathBuf], photos: Vec<(u64, PathBuf, bool)>, numbers: bool, videos: export::VideoAs, skipped: &[PathBuf]) -> Vec<Value> {
     let ids: Vec<u64> = photos.iter().map(|(id, _, _)| *id).collect();
     let items: Vec<export::Item> = photos
         .into_iter()
-        .map(|(_, path, video)| export::Item {
-            path,
-            kind: if video { export::Kind::Video } else { export::Kind::Photo },
-            recipe: Recipe::default(),
-            changes: Default::default(),
+        .map(|(_, path, video)| {
+            // A clip the job skipped is one Dalica cannot play; every other clip it exported.
+            let kind = match (video, skipped.contains(&path)) {
+                (false, _) => export::Kind::Photo,
+                (true, true) => export::Kind::Video,
+                (true, false) => export::Kind::PlayableVideo,
+            };
+            export::Item { path, kind, recipe: Recipe::default(), changes: Default::default() }
         })
         .collect();
-    let (mut planned, _) = export::names(items, numbers);
+    let (mut planned, _) = export::names_as(items, numbers, videos);
     written
         .iter()
         .map(|path| {
@@ -320,9 +337,6 @@ fn files(written: &[PathBuf], photos: Vec<(u64, PathBuf, bool)>, numbers: bool) 
 }
 
 fn export(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) -> Result<Value, ToolError> {
-    if args.get("videos").is_some_and(|v| !v.is_null()) {
-        return Err(ToolError::new("unsupported", "`videos`: videos are not exported until M15 (they are skipped and counted)"));
-    }
     let named = ["ids", "section", "album"].iter().any(|k| args.get(*k).is_some_and(|v| !v.is_null()));
     let tray = if named { None } else { Some(inspect(b, None, &mut NoProgress)?.iter().filter_map(|p| p["id"].as_u64()).collect::<Vec<u64>>()) };
     let folder_name = match args.get("folder_name").filter(|v| !v.is_null()) {
@@ -339,10 +353,12 @@ fn export(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) -> Res
     let result = entry.get("result").cloned().unwrap_or(Value::Null);
     let written: Vec<PathBuf> = result["written"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
     let photos = candidates(b, args, tray.as_deref())?;
+    let videos = if args.get("videos").and_then(Value::as_str) == Some("full") { export::VideoAs::FullVideo } else { export::VideoAs::FirstFrame };
+    let skipped: Vec<PathBuf> = result["skipped"].as_array().into_iter().flatten().filter_map(|s| s["file"].as_str()).map(PathBuf::from).collect();
     Ok(json!({
         "folder": result.get("folder").cloned().unwrap_or(Value::Null),
         "name": result.get("name").cloned().unwrap_or(Value::Null),
-        "files": files(&written, photos, numbers),
+        "files": files(&written, photos, numbers, videos, &skipped),
         "skipped": result.get("skipped").cloned().unwrap_or_else(|| json!([])),
         "failed": result.get("failed").cloned().unwrap_or_else(|| json!([])),
         "cancelled": result.get("cancelled").cloned().unwrap_or(Value::Bool(false)),
