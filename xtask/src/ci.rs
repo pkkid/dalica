@@ -549,6 +549,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         // the review gate; the rows and their cited paths in every gate.
         steps.push(("parity".into(), Box::new(move || crate::parity::run(root, false, full))));
         steps.push(("docs".into(), Box::new(|| crate::docs::run(root))));
+        // The catalogs against the key set (`localization.md`): a fault, or a key a
+        // `complete_menus` language lacks, fails; coverage and drafts are printed.
+        steps.push(("i18n".into(), Box::new(|| crate::i18n::run(root, &[]))));
         steps.push(("contributors --check".into(), Box::new(|| crate::contributors::check(root))));
         steps.push((
             "tasks sync --check".into(),

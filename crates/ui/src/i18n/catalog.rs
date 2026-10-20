@@ -6,6 +6,11 @@
 //! column, a broken escape, a placeholder in one column only, a plural with the wrong number of
 //! forms, a key given twice, longer than [`MAX_LINE_BYTES`]) is left out and named in
 //! [`Catalog::problems`], so its text shows in English; nothing here panics on any input.
+//!
+//! A line that starts with [`DRAFT`] (`~`, before its context) is a machine-assisted draft awaiting
+//! the fluent review (`localization.md` → Draft entries): it is read and used like any other, and
+//! counted ([`Catalog::draft_count`]). Translations are marked for Thai line breaking once, here
+//! ([`dalica_ui_kit::linebreak::mark`], a no-op for text without Thai; `docs/thai-text.md`).
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -20,6 +25,8 @@ const MAX_PROBLEMS: usize = 100;
 pub const ID: &str = "@id";
 /// The context of a plural entry.
 pub const PLURAL: &str = "@plural";
+/// The mark that starts a draft entry's line, before its context.
+pub const DRAFT: char = '~';
 
 /// One entry as written: its context, English source and translation, unescaped.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,6 +36,8 @@ pub struct Entry {
     pub context: String,
     pub source: String,
     pub translation: String,
+    /// Marked [`DRAFT`]: awaiting the fluent review.
+    pub draft: bool,
 }
 
 /// A parsed catalog.
@@ -44,6 +53,7 @@ pub struct Catalog {
     plurals: HashMap<String, Vec<String>>,
     problems: Vec<String>,
     problem_count: usize,
+    draft_count: usize,
 }
 
 /// `s` unescaped (`\n`, `\t`, `\\`), or `None` for any other backslash sequence.
@@ -96,13 +106,17 @@ pub fn entries(text: &str, plural: Plural) -> (Vec<Entry>, Vec<String>) {
         if line.trim().is_empty() || line.starts_with('#') {
             continue;
         }
+        let (draft, line) = match line.strip_prefix(DRAFT) {
+            Some(rest) => (true, rest),
+            None => (false, line),
+        };
         match entry(line, plural) {
             Ok((context, source, translation)) => {
                 if !seen.insert((context.clone(), source.clone())) {
                     problems.push(format!("line {n}: the key is given twice; the first is used"));
                     continue;
                 }
-                out.push(Entry { line: n, context, source, translation });
+                out.push(Entry { line: n, context, source, translation, draft });
             }
             Err(why) => problems.push(format!("line {n}: {why}")),
         }
@@ -167,7 +181,12 @@ impl Catalog {
         let (list, problems) = entries(text, plural);
         let mut c = Catalog { problem_count: problems.len(), problems, ..Catalog::default() };
         c.problems.truncate(MAX_PROBLEMS);
-        for e in list {
+        c.draft_count = list.iter().filter(|e| e.draft).count();
+        for mut e in list {
+            // Break marks between Thai words, placed once at load (never per frame).
+            if let std::borrow::Cow::Owned(marked) = dalica_ui_kit::linebreak::mark(&e.translation) {
+                e.translation = marked;
+            }
             match e.context.as_str() {
                 "" => {
                     c.plain.insert(e.source, e.translation);
@@ -194,6 +213,11 @@ impl Catalog {
     /// How many lines were left out.
     pub fn problem_count(&self) -> usize {
         self.problem_count
+    }
+
+    /// How many entries are drafts awaiting the fluent review.
+    pub fn draft_count(&self) -> usize {
+        self.draft_count
     }
 
     /// How many entries it holds.

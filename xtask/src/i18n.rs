@@ -7,8 +7,9 @@
 //! - **The key set:** every `tl!` literal of `crates/ui/src` outside test modules (with its
 //!   `ctx = "…"`), every `tln!` plural (`@plural one|other`), every command label (`label: "…"` in
 //!   `crates/engine/src/cmd` and `crates/ui/src/commands`, and the menu catalog's items and
-//!   submenus), and every Options row's group, label, hint and choice label
-//!   (`crates/engine/src/options.rs`).
+//!   submenus), every Options row's group, label, hint and choice label
+//!   (`crates/engine/src/options.rs`), and every text of `ui-kit`'s own table (`texts!` in
+//!   `crates/ui-kit/src/text.rs`, each with its context).
 //! - **The languages:** `LANGUAGES` in `crates/ui/src/i18n/languages.rs`, each with its plural
 //!   rule, `complete_menus` and catalog (`include_str!("<code>.tsv")`).
 //! - **Failures:** a malformed line (not three columns, a broken escape), an empty entry, a
@@ -16,6 +17,11 @@
 //!   rule's number of forms), a duplicate key, and for a `complete_menus` language a key of the set
 //!   it lacks. Missing keys of other languages and untranslated release-note lines are reported,
 //!   never failed.
+//! - **Drafts:** an entry whose line starts with `~` (before its context) is a machine-assisted
+//!   draft awaiting the fluent review (`localization.md` → Draft entries); each language's draft
+//!   count is printed, never failed.
+//! - **`cargo xtask i18n --missing <code>`** prints the keys `<code>`'s catalog lacks as catalog
+//!   lines with an empty translation, ready to fill in.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -55,12 +61,25 @@ pub struct Report {
     pub coverage: Vec<(String, usize, usize)>,
     /// Per language: release-note lines translated, of how many.
     pub notes: Vec<(String, usize, usize)>,
+    /// Per language: entries marked as drafts (`~`), awaiting the fluent review.
+    pub drafts: Vec<(String, usize)>,
+    /// Per language with a catalog: the keys it lacks.
+    pub missing: BTreeMap<String, Vec<Key>>,
     pub failures: Vec<String>,
 }
 
 pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
-    if let Some(a) = args.first() {
-        return Err(format!("cargo xtask i18n takes no arguments (got `{a}`)"));
+    match args {
+        [] => {}
+        [flag, code] if flag == "--missing" => {
+            let report = check(root)?;
+            let missing = report.missing.get(code.as_str()).ok_or_else(|| format!("`{code}` is not a registered language with a catalog"))?;
+            for k in missing {
+                println!("{}\t{}\t", escape(&k.context), escape(&k.source));
+            }
+            return Ok(());
+        }
+        [a, ..] => return Err(format!("cargo xtask i18n takes no arguments but `--missing <code>` (got `{a}`)")),
     }
     let report = check(root)?;
     print!("{}", render(&report));
@@ -97,6 +116,7 @@ pub fn check(root: &Path) -> Result<Report, String> {
     labels.extend(menu_keys(&read(&ui.join("menu_catalog.rs"))?));
     add(&mut report, "command labels", labels);
     add(&mut report, "options rows", option_keys(&read(&root.join("crates/engine/src/options.rs"))?));
+    add(&mut report, "ui-kit texts", kit_keys(&read(&root.join("crates/ui-kit/src/text.rs"))?));
     if report.keys.is_empty() {
         return Err("no translatable keys found in crates/ui, the commands or the options".into());
     }
@@ -115,8 +135,10 @@ pub fn check(root: &Path) -> Result<Report, String> {
         let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let (entries, problems) = parse(&text, n);
         report.failures.extend(problems.into_iter().map(|p| format!("{file}: {p}")));
-        let have: BTreeSet<Key> = entries.into_iter().map(|(k, _)| k).collect();
+        report.drafts.push((lang.code.clone(), entries.iter().filter(|e| e.draft).count()));
+        let have: BTreeSet<Key> = entries.into_iter().map(|e| e.key).collect();
         let missing: Vec<&Key> = report.keys.iter().filter(|k| !have.contains(k)).collect();
+        report.missing.insert(lang.code.clone(), missing.iter().map(|k| (*k).clone()).collect());
         report.coverage.push((lang.code.clone(), report.keys.len() - missing.len(), missing.len()));
         if lang.complete_menus {
             for k in &missing {
@@ -139,6 +161,9 @@ fn render(r: &Report) -> String {
     let total = r.keys.len().max(1);
     for (code, done, _) in &r.coverage {
         out.push_str(&format!("{code:<10} {done:>7}/{:<8} {:>8.1}%\n", r.keys.len(), 100.0 * *done as f64 / total as f64));
+    }
+    for (code, n) in &r.drafts {
+        out.push_str(&format!("{code}: {n} draft entr{} awaiting the fluent review (`~`)\n", if *n == 1 { "y" } else { "ies" }));
     }
     for (code, done, of) in &r.notes {
         out.push_str(&format!("{code}: release notes {done}/{of} lines translated (reported, never failed)\n"));
@@ -339,6 +364,20 @@ pub fn menu_keys(s: &str) -> BTreeSet<Key> {
     out
 }
 
+/// `ui-kit`'s own texts: each `Name => ("context", "English"),` of the `texts!` table.
+pub fn kit_keys(s: &str) -> BTreeSet<Key> {
+    let Some((_, table)) = s.split_once("texts! {") else { return BTreeSet::new() };
+    table
+        .match_indices("=> (")
+        .filter_map(|(at, _)| {
+            let args = call_args(table.get(at + "=> (".len()..)?)?;
+            let (context, _) = literal(args.first()?)?;
+            let (source, _) = literal(args.get(1)?)?;
+            Some(Key { context, source })
+        })
+        .collect()
+}
+
 /// The Options catalogue's texts: each `row(key, tab, "Group", "Label", …)`'s group and label,
 /// each `file_type(key, "Label", …)`'s label, each `.hint("…")`, and the labels of the choice
 /// tables (`&[("id", "Label"), …]`).
@@ -459,6 +498,11 @@ fn unescape(s: &str) -> Option<String> {
     Some(out)
 }
 
+/// `s` escaped for a catalog column (`\\`, `\n`, `\t`).
+fn escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t")
+}
+
 /// The `{name}` placeholders of `s`.
 fn placeholders(s: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
@@ -475,9 +519,18 @@ fn placeholders(s: &str) -> BTreeSet<String> {
     out
 }
 
+/// One catalog entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub key: Key,
+    pub translation: String,
+    /// Marked `~`: a machine-assisted draft awaiting the fluent review.
+    pub draft: bool,
+}
+
 /// A catalog's entries and its faults (`line N: …`), for a language whose plurals list `forms`.
-pub fn parse(text: &str, forms: usize) -> (Vec<(Key, String)>, Vec<String>) {
-    let mut entries: Vec<(Key, String)> = Vec::new();
+pub fn parse(text: &str, forms: usize) -> (Vec<Entry>, Vec<String>) {
+    let mut entries: Vec<Entry> = Vec::new();
     let mut seen: BTreeMap<Key, usize> = BTreeMap::new();
     let mut faults = Vec::new();
     for (i, line) in text.lines().enumerate() {
@@ -485,6 +538,10 @@ pub fn parse(text: &str, forms: usize) -> (Vec<(Key, String)>, Vec<String>) {
         if line.trim().is_empty() || line.starts_with('#') {
             continue;
         }
+        let (draft, line) = match line.strip_prefix('~') {
+            Some(rest) => (true, rest),
+            None => (false, line),
+        };
         let cols: Vec<&str> = line.split('\t').collect();
         let [ctx, src, tr] = cols.as_slice() else {
             faults.push(format!("line {n}: expected `context<TAB>source<TAB>translation`, found {} column(s)", cols.len()));
@@ -525,21 +582,88 @@ pub fn parse(text: &str, forms: usize) -> (Vec<(Key, String)>, Vec<String>) {
             continue;
         }
         seen.insert(key.clone(), n);
-        entries.push((key, tr));
+        entries.push(Entry { key, translation: tr, draft });
     }
     (entries, faults)
 }
 
-/// The release notes' lines a catalog may translate: each heading's text and each bullet without
-/// its `- `.
+/// The release notes' texts a catalog may translate, as Help ▸ Release Notes looks them up
+/// (`crates/ui/src/dialogs/release_notes.rs`, `blocks`): HTML comments and the `#` title left out,
+/// each `##`-or-deeper heading's text, each bullet without its `- ` (or `* `) with its wrapped
+/// continuation lines joined by a space, each paragraph joined likewise, and inline marks reduced
+/// to their text (`**`, `` ` ``, `[text](url)` → `text`).
 pub fn release_note_lines(md: &str) -> Vec<String> {
-    md.lines()
-        .filter_map(|l| {
-            let t = l.trim();
-            let text = t.strip_prefix("- ").or_else(|| t.starts_with('#').then(|| t.trim_start_matches('#').trim()))?;
-            (!text.is_empty()).then(|| text.to_string())
-        })
-        .collect()
+    let mut text = String::with_capacity(md.len());
+    let mut rest = md;
+    while let Some(start) = rest.find("<!--") {
+        text.push_str(rest.get(..start).unwrap_or_default());
+        let after = rest.get(start + 4..).unwrap_or_default();
+        rest = after.find("-->").and_then(|end| after.get(end + 3..)).unwrap_or_default();
+    }
+    text.push_str(rest);
+    let mut out: Vec<String> = Vec::new();
+    // Whether the last text still takes continuation lines (a bullet or a paragraph).
+    let mut open = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            open = false;
+            continue;
+        }
+        let hashes = t.bytes().take_while(|&b| b == b'#').count();
+        if (1..=6).contains(&hashes) && t.as_bytes().get(hashes).is_none_or(|&b| b == b' ') {
+            open = false;
+            if hashes > 1 {
+                out.push(inline(t.get(hashes..).unwrap_or_default().trim()));
+            }
+            continue;
+        }
+        if let Some(item) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
+            out.push(inline(item.trim()));
+            open = true;
+            continue;
+        }
+        let more = inline(t);
+        match out.last_mut() {
+            Some(last) if open => {
+                last.push(' ');
+                last.push_str(&more);
+            }
+            _ => {
+                out.push(more);
+                open = true;
+            }
+        }
+    }
+    out
+}
+
+/// Inline Markdown reduced to its text, as the release-notes dialog shows it: a link keeps its
+/// text, emphasis and code marks go.
+fn inline(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let after = rest.get(open + 1..).unwrap_or_default();
+        let link = after.find(']').filter(|&close| after.get(close + 1..).is_some_and(|r| r.starts_with('('))).and_then(|close| {
+            let target = after.get(close + 2..)?;
+            let end = target.find(')')?;
+            Some((after.get(..close)?, target.get(end + 1..)?))
+        });
+        match link {
+            Some((label, tail)) => {
+                out.push_str(rest.get(..open).unwrap_or_default());
+                out.push_str(label);
+                rest = tail;
+            }
+            None => {
+                out.push_str(rest.get(..=open).unwrap_or_default());
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.replace("**", "").replace('`', "")
 }
 
 #[cfg(test)]
@@ -573,14 +697,18 @@ mod tests {
             "pub const ENGLISH: Language = Language { code: \"en\", plural: Plural::OneOther, complete_menus: false, catalog: \"\" };\n\
              pub static LANGUAGES: &[Language] = &[\n    ENGLISH,\n    Language { code: \"xx\", plural: Plural::OneOther, complete_menus: true, catalog: include_str!(\"xx.tsv\") },\n];\n",
         );
+        w(
+            "crates/ui-kit/src/text.rs",
+            "texts! {\n    May => (\"month\", \"May\"),\n    /// A doc.\n    CloseNamed => (\"room tab\", \"Close {name}\"),\n}\n",
+        );
         w("crates/ui/src/i18n/xx.tsv", catalog);
-        w("docs/whats-new.md", "# Dalica 1.0\n\n- Videos\n- Open\n");
+        w("docs/whats-new.md", "# Dalica 1.0\n\n<!-- - Hidden -->\n## 1.0\n\n- Videos\n- Open\n");
         dir
     }
 
     const GOOD: &str = "# xx\n\tOpen\tOpenx\nverb\tClose\tClosex\n\t{count} photos\t{count} photosx\n@plural\t{n} photo|{n} photos\t{n} x|{n} xs\n\
                         \tShow X\tShowx\n\tNew Album…\tNewx…\n\tSort By\tSortx\n\tStar\tStarx\n\tInterface\tInterfacex\n\tUse animations\tAnimx\n\
-                        \tSmooth.\tSmoothx.\n\tSmall\tSmallx\n";
+                        \tSmooth.\tSmoothx.\n\tSmall\tSmallx\n~month\tMay\tMayx\n~room tab\tClose {name}\tClosex {name}\n";
 
     #[test]
     fn the_key_set_comes_from_every_source() {
@@ -600,13 +728,16 @@ mod tests {
             ("", "Use animations"),
             ("", "Smooth."),
             ("", "Small"),
+            ("month", "May"),
+            ("room tab", "Close {name}"),
         ]
         .into_iter()
         .collect();
         assert_eq!(sources, wanted);
         assert_eq!(r.failures, Vec::<String>::new());
-        assert_eq!(r.coverage, [("en".to_string(), 12, 0), ("xx".to_string(), 12, 0)]);
+        assert_eq!(r.coverage, [("en".to_string(), 14, 0), ("xx".to_string(), 14, 0)]);
         assert_eq!(r.notes, [("xx".to_string(), 1, 3)]);
+        assert_eq!(r.drafts, [("xx".to_string(), 2)]);
     }
 
     #[test]
@@ -633,7 +764,24 @@ mod tests {
         let languages = dir.path().join("crates/ui/src/i18n/languages.rs");
         fs::write(&languages, fs::read_to_string(&languages).unwrap().replace("complete_menus: true", "complete_menus: false")).unwrap();
         let r = check(dir.path()).unwrap();
-        assert_eq!((r.failures.len(), r.coverage.get(1).cloned()), (0, Some(("xx".to_string(), 11, 1))));
+        assert_eq!((r.failures.len(), r.coverage.get(1).cloned()), (0, Some(("xx".to_string(), 13, 1))));
+        assert_eq!(r.missing.get("xx").cloned(), Some(vec![Key::new("", "Star")]));
+    }
+
+    #[test]
+    fn release_notes_are_counted_as_the_dialog_draws_them() {
+        let md = "# What's new\n\n<!-- a comment\n- not shown -->\n## 0.1 — June 2026\n\nIntro that\nwraps.\n\n### Library\n\n- **Star** photos with `photo.star.toggle`\n  and more on the next line\n  - nested [see the guide](docs/x.md)\n";
+        assert_eq!(
+            release_note_lines(md),
+            [
+                "0.1 — June 2026",
+                "Intro that wraps.",
+                "Library",
+                "Star photos with photo.star.toggle and more on the next line",
+                "nested see the guide"
+            ]
+        );
+        assert_eq!(escape("a\tb\nc\\d"), "a\\tb\\nc\\\\d");
     }
 
     #[test]

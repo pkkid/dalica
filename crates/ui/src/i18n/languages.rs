@@ -43,8 +43,22 @@ pub const ENGLISH: Language = Language {
     thousands: ",",
 };
 
-/// The registry, English first. The first languages' catalogs join it in M15.35.
-pub static LANGUAGES: &[Language] = &[ENGLISH];
+/// Thai (M15.35): a machine-assisted catalog, every entry a draft for the fluent review
+/// (`docs/localization-th.md`); one plural form; its text marked for line breaks at load
+/// (`docs/thai-text.md`).
+pub const THAI: Language = Language {
+    code: "th",
+    endonym: "ไทย",
+    script: "Thai",
+    plural: Plural::Single,
+    complete_menus: true,
+    catalog: include_str!("th.tsv"),
+    decimal: ".",
+    thousands: ",",
+};
+
+/// The registry, English first.
+pub static LANGUAGES: &[Language] = &[ENGLISH, THAI];
 
 /// The pseudo-locale's code (`localization.md` → Checking a translation): every text bracketed
 /// and 40 % longer, built at run time from the English ([`super::pseudo`]).
