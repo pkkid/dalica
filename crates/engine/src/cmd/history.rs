@@ -149,6 +149,9 @@ fn apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let side = side(variant);
     s.history_on(id, side)?;
     let op = operation(&op)?;
+    if let Some(why) = crate::video::edit_refusal(s.library(), id, &op) {
+        return Err(CmdError::Disabled(why.into()));
+    }
     s.step_on(id, side, Change::Append(op), None)?;
     let h = s.history_on(id, side)?;
     Ok(if variant { variant_json(id, &h) } else { state_json(id, &h) })

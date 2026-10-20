@@ -135,7 +135,7 @@ fn inspect(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
             let folder = lib.folder(p.folder)?;
             let info = lib.info(p.id);
             let (dw, dh) = displayed_size(&info.edits, p.width, p.height);
-            Some(json!({
+            let mut out = json!({
                 "id": p.id, "folder": p.folder, "name": p.name, "path": folder.path.join(&p.name),
                 "size": p.size, "mtime": p.mtime, "width": p.width, "height": p.height, "date": p.date, "star": p.star,
                 "caption": info.caption, "tags": info.tags, "hidden": info.hidden,
@@ -144,7 +144,9 @@ fn inspect(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
                 "displayed": { "width": dw, "height": dh },
                 "albums": crate::cmd::albums::albums_of(lib, p.id),
                 "geotagged": lib.is_geotagged(p.id), "place": lib.geotag(p.id),
-            }))
+            });
+            crate::video::add_kind(&mut out, lib, p.id);
+            Some(out)
         })
         .collect();
     Ok(Value::Array(photos))

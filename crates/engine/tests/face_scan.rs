@@ -99,7 +99,7 @@ fn install(models: &Path, mut manifest: ModelManifest, bytes: &[u8]) {
 
 /// A models folder with the planted detector and recogniser A (and B, which mixes the colours
 /// another way, when `both`).
-fn models(root: &Path, both: bool) -> PathBuf {
+pub(crate) fn models(root: &Path, both: bool) -> PathBuf {
     let models = root.join("models");
     let mut det = known::yunet();
     det.id = "test-detector".into();
@@ -169,7 +169,7 @@ fn index(s: &mut Session) -> Value {
     s.execute("faces.index", &json!({})).unwrap()
 }
 
-fn stat(s: &mut Session, key: &str) -> u64 {
+pub(crate) fn stat(s: &mut Session, key: &str) -> u64 {
     index(s)["stats"][key].as_u64().unwrap()
 }
 
@@ -194,7 +194,7 @@ fn faces_of(s: &Session, id: PhotoId) -> Vec<(&'static str, &'static str)> {
 }
 
 /// The scan's models folder given, and the scan waited for.
-fn scan(s: &mut Session, models: &Path) {
+pub(crate) fn scan(s: &mut Session, models: &Path) {
     s.set_face_models_dir(Some(models.to_path_buf()));
     assert!(s.wait_faces(WAIT), "the face scan finished: {}", index(s));
 }

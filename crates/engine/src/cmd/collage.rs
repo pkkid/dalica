@@ -445,12 +445,14 @@ fn new_seed(s: &Session, ids: &[PhotoId]) -> u64 {
     Rng::stream(h, 0x00c0_11a6).next_u64()
 }
 
-/// The photos of `ids` or `section` a collage takes (videos and hidden photos left out).
-fn photos(s: &mut Session, section: Option<&str>, ids: Option<&[PhotoId]>) -> Result<Vec<PhotoId>, CmdError> {
+/// The photos of `ids` or `section` a collage takes (videos and hidden photos left out), and how
+/// many videos it left out.
+fn photos(s: &mut Session, section: Option<&str>, ids: Option<&[PhotoId]>) -> Result<(Vec<PhotoId>, usize), CmdError> {
     if let Some(ids) = ids {
         check_ids(ids)?;
     }
-    Ok(crate::cmd::slideshow::playlist(s, section, ids, None, false)?.photos)
+    let list = crate::cmd::slideshow::playlist(s, section, ids, None, false)?;
+    Ok((list.photos, list.videos))
 }
 
 /// Adds `ids` to the open document as one step; answers how many were added.
@@ -465,17 +467,20 @@ fn create(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let CreateParams { ids, section, display, seed } = params(p)?;
     let display = display_param(display)?;
     let seed = seed.as_deref().map(parse_seed).transpose()?;
-    let found = photos(s, section.as_deref(), ids.as_deref())?;
+    let (found, videos) = photos(s, section.as_deref(), ids.as_deref())?;
     if s.collage().is_open() {
         if let Some(d) = display {
             s.collage.set_display(d);
         }
         let (added, _) = add_to_room(s, &found)?;
         let clips = s.collage().document().map_or(0, |d| d.clips.len());
-        return Ok(json!({ "added": added, "clips": clips, "left": found.len().saturating_sub(added), "opened": false }));
+        let mut reply = json!({ "added": added, "clips": clips, "left": found.len().saturating_sub(added), "opened": false });
+        crate::video::note_collage_videos(&mut reply, videos);
+        return Ok(reply);
     }
     if found.is_empty() {
-        return Err(CmdError::Disabled("None of these photos can go in a collage.".into()));
+        let why = if videos > 0 { crate::video::COLLAGE_REFUSED } else { "None of these photos can go in a collage." };
+        return Err(CmdError::Disabled(why.into()));
     }
     let seed = seed.unwrap_or_else(|| new_seed(s, &found));
     let mut doc = Doc::new(found.iter().copied(), seed);
@@ -484,7 +489,9 @@ fn create(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     doc.check().map_err(|e| CmdError::BadParams(e.to_string()))?;
     let added = doc.clips.len();
     s.collage.open(doc, display);
-    Ok(json!({ "added": added, "clips": added, "left": found.len().saturating_sub(added), "opened": true }))
+    let mut reply = json!({ "added": added, "clips": added, "left": found.len().saturating_sub(added), "opened": true });
+    crate::video::note_collage_videos(&mut reply, videos);
+    Ok(reply)
 }
 
 #[derive(Deserialize)]
@@ -495,7 +502,7 @@ struct Ids {
 
 fn clips_add(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let Ids { ids } = params(p)?;
-    let found = photos(s, None, Some(&ids))?;
+    let (found, videos) = photos(s, None, Some(&ids))?;
     let (added, changed) = add_to_room(s, &found)?;
     let mut reply = summary(s, changed);
     let clips = s.collage().document().map_or(0, |d| d.clips.len());
@@ -504,6 +511,7 @@ fn clips_add(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         o.insert("clips".into(), json!(clips));
         o.insert("left".into(), json!(found.len().saturating_sub(added)));
     }
+    crate::video::note_collage_videos(&mut reply, videos);
     Ok(reply)
 }
 

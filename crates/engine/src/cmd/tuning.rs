@@ -266,6 +266,9 @@ fn tuning_change(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let shadows = slider(shadows, "shadows", tone::SHADOWS)?;
     let temp = slider(temp, "temp", tone::TEMP)?;
     let neutral = neutral.map(neutral_of).transpose()?;
+    if s.is_video(id) {
+        return Err(CmdError::Disabled(crate::video::EDITS_REFUSED.into()));
+    }
     let side = side_of(variant);
     let target = session_entry(&recipe_on(s, id, side)?);
     let before = target.map(|(_, t)| t).unwrap_or_default();
@@ -408,6 +411,10 @@ fn pick(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 /// Starts the worker of `task` on `side` of photo `id` as an `analysis` job.
 fn start(s: &mut Session, id: PhotoId, side: Side, task: Task) -> Result<Value, CmdError> {
     let photo = s.library().photo(id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?;
+    // A video is never decoded for Tuning (M15.16).
+    if crate::video::is_video(s.library(), id) {
+        return Err(CmdError::Disabled(crate::video::EDITS_REFUSED.into()));
+    }
     let folder = s.library().folder(photo.folder).ok_or_else(|| CmdError::NotFound(format!("no folder for photo {id}")))?;
     let edits = recipe_on(s, id, side)?;
     let request = Request {

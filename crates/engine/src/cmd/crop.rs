@@ -222,6 +222,9 @@ fn step(s: &mut Session, id: PhotoId, op: Option<EditOp>) -> Result<Value, CmdEr
 fn crop_apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let CropApply { id, rect, ratio } = params(p)?;
     history_of(s, id)?;
+    if s.is_video(id) {
+        return Err(CmdError::Disabled(crate::video::CROP_REFUSED.into()));
+    }
     let crop = crop_of(rect)?;
     if let Some(r) = &ratio
         && !is_ratio_text(r)
@@ -248,6 +251,9 @@ fn crop_apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 fn straighten_apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let StraightenApply { id, degrees } = params(p)?;
     history_of(s, id)?;
+    if s.is_video(id) {
+        return Err(CmdError::Disabled(crate::video::CROP_REFUSED.into()));
+    }
     if !(degrees.is_finite() && (-MAX_DEGREES..=MAX_DEGREES).contains(&degrees)) {
         return Err(CmdError::BadParams(format!("degrees: a number from -{MAX_DEGREES} to {MAX_DEGREES}")));
     }
