@@ -579,7 +579,10 @@ pub fn first_run_fills_in() -> FirstRun {
     assert!(d.widgets().iter().any(|w| w.id == "dialog:firstRun"));
     let ui = dalica_fs::mark_ui_thread();
     d.click("button:dialog.continue").unwrap();
-    assert!(d.state().dialogs.is_empty(), "Continue closes the panel");
+    // Continue closes the panel; the default-viewer question follows (M15.24), answered Not Now.
+    assert_eq!(d.state().dialogs.iter().map(|d| d.kind).collect::<Vec<_>>(), [DialogKind::DefaultViewer], "Continue closes the panel");
+    dalica_ui::dialogs::cancel(d.app_mut()).unwrap();
+    assert!(d.state().dialogs.is_empty());
 
     // The first folder fills in while the scan waits in the second.
     let (mut first, mut first_folder) = (None, None);
