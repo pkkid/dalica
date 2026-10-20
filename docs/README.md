@@ -32,9 +32,11 @@ Start with [`product.md`](product.md), then [`ui-layout.md`](ui-layout.md).
 | [contributors.md](contributors.md) | want to know how people and AI models are credited in the About window |
 | [assets.md](assets.md) | add an image, icon, font, sound, screenshot or test photo; touch the app icon |
 | [localization.md](localization.md) | write user-facing text, or add or maintain a translation |
+| [thai-text.md](thai-text.md) | show Thai text: shaping, the fonts, line breaks at word boundaries (`ui-kit`'s `linebreak`) |
 | [releasing.md](releasing.md) | cut a release, touch packaging or signing (planned, M6) |
 | [whats-new.md](whats-new.md) | ship a user-visible change (the user-facing changelog) |
 | [formats.md](formats.md) | touch decoding, thumbnails, RAW previews, HEIF, or the decode limits |
+| [video-decoders.md](video-decoders.md) | decode or play a video: which pure-Rust decoder handles which codec, and what stays a tile |
 | [xmp-interop.md](xmp-interop.md) | read or write XMP/IPTC/EXIF in photo files or `.xmp` sidecars (captions, tags, ratings, GPS, dates, face regions) |
 | [faces.md](faces.md) | work on face detection, recognition, models, grouping or suggestions (planned, M13) |
 

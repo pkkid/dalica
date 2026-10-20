@@ -18,7 +18,7 @@
 //! - **Choices** (excluded, star, rotation, "Exclude duplicates") are the room's, held here and
 //!   never an undo step; the import itself (M11.8) reads them.
 //! - **Thumbnails** stay in memory only ([`thumbs`]): capped, the least recently used dropped and
-//!   made again when asked for.
+//!   made again when asked for (from the file, or for a camera from the device).
 
 mod thumbs;
 mod worker;
@@ -171,6 +171,8 @@ pub struct ImportSession {
     devices: Option<Arc<DeviceWatch>>,
     /// The camera being listed, when the source is one.
     camera: Option<Arc<Link>>,
+    /// The listings' thumbnail cap in bytes (`None`: [`CAP_BYTES`]; a test hook).
+    thumb_cap: Option<usize>,
 }
 
 impl std::fmt::Debug for ImportSession {
@@ -252,8 +254,9 @@ impl ImportSession {
         if let Some(t) = lock(&listing.thumbs).get(id) {
             return Some(t);
         }
-        // A camera's thumbnail is made by its listing only (its candidates name no file).
+        // A camera's candidates name no file: its thumbnail is made again from the device.
         if self.camera.is_some() {
+            thumbs::remake_camera(&listing.thumbs, id, dalica_scan::import::THUMBNAIL);
             return None;
         }
         let path = lock(&listing.shared).found.get(usize::try_from(id).ok()?)?.candidate.path.clone();
@@ -385,6 +388,13 @@ impl Session {
         });
     }
 
+    /// Test hook: the next listings keep at most `bytes` of thumbnails in memory (`None`:
+    /// [`CAP_BYTES`]).
+    #[doc(hidden)]
+    pub fn set_import_thumbnail_cap(&mut self, bytes: Option<usize>) {
+        self.import.thumb_cap = bytes;
+    }
+
     /// Keeps the library digests the listing worker made in the index (derived data). Never
     /// touches the disk.
     fn keep_import_digests(&mut self) {
@@ -486,7 +496,7 @@ impl Session {
         self.import.camera = None;
         let cancel = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(Mutex::new(Shared::default()));
-        let cache = Arc::new(Mutex::new(thumbs::ThumbCache::default()));
+        let cache = Arc::new(Mutex::new(self.import.thumb_cap.map_or_else(thumbs::ThumbCache::default, thumbs::ThumbCache::with_cap)));
         let plan = self.import_plan();
         let (worker_cancel, worker_shared, worker_thumbs) = (Arc::clone(&cancel), Arc::clone(&shared), Arc::clone(&cache));
         let spawned =
@@ -632,8 +642,8 @@ impl Session {
         self.keep_import_digests();
         let was_open = self.import.source.is_some();
         let generation = self.import.generation;
-        let devices = self.import.devices.take();
-        self.import = ImportSession { generation, devices, ..ImportSession::default() };
+        let (devices, thumb_cap) = (self.import.devices.take(), self.import.thumb_cap);
+        self.import = ImportSession { generation, devices, thumb_cap, ..ImportSession::default() };
         json!({ "closed": was_open, "generation": generation })
     }
 
