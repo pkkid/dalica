@@ -26,3 +26,4 @@ mod straighten;
 mod stylize_effects;
 mod suggest;
 mod tone;
+mod video_ops;

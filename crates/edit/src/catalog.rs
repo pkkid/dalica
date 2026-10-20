@@ -29,7 +29,8 @@ pub enum Kind {
     Colour { none: bool },
     /// A checkbox: `true` or `false`.
     Flag,
-    /// A time in seconds from the start of a video, 0 to its length.
+    /// A time in a video: whole milliseconds from its start, 0 to [`ops::video::MAX_MS`]
+    /// (M15.25 settled the unit; the variant keeps its first name for the catalogue's readers).
     Seconds,
     /// A list of strokes separated by `;`, at most `max`, each holding `fields` separated by `,`.
     /// It is always the last parameter: the strokes follow the other parameters after a `;`
@@ -342,13 +343,13 @@ static CATALOG: [OpInfo; 39] = [
         label: "Trim",
         syntax: "trim(start,end)",
         params: &[
-            Param { name: "start", label: "Start", kind: Kind::Seconds, default: "", log: false },
-            Param { name: "end", label: "End", kind: Kind::Seconds, default: "", log: false },
+            Param { name: "start", label: "Start (ms)", kind: Kind::Seconds, default: "", log: false },
+            Param { name: "end", label: "End (ms)", kind: Kind::Seconds, default: "", log: false },
         ],
         changes_size: false,
         milestone: "M15",
         effect: None,
-        note: "Videos only.",
+        note: "Videos only: whole milliseconds from the clip's start, the start before the end (trim(500,1500)); the last trim counts.",
     },
     // Tab 3, Effects (editing.md §8.2).
     fx(
