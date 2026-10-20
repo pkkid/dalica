@@ -9,6 +9,10 @@
 //! instead. Where the standard places are is read on the engine's workers (`folders.browse`), asked
 //! for each frame while the panel is open so Continue never waits.
 //!
+//! Continue then asks, once, whether Dalica should be the default viewer
+//! ([`super::default_viewer::offer`], M15.24; under the Folder Manager when that opens), when the
+//! system lets it be.
+//!
 //! Widget ids: `dialog:firstRun`, the radios `choice:dialog.start/places` and
 //! `choice:dialog.start/choose`, `button:dialog.continue`. The draft is `{choice: "places" |
 //! "choose"}`.
@@ -197,12 +201,19 @@ pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> 
         if app.state().dialogs.iter().any(|d| d.kind == DialogKind::FolderManager) {
             return Ok(json!({ "dialog": DialogKind::FolderManager.name() }));
         }
-        return super::open(app, Dialog::new(DialogKind::FolderManager));
+        let asked = super::default_viewer::offer(app);
+        let mut r = super::open(app, Dialog::new(DialogKind::FolderManager))?;
+        if let Some(o) = r.as_object_mut() {
+            o.insert("defaultViewer".into(), json!(asked));
+        }
+        return Ok(r);
     }
     let changes: Vec<Value> = places.iter().map(|p| json!({ "path": p, "mode": "always" })).collect();
     let mut r = app.run("folders.set", &json!({ "changes": changes }))?;
+    let asked = super::default_viewer::offer(app);
     if let Some(o) = r.as_object_mut() {
         o.insert("added".into(), json!(places));
+        o.insert("defaultViewer".into(), json!(asked));
     }
     Ok(r)
 }

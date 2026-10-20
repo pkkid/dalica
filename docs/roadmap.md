@@ -10321,7 +10321,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     target fires; a drag released inside stays an inside drop; a photo with unsaved edits shows the
     note; the PR names the targets tried on each OS where it landed (a file manager, a mail draft,
     an editor).
-- ⬜ **M15.24 `engine` + `ui` + `dalica` + packages: Dalica as the default viewer**
+- ✅ **M15.24 `engine` + `ui` + `dalica` + packages: Dalica as the default viewer**
   - after: M15.12, M15.17, M15.18, M11.17
   - files: `crates/engine/src/cmd/os.rs`, `crates/engine/src/os.rs`, `crates/engine/tests/default_viewer.rs`, `apps/dalica/src/os/default_viewer.rs`, `apps/dalica/tests/default_viewer.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/default_viewer.rs`, `crates/ui/src/dialogs/first_run.rs`, `crates/ui/tests/default_viewer.rs`, `packaging/linux/org.dalica.Dalica.desktop`, `packaging/windows/dalica.wxs`, `packaging/macos/Info.plist.in`, `docs/viewing.md`, `docs/releasing.md`
   - scope: `viewing.md` §3.3 and `menus-and-shortcuts.md` §5 Photo Viewer: `viewer.fileTypes` (each

@@ -151,7 +151,10 @@ Every package ships `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE` and `ATTRIBUTION.m
 `packaging/linux/package.sh [--skip-build] [--formats "tar deb rpm appimage flatpak"]
 [--install-tools] [--require-all]` stages one FHS tree (both binaries, `org.dalica.Dalica.desktop`,
 hicolor icons from 16 px to 512 px plus a scalable SVG, AppStream metainfo, the licences) and makes
-every format from it:
+every format from it. The desktop entry runs `dalica %f` (a file alone opens the photo viewer on
+it, `dalica --view FILE`) and declares in `MimeType` the types Dalica can be the default viewer for
+(`viewing.md` §3.3; not HEIC/HEIF while release builds leave out `heif`, nor AVIF), so the desktop
+offers it under Open with and Options ▸ Photo Viewer ▸ File Types can make it the default:
 
 - **AppImage** runs on any distribution without installing anything; built with the maintained
   `appimagetool` (static type2 runtime, no libfuse2). Each embeds `gh-releases-zsync` update
@@ -210,7 +213,10 @@ console program.
   licence and notice files are installed beside the programs. Dalica is listed under "Open with"
   for the image formats it reads (not HEIC/HEIF while release builds leave out `heif`, nor AVIF)
   but never takes over the default photo viewer; Open with runs `dalica.exe --view "%1"`, which
-  opens the library window until the standalone viewer exists. The MSI version is numeric `X.Y.Z`;
+  opens the photo viewer. Its Capabilities (`HKLM\Software\Dalica\Capabilities`, the same
+  extensions) and `RegisteredApplications` entry list Dalica in Settings ▸ Default apps, where
+  only the user may choose it (Options ▸ Photo Viewer ▸ File Types opens that page; a portable
+  copy registers the same for the user, `viewing.md` §3.3). The MSI version is numeric `X.Y.Z`;
   same-version upgrades are allowed so release candidates replace each other.
 - **Portable zip** ships a marker file named `portable` beside `dalica.exe` (a text file
   explaining itself; its contents are ignored) that keeps the library, thumbnail cache and log in
@@ -242,7 +248,9 @@ same-version upgrade, a clean uninstall). `pe.ps1` holds the PE header checks.
 `packaging/macos/package.sh [--skip-build]` builds `aarch64-apple-darwin` and `x86_64-apple-darwin`
 with `MACOSX_DEPLOYMENT_TARGET=11.0`, joins them with `lipo`, and assembles `Dalica.app`
 (`Info.plist` from `Info.plist.in` with the application id as bundle id, image formats registered
-as Alternate handler only, HEIC left out while release builds lack `heif`). Finder's Open With
+with Dalica as their Viewer at Alternate rank, HEIC left out while release builds lack `heif`;
+the user makes Dalica the default in Finder's Get Info ▸ Open with ▸ Change All…, which Options ▸
+Photo Viewer ▸ File Types explains, `viewing.md` §3.3). Finder's Open With
 sends the file as an Apple Event, which Dalica does not handle yet: the app starts and ignores it.
 
 - **Signing** (M15.13) inside-out with the hardened runtime and a secure timestamp, no `--deep`:

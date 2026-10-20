@@ -3,7 +3,8 @@ Type=Application
 Name=Dalica
 GenericName=Photo Organizer
 Comment=Organize the photos in your folders and make simple edits
-Exec=dalica
+# A file alone opens the photo viewer on it (`dalica --view FILE`); from the menu, the library.
+Exec=dalica %f
 TryExec=dalica
 Icon=org.dalica.Dalica
 Terminal=false
@@ -11,6 +12,10 @@ Terminal=false
 StartupNotify=false
 StartupWMClass=org.dalica.Dalica
 Categories=Graphics;Photography;Viewer;
+# The types Dalica shows, so it is offered under Open with and can be the default viewer
+# (docs/viewing.md section 3.3). Not HEIC (release builds leave out the heif feature) nor AVIF
+# (never decoded).
+MimeType=image/jpeg;image/png;image/gif;image/bmp;image/tiff;image/webp;image/jxl;image/vnd.adobe.photoshop;image/x-adobe-dng;image/x-canon-cr2;image/x-canon-cr3;image/x-canon-crw;image/x-nikon-nef;image/x-nikon-nrw;image/x-sony-arw;image/x-sony-sr2;image/x-sony-srf;image/x-olympus-orf;image/x-panasonic-rw2;image/x-fuji-raf;image/x-pentax-pef;image/x-samsung-srw;image/x-minolta-mrw;image/x-sigma-x3f;image/x-kodak-dcr;image/x-kodak-kdc;
 Keywords=photo;picture;album;organizer;folder;tag;caption;star;
 # The AppImage's AppRun installs this entry itself; external AppImage integrators should not add
 # a second one.

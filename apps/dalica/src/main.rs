@@ -26,7 +26,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 const USAGE: &str =
-    "usage: dalica [--library DIR | --demo | --demo-fresh] [--view FILE] [--control [PORT] [CONTROL OPTIONS] [--headless]] [--version | --help]
+    "usage: dalica [--library DIR | --demo | --demo-fresh] [--view FILE | FILE] [--control [PORT] [CONTROL OPTIONS] [--headless]] [--version | --help]
 
 --demo opens a library of generated photos in the temp folder (made on first use, kept between runs);
 --demo-fresh a new one, removed when the window closes. Neither reads or changes your own library or settings.
@@ -35,7 +35,7 @@ Otherwise the library is DIR, else $DALICA_HOME, else the `data` folder beside t
 (Linux ~/.local/share/dalica/library, macOS ~/Library/Application Support/Dalica/Library,
 Windows %LOCALAPPDATA%\\Dalica\\Library).
 
---view FILE is how the file manager's Open with hands Dalica an image: it opens the photo viewer on FILE, a borderless
+--view FILE (or FILE alone, when it does not start with `-`) is how the file manager's Open with hands Dalica an image: it opens the photo viewer on FILE, a borderless
 window filling the screen, with the library opened as usual behind it (read-only when another Dalica has it open;
 with --headless the viewer is served over the control channel). FILE may be missing or have any name; it is never run.
 One Dalica per user: when the user's own Dalica already runs (the default library, without DALICA_HOME or a portable
@@ -160,6 +160,15 @@ fn parse(args: &[OsString]) -> Result<Launch, String> {
             "--headless" => {
                 headless = true;
                 needs_control = needs_control.or(Some("--headless"));
+                continue;
+            }
+            // A file alone is `--view FILE`: what the desktop entry's `Exec=dalica %f` gives (and
+            // nothing when it is started from the menu). A file named like an option needs `--view`.
+            other if !other.starts_with('-') => {
+                if view.is_some() {
+                    return Err("--view is given twice".into());
+                }
+                view = Some(PathBuf::from(raw));
                 continue;
             }
             other => return Err(format!("unknown argument `{other}`")),
@@ -539,7 +548,10 @@ mod tests {
             assert_eq!(parsed(&["--view", file]), viewing(Choice::Default, file), "{file:?}");
         }
         assert_eq!(parsed(&["--library", "/lib", "--view", "/x.jpg"]), viewing(Choice::Library(PathBuf::from("/lib")), "/x.jpg"));
-        for bad in [&["--view"][..], &["--view", "/a.jpg", "--view", "/b.jpg"]] {
+        // A file alone, as the desktop entry's `Exec=dalica %f` passes it (M15.24).
+        assert_eq!(parsed(&["/photos/a b.jpg"]), viewing(Choice::Default, "/photos/a b.jpg"));
+        assert_eq!(parsed(&["--library", "/lib", "/x.jpg"]), viewing(Choice::Library(PathBuf::from("/lib")), "/x.jpg"));
+        for bad in [&["--view"][..], &["--view", "/a.jpg", "--view", "/b.jpg"], &["/a.jpg", "/b.jpg"], &["--view", "/a.jpg", "/b.jpg"], &["-x.jpg"]] {
             assert!(parsed(bad).is_err(), "{bad:?}");
         }
     }

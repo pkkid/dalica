@@ -73,6 +73,17 @@ pub struct Handler {
     pub id: String,
     /// Its name as the system shows it ("Image Viewer").
     pub name: String,
+    /// Its icon as the system gives it, for Open With ▸ (M15.24): on Linux the desktop entry's
+    /// `Icon` (a theme icon's name or an absolute file), on Windows the ProgID's `DefaultIcon`
+    /// (`C:\path\app.exe,0`, variables expanded); `None` where the system gives none (macOS here).
+    pub icon: Option<String>,
+}
+
+impl Handler {
+    /// A handler without an icon.
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Handler {
+        Handler { id: id.into(), name: name.into(), icon: None }
+    }
 }
 
 /// What [`Os::put_on_clipboard`] puts on the system clipboard.
@@ -91,8 +102,108 @@ pub enum Clip {
 pub enum DefaultSet {
     /// The defaults are set (Linux's `mimeapps.list`).
     Set,
-    /// Only the user may choose, in the system's settings, which were opened: what to choose there.
+    /// Only the user may choose, in the system's settings, which were opened: what to choose there
+    /// (Windows' Default apps).
     SettingsOpened(String),
+    /// Only the user may choose and there is no settings page Dalica can open for it: how to
+    /// (macOS: Finder's Get Info ▸ Open with ▸ Change All…).
+    Choose(String),
+}
+
+/// The file types Dalica offers to be the default viewer for: the viewer types
+/// ([`crate::settings::VIEWER_TYPES`]) this build shows (HEIC only with the `heif` feature, AVIF
+/// not until it is decoded), in that order.
+pub fn viewer_file_types() -> Vec<FileType> {
+    crate::settings::VIEWER_TYPES.into_iter().filter(|t| shown(*t)).collect()
+}
+
+/// Whether this build shows files of `ty`.
+fn shown(ty: FileType) -> bool {
+    use dalica_image::Format;
+    match ty {
+        FileType::Heif => Format::Heif.supported(),
+        FileType::Avif => Format::Avif.supported(),
+        FileType::Video => false,
+        _ => true,
+    }
+}
+
+/// A file type's name as the File Types tab shows it ("JPEG", "JPEG XL").
+pub fn type_name(ty: FileType) -> &'static str {
+    match ty {
+        FileType::Jpeg => "JPEG",
+        FileType::Png => "PNG",
+        FileType::Gif => "GIF",
+        FileType::Bmp => "BMP",
+        FileType::Tiff => "TIFF",
+        FileType::WebP => "WebP",
+        FileType::Heif => "HEIC",
+        FileType::Avif => "AVIF",
+        FileType::JpegXl => "JPEG XL",
+        FileType::Psd => "PSD",
+        FileType::Raw => "RAW",
+        FileType::Video => "Video",
+    }
+}
+
+/// The MIME types of `ty` (the shared MIME database's names), the main one first: what Linux's
+/// `mimeapps.list` and the desktop entry's `MimeType` name.
+pub fn mime_types(ty: FileType) -> &'static [&'static str] {
+    match ty {
+        FileType::Jpeg => &["image/jpeg"],
+        FileType::Png => &["image/png"],
+        FileType::Gif => &["image/gif"],
+        FileType::Bmp => &["image/bmp"],
+        FileType::Tiff => &["image/tiff"],
+        FileType::WebP => &["image/webp"],
+        FileType::Heif => &["image/heif", "image/heic"],
+        FileType::Avif => &["image/avif"],
+        FileType::JpegXl => &["image/jxl"],
+        FileType::Psd => &["image/vnd.adobe.photoshop"],
+        FileType::Raw => &[
+            "image/x-adobe-dng",
+            "image/x-canon-cr2",
+            "image/x-canon-cr3",
+            "image/x-canon-crw",
+            "image/x-nikon-nef",
+            "image/x-nikon-nrw",
+            "image/x-sony-arw",
+            "image/x-sony-sr2",
+            "image/x-sony-srf",
+            "image/x-olympus-orf",
+            "image/x-panasonic-rw2",
+            "image/x-fuji-raf",
+            "image/x-pentax-pef",
+            "image/x-samsung-srw",
+            "image/x-minolta-mrw",
+            "image/x-sigma-x3f",
+            "image/x-kodak-dcr",
+            "image/x-kodak-kdc",
+        ],
+        FileType::Video => &[],
+    }
+}
+
+/// The file extensions of `ty` (lowercase, without the dot), the main one first: what Windows
+/// associates and the MSI's Open with lists.
+pub fn extensions(ty: FileType) -> &'static [&'static str] {
+    match ty {
+        FileType::Jpeg => &["jpg", "jpeg", "jpe", "jfif"],
+        FileType::Png => &["png"],
+        FileType::Gif => &["gif"],
+        FileType::Bmp => &["bmp"],
+        FileType::Tiff => &["tif", "tiff"],
+        FileType::WebP => &["webp"],
+        FileType::Heif => &["heic", "heif"],
+        FileType::Avif => &["avif"],
+        FileType::JpegXl => &["jxl"],
+        FileType::Psd => &["psd", "psb"],
+        FileType::Raw => &[
+            "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "orf", "rw2", "raf", "pef", "srw", "mrw", "x3f", "erf", "kdc", "dcr",
+            "3fr", "mos", "mef", "iiq", "rwl",
+        ],
+        FileType::Video => &[],
+    }
 }
 
 /// The operating system's services. Every method may block; none may panic.
@@ -297,7 +408,7 @@ mod tests {
     fn the_recording_keeps_each_call_in_order() {
         let os = Recording::windowed();
         let (a, b) = (PathBuf::from("/p/a.JPG"), PathBuf::from("/p/b.png"));
-        let viewer = Handler { id: "org.example.Viewer.desktop".into(), name: "Image Viewer".into() };
+        let viewer = Handler::new("org.example.Viewer.desktop", "Image Viewer");
         os.set_handlers("jpg", vec![viewer.clone()]);
         os.set_default(FileType::Png, viewer.clone());
         os.reveal(&a).unwrap();

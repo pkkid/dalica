@@ -25,7 +25,7 @@ fn setup() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<Photo
 }
 
 fn handler(id: &str, name: &str) -> Handler {
-    Handler { id: id.into(), name: name.into() }
+    Handler::new(id, name)
 }
 
 #[test]

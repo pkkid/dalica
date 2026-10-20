@@ -1771,10 +1771,9 @@ fn the_video_is_drawn_with_its_ids() {
 
 /// The OS integration's rows are wired to the engine's commands and greyed with what they wait
 /// for; the default-viewer question is drawn with its ids, Use Dalica waits for a type and then
-/// for the engine, Not Now closes it.
+/// acts, Not Now closes it.
 #[test]
 fn the_os_rows_wait_and_the_default_viewer_question_is_drawn() {
-    use dalica_ui::commands::os;
     let mut t = setup();
     let first = t.photos[0];
     ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [first] } }));
@@ -1793,7 +1792,11 @@ fn the_os_rows_wait_and_the_default_viewer_question_is_drawn() {
     ok(&mut t, "ui.set", json!({ "defaultViewer": { "types": ["jpeg"] } }));
     ok(&mut t, "ui.wait", json!({ "ms": 50 }));
     assert_eq!(use_button(&t), Some(true));
-    assert!(matches!(dalica_ui::dialogs::answer(t.d.app_mut(), None), Err(CmdError::Disabled(m)) if m == os::LATER), "Use Dalica waits");
+    // Use Dalica runs the engine's `viewer.setDefault` (M15.24) and closes the question.
+    assert!(dalica_ui::dialogs::answer(t.d.app_mut(), None).is_ok(), "Use Dalica acts");
+    assert!(t.d.app().state().dialogs.is_empty());
+    ok(&mut t, "engine.execute", json!({ "command": "defaultViewer.ask" }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
     ok(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.cancel" }));
     assert!(t.d.app().state().dialogs.is_empty(), "Not Now closes it");
     assert_eq!(state(&mut t)["defaultViewer"], Value::Null);

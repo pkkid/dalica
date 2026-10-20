@@ -178,9 +178,13 @@ impl Os for Native {
     fn handlers(&self, path: &Path) -> Result<Vec<Handler>, OsError> {
         check_path(path)?;
         match self.platform {
-            Platform::Linux => Ok(desktop::handlers(path, &self.dirs()).into_iter().map(|e| Handler { id: e.id, name: e.name }).collect()),
+            Platform::Linux => {
+                Ok(desktop::handlers(path, &self.dirs()).into_iter().map(|e| Handler { id: e.id, name: e.name, icon: e.icon }).collect())
+            }
             Platform::Windows => {
-                Ok(registry::handlers(path, self.runner.as_ref(), &self.env).into_iter().map(|a| Handler { id: a.id, name: a.name }).collect())
+                let runner = self.runner.as_ref();
+                let apps = registry::handlers(path, runner, &self.env).into_iter();
+                Ok(apps.map(|a| Handler { icon: default_viewer::windows_icon(runner, &a.id, &self.env), id: a.id, name: a.name }).collect())
             }
             Platform::MacOs => mac_handlers(path),
         }
@@ -241,7 +245,7 @@ fn mac_handlers(path: &Path) -> Result<Vec<Handler>, OsError> {
         .into_iter()
         .map(|app| {
             let name = app.file_stem().map_or_else(|| app.to_string_lossy().into_owned(), |s| s.to_string_lossy().into_owned());
-            Handler { id: app.to_string_lossy().into_owned(), name }
+            Handler { id: app.to_string_lossy().into_owned(), name, icon: None }
         })
         .collect())
 }
