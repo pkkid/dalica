@@ -483,6 +483,10 @@ static CATALOGUE: &[OptionSpec] = &[
     })
     .given(Settings::languages),
     // General → Files.
+    row("files.readLegacyData", Tab::General, "Files", "Read photo data left by the previous organizer", Kind::Bool, Initial::Bool(true), |s| {
+        json!(s.legacy().read_legacy_data)
+    })
+    .applies(Applies::Rescan),
     row("import.detectDuplicates", Tab::General, "Files", "Detect duplicates while importing", Kind::Bool, Initial::Bool(true), |s| {
         json!(s.import().detect_duplicates)
     }),
@@ -525,10 +529,6 @@ static CATALOGUE: &[OptionSpec] = &[
     row("files.writeDates", Tab::General, "Files", "Write date changes to files", Kind::Bool, Initial::Bool(true), |s| {
         json!(s.metadata_writes().dates)
     }),
-    row("files.readLegacyData", Tab::General, "Files", "Read photo data left by the previous organizer", Kind::Bool, Initial::Bool(true), |s| {
-        json!(s.legacy().read_legacy_data)
-    })
-    .applies(Applies::Rescan),
     // General → Import.
     row("import.folder", Tab::General, "Import", "Save imported pictures in", Kind::Folder, Initial::Null, |s| json!(s.import().folder))
         .hint("The Pictures folder unless chosen."),
