@@ -41,9 +41,6 @@ use crate::state::{MAX_LOCATION, MAX_POSITION_MS, VOLUME_MAX};
 
 /// Why a player command cannot run: the edit view shows no video.
 pub const NO_VIDEO: &str = "Open a video in the edit view first.";
-/// What the player's stub commands said before the player acted; no command says it any more
-/// (M15.5's view-state tests still name it).
-pub const LATER: &str = "Arrives with the video player.";
 /// The most frames one step moves (a held `,` or `.` repeats single steps).
 pub const MAX_STEP: i32 = 1000;
 /// The save picker's formats for Export Clip: the containers the clip is copied in.
