@@ -11537,8 +11537,20 @@ under their own key, and a snapshot without them reads as one with none.
     the in-memory camera's strip reads "Leave files on the camera", a card's "… the card";
     `cargo xtask i18n` passes; `widget_ids` passes and changed fingerprints re-blessed with their
     images on the PR.
+- ⬜ **M16.26 `ui`: the 1.0 release's findings: the bottom bar at the Large font, a flaky drag test**
+  - after: M15.R
+  - files: `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/drag.rs`, `crates/ui/tests/large_font.rs`
+  - scope: two findings made while releasing 1.0 (2026-10-20). (1) At the Large font the bottom
+    bar's Slideshow button is cut to "Slides…" (seen in the website's 1.0 keyboard shot): the
+    bottom bar's buttons fit their labels at every font size and window width down to 900 px,
+    folding as `ui-layout.md` says rather than ellipsizing. (2) `drops_on_an_album_row_and_the_tray_add_and_hold`
+    in `crates/ui/tests/drag.rs` failed once on Ubuntu CI with "no widget thumb:1" (run 39501003801,
+    passed on rerun and locally): find the race (likely the thumbnail not yet drawn when the drag
+    starts) and make the test wait for the widget, never loosening what it checks.
+  - done when: a test at the Large font at 1400 × 900 and 900 × 600 finds no bottom-bar label
+    clipped; the drag test passes 200 runs in a row at full strength.
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; a plain review unless M16.1
@@ -11563,7 +11575,7 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 ```text
 wave 1   M16.1 lead: M15.R's answers  ‖  M16.2 search colours + classifier  ‖  M16.3 ui-kit theme ground
          ‖  M16.4 engine Theme setting + commands  ‖  M16.13 hevc forwarded  ‖  M16.15 folder music kept
-         ‖  M16.20 side pane slide  ‖  M16.22 rescan label  ‖  M16.23 Open With icons  ‖  M16.25 screenshot findings (ui)
+         ‖  M16.20 side pane slide  ‖  M16.22 rescan label  ‖  M16.23 Open With icons  ‖  M16.25 screenshot findings (ui)  ‖  M16.26 bottom bar + drag test
          (once M15.R is closed)
 wave 2   M16.5 switching in the window  ‖  M16.6 Pro, Studio, Classic palettes
          ‖  M16.7 Adwaita, Solarized, Breeze + Soft palettes (after M16.1)  ‖  M16.9 colours in model, index, store
