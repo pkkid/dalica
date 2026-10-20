@@ -20,6 +20,7 @@ use crate::app::App;
 use crate::app_icon;
 use crate::credits::{self, Baked};
 use crate::state::AboutTab;
+use crate::tl;
 
 pub const TITLE: &str = "About Dalica";
 /// The dialog's width (points): the Contributors table's ten columns fit beside the names.
@@ -50,7 +51,7 @@ pub fn dialog() -> Dialog {
 }
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::close()] }
+    Look { title: tl!("About Dalica"), width: WIDTH, buttons: vec![Button::close()] }
 }
 
 /// The height of a tab's content on a screen `screen_h` points tall.
@@ -65,7 +66,7 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for (tab, id, label) in TABS {
-            if widgets::text_button(ui, &t, id, label, view.tab == tab).clicked() {
+            if widgets::text_button(ui, &t, id, &tab_label(label), view.tab == tab).clicked() {
                 view.tab = tab;
             }
         }
@@ -87,6 +88,16 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     }
 }
 
+/// A label of [`TABS`] in the language in effect.
+fn tab_label(english: &str) -> String {
+    match english {
+        "About" => tl!(ctx = "about tab", "About"),
+        "Contributors" => tl!("Contributors"),
+        "Models" => tl!("Models"),
+        other => crate::i18n::tr(other),
+    }
+}
+
 /// The About tab: the icon beside the name, the build's provenance, the licence and the source.
 fn about_tab(ui: &mut Ui, t: &Tokens, baked: &Baked) {
     ui.add_space(8.0);
@@ -100,9 +111,9 @@ fn about_tab(ui: &mut Ui, t: &Tokens, baked: &Baked) {
         }
         ui.add_space(20.0);
         ui.vertical(|ui| {
-            ui.label(RichText::new("Dalica").font(fonts::semibold(t.empty_title)).color(t.text));
+            ui.label(RichText::new(tl!("Dalica")).font(fonts::semibold(t.empty_title)).color(t.text));
             ui.add_space(2.0);
-            ui.label(RichText::new("A photo organizer with simple editing").font(fonts::regular(t.body)).color(t.text_label));
+            ui.label(RichText::new(tl!("A photo organizer with simple editing")).font(fonts::regular(t.body)).color(t.text_label));
             ui.add_space(14.0);
             egui::Grid::new("dialog:about/facts").num_columns(2).spacing(vec2(18.0, 6.0)).show(ui, |ui| {
                 for (label, value) in facts(baked) {
@@ -112,21 +123,22 @@ fn about_tab(ui: &mut Ui, t: &Tokens, baked: &Baked) {
                 }
             });
             ui.add_space(14.0);
-            let source = format!("Source code: {}", REPOSITORY.trim_start_matches("https://"));
-            for line in [source.as_str(), "Copyright © 2026 the Dalica contributors; see the Contributors and Models tabs."] {
+            let source = tl!("Source code: {address}", address = REPOSITORY.trim_start_matches("https://"));
+            let copyright = tl!("Copyright © 2026 the Dalica contributors; see the Contributors and Models tabs.");
+            for line in [source, copyright] {
                 ui.label(RichText::new(line).font(fonts::regular(t.small)).color(t.text_dim));
             }
         });
     });
 }
 
-/// The About tab's lines: version, commit (shortened), build date and licence. A build that did
-/// not record its commit or date says so.
-pub fn facts(baked: &Baked) -> [(&'static str, String); 4] {
-    let dev = "Not recorded (a development build)";
-    let commit = baked.commit.map_or_else(|| dev.to_string(), |c| c.chars().take(dalica_core::build::SHORT_SHA).collect());
-    let date = baked.build_date.map_or_else(|| dev.to_string(), |d| d.chars().take(32).collect());
-    [("Version", baked.version.to_string()), ("Commit", commit), ("Build date", date), ("Licence", LICENCE.to_string())]
+/// The About tab's lines, in the language in effect: version, commit (shortened), build date and
+/// licence. A build that did not record its commit or date says so.
+pub fn facts(baked: &Baked) -> [(String, String); 4] {
+    let dev = tl!("Not recorded (a development build)");
+    let commit = baked.commit.map_or_else(|| dev.clone(), |c| c.chars().take(dalica_core::build::SHORT_SHA).collect());
+    let date = baked.build_date.map_or_else(|| dev.clone(), |d| d.chars().take(32).collect());
+    [(tl!("Version"), baked.version.to_string()), (tl!("Commit"), commit), (tl!("Build date"), date), (tl!("Licence"), LICENCE.to_string())]
 }
 
 /// The dialog has no button but Close.
@@ -151,7 +163,7 @@ mod tests {
         b.commit = Some("0123456789abcdef0123");
         b.build_date = None;
         let f = facts(&b);
-        assert_eq!(f[1], ("Commit", "012345678".to_string()));
+        assert_eq!(f[1], ("Commit".to_string(), "012345678".to_string()));
         assert!(f[2].1.starts_with("Not recorded"));
         assert_eq!(f[3].1, "MIT OR Apache-2.0");
     }

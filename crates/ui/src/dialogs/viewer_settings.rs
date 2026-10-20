@@ -23,6 +23,7 @@ use serde_json::{Map, Value, json};
 use super::options::viewer as part;
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::tl;
 
 pub const TITLE: &str = "Photo Viewer Settings";
 /// The dialog's width, and the height of a tab's body (points).
@@ -49,7 +50,11 @@ fn values(d: &Dialog) -> Map<String, Value> {
 /// it could set).
 pub fn look(_app: &App, d: &Dialog) -> Look {
     let ok = d.fields.get("values").is_some_and(Value::is_object);
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::new("ok", "OK", ButtonKind::Default).enabled(ok), Button::cancel()] }
+    Look {
+        title: tl!("Photo Viewer Settings"),
+        width: WIDTH,
+        buttons: vec![Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(ok), Button::cancel()],
+    }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
@@ -59,7 +64,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for (value, id, label) in TABS {
-            if widgets::text_button(ui, &t, id, label, chosen == value).clicked() {
+            if widgets::text_button(ui, &t, id, &super::options::tab_label(label), chosen == value).clicked() {
                 chosen = value.to_string();
             }
         }
@@ -74,7 +79,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let selected = part::ids_of(d.fields.get("types")).unwrap_or_else(|| part::saved(app));
     let mut types: Option<Vec<String>> = None;
     let width = ui.available_width();
-    let labels: Vec<String> = part::GROUPS.iter().map(|g| format!("{g}:")).collect();
+    let labels: Vec<String> = part::GROUPS.iter().map(|g| super::options::general::group_label(g)).collect();
     let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
     let mut changes = Vec::new();
     ui.allocate_ui(vec2(width, BODY_H), |ui| {

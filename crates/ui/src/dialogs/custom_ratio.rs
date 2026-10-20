@@ -16,6 +16,7 @@ use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::panels::edit::crop;
 use crate::state::{MAX_DRAFT, ToolKind};
+use crate::tl;
 
 pub const TITLE: &str = "Add Custom Ratio";
 /// The dialog's width (points).
@@ -80,15 +81,29 @@ fn refused_in(app: &App, d: &Dialog) -> Option<&'static str> {
 /// The live example line: the row the ratio adds to the dropdown, or why it cannot be added.
 pub fn example(app: &App, d: &Dialog) -> String {
     match (refused_in(app, d), side(d, "width").zip(side(d, "height"))) {
-        (None, Some((w, h))) => format!("Example: {} ({w} × {h})", name(d)),
-        (Some(why), _) => why.to_string(),
+        (None, Some((w, h))) => tl!("Example: {name} ({width} × {height})", name = name(d), width = w, height = h),
+        (Some(why), _) => shown(why),
         (None, None) => String::new(),
     }
 }
 
+/// A reason of [`refused`] or [`refused_in`] (English, which a refused OK answers with) in the
+/// language in effect.
+fn shown(why: &str) -> String {
+    match why {
+        "Type a width and a height above 0." => tl!("Type a width and a height above 0."),
+        "Keep each side at most 10000." => tl!("Keep each side at most 10000."),
+        "Keep the ratio between 1:20 and 20:1." => tl!("Keep the ratio between 1:20 and 20:1."),
+        "Name the ratio." => tl!("Name the ratio."),
+        "Keep the name at most 256 bytes." => tl!("Keep the name at most 256 bytes."),
+        "A custom ratio already has that name." => tl!("A custom ratio already has that name."),
+        other => crate::i18n::tr(other),
+    }
+}
+
 pub fn look(app: &App, d: &Dialog) -> Look {
-    let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(refused_in(app, d).is_none());
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), ok] }
+    let ok = Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(refused_in(app, d).is_none());
+    Look { title: tl!("Add Custom Ratio"), width: WIDTH, buttons: vec![Button::cancel(), ok] }
 }
 
 /// The draft's text of `key` (a number given by a script shows as it reads).
@@ -131,16 +146,16 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let label = |ui: &mut Ui, s: &str| {
         ui.label(RichText::new(s).font(fonts::regular(t.body)).color(t.text_label));
     };
-    label(ui, "Width × Height");
+    label(ui, &tl!("Width × Height"));
     ui.horizontal(|ui| {
-        field(ui, &t, d, "width", WIDTH_ID, "Width", 90.0);
+        field(ui, &t, d, "width", WIDTH_ID, &tl!("Width"), 90.0);
         ui.label(RichText::new("×").font(fonts::regular(t.body)).color(t.text_label));
-        field(ui, &t, d, "height", HEIGHT_ID, "Height", 90.0);
+        field(ui, &t, d, "height", HEIGHT_ID, &tl!("Height"), 90.0);
     });
     ui.add_space(6.0);
-    label(ui, "Name");
+    label(ui, &tl!("Name"));
     let w = ui.available_width();
-    field(ui, &t, d, "name", NAME_ID, "Print, Banner…", w);
+    field(ui, &t, d, "name", NAME_ID, &tl!("Print, Banner…"), w);
     ui.add_space(6.0);
     ui.label(RichText::new(example(app, d)).font(fonts::regular(t.small)).color(t.text_dim));
 }

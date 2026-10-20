@@ -47,6 +47,7 @@ use serde_json::{Value, json};
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::state::{OptionsDraft, OptionsTab};
+use crate::tl;
 
 pub const TITLE: &str = "Options";
 /// The dialog's size at 100 % (points); a smaller window gets a smaller one.
@@ -71,6 +72,22 @@ pub const TABS: [(OptionsTab, &str, &str); 8] = [
     (OptionsTab::Shortcuts, "tab:options.shortcuts", "Keyboard Shortcuts"),
 ];
 
+/// A tab's label of [`TABS`] (or of the photo viewer's Settings) in the language in effect.
+pub fn tab_label(english: &str) -> String {
+    match english {
+        "General" => tl!(ctx = "options tab", "General"),
+        "File Types" => tl!(ctx = "options tab", "File Types"),
+        "Slideshow" => tl!(ctx = "options tab", "Slideshow"),
+        "Network" => tl!(ctx = "options tab", "Network"),
+        "People" => tl!(ctx = "options tab", "People"),
+        "Photo Viewer" => tl!(ctx = "options tab", "Photo Viewer"),
+        "Export" => tl!(ctx = "options tab", "Export"),
+        "Keyboard Shortcuts" => tl!(ctx = "options tab", "Keyboard Shortcuts"),
+        "Interface" => tl!(ctx = "options tab", "Interface"),
+        other => crate::i18n::tr(other),
+    }
+}
+
 /// The last Apply's error line, while there is one (its text as the label).
 pub const ERROR_ID: &str = "text:dialog.error";
 
@@ -93,12 +110,12 @@ pub fn content_height(screen_h: f32) -> f32 {
 pub fn look(app: &App, _d: &Dialog) -> Look {
     let changed = app.state().options.as_ref().is_some_and(OptionsDraft::changed);
     Look {
-        title: TITLE.into(),
+        title: tl!("Options"),
         width: WIDTH,
         buttons: vec![
-            Button::new("ok", OK, ButtonKind::Default),
+            Button::new("ok", tl!("OK"), ButtonKind::Default),
             Button::cancel(),
-            Button::new("apply", APPLY, ButtonKind::Other).enabled(changed).stays_open(),
+            Button::new("apply", tl!("Apply"), ButtonKind::Other).enabled(changed).stays_open(),
         ],
     }
 }
@@ -110,7 +127,7 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for (tab, id, label) in TABS {
-            if widgets::text_button(ui, &t, id, label, chosen == tab).clicked() {
+            if widgets::text_button(ui, &t, id, &tab_label(label), chosen == tab).clicked() {
                 chosen = tab;
             }
         }
@@ -137,7 +154,8 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
             OptionsTab::Shortcuts => shortcuts::body(app, ui),
         }
     });
-    let error = app.state().options.as_ref().and_then(|o| o.error.clone()).unwrap_or_default();
+    // The engine's error, looked up whole by its English (one carrying values stays English).
+    let error = app.state().options.as_ref().and_then(|o| o.error.as_deref().map(crate::i18n::tr)).unwrap_or_default();
     let r = ui.add(egui::Label::new(RichText::new(&error).font(fonts::regular(t.body)).color(t.danger)).truncate());
     if !error.is_empty() {
         widgets::register(ui.ctx(), ERROR_ID, Role::Other, &error, Target::Painted { rect: r.rect, clip: ui.clip_rect() }, false);

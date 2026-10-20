@@ -25,6 +25,7 @@ use super::draft::Draft;
 use super::listing::{self, Listing, Root};
 use super::{State, expand_id, row_id};
 use crate::app::App;
+use crate::tl;
 
 /// The most rows the tree lists, and the deepest it goes.
 const MAX_ROWS: usize = 100_000;
@@ -341,8 +342,8 @@ pub fn show(
                         icons::paint(p, glyph, if *open { Icon::ChevronDown } else { Icon::ChevronRight }, t.icon);
                         // A click expands; the keyboard expands with → and ← on the row.
                         let d = ui.interact(disc, Id::new(expand_id(&row.root, &row.path)), Sense::CLICK);
-                        let label = if *open { "Collapse" } else { "Expand" };
-                        widgets::register(ui.ctx(), &expand_id(&row.root, &row.path), Role::Button, label, Target::Widget(&d), *open);
+                        let label = if *open { tl!("Collapse") } else { tl!("Expand") };
+                        widgets::register(ui.ctx(), &expand_id(&row.root, &row.path), Role::Button, &label, Target::Widget(&d), *open);
                         if d.clicked() {
                             out.toggled = Some(i);
                         }
@@ -387,14 +388,15 @@ pub fn show(
                     let side = t.metrics.icon_menu;
                     let spin = Rect::from_min_size(pos2(x + DISCLOSURE + GAP, rect.center().y - side / 2.0), vec2(side, side));
                     icons::paint_activity(p, spin, t.icon, time);
-                    p.text(pos2(spin.max.x + GAP + 2.0, rect.center().y), Align2::LEFT_CENTER, "Loading…", fonts::regular(t.body), t.text_dim);
-                    widgets::register(ui.ctx(), &row.id(), Role::Other, "Loading…", Target::Painted { rect, clip: ui.clip_rect() }, false);
+                    let loading = tl!("Loading…");
+                    p.text(pos2(spin.max.x + GAP + 2.0, rect.center().y), Align2::LEFT_CENTER, &loading, fonts::regular(t.body), t.text_dim);
+                    widgets::register(ui.ctx(), &row.id(), Role::Other, &loading, Target::Painted { rect, clip: ui.clip_rect() }, false);
                     ui.ctx().request_repaint();
                 }
                 Kind::Failed | Kind::More => {
-                    let text = if row.kind == Kind::Failed { "This folder cannot be read." } else { "More folders are not shown." };
+                    let text = if row.kind == Kind::Failed { tl!("This folder cannot be read.") } else { tl!("More folders are not shown.") };
                     let tx = x + DISCLOSURE + GAP;
-                    let g = one_line(ui, text, fonts::regular(t.body), t.text_dim, rect.max.x - tx - LEFT);
+                    let g = one_line(ui, &text, fonts::regular(t.body), t.text_dim, rect.max.x - tx - LEFT);
                     p.galley(pos2(tx, rect.center().y - g.size().y / 2.0).round(), g, t.text_dim);
                 }
             }

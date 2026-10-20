@@ -24,6 +24,7 @@ use serde_json::{Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::tl;
 
 pub const TITLE: &str = "Remove from Card";
 /// The question.
@@ -56,15 +57,21 @@ pub fn is_open(app: &App) -> bool {
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
     Look {
-        title: TITLE.into(),
+        title: tl!("Remove from Card"),
         width: WIDTH,
-        buttons: vec![Button::new("remove", REMOVE, ButtonKind::Other), Button::new("cancel", KEEP, ButtonKind::Cancel)],
+        buttons: vec![
+            Button::new("remove", tl!("Remove Imported Files"), ButtonKind::Other),
+            Button::new("cancel", tl!("Keep Files"), ButtonKind::Cancel),
+        ],
     }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     let t = *app.tokens();
-    ui.add(Label::new(RichText::new(TEXT).font(fonts::regular(t.body)).color(t.text)).wrap());
+    ui.add(
+        Label::new(RichText::new(tl!("Remove the imported files from the card? This cannot be undone.")).font(fonts::regular(t.body)).color(t.text))
+            .wrap(),
+    );
 }
 
 /// Remove Imported Files: `import.removeFromSource` confirmed, for the last import.

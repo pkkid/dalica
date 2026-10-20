@@ -30,6 +30,7 @@ use egui::{Align, Align2, Area, CornerRadius, Frame, Id, Layout, Margin, RichTex
 
 use crate::app::App;
 use crate::state::ExportProgress;
+use crate::tl;
 
 /// The window's automation id.
 pub const ID: &str = "dialog:exportProgress";
@@ -68,7 +69,7 @@ pub fn window(app: &App, cancelled: Option<JobId>) -> Option<Window> {
     let p = app.state().export_progress.filter(|p| p.shown)?;
     let entry = app.session().and_then(|s| s.job(p.job));
     let cancelling = cancelled == Some(p.job);
-    let line = if cancelling { CANCELLING.to_owned() } else { progress_line(entry.as_ref()) };
+    let line = if cancelling { tl!("Cancelling…") } else { progress_line(entry.as_ref()) };
     let fraction =
         entry.as_ref().and_then(|e| (e.progress.total > 0).then(|| (e.progress.done.min(e.progress.total) as f64 / e.progress.total as f64) as f32));
     Some(Window { job: p.job, line, fraction, cancelling })
@@ -80,7 +81,8 @@ pub fn window(app: &App, cancelled: Option<JobId>) -> Option<Window> {
 pub fn progress_line(entry: Option<&JobEntry>) -> String {
     let label: String = entry.map(|e| e.label.chars().filter(|c| !c.is_control()).take(MAX_LINE).collect()).unwrap_or_default();
     let label = label.trim_end_matches(['…', '.']).trim_end();
-    if label.is_empty() { format!("{TITLE}…") } else { format!("{label}…") }
+    // The engine's label is looked up whole by its English (one carrying values stays English).
+    if label.is_empty() { tl!("Exporting…") } else { tl!(ctx = "in progress", "{label}…", label = crate::i18n::tr(label)) }
 }
 
 /// The line under the title, while the window is shown.
@@ -176,7 +178,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let inner = WIDTH - 2.0 * f32::from(PAD) - 2.0;
                 ui.set_width(inner);
                 ui.spacing_mut().item_spacing = vec2(0.0, 4.0);
-                ui.label(RichText::new(TITLE).font(fonts::semibold(t.title)).color(t.text));
+                ui.label(RichText::new(tl!("Exporting")).font(fonts::semibold(t.title)).color(t.text));
                 ui.label(RichText::new(&w.line).font(fonts::regular(t.body)).color(t.text_label));
                 ui.add_space(GAP - 4.0);
                 let (bar, _) = ui.allocate_exact_size(vec2(inner, BAR_H), Sense::hover());
@@ -192,13 +194,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(GAP);
                 ui.allocate_ui_with_layout(vec2(inner, t.metrics.button_h), Layout::right_to_left(Align::Center), |ui| {
                     ui.add_enabled_ui(!w.cancelling, |ui| {
-                        cancel = widgets::text_button(ui, &t, CANCEL_ID, "Cancel", false).clicked();
+                        cancel = widgets::text_button(ui, &t, CANCEL_ID, &tl!("Cancel"), false).clicked();
                     });
                 });
             })
     });
     let rect = shown.response.rect;
-    widgets::register(ctx, ID, Role::Other, TITLE, Target::Painted { rect, clip: ctx.content_rect() }, false);
+    widgets::register(ctx, ID, Role::Other, &tl!("Exporting"), Target::Painted { rect, clip: ctx.content_rect() }, false);
     if cancel && !w.cancelling {
         if let Some(session) = app.session_mut() {
             // A job that has just ended has nothing left to cancel; the window closes next frame.

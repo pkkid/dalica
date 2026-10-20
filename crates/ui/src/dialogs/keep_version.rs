@@ -21,6 +21,7 @@ use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::commands::compare;
 use crate::state::CompareLayout;
+use crate::tl;
 
 pub const TITLE: &str = "Keep Which Version?";
 /// The question and the line under it.
@@ -39,11 +40,11 @@ pub fn dialog() -> Dialog {
 
 pub fn look(app: &App, _d: &Dialog) -> Look {
     let (left, right) = match app.state().edit.layout {
-        CompareLayout::SideBySide => ("Left", "Right"),
-        CompareLayout::Stacked => ("Top", "Bottom"),
+        CompareLayout::SideBySide => (tl!(ctx = "side", "Left"), tl!(ctx = "side", "Right")),
+        CompareLayout::Stacked => (tl!(ctx = "side", "Top"), tl!(ctx = "side", "Bottom")),
     };
     Look {
-        title: TITLE.into(),
+        title: tl!("Keep Which Version?"),
         width: WIDTH,
         buttons: vec![Button::new("left", left, ButtonKind::Other), Button::new("right", right, ButtonKind::Other), Button::cancel()],
     }
@@ -51,12 +52,19 @@ pub fn look(app: &App, _d: &Dialog) -> Look {
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let t = *app.tokens();
-    ui.add(Label::new(RichText::new(TEXT).font(fonts::semibold(t.body)).color(t.text)).wrap());
+    ui.add(Label::new(RichText::new(tl!("Keep which version?")).font(fonts::semibold(t.body)).color(t.text)).wrap());
     ui.add_space(4.0);
-    ui.add(Label::new(RichText::new(DETAIL).font(fonts::regular(t.body)).color(t.text)).wrap());
+    ui.add(
+        Label::new(
+            RichText::new(tl!("This photo has two different sets of edits. Which one do you want to keep?"))
+                .font(fonts::regular(t.body))
+                .color(t.text),
+        )
+        .wrap(),
+    );
     ui.add_space(10.0);
     let mut ticked = d.fields.get("dontAsk").and_then(Value::as_bool).unwrap_or(false);
-    if widgets::checkbox(ui, &t, DONT_ASK_ID, DONT_ASK, &mut ticked).changed() {
+    if widgets::checkbox(ui, &t, DONT_ASK_ID, &tl!("Don't ask again"), &mut ticked).changed() {
         d.fields.insert("dontAsk".into(), json!(ticked));
     }
 }

@@ -50,6 +50,7 @@ use super::export::cut;
 use super::file_types::{self, Opt, shown};
 use super::general;
 use crate::app::App;
+use crate::tl;
 
 /// The settings keys of the tab.
 pub const ALLOW: &str = "network.allowMapTiles";
@@ -61,9 +62,6 @@ pub const PROXY_HOST: &str = "network.proxyHost";
 pub const PROXY_PORT: &str = "network.proxyPort";
 pub const LOG_LEVEL: &str = "network.logLevel";
 
-/// The form's group labels.
-const MAP: &str = "Map:";
-const PROXY_LABEL: &str = "Proxy:";
 /// What an address the map cannot use says.
 pub const TILE_SERVER_PROBLEM: &str = "The map needs an https:// address with {z}, {x} and {y}.";
 pub const GEOCODER_PROBLEM: &str = "The search needs an https:// address with {query}.";
@@ -123,17 +121,27 @@ fn find<'a>(opts: &'a [Opt], key: &str) -> Option<(usize, &'a Opt)> {
 
 /// The label of the form row of option `key` (its name and a colon).
 fn label(opts: &[Opt], key: &str) -> String {
-    find(opts, key).map_or_else(String::new, |(_, o)| format!("{}:", o.row.label))
+    find(opts, key).map_or_else(String::new, |(_, o)| general::form_label_of(&o.row))
+}
+
+/// A problem of [`template_problem`] in the language in effect.
+fn problem_text(english: &str) -> String {
+    match english {
+        "The map needs an https:// address with {z}, {x} and {y}." => tl!("The map needs an https:// address with {z}, {x} and {y}."),
+        "The search needs an https:// address with {query}." => tl!("The search needs an https:// address with {query}."),
+        other => crate::i18n::tr(other),
+    }
 }
 
 /// Draws the form; returns the values changed this pass, by option.
 fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>) -> Vec<(usize, Value)> {
+    let (map, proxy) = (general::form_label(&tl!(ctx = "options group", "Map")), general::form_label(&tl!(ctx = "options group", "Proxy")));
     let labels = [
-        MAP.to_string(),
+        map.clone(),
         label(opts, TILE_SERVER),
         label(opts, ATTRIBUTION),
         label(opts, GEOCODER),
-        PROXY_LABEL.to_string(),
+        proxy.clone(),
         label(opts, PROXY_HOST),
         label(opts, PROXY_PORT),
         label(opts, LOG_LEVEL),
@@ -142,7 +150,7 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>) -> Ve
     let form = Form::new(ui, t, &labels);
     let mut changes = Vec::new();
     if let Some((i, o)) = find(opts, ALLOW) {
-        form.row(ui, t, MAP, |ui| {
+        form.row(ui, t, &map, |ui| {
             if let Some(v) = file_types::check(ui, t, &o.row, shown(&o.row, draft)) {
                 changes.push((i, v));
             }
@@ -162,10 +170,10 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>) -> Ve
     let manual = find(opts, PROXY).is_some_and(|(_, o)| shown(&o.row, draft).as_str() == Some("manual"));
     if let Some((i, o)) = find(opts, PROXY) {
         form_group(ui, o.row.reason.is_none(), |ui| {
-            form.row(ui, t, PROXY_LABEL, |ui| {
+            form.row(ui, t, &proxy, |ui| {
                 let value = shown(&o.row, draft);
                 for (v, l) in &o.row.choices {
-                    let r = radio(ui, t, &general::item_id(&o.row.key, v), l, v == value);
+                    let r = radio(ui, t, &general::item_id(&o.row.key, v), &general::choice_text(&o.row, v, l), v == value);
                     if r.clicked() && v != value {
                         changes.push((i, v.clone()));
                     }
@@ -214,14 +222,14 @@ fn text(ui: &mut Ui, t: &Tokens, o: &Opt, value: &Value, wide: bool) -> Option<V
     let w = if wide { ui.available_width().max(60.0) } else { ui.available_width().clamp(60.0, 260.0) };
     let available = o.row.reason.is_none();
     let field = form_group(ui, available, |ui| TextField::new(&general::control_id("folder", &o.row.key), "", w).show(ui, t, &mut typed));
-    if let Some(reason) = &o.row.reason {
-        tooltip(field.response, t, reason, None);
+    if let Some(reason) = general::reason_of(&o.row) {
+        tooltip(field.response, t, &reason, None);
     }
     let kept = cut(&typed, max_bytes);
     if let Some(problem) = template_problem(&o.row.key, kept) {
-        ui.label(RichText::new(problem).font(fonts::regular(t.small)).color(t.danger));
+        ui.label(RichText::new(problem_text(problem)).font(fonts::regular(t.small)).color(t.danger));
     } else if !o.row.hint.is_empty() {
-        form_group(ui, available, |ui| hint(ui, t, &o.row.hint));
+        form_group(ui, available, |ui| hint(ui, t, &general::hint_of(&o.row)));
     }
     (kept != before).then(|| json!(kept))
 }
@@ -249,17 +257,17 @@ fn port(ui: &mut Ui, t: &Tokens, o: &Opt, value: &Value) -> Option<Value> {
 /// A dropdown of `o`'s choices showing `value` (disabled with its reason as the tooltip); returns
 /// the choice picked this pass.
 fn choice(ui: &mut Ui, t: &Tokens, o: &Opt, value: &Value) -> Option<Value> {
-    let text = o.row.choices.iter().find(|(v, _)| v == value).map_or_else(|| value.to_string(), |(_, l)| l.clone());
+    let text = o.row.choices.iter().find(|(v, _)| v == value).map_or_else(|| value.to_string(), |(v, l)| general::choice_text(&o.row, v, l));
     let mut picked = None;
     let r = dropdown(ui, t, &general::control_id(&o.row.kind, &o.row.key), &text, |ui| {
         for (v, label) in &o.row.choices {
-            if dropdown_item(ui, t, &general::item_id(&o.row.key, v), label, "", v == value).clicked() {
+            if dropdown_item(ui, t, &general::item_id(&o.row.key, v), &general::choice_text(&o.row, v, label), "", v == value).clicked() {
                 picked = Some(v.clone());
             }
         }
     });
-    if let Some(reason) = &o.row.reason {
-        tooltip(r, t, reason, None);
+    if let Some(reason) = general::reason_of(&o.row) {
+        tooltip(r, t, &reason, None);
     }
     picked.filter(|p| p != value)
 }

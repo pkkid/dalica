@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::tl;
 
 pub const TITLE: &str = "Apply Changes";
 /// The question.
@@ -33,18 +34,22 @@ pub fn dialog() -> Dialog {
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
     Look {
-        title: TITLE.into(),
+        title: tl!("Apply Changes"),
         width: WIDTH,
-        buttons: vec![Button::new("apply", "Apply", ButtonKind::Default), Button::new("discard", "Discard", ButtonKind::Other), Button::cancel()],
+        buttons: vec![
+            Button::new("apply", tl!("Apply"), ButtonKind::Default),
+            Button::new("discard", tl!("Discard"), ButtonKind::Other),
+            Button::cancel(),
+        ],
     }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let t = *app.tokens();
-    ui.add(Label::new(RichText::new(TEXT).font(fonts::regular(t.body)).color(t.text)).wrap());
+    ui.add(Label::new(RichText::new(tl!("Apply changes to the current photo?")).font(fonts::regular(t.body)).color(t.text)).wrap());
     ui.add_space(10.0);
     let mut ticked = d.fields.get("dontAsk").and_then(Value::as_bool).unwrap_or(false);
-    if widgets::checkbox(ui, &t, DONT_ASK_ID, DONT_ASK, &mut ticked).changed() {
+    if widgets::checkbox(ui, &t, DONT_ASK_ID, &tl!("Don't ask again, always apply"), &mut ticked).changed() {
         d.fields.insert("dontAsk".into(), json!(ticked));
     }
 }

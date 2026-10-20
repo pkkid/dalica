@@ -50,6 +50,7 @@ use crate::app::App;
 use crate::dialogs::export::{STOPS, preset};
 use crate::picker::FolderRequest;
 use crate::state::Quality;
+use crate::tl;
 
 /// The tab's groups, in order.
 pub const GROUPS: [&str; 4] = ["Location", "Size and quality", "Privacy", "Watermark"];
@@ -114,8 +115,8 @@ pub fn body(app: &mut App, ui: &mut Ui) {
 
 /// Draws the groups; returns the values changed this pass, by option, and what to ask the app.
 fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_browse: bool) -> (Vec<(usize, Value)>, Option<Ask>) {
-    let group_labels: Vec<String> = GROUPS.iter().map(|g| format!("{g}:")).collect();
-    let row_labels: Vec<String> = opts.iter().filter(|o| o.row.kind != "bool").map(|o| format!("{}:", o.row.label)).collect();
+    let group_labels: Vec<String> = GROUPS.iter().map(|g| general::group_label(g)).collect();
+    let row_labels: Vec<String> = opts.iter().filter(|o| o.row.kind != "bool").map(|o| general::form_label_of(&o.row)).collect();
     let labels: Vec<&str> = group_labels.iter().chain(&row_labels).map(String::as_str).collect();
     let form = Form::new(ui, t, &labels);
     let value_of = |key: &str| opts.iter().find(|o| o.row.key == key).map(|o| shown(&o.row, draft).clone()).unwrap_or(Value::Null);
@@ -136,7 +137,7 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_b
         first = false;
         let checks: Vec<&(usize, &Opt)> = in_group.iter().filter(|(_, o)| o.row.kind == "bool").collect();
         if !checks.is_empty() {
-            form.row(ui, t, &format!("{group}:"), |ui| {
+            form.row(ui, t, &general::group_label(group), |ui| {
                 for &&(i, o) in &checks {
                     if let Some(v) = check(ui, t, &o.row, shown(&o.row, draft)) {
                         changes.push((i, v));
@@ -146,7 +147,7 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_b
         }
         for &(i, o) in in_group.iter().filter(|(_, o)| o.row.kind != "bool") {
             let value = shown(&o.row, draft);
-            let label = format!("{}:", o.row.label);
+            let label = general::form_label_of(&o.row);
             let changed = match o.row.key.as_str() {
                 SIZE => form_group(ui, resize, |ui| form.row(ui, t, &label, |ui| number(ui, t, o, value, &STOPS, true))),
                 CUSTOM => form_group(ui, custom, |ui| form.row(ui, t, &label, |ui| number(ui, t, o, value, &[], true))),
@@ -174,16 +175,16 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_b
 /// Browse…; returns whether Browse… was clicked.
 fn folder(ui: &mut Ui, t: &Tokens, o: &Opt, value: &Value, can_browse: bool) -> bool {
     let mut path = value.as_str().unwrap_or_default().to_string();
-    let placeholder = if o.row.hint.is_empty() { "The default folder" } else { o.row.hint.as_str() };
+    let placeholder = if o.row.hint.is_empty() { tl!("The default folder") } else { general::hint_of(&o.row) };
     let available = o.row.reason.is_none();
     ui.horizontal(|ui| {
         let w = (ui.available_width() - BROWSE_W - ui.spacing().item_spacing.x).max(60.0);
-        let field = form_group(ui, false, |ui| TextField::new(&general::control_id("folder", &o.row.key), placeholder, w).show(ui, t, &mut path));
+        let field = form_group(ui, false, |ui| TextField::new(&general::control_id("folder", &o.row.key), &placeholder, w).show(ui, t, &mut path));
         let browse =
-            form_group(ui, available && can_browse, |ui| text_button(ui, t, &format!("button:option.{}/browse", o.row.key), "Browse…", false));
-        if let Some(reason) = &o.row.reason {
-            tooltip(field.response, t, reason, None);
-            return tooltip(browse, t, reason, None).clicked();
+            form_group(ui, available && can_browse, |ui| text_button(ui, t, &format!("button:option.{}/browse", o.row.key), &tl!("Browse…"), false));
+        if let Some(reason) = general::reason_of(&o.row) {
+            tooltip(field.response, t, &reason, None);
+            return tooltip(browse, t, &reason, None).clicked();
         }
         browse.clicked()
     })
@@ -197,7 +198,7 @@ fn text(ui: &mut Ui, t: &Tokens, o: &Opt, value: &Value, max_bytes: usize) -> Op
     let w = ui.available_width().max(60.0);
     form_group(ui, o.row.reason.is_none(), |ui| TextField::new(&general::control_id("folder", &o.row.key), "", w).show(ui, t, &mut typed));
     if !o.row.hint.is_empty() {
-        hint(ui, t, &o.row.hint);
+        hint(ui, t, &general::hint_of(&o.row));
     }
     let kept = cut(&typed, max_bytes);
     (kept != before).then(|| json!(kept))
@@ -217,12 +218,12 @@ fn quality(ui: &mut Ui, t: &Tokens, o: &Opt, value: &Value) -> Option<Value> {
     let id = general::control_id("choice", &o.row.key);
     let preset_of = |v: &Value| Quality::ALL.into_iter().find(|q| v.as_str() == Some(q.name()));
     let current = preset_of(value);
-    let text = current.map_or_else(|| value.to_string(), |q| preset(q).0.to_string());
+    let text = current.map_or_else(|| value.to_string(), |q| crate::dialogs::export::shown(preset(q).0));
     let mut picked = None;
     dropdown(ui, t, &id, &text, |ui| {
         for (v, label) in &o.row.choices {
-            let description = preset_of(v).map_or("", |q| preset(q).1);
-            if dropdown_item(ui, t, &general::item_id(&o.row.key, v), label, description, v == value).clicked() {
+            let description = preset_of(v).map_or_else(String::new, |q| crate::dialogs::export::shown(preset(q).1));
+            if dropdown_item(ui, t, &general::item_id(&o.row.key, v), &general::choice_text(&o.row, v, label), &description, v == value).clicked() {
                 picked = Some(v.clone());
             }
         }

@@ -19,9 +19,10 @@ use dalica_ui_kit::widgets::{self, ButtonKind, Form, TextField};
 use egui::{Id, Label, RichText, Ui};
 use serde_json::{Map, Value, json};
 
-use super::{Button, Dialog, DialogKind, Look};
+use super::{Button, Dialog, DialogKind, Look, form_label};
 use crate::app::App;
 use crate::state::{FaceRef, MAX_DRAFT};
+use crate::{tl, tln};
 
 pub const TITLE: &str = "New Person";
 pub const IGNORE_TITLE: &str = "Ignore Faces";
@@ -78,19 +79,16 @@ fn faces(d: &Dialog) -> Vec<FaceRef> {
 
 pub fn look(_app: &App, d: &Dialog) -> Look {
     match d.kind {
-        DialogKind::IgnoreFaces => {
-            Look { title: IGNORE_TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new("ignore", "Ignore", ButtonKind::Default)] }
-        }
+        DialogKind::IgnoreFaces => Look {
+            title: tl!("Ignore Faces"),
+            width: WIDTH,
+            buttons: vec![Button::cancel(), Button::new("ignore", tl!(ctx = "verb", "Ignore"), ButtonKind::Default)],
+        },
         _ => {
-            let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(!text(d, "name").trim().is_empty());
-            Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), ok] }
+            let ok = Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(!text(d, "name").trim().is_empty());
+            Look { title: tl!("New Person"), width: WIDTH, buttons: vec![Button::cancel(), ok] }
         }
     }
-}
-
-/// `n faces`, `1 face`.
-fn count(n: usize) -> String {
-    if n == 1 { "1 face".into() } else { format!("{n} faces") }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
@@ -98,13 +96,17 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     match d.kind {
         DialogKind::IgnoreFaces => {
             let n = faces(d).len();
-            ui.add(Label::new(RichText::new(IGNORE_TEXT).font(fonts::regular(t.body)).color(t.text)).wrap());
+            ui.add(Label::new(RichText::new(tl!("Ignore these faces?")).font(fonts::regular(t.body)).color(t.text)).wrap());
             ui.add_space(4.0);
-            let note = format!("{} {IGNORE_NOTE}", count(n));
+            let note = tln!(
+                n,
+                "{n} face They leave Unnamed and are never found again; Show Ignored Faces shows them.",
+                "{n} faces They leave Unnamed and are never found again; Show Ignored Faces shows them."
+            );
             ui.add(Label::new(RichText::new(note).font(fonts::regular(t.small)).color(t.text_dim)).wrap());
             ui.add_space(10.0);
             let mut ticked = d.fields.get("dontAsk").and_then(Value::as_bool).unwrap_or(false);
-            if widgets::checkbox(ui, &t, DONT_ASK_ID, DONT_ASK, &mut ticked).changed() {
+            if widgets::checkbox(ui, &t, DONT_ASK_ID, &tl!("Don't ask again"), &mut ticked).changed() {
                 d.fields.insert("dontAsk".into(), json!(ticked));
             }
         }
@@ -122,9 +124,10 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
             if pass.saturating_sub(first) < 2 {
                 widgets::focus_field(&ctx, NAME_ID);
             }
-            let form = Form::new(ui, &t, &[NAME_LABEL, NICKNAME_LABEL]);
+            let (name, nickname, optional) = (form_label(&tl!("Name")), form_label(&tl!("Nickname")), tl!("Optional"));
+            let form = Form::new(ui, &t, &[&name, &nickname]);
             let width = (ui.available_width() - form.label_w - widgets::FORM_GAP).max(40.0);
-            for (label, key, id, hint) in [(NAME_LABEL, "name", NAME_ID, ""), (NICKNAME_LABEL, "nickname", NICKNAME_ID, OPTIONAL)] {
+            for (label, key, id, hint) in [(&name, "name", NAME_ID, ""), (&nickname, "nickname", NICKNAME_ID, optional.as_str())] {
                 let mut value = text(d, key).to_owned();
                 form.row(ui, &t, label, |ui| TextField::new(id, hint, width).show(ui, &t, &mut value));
                 if let Some((at, _)) = value.char_indices().nth(MAX_DRAFT) {
@@ -135,7 +138,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
             let n = faces(d).len();
             if n > 0 {
                 ui.add_space(2.0);
-                ui.label(RichText::new(format!("Names {}.", count(n))).font(fonts::regular(t.small)).color(t.text_dim));
+                ui.label(RichText::new(tln!(n, "Names {n} face.", "Names {n} faces.")).font(fonts::regular(t.small)).color(t.text_dim));
             }
         }
     }

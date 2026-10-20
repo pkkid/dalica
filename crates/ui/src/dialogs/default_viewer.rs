@@ -21,6 +21,7 @@ use super::options::viewer as part;
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::state::DefaultViewerDraft;
+use crate::tl;
 
 pub const TITLE: &str = "Default Viewer";
 pub const QUESTION: &str = "Use Dalica as the default viewer for these file types:";
@@ -53,9 +54,12 @@ pub fn offer(app: &mut App) -> bool {
 pub fn look(app: &App, _d: &Dialog) -> Look {
     let chosen = app.state().default_viewer.as_ref().is_some_and(|d| !d.types.is_empty());
     Look {
-        title: TITLE.into(),
+        title: tl!("Default Viewer"),
         width: WIDTH,
-        buttons: vec![Button::new("use", "Use Dalica", ButtonKind::Default).enabled(chosen), Button::new("cancel", "Not Now", ButtonKind::Cancel)],
+        buttons: vec![
+            Button::new("use", tl!("Use Dalica"), ButtonKind::Default).enabled(chosen),
+            Button::new("cancel", tl!("Not Now"), ButtonKind::Cancel),
+        ],
     }
 }
 
@@ -63,10 +67,10 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     let listing = part::listing(app, ui.ctx());
     let t = *app.tokens();
     let mut chosen = app.state().default_viewer.as_ref().map(|d| d.types.clone()).unwrap_or_default();
-    super::text_lines(app, ui, &[QUESTION.to_string()]);
+    super::text_lines(app, ui, &[tl!("Use Dalica as the default viewer for these file types:")]);
     ui.add_space(6.0);
     if let Some(reason) = &listing.reason {
-        super::text_lines(app, ui, std::slice::from_ref(reason));
+        super::text_lines(app, ui, &[crate::i18n::tr(reason)]);
     }
     let mut changed = false;
     ui.horizontal_wrapped(|ui| {
@@ -82,7 +86,7 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
         }
     });
     ui.add_space(6.0);
-    super::text_lines(app, ui, &[HINT.to_string()]);
+    super::text_lines(app, ui, &[tl!("You can change this at any time in Tools → Options → Photo Viewer.")]);
     if changed && let Some(d) = app.state_mut().default_viewer.as_mut() {
         d.types = listing.ordered(&chosen);
     }
