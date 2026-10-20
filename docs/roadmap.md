@@ -10766,7 +10766,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: each target builds on stable with cargo-fuzz's coverage flags and runs 3 minutes
     locally with no finding (a finding is fixed with a regression test in its crate); the review's
     Fuzz run lists the two new jobs and the sidecar job's new targets.
-- ⬜ **M15.52 `engine` + manifests: the camera USB transport optional, and fuzz builds without the workaround**
+- ✅ **M15.52 `engine` + manifests: the camera USB transport optional, and fuzz builds without the workaround**
   - after: M14.R, M15.39, M15.19, M15.7, M15.12, M15.17
   - files: `Cargo.toml`, `crates/engine/Cargo.toml`, `crates/engine/src/camera.rs`, `crates/engine/README.md`, `crates/ui/Cargo.toml`, `crates/ui/fuzz/Cargo.toml`, `crates/mcp/Cargo.toml`, `apps/dalica/Cargo.toml`, `apps/dalica-cli/Cargo.toml`, `.github/workflows/fuzz.yml`, `docs/security.md`
   - scope: M15.39 (PR #1061) builds and runs `crates/ui/fuzz` with `--no-cfg-fuzzing`, because

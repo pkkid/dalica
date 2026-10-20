@@ -14,7 +14,8 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-dalica-ui = { path = ".." }
+# Without the camera USB transport: `nusb` does not build under `--cfg fuzzing` (M15.52).
+dalica-ui = { path = "..", default-features = false }
 libfuzzer-sys = "0.4"
 serde_json = "1"
 

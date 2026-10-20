@@ -13,7 +13,8 @@ autotests = false
 
 [dependencies]
 dalica-core.workspace = true
-dalica-engine.workspace = true
+# With the camera USB transport (M15.52).
+dalica-engine = { workspace = true, features = ["camera-usb"] }
 dalica-fs.workspace = true
 # `dalica-cli mcp`: the MCP server over a headless session.
 dalica-mcp.workspace = true

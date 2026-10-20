@@ -19,7 +19,8 @@ heif = ["dep:dalica-image", "dalica-image/heif"]
 dalica-core.workspace = true
 # Only to forward the `heif` feature; the app reaches the decoders through the engine.
 dalica-image = { workspace = true, optional = true }
-dalica-engine.workspace = true
+# With the camera USB transport (M15.52).
+dalica-engine = { workspace = true, features = ["camera-usb"] }
 dalica-fs.workspace = true
 # The file types of the default-viewer calls (`os`, M15.12).
 dalica-scan.workspace = true
