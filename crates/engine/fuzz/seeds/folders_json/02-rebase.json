@@ -1,0 +1,8 @@
+{"version":2,"folders":[
+    {"path":"/p/a","mode":"always","note":"kept"},
+    {"path":"/p/a/b","mode":"remove"},
+    {"path":"/p/a/b/c","faces":true},
+    {"path":"/p/ab","mode":"once"},
+    {"path":"/q","mode":"always"},
+    {"path":"/q/z/a","mode":"once","stale":1},
+    {"path":"/p/a/x","mode":"sometimes"}]}
