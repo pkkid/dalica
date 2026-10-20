@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 
 use dalica_core::{PhotoId, Rect01};
+use dalica_create::collage::page;
 use dalica_edit::crop_geom::MAX_RATIO;
 use dalica_edit::ops::crop::Crop;
 use dalica_edit::ops::straighten::{MAX_DEGREES, Straighten};
@@ -265,18 +266,9 @@ fn straighten_apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 
 // --- ratios ----------------------------------------------------------------------------------
 
-/// The photo sizes of each locale: name, width, height (orientation-free: the Crop tool turns them
-/// to the photo, and Rotate swaps them).
-const US_SIZES: [(&str, f64, f64); 4] = [("4 × 6", 4.0, 6.0), ("5 × 7", 5.0, 7.0), ("8 × 10", 8.0, 10.0), ("8.5 × 11 (Letter)", 8.5, 11.0)];
-const METRIC_SIZES: [(&str, f64, f64); 4] = [("10 × 15", 10.0, 15.0), ("13 × 18", 13.0, 18.0), ("20 × 25", 20.0, 25.0), ("A4", 210.0, 297.0)];
-/// The fixed ratios after the photo sizes.
-const FIXED: [(&str, f64, f64); 5] = [
-    ("Square (1:1)", 1.0, 1.0),
-    ("4:3 (Standard screen)", 4.0, 3.0),
-    ("16:10 (Widescreen)", 16.0, 10.0),
-    ("16:9 (HD video)", 16.0, 9.0),
-    ("5:3 (Photo frame)", 5.0, 3.0),
-];
+// The photo sizes and fixed ratios are the collage's page formats' tables
+// (`create::collage::page`): one list for the Crop tool and the Page format list. Sizes are
+// orientation-free: the Crop tool turns them to the photo, and Rotate swaps them.
 
 fn ratio_json(name: &str, width: f64, height: f64) -> Value {
     json!({ "name": name, "ratio": ratio_text(width, height), "width": width, "height": height })
@@ -287,13 +279,13 @@ fn ratios_json(s: &Session) -> Value {
     let e = s.settings().edit();
     let sizes = e.photo_sizes();
     let table: &[(&str, f64, f64)] = match sizes {
-        PhotoSizes::Us => &US_SIZES,
-        PhotoSizes::Metric => &METRIC_SIZES,
+        PhotoSizes::Us => &page::US_SIZES,
+        PhotoSizes::Metric => &page::METRIC_SIZES,
     };
     json!({
         "photoSizes": sizes.id(),
         "sizes": table.iter().map(|(n, w, h)| ratio_json(n, *w, *h)).collect::<Vec<_>>(),
-        "fixed": FIXED.iter().map(|(n, w, h)| ratio_json(n, *w, *h)).collect::<Vec<_>>(),
+        "fixed": page::FIXED.iter().map(|(n, w, h)| ratio_json(n, *w, *h)).collect::<Vec<_>>(),
         "custom": e.crop_ratios.iter().map(|r| ratio_json(&r.name, r.width, r.height)).collect::<Vec<_>>(),
         "last": e.last_crop_ratio,
     })

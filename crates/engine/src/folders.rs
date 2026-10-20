@@ -262,6 +262,43 @@ impl Folders {
     }
 }
 
+/// `folders.json` as [`Folders::parse`] reads it, laid out for the fuzz target `folders_json`
+/// (`crates/engine/fuzz`, `security.md` §7.1): not an API.
+#[doc(hidden)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParsedFolders {
+    /// The file's version (1 when it names none).
+    pub version: u64,
+    /// Each folder read, once, with its rule, in path order.
+    pub rules: Vec<(PathBuf, Rule)>,
+    /// The units (folders set to Scan Always or Scan Once).
+    pub roots: Vec<PathBuf>,
+    /// Top-level keys this version does not know.
+    pub extra: Map<String, Value>,
+    /// Keys of each entry this version does not know.
+    pub entry_extra: BTreeMap<PathBuf, Map<String, Value>>,
+    /// Entries it could not read, as they were.
+    pub unreadable: Vec<Value>,
+    /// The file as this version writes it back (v2).
+    pub written: Vec<u8>,
+}
+
+/// [`Folders::parse`] for the fuzz target: `None` when the file is refused (and a session keeps it
+/// aside as damaged), else what it read and what it would write back.
+#[doc(hidden)]
+pub fn parse_for_fuzzing(bytes: &[u8]) -> Option<ParsedFolders> {
+    let (f, version) = Folders::parse(bytes)?;
+    Some(ParsedFolders {
+        version,
+        rules: f.rules.iter().map(|(p, r)| (p.to_path_buf(), *r)).collect(),
+        roots: f.roots.clone(),
+        written: f.to_json(),
+        extra: f.extra,
+        entry_extra: f.entry_extra,
+        unreadable: f.unreadable,
+    })
+}
+
 /// One entry of `folders.json`: its folder, rule and unknown keys. In a v1 file every folder is
 /// watched; from v2 on, an entry without a mode only sets the faces flag.
 fn read_entry(entry: &Value, version: u64) -> Option<(PathBuf, Rule, Map<String, Value>)> {
