@@ -10788,7 +10788,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     builds and an engine test under it lists no camera with `usb: false`; the release package
     graph still has `nusb` (`cargo xtask deps` green, `cargo tree` output on the PR); `fuzz.yml`
     has no `--no-cfg-fuzzing`.
-- ⬜ **M15.53 `engine` + `dalica`: the fuzz targets security.md still lacks: `folders.json`, `settings.json` and `auth`**
+- ✅ **M15.53 `engine` + `dalica`: the fuzz targets security.md still lacks: `folders.json`, `settings.json` and `auth`**
   - after: M14.R, M15.39, M15.52, M15.12
   - files: `crates/engine/fuzz/**`, `crates/engine/src/folders.rs`, `apps/dalica/fuzz/**`, `apps/dalica/Cargo.toml`, `apps/dalica/src/lib.rs`, `apps/dalica/src/control/transport.rs`, `.github/workflows/fuzz.yml`, `Cargo.toml`, `docs/security.md`
   - scope: what M15.39 recorded as missing from `security.md` §7.1: (1) `crates/engine/fuzz`, a
