@@ -14,16 +14,16 @@
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::os::native;
-use dalica_engine::os::{DefaultSet, Os, OsError, extensions, mime_types};
+use dalica_engine::os::{DefaultSet, Os, extensions, mime_types};
 use dalica_engine::settings::VIEWER_TYPES;
 use dalica_scan::FileType;
-use native::default_viewer::{self, MEMORY, default_of, desktop_id, set_default};
+use native::default_viewer;
 use native::launch::{Argv, Platform, Runner};
-use native::{Env, Native, desktop};
+use native::{Env, Native};
 
 /// Keeps every vector; `reg add`/`reg delete` succeed, `reg query <key>` answers from `answers`.
 #[derive(Default)]
@@ -57,182 +57,195 @@ fn no_bus() -> native::ShowItems {
     Box::new(|_| Err("no bus in tests".into()))
 }
 
-fn write(path: &Path, bytes: &[u8]) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, bytes).unwrap();
-}
-
-/// Every XDG folder inside `root`.
-fn xdg(root: &Path) -> Env {
-    Env::from_vars([
-        ("HOME", root.join("home").into_os_string()),
-        ("XDG_DATA_HOME", root.join("home/data").into_os_string()),
-        ("XDG_DATA_DIRS", root.join("sys").into_os_string()),
-        ("XDG_CONFIG_HOME", root.join("home/config").into_os_string()),
-        ("XDG_CONFIG_DIRS", root.join("etc").into_os_string()),
-        ("PATH", root.join("bin").into_os_string()),
-    ])
-}
-
 fn packaging(rel: &str) -> String {
     std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging").join(rel)).unwrap()
 }
 
-/// A Linux tree with Dalica's real desktop entry and an image viewer installed.
-fn linux(root: &Path) -> Native {
-    write(&root.join("sys/applications").join(desktop_id()), packaging("linux/org.dalica.Dalica.desktop").as_bytes());
-    write(
-        &root.join("sys/applications/viewer.desktop"),
-        b"[Desktop Entry]\nType=Application\nName=Image Viewer\nIcon=viewer\nExec=viewer %U\nMimeType=image/jpeg;image/png;\n",
-    );
-    write(&root.join("sys/applications/gimp.desktop"), b"[Desktop Entry]\nType=Application\nName=GIMP\nExec=gimp %U\nMimeType=image/jpeg;\n");
-    Native::with(Platform::Linux, xdg(root), Arc::new(Reg::default()), no_bus())
-}
+/// Linux's freedesktop folders are `:`-separated lists of Unix paths: these run where that code
+/// runs (a Windows drive path cannot be one).
+#[cfg(unix)]
+mod freedesktop {
+    use std::path::PathBuf;
 
-fn list_path(root: &Path) -> PathBuf {
-    root.join("home/config/mimeapps.list")
-}
+    use dalica_engine::os::OsError;
 
-fn read(path: &Path) -> String {
-    String::from_utf8(std::fs::read(path).unwrap()).unwrap()
-}
+    use super::*;
+    use crate::os::native::default_viewer::{MEMORY, default_of, desktop_id, set_default};
+    use crate::os::native::desktop;
 
-/// The user's list: comments, blank lines, other groups, an unknown key, CRLF line endings.
-const USERS: &str = "# my associations\r\n[Added Associations]\r\nimage/png=gimp.desktop;\r\n\r\n[Default Applications]\r\n# viewers\r\nimage/jpeg=viewer.desktop;\r\ntext/plain=org.gnome.TextEditor.desktop;\r\nX-Unknown-Key = kept as it is \r\n\r\n[X-Other Group]\r\nimage/jpeg=not-a-default.desktop\r\n";
+    fn write(path: &Path, bytes: &[u8]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
 
-#[test]
-fn mimeapps_list_keeps_every_other_entry_and_dont_use_gives_it_back_byte_for_byte() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
-    let os = linux(root);
-    write(&list_path(root), USERS.as_bytes());
-    let before = os.default_handler(FileType::Jpeg).unwrap().unwrap();
-    assert_eq!((before.id.as_str(), before.name.as_str(), before.icon.as_deref()), ("viewer.desktop", "Image Viewer", Some("viewer")));
+    /// Every XDG folder inside `root`.
+    fn xdg(root: &Path) -> Env {
+        Env::from_vars([
+            ("HOME", root.join("home").into_os_string()),
+            ("XDG_DATA_HOME", root.join("home/data").into_os_string()),
+            ("XDG_DATA_DIRS", root.join("sys").into_os_string()),
+            ("XDG_CONFIG_HOME", root.join("home/config").into_os_string()),
+            ("XDG_CONFIG_DIRS", root.join("etc").into_os_string()),
+            ("PATH", root.join("bin").into_os_string()),
+        ])
+    }
 
-    assert_eq!(os.set_default_viewer(&[FileType::Jpeg, FileType::Png]).unwrap(), DefaultSet::Set);
-    let me = desktop_id();
-    let expected = USERS
-        .replace("image/jpeg=viewer.desktop;\r\n", &format!("image/jpeg={me};\r\n"))
-        .replace("X-Unknown-Key = kept as it is \r\n", &format!("X-Unknown-Key = kept as it is \r\nimage/png={me};\r\n"));
-    assert_eq!(read(&list_path(root)), expected, "only Dalica's two keys changed");
-    let now = os.default_handler(FileType::Jpeg).unwrap().unwrap();
-    assert_eq!((now.id.as_str(), now.name.as_str(), now.icon.as_deref()), (me.as_str(), "Dalica", Some("org.dalica.Dalica")));
-    let memory: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("home/config").join(MEMORY)).unwrap()).unwrap();
-    assert_eq!(memory["replaced"], serde_json::json!({ "image/jpeg": "viewer.desktop;", "image/png": null }));
+    /// A Linux tree with Dalica's real desktop entry and an image viewer installed.
+    fn linux(root: &Path) -> Native {
+        write(&root.join("sys/applications").join(desktop_id()), packaging("linux/org.dalica.Dalica.desktop").as_bytes());
+        write(
+            &root.join("sys/applications/viewer.desktop"),
+            b"[Desktop Entry]\nType=Application\nName=Image Viewer\nIcon=viewer\nExec=viewer %U\nMimeType=image/jpeg;image/png;\n",
+        );
+        write(&root.join("sys/applications/gimp.desktop"), b"[Desktop Entry]\nType=Application\nName=GIMP\nExec=gimp %U\nMimeType=image/jpeg;\n");
+        Native::with(Platform::Linux, xdg(root), Arc::new(Reg::default()), no_bus())
+    }
 
-    // Choosing again keeps what was replaced first; "Don't use" puts the file back as it was.
-    assert_eq!(os.set_default_viewer(&[FileType::Jpeg, FileType::Png]).unwrap(), DefaultSet::Set);
-    assert_eq!(os.set_default_viewer(&[]).unwrap(), DefaultSet::Set);
-    assert_eq!(read(&list_path(root)), USERS, "byte for byte");
-    let memory: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("home/config").join(MEMORY)).unwrap()).unwrap();
-    assert_eq!(memory["replaced"], serde_json::json!({}));
+    fn list_path(root: &Path) -> PathBuf {
+        root.join("home/config/mimeapps.list")
+    }
 
-    // A key the user changed since is theirs: "Don't use" leaves it.
-    os.set_default_viewer(&[FileType::Jpeg]).unwrap();
-    let changed = read(&list_path(root)).replace(&format!("image/jpeg={me};"), "image/jpeg=gimp.desktop;");
-    write(&list_path(root), changed.as_bytes());
-    os.set_default_viewer(&[]).unwrap();
-    assert_eq!(read(&list_path(root)), changed);
-}
+    fn read(path: &Path) -> String {
+        String::from_utf8(std::fs::read(path).unwrap()).unwrap()
+    }
 
-#[test]
-fn a_new_list_gets_a_group_and_a_missing_desktop_entry_says_why() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
-    let os = linux(root);
-    os.set_default_viewer(&[FileType::Gif]).unwrap();
-    assert_eq!(read(&list_path(root)), format!("[Default Applications]\nimage/gif={};\n", desktop_id()));
-    os.set_default_viewer(&[]).unwrap();
-    assert_eq!(read(&list_path(root)), "[Default Applications]\n");
+    /// The user's list: comments, blank lines, other groups, an unknown key, CRLF line endings.
+    const USERS: &str = "# my associations\r\n[Added Associations]\r\nimage/png=gimp.desktop;\r\n\r\n[Default Applications]\r\n# viewers\r\nimage/jpeg=viewer.desktop;\r\ntext/plain=org.gnome.TextEditor.desktop;\r\nX-Unknown-Key = kept as it is \r\n\r\n[X-Other Group]\r\nimage/jpeg=not-a-default.desktop\r\n";
 
-    std::fs::remove_file(root.join("sys/applications").join(desktop_id())).unwrap();
-    let r = os.set_default_viewer(&[FileType::Jpeg]);
-    assert!(matches!(&r, Err(OsError::Unavailable(why)) if why.contains("not installed")), "{r:?}");
-    assert_eq!(read(&list_path(root)), "[Default Applications]\n", "untouched");
-}
+    #[test]
+    fn mimeapps_list_keeps_every_other_entry_and_dont_use_gives_it_back_byte_for_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let os = linux(root);
+        write(&list_path(root), USERS.as_bytes());
+        let before = os.default_handler(FileType::Jpeg).unwrap().unwrap();
+        assert_eq!((before.id.as_str(), before.name.as_str(), before.icon.as_deref()), ("viewer.desktop", "Image Viewer", Some("viewer")));
 
-#[test]
-fn a_damaged_list_is_kept_aside_and_hostile_ones_are_bounded() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
-    let os = linux(root);
-    let config = root.join("home/config");
-    // Not UTF-8: kept aside as it was, a new list holds Dalica's line.
-    let damaged = b"[Default Applications]\nimage/jpeg=\xff\xfe.desktop\n".to_vec();
-    write(&list_path(root), &damaged);
-    os.set_default_viewer(&[FileType::Jpeg]).unwrap();
-    let aside: Vec<PathBuf> = std::fs::read_dir(&config)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("mimeapps.list.corrupt-"))
-        .collect();
-    assert_eq!(aside.len(), 1);
-    assert_eq!(std::fs::read(&aside[0]).unwrap(), damaged);
-    assert_eq!(read(&list_path(root)), format!("[Default Applications]\nimage/jpeg={};\n", desktop_id()));
+        assert_eq!(os.set_default_viewer(&[FileType::Jpeg, FileType::Png]).unwrap(), DefaultSet::Set);
+        let me = desktop_id();
+        let expected = USERS
+            .replace("image/jpeg=viewer.desktop;\r\n", &format!("image/jpeg={me};\r\n"))
+            .replace("X-Unknown-Key = kept as it is \r\n", &format!("X-Unknown-Key = kept as it is \r\nimage/png={me};\r\n"));
+        assert_eq!(read(&list_path(root)), expected, "only Dalica's two keys changed");
+        let now = os.default_handler(FileType::Jpeg).unwrap().unwrap();
+        assert_eq!((now.id.as_str(), now.name.as_str(), now.icon.as_deref()), (me.as_str(), "Dalica", Some("org.dalica.Dalica")));
+        let memory: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("home/config").join(MEMORY)).unwrap()).unwrap();
+        assert_eq!(memory["replaced"], serde_json::json!({ "image/jpeg": "viewer.desktop;", "image/png": null }));
 
-    // Larger than the bound: refused, never cut.
-    let big = format!("[Default Applications]\n{}", "x/y=z.desktop;\n".repeat(desktop::MAX_FILE as usize / 14 + 1));
-    write(&list_path(root), big.as_bytes());
-    assert!(matches!(os.set_default_viewer(&[FileType::Png]), Err(OsError::Failed(_))));
-    assert_eq!(read(&list_path(root)), big);
+        // Choosing again keeps what was replaced first; "Don't use" puts the file back as it was.
+        assert_eq!(os.set_default_viewer(&[FileType::Jpeg, FileType::Png]).unwrap(), DefaultSet::Set);
+        assert_eq!(os.set_default_viewer(&[]).unwrap(), DefaultSet::Set);
+        assert_eq!(read(&list_path(root)), USERS, "byte for byte");
+        let memory: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("home/config").join(MEMORY)).unwrap()).unwrap();
+        assert_eq!(memory["replaced"], serde_json::json!({}));
 
-    // A damaged memory file is kept aside and read as empty.
-    std::fs::remove_file(list_path(root)).unwrap();
-    write(&config.join(MEMORY), b"{not json");
-    os.set_default_viewer(&[FileType::Png]).unwrap();
-    assert!(std::fs::read_dir(config.join("dalica")).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".corrupt-")));
+        // A key the user changed since is theirs: "Don't use" leaves it.
+        os.set_default_viewer(&[FileType::Jpeg]).unwrap();
+        let changed = read(&list_path(root)).replace(&format!("image/jpeg={me};"), "image/jpeg=gimp.desktop;");
+        write(&list_path(root), changed.as_bytes());
+        os.set_default_viewer(&[]).unwrap();
+        assert_eq!(read(&list_path(root)), changed);
+    }
 
-    // A link is never written through.
-    #[cfg(unix)]
-    {
-        let target = root.join("elsewhere.list");
-        write(&target, b"[Default Applications]\n");
+    #[test]
+    fn a_new_list_gets_a_group_and_a_missing_desktop_entry_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let os = linux(root);
+        os.set_default_viewer(&[FileType::Gif]).unwrap();
+        assert_eq!(read(&list_path(root)), format!("[Default Applications]\nimage/gif={};\n", desktop_id()));
+        os.set_default_viewer(&[]).unwrap();
+        assert_eq!(read(&list_path(root)), "[Default Applications]\n");
+
+        std::fs::remove_file(root.join("sys/applications").join(desktop_id())).unwrap();
+        let r = os.set_default_viewer(&[FileType::Jpeg]);
+        assert!(matches!(&r, Err(OsError::Unavailable(why)) if why.contains("not installed")), "{r:?}");
+        assert_eq!(read(&list_path(root)), "[Default Applications]\n", "untouched");
+    }
+
+    #[test]
+    fn a_damaged_list_is_kept_aside_and_hostile_ones_are_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let os = linux(root);
+        let config = root.join("home/config");
+        // Not UTF-8: kept aside as it was, a new list holds Dalica's line.
+        let damaged = b"[Default Applications]\nimage/jpeg=\xff\xfe.desktop\n".to_vec();
+        write(&list_path(root), &damaged);
+        os.set_default_viewer(&[FileType::Jpeg]).unwrap();
+        let aside: Vec<PathBuf> = std::fs::read_dir(&config)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("mimeapps.list.corrupt-"))
+            .collect();
+        assert_eq!(aside.len(), 1);
+        assert_eq!(std::fs::read(&aside[0]).unwrap(), damaged);
+        assert_eq!(read(&list_path(root)), format!("[Default Applications]\nimage/jpeg={};\n", desktop_id()));
+
+        // Larger than the bound: refused, never cut.
+        let big = format!("[Default Applications]\n{}", "x/y=z.desktop;\n".repeat(desktop::MAX_FILE as usize / 14 + 1));
+        write(&list_path(root), big.as_bytes());
+        assert!(matches!(os.set_default_viewer(&[FileType::Png]), Err(OsError::Failed(_))));
+        assert_eq!(read(&list_path(root)), big);
+
+        // A damaged memory file is kept aside and read as empty.
         std::fs::remove_file(list_path(root)).unwrap();
-        std::os::unix::fs::symlink(&target, list_path(root)).unwrap();
-        assert!(matches!(os.set_default_viewer(&[FileType::Bmp]), Err(OsError::Failed(_))));
-        assert_eq!(read(&target), "[Default Applications]\n");
-    }
+        write(&config.join(MEMORY), b"{not json");
+        os.set_default_viewer(&[FileType::Png]).unwrap();
+        assert!(std::fs::read_dir(config.join("dalica")).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".corrupt-")));
 
-    // Hostile texts: the merge never panics, sets the key, and keeps every other line in order.
-    let parts = [
-        "[Default Applications]\n",
-        "[Default Applications",
-        "[X]\n",
-        "image/jpeg=a.desktop;\n",
-        "image/jpeg\n",
-        "=\n",
-        "==;;==\n",
-        "# c\n",
-        "\n",
-        "\r\n",
-        " image/jpeg = b;\n",
-        "é😀=ü\n",
-        "image/jpeg",
-        "[",
-    ];
-    let mut seed: u64 = 0x5eed;
-    for _ in 0..300 {
-        let mut text = String::new();
-        for _ in 0..(seed % 9) {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            text.push_str(parts[(seed >> 33) as usize % parts.len()]);
+        // A link is never written through.
+        #[cfg(unix)]
+        {
+            let target = root.join("elsewhere.list");
+            write(&target, b"[Default Applications]\n");
+            std::fs::remove_file(list_path(root)).unwrap();
+            std::os::unix::fs::symlink(&target, list_path(root)).unwrap();
+            assert!(matches!(os.set_default_viewer(&[FileType::Bmp]), Err(OsError::Failed(_))));
+            assert_eq!(read(&target), "[Default Applications]\n");
         }
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-        let set = set_default(&text, "image/jpeg", Some("dalica.desktop;"));
-        assert_eq!(default_of(&set, "image/jpeg").as_deref(), Some("dalica.desktop;"), "{text:?} → {set:?}");
-        let gone = set_default(&set, "image/jpeg", None);
-        assert_eq!(default_of(&gone, "image/jpeg"), None, "{set:?}");
-        let kept = |t: &str| {
-            t.lines().filter(|l| l.trim_start().split('=').next().map(str::trim) != Some("image/jpeg")).map(str::to_string).collect::<Vec<_>>()
-        };
-        let (a, b) = (kept(&text), kept(&set));
-        assert!(a.iter().all(|l| b.contains(l)), "{text:?} → {set:?}");
+
+        // Hostile texts: the merge never panics, sets the key, and keeps every other line in order.
+        let parts = [
+            "[Default Applications]\n",
+            "[Default Applications",
+            "[X]\n",
+            "image/jpeg=a.desktop;\n",
+            "image/jpeg\n",
+            "=\n",
+            "==;;==\n",
+            "# c\n",
+            "\n",
+            "\r\n",
+            " image/jpeg = b;\n",
+            "é😀=ü\n",
+            "image/jpeg",
+            "[",
+        ];
+        let mut seed: u64 = 0x5eed;
+        for _ in 0..300 {
+            let mut text = String::new();
+            for _ in 0..(seed % 9) {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                text.push_str(parts[(seed >> 33) as usize % parts.len()]);
+            }
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let set = set_default(&text, "image/jpeg", Some("dalica.desktop;"));
+            assert_eq!(default_of(&set, "image/jpeg").as_deref(), Some("dalica.desktop;"), "{text:?} → {set:?}");
+            let gone = set_default(&set, "image/jpeg", None);
+            assert_eq!(default_of(&gone, "image/jpeg"), None, "{set:?}");
+            let kept = |t: &str| {
+                t.lines().filter(|l| l.trim_start().split('=').next().map(str::trim) != Some("image/jpeg")).map(str::to_string).collect::<Vec<_>>()
+            };
+            let (a, b) = (kept(&text), kept(&set));
+            assert!(a.iter().all(|l| b.contains(l)), "{text:?} → {set:?}");
+        }
+        let huge = "x".repeat(100_000);
+        assert_eq!(default_of(&set_default(&huge, "image/png", Some("d;")), "image/png").as_deref(), Some("d;"));
+        assert!(default_viewer::parse_memory(b"[1,2]").is_none());
+        let flood: String = format!("{{\"replaced\":{{{}}}}}", (0..1000).map(|i| format!("\"image/x{i}\":\"v\"")).collect::<Vec<_>>().join(","));
+        assert_eq!(default_viewer::parse_memory(flood.as_bytes()).unwrap().len(), default_viewer::MAX_REMEMBERED);
     }
-    let huge = "x".repeat(100_000);
-    assert_eq!(default_of(&set_default(&huge, "image/png", Some("d;")), "image/png").as_deref(), Some("d;"));
-    assert!(default_viewer::parse_memory(b"[1,2]").is_none());
-    let flood: String = format!("{{\"replaced\":{{{}}}}}", (0..1000).map(|i| format!("\"image/x{i}\":\"v\"")).collect::<Vec<_>>().join(","));
-    assert_eq!(default_viewer::parse_memory(flood.as_bytes()).unwrap().len(), default_viewer::MAX_REMEMBERED);
 }
 
 #[test]
