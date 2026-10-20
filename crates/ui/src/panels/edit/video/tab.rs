@@ -7,10 +7,10 @@
 //! ```
 //!
 //! **Save Frame as Picture** (`button:video.saveFrame`, `player.saveFrame`: the frame shown, as a
-//! JPEG in `Pictures/Dalica/Video Frames`) and **Export Clip** (`button:video.exportClip`,
-//! `player.exportClip`: the trimmed part, where the save picker says) are greyed with what they
-//! wait for until M15.26 makes the player act ([`LATER`]); **Rotate Left** and **Rotate Right**
-//! (`button:video.rotateCcw`, `button:video.rotateCw`) turn the video now: the photo's own
+//! JPEG in `Pictures/Dalica/Video Frames`) is greyed with the reason on a clip Dalica cannot play
+//! (and while it opens); **Export Clip** (`button:video.exportClip`, `player.exportClip`: the
+//! trimmed part, where the save picker says) works on any clip; **Rotate Left** and **Rotate
+//! Right** (`button:video.rotateCcw`, `button:video.rotateCw`) are the photo's own
 //! `photo.rotate.ccw` and `photo.rotate.cw`, one step of its history (a rotation is one of a
 //! video's own edits).
 
@@ -23,7 +23,6 @@ use egui::{Align2, CornerRadius, Id, Rect, Response, Sense, Ui, Vec2, WidgetType
 use serde_json::json;
 
 use crate::app::App;
-use crate::commands::video::LATER;
 
 pub const SAVE_FRAME_ID: &str = "button:video.saveFrame";
 pub const EXPORT_CLIP_ID: &str = "button:video.exportClip";
@@ -34,13 +33,13 @@ pub const ROTATE_CW_ID: &str = "button:video.rotateCw";
 pub const COLUMNS: u8 = 2;
 pub const GAP: f32 = 4.0;
 
-/// The tab's buttons in reading order: id, glyph, the command it runs, and whether it acts now
-/// (else it waits for the player, [`LATER`]); [`texts`] gives each its label and tooltip.
+/// The tab's buttons in reading order: id, glyph, the command it runs, and whether it needs the
+/// pictures (a clip Dalica plays, opened); [`texts`] gives each its label and tooltip.
 pub const BUTTONS: [(&str, Glyph, &str, bool); 4] = [
-    (SAVE_FRAME_ID, Glyph::Video(VideoIcon::SaveFrame), "player.saveFrame", false),
+    (SAVE_FRAME_ID, Glyph::Video(VideoIcon::SaveFrame), "player.saveFrame", true),
     (EXPORT_CLIP_ID, Glyph::Video(VideoIcon::ExportClip), "player.exportClip", false),
-    (ROTATE_CCW_ID, Glyph::Shell(Icon::RotateCcw), "photo.rotate.ccw", true),
-    (ROTATE_CW_ID, Glyph::Shell(Icon::RotateCw), "photo.rotate.cw", true),
+    (ROTATE_CCW_ID, Glyph::Shell(Icon::RotateCcw), "photo.rotate.ccw", false),
+    (ROTATE_CW_ID, Glyph::Shell(Icon::RotateCw), "photo.rotate.cw", false),
 ];
 
 /// The label and the tooltip of the button `id` of [`BUTTONS`], in the language drawn.
@@ -71,18 +70,25 @@ pub fn needed_height() -> f32 {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let Some(photo) = app.state().edit.photo else { return };
+    let player = crate::commands::video::player(app);
+    // Why the frame cannot be saved: the clip's reason, or that it is still opening.
+    let refused = match &player {
+        Some(p) => p.pictures_refused(),
+        None => Some(crate::i18n::tr(dalica_engine::video::OPENING)),
+    };
     let mut clicked = None;
-    for ((id, glyph, command, live), rect) in BUTTONS.iter().zip(layout(&t, ui.max_rect())) {
+    for ((id, glyph, command, needs_pictures), rect) in BUTTONS.iter().zip(layout(&t, ui.max_rect())) {
         let (label, tip) = texts(id);
-        // A button that waits says what for.
-        let tip = if *live { tip } else { crate::i18n::tr(LATER) };
-        if tool_button(ui, &t, id, *glyph, &label, rect, *live, &tip).clicked() {
+        let why = refused.as_ref().filter(|_| *needs_pictures);
+        let live = why.is_none() && (player.is_some() || command.starts_with("photo."));
+        let tip = why.cloned().unwrap_or(tip);
+        if tool_button(ui, &t, id, *glyph, &label, rect, live, &tip).clicked() {
             clicked = Some(*command);
         }
     }
-    if let Some(command) = clicked
-        && let Err(e) = app.run(command, &json!({ "ids": [photo] }))
-    {
+    let Some(command) = clicked else { return };
+    let params = if command.starts_with("photo.") { json!({ "ids": [photo] }) } else { json!({}) };
+    if let Err(e) = app.run(command, &params) {
         app.toast(&e.to_string(), ToastKind::Caution);
     }
 }

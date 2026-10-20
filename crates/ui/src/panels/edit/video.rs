@@ -1,45 +1,60 @@
 //! A video in the edit view (`editing.md` §11, `viewing.md` §4): while the edit view's photo is a
 //! video (`crate::commands::video::shown`), the photo area is the video (`region:video`) with its
-//! control bar along its bottom ([`bar`]: play and pause, the scrubber with the trim ruler's
-//! handles, Set Start, Set End, the volume, Full Screen), and the edit panel shows the video tab
-//! ([`tab`], drawn by `super::panel`) in place of tabs 1–5.
+//! control bar along its bottom ([`bar`]: play and pause, the scrubber with its readout and the
+//! trim ruler's handles, Set Start, Set End, the volume, Full Screen), and the edit panel shows the
+//! video tab ([`tab`], drawn by `super::panel`) in place of tabs 1–5. Full Screen spreads the video
+//! and its bar over the whole window until it is pressed again.
 //!
-//! **The picture.** Until M15.20 makes poster frames, the video is the video tile
-//! (`light_table::cell::video_tile`, `picture:video`) with its sprocket edge, fitted to the area
-//! above the bar with the photo's [`PADDING`] all round, at the size the video shows at (the
-//! container's frame size and rotation, then the recipe's turns; 16:9 while the size is unknown).
-//! **A video Dalica cannot play** (`dalica_engine::video::playable`: every video until M15.15
-//! decodes frames) says so on its tile, "This video can't be played" (`text:video.cannotPlay`),
-//! with **Open With ▸** under it (`button:video.openWith`): the photo menu's Open With rows in a
-//! popup (`photo.openWith` on the video, filled by M15.22), so another application can play it.
+//! **The picture** (`picture:video`), fitted to the area above the bar with the photo's
+//! [`PADDING`] all round at the shape it shows at (the recipe's turns applied): the frame the
+//! engine's player shows (`Session::video_frame`: decoded ahead on the player's worker, never here),
+//! else the poster frame (the video's thumbnail, M15.20), else the video tile
+//! (`light_table::cell::video_tile`) with its sprocket edge at the size the scan learnt (16:9 while
+//! it is unknown). A new frame replaces the one texture's pixels; nothing here reads the disk or
+//! decodes.
 //!
-//! Drawn over the edit view ([`show`], after `super::show`); nothing here reads the disk or
-//! decodes: the facts are the library's.
+//! **A video Dalica cannot play** (`dalica_engine::video::playback`: its codec, or a stream its
+//! decoder refused when the player opened it) says so on its tile, "This video can't be played"
+//! (`text:video.cannotPlay`), with **Open With ▸** under it (`button:video.openWith`): the photo
+//! menu's Open With rows in a popup (`photo.openWith` on the video), so another application can
+//! play it. Its bar keeps what works on the container (the trim ruler, Set Start, Set End) and
+//! greys the rest with the reason.
+//!
+//! Drawn over the edit view ([`show`], after `super::show`); while it plays the window repaints
+//! every frame.
 
 pub mod bar;
 pub mod tab;
 
+use std::sync::{Arc, Weak};
+
 use dalica_core::PhotoId;
+use dalica_edit::Dihedral;
+use dalica_engine::Thumb;
+use dalica_image::Rgba8;
 use dalica_library::Library;
 use dalica_ui_kit::icons::{self, Icon};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Badges, Target};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::containers::menu::menu_style;
+use egui::epaint::Vertex;
 use egui::{
-    Align, CornerRadius, Id, Layout, Popup, PopupKind, Rect, RectAlign, Sense, SetOpenCommand, Stroke, StrokeKind, Ui, UiBuilder, Vec2, pos2, vec2,
+    Align, Color32, CornerRadius, Id, Layout, Mesh, Popup, PopupKind, Rect, RectAlign, Sense, SetOpenCommand, Shape, Stroke, StrokeKind,
+    TextureHandle, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use serde_json::Value;
 
 use crate::app::App;
+use crate::commands::video::Player;
 use crate::menus::{self, Node, Platform};
 use crate::panels::layout;
 use crate::panels::light_table::cell;
-use crate::panels::thumbnails::shape_of;
+use crate::panels::thumbnails::{recipe_orientation, shape_of, turn_point};
 
 /// The video's area, for `ui.screenshot {region: "video"}` and `ui.widgets {region}`.
 pub const REGION_ID: &str = "region:video";
-/// The video's picture (the video tile until its poster frame).
+/// The video's picture (its frame, poster frame or tile).
 pub const PICTURE_ID: &str = "picture:video";
 /// "This video can't be played" on a video Dalica cannot play.
 pub const CANNOT_PLAY_ID: &str = "text:video.cannotPlay";
@@ -49,26 +64,25 @@ pub const OPEN_WITH_ID: &str = "button:video.openWith";
 pub const PADDING: f32 = super::canvas::PADDING;
 /// The shape a video of unknown frame size is drawn at.
 pub const UNKNOWN_SIZE: (u32, u32) = (16, 9);
+/// The long side of the poster frame asked for (the area's, at most).
+const POSTER_SIDE: f32 = 1920.0;
 
 /// `ms` as the player's readout writes a time: `hh:mm:ss`.
 pub fn clock(ms: u64) -> String {
-    let s = ms / 1000;
-    format!("{:02}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
+    dalica_ui_kit::widgets::clock_text(ms)
 }
 
 /// What the edit view shows of video `id`: the size it shows at (the photo's size as the scan
 /// stored it, its container's rotation applied, then turned by the recipe; [`UNKNOWN_SIZE`] when
-/// the scan did not learn it) and why Dalica cannot play it (`None`: it can).
-pub fn look(library: &Library, id: PhotoId) -> ((u32, u32), Option<&'static str>) {
+/// the scan did not learn it) and why Dalica cannot play it from its facts (`None`: it can).
+pub fn look(library: &Library, id: PhotoId) -> ((u32, u32), Option<String>) {
     let size = library.photo(id).map_or((0, 0), |p| {
         let shape = shape_of(&library.info(id).edits, p.width, p.height);
         shape.turn.display_size(p.width, p.height)
     });
     let size = if size.0 == 0 || size.1 == 0 { UNKNOWN_SIZE } else { size };
-    let why = match library.video_facts(id) {
-        Some(facts) => dalica_engine::video::playable(facts).err(),
-        None => Some(dalica_engine::video::CANNOT_PLAY),
-    };
+    let empty = dalica_library::VideoFacts::default();
+    let why = dalica_engine::video::playback(library.video_facts(id).unwrap_or(&empty)).video.err();
     (size, why)
 }
 
@@ -84,28 +98,147 @@ pub fn picture_rect(area: Rect, size: (u32, u32)) -> Rect {
     Rect::from_center_size(boxed.center(), vec2(w * scale, h * scale))
 }
 
+/// What the picture's texture was made from.
+#[derive(Clone)]
+enum Source {
+    Frame(Weak<dalica_image::formats::video::frames::Frame>),
+    Poster(Weak<Rgba8>),
+}
+
+/// The picture's one texture, kept between frames in the context's data.
+#[derive(Clone)]
+struct Picture {
+    photo: PhotoId,
+    source: Source,
+    handle: TextureHandle,
+    /// The upright image's size.
+    size: (u32, u32),
+}
+
+fn picture_id() -> Id {
+    Id::new("video.picture")
+}
+
+/// The image `image` (upright) as a colour image; `opaque` takes its bytes as they are (a video
+/// frame: every alpha 255, so premultiplied and not are the same), else they are premultiplied.
+fn color_image(image: &Rgba8, opaque: bool) -> Option<egui::ColorImage> {
+    let dims = [image.width as usize, image.height as usize];
+    if dims[0] == 0 || dims[1] == 0 || dims[0].saturating_mul(dims[1]).saturating_mul(4) != image.data.len() {
+        return None;
+    }
+    Some(if opaque {
+        egui::ColorImage::from_rgba_premultiplied(dims, &image.data)
+    } else {
+        egui::ColorImage::from_rgba_unmultiplied(dims, &image.data)
+    })
+}
+
+/// The texture to draw for video `photo` this frame: the player's frame, else its poster frame
+/// (uploaded when it changed: a new frame sets the same texture's pixels), else `None` (the tile).
+fn texture(app: &mut App, ctx: &egui::Context, photo: PhotoId, player: Option<&Player>, need: u32) -> Option<Picture> {
+    let kept: Option<Picture> = ctx.data(|d| d.get_temp(picture_id())).filter(|p: &Picture| p.photo == photo);
+    let session = app.session_mut()?;
+    let frame = if player.is_some_and(|p| p.id == Some(photo)) { session.video_frame() } else { None };
+    let (image, source, opaque): (Option<&Rgba8>, Source, bool) = match &frame {
+        Some(f) => {
+            if let Some(k) = &kept
+                && matches!(&k.source, Source::Frame(w) if std::ptr::eq(w.as_ptr(), Arc::as_ptr(f)))
+            {
+                return kept;
+            }
+            (Some(&f.image), Source::Frame(Arc::downgrade(f)), true)
+        }
+        None => match session.thumbnail(photo, need) {
+            Thumb::Image { image, .. } => {
+                if let Some(k) = &kept
+                    && matches!(&k.source, Source::Poster(w) if std::ptr::eq(w.as_ptr(), Arc::as_ptr(&image)))
+                {
+                    return kept;
+                }
+                let picture = upload(ctx, kept, photo, &image, Source::Poster(Arc::downgrade(&image)), false);
+                return picture;
+            }
+            // While a frame or poster was shown, it stays until the next arrives.
+            _ => return kept.filter(|k| matches!(k.source, Source::Frame(_))),
+        },
+    };
+    image.and_then(|image| upload(ctx, kept, photo, image, source, opaque))
+}
+
+/// Puts `image` in the kept texture (its pixels replaced when it is the same size) or a new one.
+fn upload(ctx: &egui::Context, kept: Option<Picture>, photo: PhotoId, image: &Rgba8, source: Source, opaque: bool) -> Option<Picture> {
+    let pixels = color_image(image, opaque)?;
+    let size = (image.width, image.height);
+    let handle = match kept {
+        Some(mut k) => {
+            k.handle.set(pixels, egui::TextureOptions::LINEAR);
+            k.handle
+        }
+        None => ctx.load_texture("video:picture", pixels, egui::TextureOptions::LINEAR),
+    };
+    let picture = Picture { photo, source, handle, size };
+    ctx.data_mut(|d| d.insert_temp(picture_id(), picture.clone()));
+    Some(picture)
+}
+
+/// The upright texture over `rect`, turned by `turn`.
+fn textured(rect: Rect, texture: egui::TextureId, turn: Dihedral) -> Shape {
+    let back = turn.inverse();
+    let mut mesh = Mesh::with_texture(texture);
+    for (x, y) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+        let (u, v) = turn_point(back, x, y);
+        let pos = pos2(rect.left() + rect.width() * x, rect.top() + rect.height() * y);
+        mesh.vertices.push(Vertex { pos, uv: pos2(u, v), color: Color32::WHITE });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    Shape::mesh(mesh)
+}
+
+/// The video's area: the photo area, or the whole window while it fills the screen.
+pub fn area(app: &App, window: Rect) -> Rect {
+    if app.state().video.full_screen { window } else { layout::compute_edit(window, app.state()).canvas }
+}
+
 /// Draws the video over the edit view's photo area while the edit view shows a video; nothing
 /// otherwise.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let Some(photo) = crate::commands::video::shown(app) else { return };
+    let ctx = ui.ctx().clone();
+    let player = crate::commands::video::sync(app, &ctx);
     let t = *app.tokens();
-    let l = layout::compute_edit(ui.max_rect(), app.state());
-    let area = l.canvas;
+    let area = area(app, ui.max_rect());
     if !area.is_positive() {
         return;
     }
+    if app.state().video.full_screen {
+        // Over the whole window: what is under it is not hovered.
+        ui.interact(area, Id::new("video.fullScreen.cover"), Sense::hover());
+    }
     ui.painter().rect_filled(area, 0, t.canvas);
-    widgets::register(ui.ctx(), REGION_ID, Role::Other, "Video", Target::Painted { rect: area, clip: area }, false);
+    widgets::register(&ctx, REGION_ID, Role::Other, "Video", Target::Painted { rect: area, clip: area }, false);
     let bar_h = bar::HEIGHT.min(area.height());
     let video = Rect::from_min_max(area.min, pos2(area.max.x, area.max.y - bar_h));
-    let Some((size, why)) = app.session().map(|s| look(s.library(), photo)) else { return };
+    let Some((size, facts_why)) = app.session().map(|s| look(s.library(), photo)) else { return };
+    let why = player.as_ref().and_then(|p| p.reason.clone()).or(facts_why);
+    let turn = app.session().map_or(Dihedral::IDENTITY, |s| recipe_orientation(&s.library().info(photo).edits));
+    let need = (video.width().max(video.height()) * ctx.pixels_per_point()).clamp(1.0, POSTER_SIDE) as u32;
+    let texture = if why.is_none() { texture(app, &ctx, photo, player.as_ref(), need) } else { None };
+    let size = texture.as_ref().map_or(size, |p| turn.display_size(p.size.0, p.size.1));
     let picture = picture_rect(video, size);
     if picture.is_positive() {
         let painter = ui.painter().with_clip_rect(video.intersect(ui.clip_rect()));
         widgets::photo_shadow(&painter, picture);
-        cell::video_tile(&painter, &t, picture);
-        widgets::badges(&painter, &t, picture, &Badges { video: Some(widgets::Video { seconds: None }), ..Badges::default() });
-        widgets::register(ui.ctx(), PICTURE_ID, Role::Other, "Video", Target::Painted { rect: picture, clip: video }, false);
+        match &texture {
+            Some(p) => {
+                painter.add(textured(picture, p.handle.id(), turn));
+            }
+            None => {
+                cell::video_tile(&painter, &t, picture);
+                widgets::badges(&painter, &t, picture, &Badges { video: Some(widgets::Video { seconds: None }), ..Badges::default() });
+            }
+        }
+        widgets::register(&ctx, PICTURE_ID, Role::Other, "Video", Target::Painted { rect: picture, clip: video }, false);
         if why.is_some() {
             cannot_play(app, ui, &t, picture, video);
         }
@@ -113,7 +246,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let strip = Rect::from_min_max(pos2(area.min.x, area.max.y - bar_h), area.max);
     let mut child = ui.new_child(UiBuilder::new().id_salt("videoBar").max_rect(strip));
     child.set_clip_rect(strip.intersect(ui.clip_rect()));
-    bar::show(app, &mut child);
+    bar::show(app, &mut child, player.as_ref(), why.as_deref());
+    if player.as_ref().is_some_and(|p| p.playing || p.pending) {
+        ctx.request_repaint();
+    }
 }
 
 /// "This video can't be played" under the tile's Play glyph, and Open With ▸ under it, kept inside
