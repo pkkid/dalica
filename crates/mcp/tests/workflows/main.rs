@@ -27,3 +27,4 @@ mod w13_geotags;
 mod w14_people;
 mod w15_collage;
 mod w16_legacy;
+mod w17_video;

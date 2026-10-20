@@ -10485,7 +10485,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     command with a menu row or a key is reached without a pointer, and Tab cycles every dialog's
     controls; `crates/ui/tests/scaling.rs`: at scale 1.5 and the large font nothing in those views
     is clipped at 1400 × 900.
-- ⬜ **M15.30 `mcp` (reserved decision 2): videos over MCP, and the workflow W17**
+- ✅ **M15.30 `mcp` (reserved decision 2): videos over MCP, and the workflow W17**
   - after: M15.25, M14.21, M15.46
   - files: `crates/mcp/tests/workflows/w17_video.rs`, `crates/mcp/tests/workflows/main.rs`, `crates/mcp/src/headless.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
   - scope: `mcp.md` §9: W17 (**video**: `scan_folder` on a folder of two photos and a clip →

@@ -109,7 +109,7 @@ pub(crate) fn tools() -> Vec<Tool> {
         Tool {
             name: "photo_info",
             title: "Photo info",
-            description: "Everything Dalica knows about one photo: path, name, section, file size, dimensions (the file's and as displayed), dates (taken, set by the user, the file's, file modified, digitized), the EXIF summary, star, caption, tags, rotation, the recipe (string and list, and the redo list), albums, geotag ([latitude, longitude] or null: the location set in Dalica, else the file's GPS) and geo (whether it has one), faces ([{id, person, name, rect, displayed, ignored}]: names and rectangles only when the server was started with --automation-allow-people; without it names are null and rectangles left out), hidden, held in the Photo Tray, whether an originals backup is present, unsaved edits, video. Changes nothing.".into(),
+            description: "Everything Dalica knows about one photo: path, name, section, file size, dimensions (the file's and as displayed), dates (taken, set by the user, the file's, file modified, digitized), the EXIF summary, star, caption, tags, rotation, the recipe (string and list, and the redo list), albums, geotag ([latitude, longitude] or null: the location set in Dalica, else the file's GPS) and geo (whether it has one), faces ([{id, person, name, rect, displayed, ignored}]: names and rectangles only when the server was started with --automation-allow-people; without it names are null and rectangles left out), hidden, held in the Photo Tray, whether an originals backup is present, unsaved edits, video, kind (`still` or `video`) and durationMs (a video's length in milliseconds, else null). Changes nothing.".into(),
             input: object(json!({ "id": {"type": "integer", "description": "Photo id"} }), &["id"]),
             output: Some(json!({"type": "object", "properties": {
                 "id": {"type": "integer"}, "path": {"type": "string"}, "recipe": {"type": "object"},
@@ -661,6 +661,8 @@ fn photo_info(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) ->
         "originals": originals,
         "unsavedEdits": unsaved,
         "video": from_row("video"),
+        "kind": info["kind"],
+        "durationMs": info["durationMs"],
         "metadataPending": metadata.get("pending") == Some(&Value::Bool(true)),
     }))
 }
