@@ -14,6 +14,7 @@
 
 use dalica_ui::App;
 use dalica_ui::menus::{self, ItemNode, MenuNode, Node, Platform};
+use dalica_ui::panels::menubar;
 
 /// What a native item does when chosen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,7 +56,9 @@ pub struct NativeMenu {
 
 /// The native bar for the menu model `menus` (built for `Platform::Mac`).
 pub fn native_bar(menus: &[MenuNode]) -> Vec<NativeMenu> {
-    menus.iter().map(|m| NativeMenu { title: m.title.to_string(), items: items(m.key, &m.children) }).collect()
+    // The titles and submenu labels in the language in effect, as the in-window bar draws them (the
+    // model's items carry theirs).
+    menus.iter().map(|m| NativeMenu { title: menubar::menu_title(m.title), items: items(m.key, &m.children) }).collect()
 }
 
 fn items(menu: &str, nodes: &[Node]) -> Vec<NativeItem> {
@@ -63,7 +66,7 @@ fn items(menu: &str, nodes: &[Node]) -> Vec<NativeItem> {
         .iter()
         .map(|n| match n {
             Node::Separator => NativeItem::Separator,
-            Node::Submenu { label, children, .. } => NativeItem::Submenu { label: (*label).to_string(), children: items(menu, children) },
+            Node::Submenu { label, children, .. } => NativeItem::Submenu { label: menubar::submenu_label(label), children: items(menu, children) },
             Node::Item(i) => {
                 let role = match i.id {
                     "app.quit" => Role::Quit,

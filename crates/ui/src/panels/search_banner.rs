@@ -14,29 +14,32 @@ use dalica_ui_kit::widgets;
 use egui::Ui;
 
 use crate::app::App;
-use crate::status_text;
+use crate::{status_text, tl, tln};
 
 /// Automation ids (`control-protocol.md` §7).
 pub const BANNER_ID: &str = "banner:search";
 pub const SHOW_ALL_ID: &str = "button:search.showAll";
 
-/// What the banner says until the first answer of a search arrives.
+/// What the banner says until the first answer of a search arrives (English; [`searching`] in the
+/// language in effect).
 pub const SEARCHING: &str = "Searching…";
 
-/// `n` and the word for one or many: `1 picture`, `33 pictures`.
-fn count(n: usize, one: &str, many: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { many })
+/// What the banner says until the first answer of a search arrives.
+pub fn searching() -> String {
+    tl!("Searching…")
 }
 
 /// The banner's line for a search's numbers: "Showing 33 pictures in 4 folders (0.01 s) ·
 /// 439.8 MB".
 pub fn line(matches: usize, folders: usize, seconds: f64, bytes: u64) -> String {
     let seconds = if seconds.is_finite() { seconds.max(0.0) } else { 0.0 };
-    format!(
-        "Showing {} in {} ({seconds:.2} s) · {}",
-        count(matches, "picture", "pictures"),
-        count(folders, "folder", "folders"),
-        status_text::size(bytes)
+    tln!(
+        matches,
+        "Showing {n} picture in {folders} ({seconds} s) · {size}",
+        "Showing {n} pictures in {folders} ({seconds} s) · {size}",
+        folders = tln!(folders, "{n} folder", "{n} folders"),
+        seconds = crate::i18n::format::decimal(seconds, 2),
+        size = status_text::size(bytes)
     )
 }
 
@@ -45,9 +48,9 @@ pub fn line(matches: usize, folders: usize, seconds: f64, bytes: u64) -> String 
 pub fn text(session: &Session) -> String {
     let s = session.search_state();
     match (s.mode, s.result.as_ref()) {
-        (Some(SearchMode::Duplicates), Some(r)) => dalica_engine::duplicates::banner(r.groups.len(), r.count()),
+        (Some(SearchMode::Duplicates), Some(r)) => crate::panels::light_table::duplicates_banner(r.groups.len(), r.count()),
         (Some(SearchMode::Search), Some(r)) => line(r.count(), r.folders, r.seconds, r.bytes),
-        _ => SEARCHING.to_string(),
+        _ => searching(),
     }
 }
 
@@ -55,8 +58,9 @@ pub fn text(session: &Session) -> String {
 /// People pane filters by).
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
-    let people = crate::commands::people_pane::banner(app);
-    let line = people.unwrap_or_else(|| app.session().map_or_else(|| SEARCHING.to_string(), text));
+    // The People pane's line names people (it is looked up whole, so it stays English).
+    let people = crate::commands::people_pane::banner(app).map(|l| crate::i18n::tr(&l));
+    let line = people.unwrap_or_else(|| app.session().map_or_else(searching, text));
     let out = widgets::filter_banner(ui, &t, BANNER_ID, SHOW_ALL_ID, &line);
     if out.show_all.clicked() {
         // Leaves search mode and drops the People pane's selection with it.

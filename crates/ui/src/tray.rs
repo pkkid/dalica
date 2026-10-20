@@ -22,6 +22,7 @@ use dalica_core::PhotoId;
 use egui::{Rect, Vec2, pos2, vec2};
 
 use crate::state::{Section, UiState};
+use crate::tln;
 
 /// The automation ids of the token, of a mini thumbnail (`tray:item:<PhotoId>`) and of the
 /// overflow count (`control-protocol.md` §7).
@@ -142,12 +143,10 @@ pub fn token(state: &UiState) -> Option<Section> {
 
 /// The token's pill: "Folder selected — 48 photos" (one photo: "1 photo").
 pub fn token_label(section: Section, count: usize) -> String {
-    let kind = match section {
-        Section::Folder(_) => "Folder",
-        Section::Album(_) => "Album",
-    };
-    let noun = if count == 1 { "photo" } else { "photos" };
-    format!("{kind} selected — {count} {noun}")
+    match section {
+        Section::Folder(_) => tln!(count, "Folder selected — {n} photo", "Folder selected — {n} photos"),
+        Section::Album(_) => tln!(count, "Album selected — {n} photo", "Album selected — {n} photos"),
+    }
 }
 
 /// How many photos the tray holds: the held ones and the selection's, each once. The shorter list

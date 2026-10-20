@@ -40,8 +40,9 @@ use serde_json::json;
 use super::Frame;
 use super::header::PADDING;
 use crate::app::App;
+use crate::tl;
 
-/// What the banner says.
+/// What the banner says, in English (drawn through the catalogs).
 pub const TITLE: &str = "This folder's data file was damaged and kept aside.";
 pub const DETAIL: &str = "Nothing is written here until you reset it or restore the file.";
 /// Its button's label.
@@ -99,21 +100,26 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, folder: FolderId, block: Rect, visible_t
     p.rect_filled(r, CornerRadius::same(t.radius), t.filter_banner);
     p.rect_filled(Rect::from_min_size(r.min, vec2(BAR_W, r.height())), CornerRadius::ZERO, t.caution);
     // The button first, at the right, so the text knows how much room it has.
-    let label_w = ui.painter().layout_no_wrap(RESET_LABEL.to_owned(), fonts::semibold(t.button_label), t.text).size().x;
+    let (reset, title, detail) = (
+        tl!("Reset folder data"),
+        tl!("This folder's data file was damaged and kept aside."),
+        tl!("Nothing is written here until you reset it or restore the file."),
+    );
+    let label_w = ui.painter().layout_no_wrap(reset.clone(), fonts::semibold(t.button_label), t.text).size().x;
     let button_w = (label_w + 18.0).max(37.0).round();
     let slot =
         Rect::from_min_size(pos2(r.max.x - PAD - button_w, r.center().y - t.metrics.button_h / 2.0).round(), vec2(button_w, t.metrics.button_h));
     let clicked = ui
         .scope_builder(UiBuilder::new().max_rect(slot).layout(egui::Layout::left_to_right(Align::Center)), |ui| {
-            widgets::text_button(ui, t, &button_id(folder), RESET_LABEL, false).on_hover_text("Write a new data file for this folder")
+            widgets::text_button(ui, t, &button_id(folder), &reset, false).on_hover_text(tl!("Write a new data file for this folder"))
         })
         .inner
         .clicked();
     let left = r.min.x + BAR_W + PAD;
     let width = slot.min.x - GAP - left;
     if width >= 1.0 {
-        let title = line(ui, t, TITLE, t.text, width);
-        let detail = line(ui, t, DETAIL, t.text_dim, width);
+        let title = line(ui, t, &title, t.text, width);
+        let detail = line(ui, t, &detail, t.text_dim, width);
         let h = title.size().y + 2.0 + detail.size().y;
         let y = (r.center().y - h / 2.0).round();
         let detail_y = y + title.size().y + 2.0;
@@ -121,7 +127,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, folder: FolderId, block: Rect, visible_t
         p.galley(pos2(left, y), title, t.text);
         p.galley(pos2(left, detail_y), detail, t.text_dim);
     }
-    widgets::register(ui.ctx(), &banner_id(folder), Role::Other, TITLE, Target::Painted { rect: r, clip: ui.clip_rect() }, false);
+    widgets::register(ui.ctx(), &banner_id(folder), Role::Other, &title, Target::Painted { rect: r, clip: ui.clip_rect() }, false);
     BannerOut { reset: clicked.then_some(folder) }
 }
 

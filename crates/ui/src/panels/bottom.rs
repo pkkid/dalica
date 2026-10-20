@@ -40,6 +40,7 @@ use crate::app::App;
 use crate::commands::edit_view::open_photo;
 use crate::commands::zoom as zoom_maths;
 use crate::state::{Pane, THUMB_MAX, THUMB_MIN, UiState};
+use crate::tl;
 
 pub mod tray;
 
@@ -92,6 +93,29 @@ pub const ACTIONS: [(&str, Icon, &str, &str); 3] = [
     ("action:collage", Icon::Collage, "Collage", COLLAGE),
     ("action:slideshow", Icon::Slideshow, "Slideshow", "view.slideshow"),
 ];
+
+/// A label or tooltip of the tables above, in the language in effect (the tables keep the English,
+/// which the catalogs key on).
+fn text(english: &str) -> String {
+    match english {
+        "Keep these photos in the tray" => tl!("Keep these photos in the tray"),
+        "Remove photos from the tray" => tl!("Remove photos from the tray"),
+        "Add these photos to an album" => tl!("Add these photos to an album"),
+        "Rotate counterclockwise" => tl!("Rotate counterclockwise"),
+        "Rotate clockwise" => tl!("Rotate clockwise"),
+        "Show/hide the People pane" => tl!("Show/hide the People pane"),
+        "Show/hide the Places pane" => tl!("Show/hide the Places pane"),
+        "Show/hide the Tags pane" => tl!("Show/hide the Tags pane"),
+        "Show/hide the Properties pane" => tl!("Show/hide the Properties pane"),
+        "Export" => tl!(ctx = "action", "Export"),
+        "Collage" => tl!(ctx = "action", "Collage"),
+        "Slideshow" => tl!(ctx = "action", "Slideshow"),
+        "Fit" => tl!(ctx = "zoom", "Fit"),
+        "Fit the photo to the window" => tl!("Fit the photo to the window"),
+        "Show the photo at actual size" => tl!("Show the photo at actual size"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// The command of the action button Collage: the engine's Create ▸ Picture Collage… on the tray.
 pub const COLLAGE: &str = "create.collage";
@@ -202,7 +226,7 @@ fn tray_buttons(app: &mut App, ui: &mut Ui, p: &Parts) {
     for (i, (id, icon, tooltip)) in TRAY_BUTTONS.into_iter().enumerate() {
         let rect = Rect::from_min_size(pos2(p.tray_buttons.min.x, y), size);
         let on = enabled.get(i).copied().unwrap_or(false);
-        if at(ui, id, rect, |ui| plate(ui, &t, id, icon, tooltip, size, on)) {
+        if at(ui, id, rect, |ui| plate(ui, &t, id, icon, &text(tooltip), size, on)) {
             clicked = Some(id);
         }
         if id == "button:tray.addToAlbum" {
@@ -271,7 +295,7 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     for (id, icon, tooltip, command) in ROTATE {
         x += star.x + GAP;
         let enabled = any && ready(app, command);
-        if at(ui, id, Rect::from_min_size(pos2(x, y), star), |ui| plate(ui, &t, id, icon, tooltip, star, enabled)) {
+        if at(ui, id, Rect::from_min_size(pos2(x, y), star), |ui| plate(ui, &t, id, icon, &text(tooltip), star, enabled)) {
             run(app, command);
         }
     }
@@ -281,7 +305,9 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     let toggles_x = row.max.x - PAD - toggles_w;
     let open = app.state().pane;
     let active = PANE_TOGGLES.iter().position(|(_, _, _, pane)| Some(*pane) == open);
-    let segments = PANE_TOGGLES.map(|(id, icon, tooltip, _)| Segment { id, label: SegmentLabel::Icon(icon), tooltip });
+    let tips = PANE_TOGGLES.map(|(_, _, tooltip, _)| text(tooltip));
+    let segments: Vec<Segment<'_>> =
+        PANE_TOGGLES.iter().zip(&tips).map(|(&(id, icon, _, _), tooltip)| Segment { id, label: SegmentLabel::Icon(icon), tooltip }).collect();
     let rect = Rect::from_min_size(pos2(toggles_x, (row.center().y - PANE_TOGGLE.y / 2.0).round()), vec2(toggles_w, PANE_TOGGLE.y));
     if let Some(i) = at(ui, "panes", rect, |ui| widgets::segmented(ui, &t, &segments, active, PANE_TOGGLE))
         && let Some(&(_, _, _, pane)) = PANE_TOGGLES.get(i)
@@ -303,7 +329,7 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     let rect = Rect::from_min_size(pos2(slider_x, (row.center().y - slider.y / 2.0).round()), slider);
     let mut size = app.state().thumb_size;
     let changed = at(ui, "thumbSize", rect, |ui| {
-        widgets::zoom_slider(ui, &st, "slider:thumbSize", &mut size, THUMB_MIN..=THUMB_MAX, "Thumbnail size").changed()
+        widgets::zoom_slider(ui, &st, "slider:thumbSize", &mut size, THUMB_MIN..=THUMB_MAX, &tl!("Thumbnail size")).changed()
     });
     if changed && size.is_finite() {
         app.state_mut().thumb_size = size.round().clamp(THUMB_MIN, THUMB_MAX);
@@ -311,7 +337,9 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
 
     // The loupe: drag it onto a photo to magnify (the light table's loupe, M4).
     let rect = Rect::from_min_size(pos2(slider_x - TOOL_GAP - LOUPE, (row.center().y - LOUPE / 2.0).round()), Vec2::splat(LOUPE));
-    at(ui, "loupe", rect, |ui| widgets::icon_button(ui, &t, "button:loupe", Icon::Loupe, LOUPE, false, false, "Drag onto a photo to magnify it"));
+    at(ui, "loupe", rect, |ui| {
+        widgets::icon_button(ui, &t, "button:loupe", Icon::Loupe, LOUPE, false, false, &tl!("Drag onto a photo to magnify it"))
+    });
 }
 
 /// The edit view's zoom controls left of the pane toggles (whose left edge is `right`): Fit │ 1:1
@@ -323,12 +351,14 @@ fn zoom_controls(app: &mut App, ui: &mut Ui, t: &Tokens, row: Rect, right: f32) 
     let zoom = app.state().edit.zoom;
     let mut v = zoom_maths::slider_at(zoom_maths::effective(zoom, fit), fit);
     let rect = Rect::from_min_size(pos2(slider_x, (row.center().y - slider.y / 2.0).round()), slider);
-    let changed = at(ui, ZOOM_SLIDER, rect, |ui| widgets::zoom_slider(ui, t, ZOOM_SLIDER, &mut v, 0.0..=1.0, "Zoom").changed());
+    let changed = at(ui, ZOOM_SLIDER, rect, |ui| widgets::zoom_slider(ui, t, ZOOM_SLIDER, &mut v, 0.0..=1.0, &tl!("Zoom")).changed());
     if changed && v.is_finite() {
         let _ = app.run("edit.zoom.set", &json!({ "slider": v.clamp(0.0, 1.0) }));
     }
 
-    let segments = ZOOM_BUTTONS.map(|(id, label, tooltip, _)| Segment { id, label: SegmentLabel::Text(label), tooltip });
+    let texts = ZOOM_BUTTONS.map(|(_, label, tooltip, _)| (text(label), text(tooltip)));
+    let segments: Vec<Segment<'_>> =
+        ZOOM_BUTTONS.iter().zip(&texts).map(|(&(id, ..), (label, tooltip))| Segment { id, label: SegmentLabel::Text(label), tooltip }).collect();
     let width = ZOOM_BUTTON.x * ZOOM_BUTTONS.len() as f32;
     let rect = Rect::from_min_size(pos2(slider_x - TOOL_GAP - width, (row.center().y - ZOOM_BUTTON.y / 2.0).round()), vec2(width, ZOOM_BUTTON.y));
     let active = if !zoom_maths::is_zoomed(zoom, fit) {
@@ -361,13 +391,13 @@ fn actions(app: &mut App, ui: &mut Ui, row: Rect, width: f32) {
     if overflows(width) {
         let open = Popup::is_id_open(ui.ctx(), Id::new(MORE).with("popup"));
         at(ui, MORE, Rect::from_min_size(pos2(x, top), size), |ui| {
-            let r = widgets::action_button(ui, &t, MORE, Icon::More, "More…", open, true).on_hover_text("More actions");
+            let r = widgets::action_button(ui, &t, MORE, Icon::More, &tl!("More…"), open, true).on_hover_text(tl!("More actions"));
             Popup::menu(&r).align(RectAlign::TOP_START).show(|ui| clicked = more_menu(ui, &t, &enabled));
         });
     } else {
         for (i, (id, icon, label, command)) in ACTIONS.into_iter().enumerate() {
             let on = enabled.get(i).copied().unwrap_or(false);
-            if at(ui, id, Rect::from_min_size(pos2(x, top), size), |ui| widgets::action_button(ui, &t, id, icon, label, false, on).clicked()) {
+            if at(ui, id, Rect::from_min_size(pos2(x, top), size), |ui| widgets::action_button(ui, &t, id, icon, &text(label), false, on).clicked()) {
                 clicked = Some(command);
             }
             x += size.x;
@@ -406,10 +436,11 @@ fn more_menu(ui: &mut Ui, t: &Tokens, enabled: &[bool; 3]) -> Option<&'static st
     let mut clicked = None;
     for (i, (id, icon, label, command)) in ACTIONS.into_iter().enumerate() {
         let on = enabled.get(i).copied().unwrap_or(false);
-        let r = ui.add_enabled(on, egui::Button::new(label));
+        let label = text(label);
+        let r = ui.add_enabled(on, egui::Button::new(&label));
         let glyph = Rect::from_center_size(pos2(r.rect.min.x + MENU_GUTTER / 2.0, r.rect.center().y), Vec2::splat(t.metrics.icon_menu));
         icons::paint(ui.painter(), glyph, icon, if on { t.icon } else { t.text_disabled });
-        widgets::register(ui.ctx(), id, Role::MenuItem, label, Target::Widget(&r), false);
+        widgets::register(ui.ctx(), id, Role::MenuItem, &label, Target::Widget(&r), false);
         if r.clicked() {
             clicked = Some(command);
             ui.close();

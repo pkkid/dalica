@@ -14,6 +14,7 @@ use serde_json::json;
 use super::{model, pictures};
 use crate::app::App;
 use crate::state::{FaceRef, View};
+use crate::tl;
 
 /// The block's caption.
 pub const TITLE: &str = "Suggestions";
@@ -42,7 +43,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     let t = *app.tokens();
     ui.add_space(GAP);
-    ui.label(RichText::new(format!("{TITLE}:")).font(fonts::regular(t.body)).color(t.text_label));
+    ui.label(RichText::new(tl!(ctx = "form label", "{label}:", label = tl!("Suggestions"))).font(fonts::regular(t.body)).color(t.text_label));
     ui.add_space(4.0);
     let mut ask = None;
     for (face, rect, name) in rows {
@@ -68,7 +69,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let marks_at = Rect::from_min_size(pos2(row.max.x - 4.0 - marks.x, row.center().y - SUGGEST_MARK / 2.0), marks);
         let text = Rect::from_min_max(pos2(at.max.x + 8.0, row.min.y), pos2(marks_at.min.x - 6.0, row.max.y));
         if text.width() > 0.0 {
-            let mut job = egui::text::LayoutJob::simple_singleline(format!("{name}?"), fonts::regular(t.body), t.text_dim);
+            let mut job =
+                egui::text::LayoutJob::simple_singleline(tl!(ctx = "suggestion", "{name}?", name = name), fonts::regular(t.body), t.text_dim);
             job.wrap = egui::text::TextWrapping::truncate_at_width(text.width());
             let g = ui.painter().layout_job(job);
             ui.painter().galley(Align2::LEFT_CENTER.align_size_within_rect(g.size(), text).min.round(), g, t.text_dim);

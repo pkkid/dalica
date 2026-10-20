@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use crate::app::App;
 use crate::menu_catalog::Mark;
 use crate::menus::{self, ItemNode, Node, Platform};
+use crate::tl;
 
 /// The submenu the people are listed in.
 pub const MOVE_TO_PERSON: &str = "Move to Person";
@@ -44,7 +45,7 @@ pub fn finish(app: &App, nodes: &mut [Node]) {
             let ready = crate::commands::enabled(app, "faces.moveToPerson", &Value::Null);
             let people = people_by_name(app);
             *children = if people.is_empty() {
-                vec![row("none", NO_PEOPLE.into(), Value::Null, Err("Name a face first: a person is made when you type a name.".into()))]
+                vec![row("none", tl!("No people yet"), Value::Null, Err(tl!("Name a face first: a person is made when you type a name.")))]
             } else {
                 people.into_iter().map(|(id, name)| row(id.as_str(), name, json!({ "person": id }), ready.clone())).collect()
             };

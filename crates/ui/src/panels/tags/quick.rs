@@ -29,6 +29,7 @@ use egui::{CornerRadius, Id, Rect, Response, Sense, Stroke, StrokeKind, Ui, Widg
 use serde_json::json;
 
 use crate::app::App;
+use crate::tl;
 
 pub const CONFIGURE_ID: &str = "button:quicktags.configure";
 /// The buttons per row, top to bottom.
@@ -88,9 +89,9 @@ fn tooltip(app: &App, n: usize, tag: Option<&str>) -> String {
         if Platform::current() == Platform::Mac { k.replace("Ctrl+", "Cmd+") } else { k }
     });
     match (tag, key) {
-        (Some(tag), Some(key)) => format!("Add or remove “{tag}” on the selected photos ({key})"),
-        (Some(tag), None) => format!("Add or remove “{tag}” on the selected photos"),
-        (None, _) => format!("Quick tag {n} has no tag: click to choose quick tags"),
+        (Some(tag), Some(key)) => tl!("Add or remove “{tag}” on the selected photos ({key})", tag = tag, key = key),
+        (Some(tag), None) => tl!("Add or remove “{tag}” on the selected photos", tag = tag),
+        (None, _) => tl!("Quick tag {n} has no tag: click to choose quick tags", n = n),
     }
 }
 
@@ -131,9 +132,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let gear = ui
         .horizontal(|ui| {
-            super::caption(app, ui, "Quick tags");
+            super::caption(app, ui, &tl!("Quick tags"));
             ui.add_space((ui.available_width() - GEAR).max(0.0));
-            widgets::icon_button(ui, &t, CONFIGURE_ID, Icon::More, GEAR, false, true, "Configure Quick Tags")
+            widgets::icon_button(ui, &t, CONFIGURE_ID, Icon::More, GEAR, false, true, &tl!("Configure Quick Tags"))
         })
         .inner;
     if gear.clicked() {

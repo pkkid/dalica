@@ -25,10 +25,16 @@ use dalica_library::{Library, Photo};
 
 use crate::panels::light_table::long_date;
 use crate::state::UiState;
-use crate::tray;
+use crate::{tl, tln, tray};
+
+/// The text shown when nothing is selected, in English ([`no_selection`] in the language in
+/// effect).
+pub const NO_SELECTION: &str = "No selection";
 
 /// The text shown when nothing is selected.
-pub const NO_SELECTION: &str = "No selection";
+pub fn no_selection() -> String {
+    tl!("No selection")
+}
 /// How long a transient message replaces the text (seconds).
 pub const MESSAGE_SECONDS: f64 = 4.0;
 /// The space between two fields.
@@ -163,26 +169,32 @@ pub fn elide_end(s: &str, max: f32, width: impl Fn(&str) -> f32) -> String {
     cut(lo)
 }
 
-/// `3.1 MB`: bytes in decimal units with one decimal (below 1 KB, whole bytes).
+/// `3.1 MB`: bytes in decimal units with one decimal (below 1 KB, whole bytes), in the language in
+/// effect ([`crate::i18n::format::file_size`]).
 pub fn size(bytes: u64) -> String {
-    const UNITS: [(f64, &str); 4] = [(1e12, "TB"), (1e9, "GB"), (1e6, "MB"), (1e3, "KB")];
-    let b = bytes as f64;
-    match UNITS.iter().find(|(scale, _)| b >= *scale) {
-        Some((scale, unit)) => format!("{:.1} {unit}", b / scale),
-        None if bytes == 1 => "1 byte".to_string(),
-        None => format!("{bytes} bytes"),
+    crate::i18n::format::file_size(bytes)
+}
+
+/// `7:42 PM`, or `7:42:05 PM` with `seconds`: a time of day on the twelve-hour clock.
+pub fn clock(d: DateTime, seconds: bool) -> String {
+    let (hour, pm) = match d.hour() {
+        0 => (12, false),
+        h @ 1..=11 => (h, false),
+        12 => (12, true),
+        h => (h.saturating_sub(12), true),
+    };
+    let (minute, second) = (format!("{:02}", d.minute()), format!("{:02}", d.second()));
+    match (seconds, pm) {
+        (false, false) => tl!(ctx = "time", "{hour}:{minute} AM", hour = hour, minute = minute),
+        (false, true) => tl!(ctx = "time", "{hour}:{minute} PM", hour = hour, minute = minute),
+        (true, false) => tl!(ctx = "time", "{hour}:{minute}:{second} AM", hour = hour, minute = minute, second = second),
+        (true, true) => tl!(ctx = "time", "{hour}:{minute}:{second} PM", hour = hour, minute = minute, second = second),
     }
 }
 
 /// `June 4, 2026 7:42 PM`.
 pub fn date_time(d: DateTime) -> String {
-    let (hour, half) = match d.hour() {
-        0 => (12, "AM"),
-        h @ 1..=11 => (h, "AM"),
-        12 => (12, "PM"),
-        h => (h.saturating_sub(12), "PM"),
-    };
-    format!("{} {hour}:{:02} {half}", long_date(d.date()), d.minute())
+    tl!(ctx = "date", "{date} {time}", date = long_date(d.date()), time = clock(d, false))
 }
 
 /// `June 4, 2026 to June 6, 2026`, or one date when they all fall on the same day; `None` when no
@@ -192,7 +204,7 @@ pub fn date_range(dates: impl IntoIterator<Item = Date>) -> Option<String> {
         .into_iter()
         .fold((None, None), |(lo, hi): (Option<Date>, Option<Date>), d| (Some(lo.map_or(d, |l| l.min(d))), Some(hi.map_or(d, |h| h.max(d)))));
     match (first, last) {
-        (Some(a), Some(b)) if a != b => Some(format!("{} to {}", long_date(a), long_date(b))),
+        (Some(a), Some(b)) if a != b => Some(tl!(ctx = "date", "{first} to {last}", first = long_date(a), last = long_date(b))),
         (Some(a), _) => Some(long_date(a)),
         _ => None,
     }
@@ -205,34 +217,26 @@ pub fn pixels(width: u32, height: u32) -> Option<String> {
 
 /// `48 pictures`, `1 picture`.
 pub fn pictures(n: usize) -> String {
-    if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") }
+    tln!(n, "{n} picture", "{n} pictures")
 }
 
-/// `1,204`: a count with its thousands grouped by commas.
+/// `1,204`: a count with its thousands grouped as the language groups them
+/// ([`crate::i18n::format::number`]).
 pub fn grouped(n: usize) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    crate::i18n::format::number(u64::try_from(n).unwrap_or(u64::MAX))
 }
 
 /// `Scanning: 1,204 pictures found` (`organizing.md` §1): the status line's field while a scan
 /// runs, `found` the photos its walks have listed so far.
 pub fn scanning(found: usize) -> String {
-    let noun = if found == 1 { "picture" } else { "pictures" };
-    format!("Scanning: {} {noun} found", grouped(found))
+    tln!(found, "Scanning: {n} picture found", "Scanning: {n} pictures found")
 }
 
 /// `Exporting 12 of 48` (`creating.md` §2): the status line's field while an export runs, `done`
 /// of its `total` photos (never more than the total).
 pub fn exporting(done: u64, total: u64) -> String {
     let as_count = |n: u64| grouped(usize::try_from(n).unwrap_or(usize::MAX));
-    format!("Exporting {} of {}", as_count(done.min(total)), as_count(total))
+    tl!("Exporting {done} of {total}", done = as_count(done.min(total)), total = as_count(total))
 }
 
 /// `line` with the background work's fields `activity` (most kept first: the export's, then the
@@ -242,7 +246,7 @@ pub fn with_activity(mut line: Line, activity: Vec<String>) -> Line {
     if activity.is_empty() {
         return line;
     }
-    if line == Line::plain(NO_SELECTION) {
+    if line == Line::plain(no_selection()) {
         // The first field stands as the line's own, so a line too narrow even for it loses its end.
         let mut fields = activity.into_iter();
         return Line { rest: fields.next().into_iter().collect(), activity: fields.collect(), ..Line::default() };
@@ -253,7 +257,7 @@ pub fn with_activity(mut line: Line, activity: Vec<String>) -> Line {
 
 /// `(12 of 48)`: the edit view's photo `nth` (from 1) of `of`.
 pub fn position(nth: usize, of: usize) -> String {
-    format!("({nth} of {of})")
+    tl!("({nth} of {of})", nth = grouped(nth), of = grouped(of))
 }
 
 /// `Tags: lisbon (40), tram (6)`; `None` without tags.
@@ -262,7 +266,7 @@ pub fn tags(counts: &[(String, usize)]) -> Option<String> {
         return None;
     }
     let list: Vec<String> = counts.iter().map(|(tag, n)| format!("{tag} ({n})")).collect();
-    Some(format!("Tags: {}", list.join(", ")))
+    Some(tl!("Tags: {tags}", tags = list.join(&tl!(ctx = "list", ", "))))
 }
 
 /// How many photos carry each tag, given every photo's tags in a row: the most used first, ties in
@@ -307,7 +311,7 @@ pub fn several(library: &Library, photos: &[&Photo], tag_counts: &[(String, usiz
     let mut rest = vec![pictures(photos.len())];
     rest.extend(date_range(photos.iter().filter_map(|p| library.sort_date(p).map(|d| d.date()))));
     let bytes = photos.iter().fold(0u64, |sum, p| sum.saturating_add(p.size));
-    rest.push(format!("{} on disk", size(bytes)));
+    rest.push(tl!("{size} on disk", size = size(bytes)));
     rest.extend(tags(tag_counts));
     Line { rest, ..Line::default() }
 }
@@ -345,7 +349,7 @@ pub fn line(library: &Library, state: &UiState) -> Line {
 pub fn photos_line(library: &Library, ids: &[PhotoId]) -> Line {
     let picked: Vec<&Photo> = ids.iter().filter_map(|id| library.photo(*id)).collect();
     match picked.as_slice() {
-        [] => Line::plain(NO_SELECTION),
+        [] => Line::plain(no_selection()),
         [p] => one(library, p),
         many => several(library, many, &selection_tags(library, ids)),
     }
@@ -397,7 +401,7 @@ mod tests {
         assert_eq!(size(0), "0 bytes");
         assert_eq!(size(1_500), "1.5 KB");
         assert_eq!(size(2_000_000_000), "2.0 GB");
-        assert_eq!(size(u64::MAX), "18446744.1 TB");
+        assert_eq!(size(u64::MAX), "18,446,744.1 TB");
     }
 
     #[test]

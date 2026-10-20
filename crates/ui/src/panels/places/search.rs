@@ -23,6 +23,7 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::commands::map::results_of;
+use crate::{tl, tln};
 
 pub const LIST_ID: &str = "list:places.results";
 pub const CLOSE_ID: &str = "button:places.results.close";
@@ -56,11 +57,12 @@ pub fn poll(app: &mut App, ui: &Ui) {
             let found = results_of(&json!(places.iter().map(dalica_engine::geocode::Place::to_json).collect::<Vec<_>>()));
             let state = app.state_mut();
             if found.is_empty() {
-                state.status = NONE_FOUND.into();
+                state.status = tl!("No places found.");
             }
             state.places.results = found;
         }
-        Err(why) => app.state_mut().status = why,
+        // The service's reason, looked up whole.
+        Err(why) => app.state_mut().status = crate::i18n::tr(&why),
     }
 }
 
@@ -96,7 +98,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
 /// "3 places found".
 pub fn found(count: usize) -> String {
-    if count == 1 { "1 place found".into() } else { format!("{count} places found") }
+    tln!(count, "{n} place found", "{n} places found")
 }
 
 /// The list in `rect`: its frame, "N places found" (of `count`) and ×, a row for each of `names`.
@@ -122,8 +124,8 @@ fn list(ui: &mut Ui, t: &Tokens, rect: Rect, names: &[String], count: usize) -> 
     let stroke = Stroke::new(1.5, if x.hovered() { t.text } else { t.text_label });
     p.line_segment([arm.left_top(), arm.right_bottom()], stroke);
     p.line_segment([arm.right_top(), arm.left_bottom()], stroke);
-    widgets::register(ui.ctx(), CLOSE_ID, Role::Button, "Close", Target::Widget(&x), false);
-    if x.on_hover_text("Close the list").clicked() {
+    widgets::register(ui.ctx(), CLOSE_ID, Role::Button, &tl!("Close"), Target::Widget(&x), false);
+    if x.on_hover_text(tl!("Close the list")).clicked() {
         clicked = Some(None);
     }
     let rows = Rect::from_min_max(pos2(rect.min.x + PAD, head.max.y), pos2(rect.max.x - PAD, rect.max.y - PAD));

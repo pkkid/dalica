@@ -418,12 +418,14 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         }
     };
     let undo = app.session().map(dalica_engine::Session::undo_stack);
+    // The label in the language in effect (`catalog_label` keeps the English): the command's,
+    // Undo and Redo naming the step (the engine's, looked up whole).
     let label = match (id, undo.and_then(|u| if id == "edit.undo" { u.undo_label() } else { u.redo_label() })) {
-        _ if id == UNDO_SAVE => dalica_engine::cmd::history::UNDO_SAVE.to_string(),
-        _ if let Some(step) = photo_step(app, id) => step,
-        ("edit.undo", Some(action)) => format!("Undo {action}"),
-        ("edit.redo", Some(action)) => format!("Redo {action}"),
-        _ => i.label.to_string(),
+        _ if id == UNDO_SAVE => crate::i18n::tr(dalica_engine::cmd::history::UNDO_SAVE),
+        _ if let Some(step) = photo_step(app, id) => crate::i18n::tr(&step),
+        ("edit.undo", Some(action)) => crate::tl!("Undo {action}", action = crate::i18n::tr(action)),
+        ("edit.redo", Some(action)) => crate::tl!("Redo {action}", action = crate::i18n::tr(action)),
+        _ => crate::i18n::command_label(id, i.label),
     };
     let widget = match i.part {
         Some(part) => format!("menuitem:{row}/{part}"),
@@ -783,8 +785,8 @@ pub fn level(ui: &mut Ui, depth: usize, top: f32, rows: impl FnOnce(&mut Ui)) {
         let strip = Rect::from_x_y_ranges(x, strip.y_range());
         let live = if dir < 0.0 { offset > 0.5 } else { offset < max - 0.5 };
         let r = ui.interact(strip, key.with(name), Sense::click());
-        let label = if dir < 0.0 { "Scroll menu up" } else { "Scroll menu down" };
-        widgets::register(&ctx, &format!("button:{name}/{depth}"), Role::Button, label, Target::Widget(&r), false);
+        let label = if dir < 0.0 { crate::tl!("Scroll menu up") } else { crate::tl!("Scroll menu down") };
+        widgets::register(&ctx, &format!("button:{name}/{depth}"), Role::Button, &label, Target::Widget(&r), false);
         let c = strip.center();
         let (h, w) = (4.5, 6.0);
         let tri = if dir < 0.0 {
@@ -828,10 +830,11 @@ fn rows(ui: &mut Ui, nodes: &[Node], clicked: &mut Option<ItemNode>, depth: usiz
                 ui.separator();
             }
             Node::Submenu { label, widget, children } => {
-                let button = egui::Button::new(*label).right_text("›");
+                let shown = crate::panels::menubar::submenu_label(label);
+                let button = egui::Button::new(&shown).right_text("›");
                 let (r, inner) = egui::containers::menu::SubMenuButton::from_button(button)
                     .ui(ui, |ui| level(ui, depth + 1, top, |ui| self::rows(ui, children, clicked, depth + 1, top, None)));
-                widgets::register(ui.ctx(), widget, Role::MenuItem, label, Target::Widget(&r), inner.is_some());
+                widgets::register(ui.ctx(), widget, Role::MenuItem, &shown, Target::Widget(&r), inner.is_some());
             }
             Node::Item(i) => {
                 // The default row of a context menu (View and Edit, what a double-click does) is bold.
@@ -884,12 +887,12 @@ pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
         let kind = section_kind(app);
         egui::MenuBar::new().ui(ui, |ui| {
             for m in bar_menus(platform) {
-                let shown = title(m, kind);
-                let r = ui.menu_button(shown, |ui| {
+                let shown = crate::panels::menubar::menu_title(title(m, kind));
+                let r = ui.menu_button(&shown, |ui| {
                     let model = menu(app, m, platform);
                     level(ui, 1, top, |ui| rows(ui, &model.children, &mut clicked, 1, top, None));
                 });
-                widgets::register(ui.ctx(), &format!("menu:{}", m.key), Role::Menu, shown, Target::Widget(&r.response), r.inner.is_some());
+                widgets::register(ui.ctx(), &format!("menu:{}", m.key), Role::Menu, &shown, Target::Widget(&r.response), r.inner.is_some());
             }
         });
     }

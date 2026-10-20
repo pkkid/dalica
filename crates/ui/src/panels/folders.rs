@@ -82,6 +82,7 @@ use crate::panels::people_pane::pictures;
 use crate::perf::{self, Counter};
 use crate::selection::{self, Scope};
 use crate::state::{AlbumSection, DropAt, PeopleSort, Section};
+use crate::tl;
 
 /// What the pane's tree was built from: the library's revision, the watched roots, the view
 /// state's tree options and folded folders, the pane's folded directories, the row heights.
@@ -96,6 +97,8 @@ struct ModelKey {
     people: PeopleSort,
     /// The suggestions' copy the "?" badges were lit from (`crate::commands::suggestions`).
     suggested: u64,
+    /// The language the group names and built-in rows are written in.
+    language: &'static str,
 }
 
 /// The pane's state between frames.
@@ -232,6 +235,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         heights,
         people: state.people.sort,
         suggested: suggested.generation,
+        language: crate::i18n::current().code,
     };
     let rebuilt = pane.key.as_ref() != Some(&key);
     if rebuilt {
@@ -388,7 +392,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                 let mut folded = false;
                 if let (true, Some(id)) = (tree_mode, &row.disclosure) {
                     let d = ui.interact(paint::disclosure_rect(r, row.depth, heights.indent), Id::new(("tree-disclosure", id)), Sense::click());
-                    let label = if row.expanded { format!("Collapse {}", row.name) } else { format!("Expand {}", row.name) };
+                    let label = if row.expanded { tl!("Collapse {name}", name = row.name) } else { tl!("Expand {name}", name = row.name) };
                     widgets::register(&ctx, id, Role::Toggle, &label, Target::Widget(&d), row.expanded);
                     if d.clicked() {
                         folded = true;

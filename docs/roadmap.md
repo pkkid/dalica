@@ -10500,7 +10500,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     workflows now required; `mcp.md`'s table and status line; row `SYS-MCP`.
   - done when: `cargo test -p dalica-mcp` runs W17 green; `cargo xtask stats` prints 17 / 17
     passing and `stats --check` fails below that.
-- ⬜ **M15.31 `ui`: every string of the main window through the catalogs**
+- ✅ **M15.31 `ui`: every string of the main window through the catalogs**
   - after: M15.7, M15.29
   - files: `crates/ui/src/panels/menubar.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/activity.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/**`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/properties.rs`, `crates/ui/src/panels/properties/**`, `crates/ui/src/panels/tags.rs`, `crates/ui/src/panels/tags/**`, `crates/ui/src/panels/people_pane.rs`, `crates/ui/src/panels/people_pane/**`, `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/**`, `crates/ui/src/panels/faces.rs`, `crates/ui/src/panels/faces/**`, `crates/ui/src/notices.rs`, `crates/ui/src/titlebar.rs`, `crates/ui/src/tray.rs`, `apps/dalica/src/native_menu.rs`, `crates/ui/tests/i18n_window.rs`
   - scope: `localization.md` → Writing translatable code, over the main window: every

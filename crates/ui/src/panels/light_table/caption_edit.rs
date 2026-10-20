@@ -24,10 +24,11 @@ use serde_json::json;
 use super::Frame;
 use crate::app::App;
 use crate::state::{CaptionEdit, MAX_DRAFT};
+use crate::tl;
 
 /// The editor's automation id (`control-protocol.md` §7).
 pub const FIELD_ID: &str = "field:caption.inline";
-/// What the empty field shows.
+/// What the empty field shows, in English (drawn through the catalogs).
 pub const PLACEHOLDER: &str = "Add a caption";
 
 /// What the user did in the editor this frame.
@@ -99,7 +100,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, editor: &mut Editor, edit: &CaptionEdit,
     let mut text = edit.draft.clone();
     let mut child = ui.new_child(UiBuilder::new().id_salt("captionEdit").max_rect(rect));
     child.set_clip_rect(rect.intersect(ui.clip_rect()));
-    let out = TextField::new(FIELD_ID, PLACEHOLDER, rect.width()).show(&mut child, t, &mut text);
+    let out = TextField::new(FIELD_ID, &tl!("Add a caption"), rect.width()).show(&mut child, t, &mut text);
     cut(&mut text);
     editor.drawn = Some(pass);
     editor.action = if out.cancelled() {

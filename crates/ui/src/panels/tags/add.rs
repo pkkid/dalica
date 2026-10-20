@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 
 use crate::app::App;
 use crate::state::MAX_DRAFT;
+use crate::tl;
 
 pub const FIELD_ID: &str = "field:tags.add";
 pub const BUTTON_ID: &str = "button:tags.add";
@@ -107,7 +108,8 @@ fn highlighted(ctx: &egui::Context, options: &[String], text: &str) -> Option<us
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let ctx = ui.ctx().clone();
-    super::caption(app, ui, "Add a tag:");
+    super::caption(app, ui, &tl!("Add a tag:"));
+    let hint = tl!("Type a tag");
     let mut text = app.state().tags_pane.draft.clone();
     let options = suggestions(app, &ctx, &text);
     let width = (ui.available_width() - BUTTON - 4.0).max(24.0);
@@ -116,9 +118,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             let out =
-                widgets::autocomplete(ui, &t, FIELD_ID, &mut text, &options, |ui, text| widgets::text_field(ui, &t, FIELD_ID, text, HINT, width));
+                widgets::autocomplete(ui, &t, FIELD_ID, &mut text, &options, |ui, text| widgets::text_field(ui, &t, FIELD_ID, text, &hint, width));
             let enabled = !text.trim().is_empty() && selected;
-            let plus = widgets::icon_button(ui, &t, BUTTON_ID, Icon::Plus, BUTTON, false, enabled, "Add the tag to the selected photos");
+            let plus = widgets::icon_button(ui, &t, BUTTON_ID, Icon::Plus, BUTTON, false, enabled, &tl!("Add the tag to the selected photos"));
             (out, plus)
         })
         .inner;

@@ -160,7 +160,7 @@ pub fn begin(ui: &mut Ui, f: &Frame<'_>, _input: &mut Input) -> Option<Response>
         return None;
     }
     let response = ui.interact(f.area, Id::new("lightTable.emptySpace"), Sense::click_and_drag());
-    widgets::register(ui.ctx(), EMPTY_SPACE_ID, Role::Other, "Light table", Target::Widget(&response), false);
+    widgets::register(ui.ctx(), EMPTY_SPACE_ID, Role::Other, &crate::tl!("Light table"), Target::Widget(&response), false);
     Some(response)
 }
 

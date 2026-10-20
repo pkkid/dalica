@@ -20,6 +20,7 @@ use dalica_ui_kit::widgets::MarkerGroup;
 use egui::Id;
 
 use crate::app::App;
+use crate::{tl, tln};
 
 /// A place on the map: the point and its photos, in the order they come.
 #[derive(Debug, Clone, PartialEq)]
@@ -108,15 +109,14 @@ pub fn cached(app: &App, ctx: &egui::Context) -> Arc<Vec<Place>> {
 /// the selection".
 pub fn status(places: usize) -> String {
     match places {
-        0 => super::NONE.to_string(),
-        1 => "1 place in the selection".to_string(),
-        n => format!("{n} places in the selection"),
+        0 => tl!("No places in the selection"),
+        n => tln!(n, "{n} place in the selection", "{n} places in the selection"),
     }
 }
 
 /// "1 photo", "3 photos".
 pub fn photos_text(n: usize) -> String {
-    if n == 1 { "1 photo".to_string() } else { format!("{n} photos") }
+    tln!(n, "{n} photo", "{n} photos")
 }
 
 #[cfg(test)]

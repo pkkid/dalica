@@ -47,9 +47,10 @@ use serde_json::json;
 use crate::app::App;
 use crate::panels::people_pane::pictures;
 use crate::state::{DragOp, DropAt, FaceRef};
+use crate::{tl, tln};
 use model::{Grid, Key};
 
-/// The header's title.
+/// The header's title (this and the texts below in English; drawn through the catalogs).
 pub const TITLE: &str = "Unnamed people";
 /// What the grid says with no face to show.
 pub const STUB: &str = "Faces appear here once face recognition finds them.";
@@ -135,8 +136,11 @@ impl Card {
 
 /// "4 faces", "1 face", or while a group shows only some "4 of 9 faces".
 pub fn count_text(shown: usize, total: usize) -> String {
-    let faces = if total == 1 { "1 face".to_string() } else { format!("{total} faces") };
-    if shown < total { format!("{shown} of {faces}") } else { faces }
+    if shown < total {
+        tln!(total, "{shown} of {n} face", "{shown} of {n} faces", shown = crate::i18n::format::number(u64::try_from(shown).unwrap_or(u64::MAX)))
+    } else {
+        tln!(total, "{n} face", "{n} faces")
+    }
 }
 
 /// The cards of `grid` laid out in `width` points: each group's (its first row only unless
@@ -277,10 +281,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let unnamed = app.state().unnamed.clone();
     let mut asks = Asks::default();
     let mut top = ui.new_child(UiBuilder::new().max_rect(header).layout(Layout::left_to_right(Align::Center)));
-    top.label(RichText::new(TITLE).font(fonts::semibold(t.title)).color(t.text));
+    top.label(RichText::new(tl!("Unnamed people")).font(fonts::semibold(t.title)).color(t.text));
     top.add_space(16.0);
-    for ((id, label, command), on) in TOGGLES.iter().zip([unnamed.expanded, unnamed.show_ignored]) {
-        if widgets::text_button(&mut top, &t, id, label, on).clicked() {
+    for ((id, _, command), on) in TOGGLES.iter().zip([unnamed.expanded, unnamed.show_ignored]) {
+        let label = if *command == "faces.expandGroups" { tl!("Expand Groups") } else { tl!("Show Ignored Faces") };
+        if widgets::text_button(&mut top, &t, id, &label, on).clicked() {
             asks.command = Some((*command, json!({})));
         }
     }
@@ -291,7 +296,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let body = Rect::from_min_max(pos2(area.min.x, header.max.y), area.max);
     let mut col = ui.new_child(UiBuilder::new().max_rect(body.shrink2(vec2(MARGIN, 0.0))).layout(Layout::top_down(Align::Min)));
     if grid.is_empty() {
-        col.label(RichText::new(STUB).font(fonts::regular(t.body)).color(t.text_dim));
+        col.label(RichText::new(tl!("Faces appear here once face recognition finds them.")).font(fonts::regular(t.body)).color(t.text_dim));
     } else {
         grid_body(app, &mut col, &t, (&grid, key), &mut asks);
     }
@@ -318,7 +323,7 @@ fn grid_body(app: &mut App, ui: &mut Ui, t: &Tokens, (grid, key): (&Grid, Option
         ui,
         |ui| {
             let (content, bg) = ui.allocate_exact_size(vec2(width, height.max(ui.available_height())), Sense::click_and_drag());
-            widgets::register(&ctx, EMPTY_SPACE_ID, Role::Other, "Unnamed faces", Target::Widget(&bg), false);
+            widgets::register(&ctx, EMPTY_SPACE_ID, Role::Other, &tl!("Unnamed faces"), Target::Widget(&bg), false);
             let origin = content.min.to_vec2();
             let clip = ui.clip_rect();
             for card in cards.iter() {
@@ -331,7 +336,18 @@ fn grid_body(app: &mut App, ui: &mut Ui, t: &Tokens, (grid, key): (&Grid, Option
                     && let Some(r) = put(
                         ui,
                         Rect::from_min_size(pos2(rect.max.x - CARD_PAD + 4.0 - IGNORE_BUTTON, rect.min.y + 4.0), Vec2::splat(IGNORE_BUTTON)),
-                        |ui| widgets::icon_button(ui, t, &format!("group:{n}/ignore"), Icon::Close, IGNORE_BUTTON, false, true, "Ignore these faces"),
+                        |ui| {
+                            widgets::icon_button(
+                                ui,
+                                t,
+                                &format!("group:{n}/ignore"),
+                                Icon::Close,
+                                IGNORE_BUTTON,
+                                false,
+                                true,
+                                &tl!("Ignore these faces"),
+                            )
+                        },
                     )
                     && r.clicked()
                 {
@@ -405,7 +421,7 @@ fn paint_card(ui: &Ui, t: &Tokens, card: &Card, rect: Rect, clip: Rect, selected
     let count = count_text(card.faces.len(), card.total);
     let label = match card.kind {
         CardKind::Group(_) => count,
-        CardKind::Ignored => format!("{IGNORED_TITLE} · {count}"),
+        CardKind::Ignored => tl!("Ignored faces · {count}", count = count),
     };
     let line = Rect::from_min_size(rect.min + vec2(CARD_PAD, CARD_PAD), vec2(rect.width() - 2.0 * CARD_PAD - IGNORE_BUTTON, CARD_TOP_H - 4.0));
     let mut job = egui::text::LayoutJob::simple_singleline(label.clone(), fonts::regular(t.count), t.text_dim);
@@ -465,7 +481,7 @@ fn name_field(app: &mut App, ui: &mut Ui, t: &Tokens, n: u32, rect: Rect, people
     let before = app.state().unnamed.names.get(&n).cloned().unwrap_or_default();
     let mut text = before.clone();
     let Some(out) = put(ui, rect, |ui| {
-        widgets::autocomplete(ui, t, &id, &mut text, people, |ui, text| widgets::text_field(ui, t, &id, text, NAME_HINT, rect.width()))
+        widgets::autocomplete(ui, t, &id, &mut text, people, |ui, text| widgets::text_field(ui, t, &id, text, &tl!("Add a name"), rect.width()))
     }) else {
         return;
     };

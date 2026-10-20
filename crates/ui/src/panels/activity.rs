@@ -27,6 +27,7 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Area, CornerRadius, Id, Order, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
 
 use crate::app::App;
+use crate::{tl, tln};
 
 /// The popover's automation id.
 pub const POPOVER_ID: &str = "popover:activity";
@@ -38,7 +39,7 @@ pub const PAD: f32 = 8.0;
 pub const GAP: f32 = 4.0;
 /// The most jobs listed; the rest are counted on a "N more" line.
 pub const MAX_ROWS: usize = 8;
-/// Shown when there is no job.
+/// Shown when there is no job (English; drawn through the catalogs).
 pub const NO_WORK: &str = "No background work";
 
 /// The automation id of job `job`'s row.
@@ -114,17 +115,19 @@ pub fn show(app: &mut App, ui: &mut Ui, anchor: Rect) {
     Area::new(Id::new(POPOVER_ID)).order(Order::Foreground).fixed_pos(frame.min).constrain(false).show(&ctx, |ui| {
         let (r, _) = ui.allocate_exact_size(frame.size(), Sense::hover());
         paint_frame(ui, &t, r);
-        widgets::register(ui.ctx(), POPOVER_ID, Role::Other, "Background activity", Target::Painted { rect: r, clip: ui.clip_rect() }, false);
+        widgets::register(ui.ctx(), POPOVER_ID, Role::Other, &tl!("Background activity"), Target::Painted { rect: r, clip: ui.clip_rect() }, false);
         let inner = r.shrink(PAD);
         let mut child = ui.new_child(UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
         child.spacing_mut().item_spacing = egui::Vec2::ZERO;
         if list.is_empty() {
             let line = Rect::from_min_size(inner.min, vec2(inner.width(), row_h));
-            widgets::label_in(child.painter(), line, Align2::LEFT_CENTER, NO_WORK, fonts::regular(t.small), t.text_dim);
+            widgets::label_in(child.painter(), line, Align2::LEFT_CENTER, &tl!("No background work"), fonts::regular(t.small), t.text_dim);
         }
         for e in &list {
             let cancel_widget = can_cancel(e).then(|| cancel_id(e.job));
-            let out = widgets::progress_row(&mut child, &t, &row_id(e.job), &e.label, fraction(e), cancel_widget.as_deref(), inner.width());
+            // The engine's label, looked up whole (one carrying values stays English).
+            let label = crate::i18n::tr(&e.label);
+            let out = widgets::progress_row(&mut child, &t, &row_id(e.job), &label, fraction(e), cancel_widget.as_deref(), inner.width());
             if out.cancel {
                 cancel = Some(e.job);
             }
@@ -132,7 +135,7 @@ pub fn show(app: &mut App, ui: &mut Ui, anchor: Rect) {
         if more > 0 {
             let top = inner.min.y + list.len() as f32 * row_h;
             let line = Rect::from_min_size(pos2(inner.min.x, top), vec2(inner.width(), row_h));
-            widgets::label_in(child.painter(), line, Align2::LEFT_CENTER, &format!("{more} more"), fonts::regular(t.small), t.text_dim);
+            widgets::label_in(child.painter(), line, Align2::LEFT_CENTER, &tln!(more, "{n} more", "{n} more"), fonts::regular(t.small), t.text_dim);
         }
     });
     if let Some(job) = cancel

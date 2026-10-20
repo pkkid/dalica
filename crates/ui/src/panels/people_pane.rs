@@ -37,8 +37,9 @@ use serde_json::json;
 use crate::app::App;
 use crate::commands::people_pane as commands;
 use crate::state::{FaceRef, MAX_DRAFT, View};
+use crate::{tl, tln};
 
-/// The pane's two parts.
+/// The pane's two parts (these texts in English; drawn through the catalogs).
 pub const IN_PHOTOS: &str = "People in these photos";
 pub const UNNAMED: &str = "Unnamed faces";
 /// What a part says when it has nothing.
@@ -71,7 +72,7 @@ pub fn name_field_id(face: FaceRef) -> String {
 
 /// "1 photo", "3 photos".
 pub fn photos_label(n: usize) -> String {
-    format!("{n} {}", if n == 1 { "photo" } else { "photos" })
+    tln!(n, "{n} photo", "{n} photos")
 }
 
 /// Where the hovered face was hovered: the pane or a box on the photo.
@@ -131,7 +132,7 @@ struct Acts {
 
 fn caption(app: &App, ui: &mut Ui, text: &str) {
     let t = app.tokens();
-    ui.label(RichText::new(format!("{text}:")).font(fonts::regular(t.body)).color(t.text_label));
+    ui.label(RichText::new(tl!(ctx = "form label", "{label}:", label = text)).font(fonts::regular(t.body)).color(t.text_label));
     ui.add_space(4.0);
 }
 
@@ -145,7 +146,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let ctx = ui.ctx().clone();
     let body = ui.max_rect();
-    widgets::register(&ctx, REGION_ID, Role::Other, "People", Target::Painted { rect: body, clip: ui.clip_rect() }, false);
+    widgets::register(&ctx, REGION_ID, Role::Other, &tl!("People"), Target::Painted { rect: body, clip: ui.clip_rect() }, false);
     pictures::begin(app, &ctx);
     let model = model::model(app, &ctx);
     let edit = app.state().view == View::Edit;
@@ -162,27 +163,28 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .auto_shrink([false, true])
         .scroll_source(egui::scroll_area::ScrollSource::MOUSE_WHEEL)
         .show(&mut col, |ui| {
-            caption(app, ui, IN_PHOTOS);
+            let none = tl!(ctx = "list", "None");
+            caption(app, ui, &tl!("People in these photos"));
             if model.people.is_empty() {
-                dim(app, ui, NONE);
+                dim(app, ui, &none);
             }
             for p in &model.people {
                 person_row(app, ui, p, &mut acts);
             }
             ui.add_space(GAP);
-            caption(app, ui, UNNAMED);
+            caption(app, ui, &tl!("Unnamed faces"));
             if !edit && app.state().unnamed.open && !model.unnamed.is_empty() {
-                dim(app, ui, IN_GRID);
+                dim(app, ui, &tl!("Name them in the Unnamed view."));
             } else {
                 if model.unnamed.is_empty() {
-                    dim(app, ui, NONE);
+                    dim(app, ui, &none);
                 }
                 let names = people_names(app, &ctx);
                 for u in &model.unnamed {
                     unnamed_row(app, ui, u, &names, &mut acts);
                 }
                 if model.more > 0 {
-                    dim(app, ui, &format!("and {} more", model.more));
+                    dim(app, ui, &tln!(model.more, "and {n} more", "and {n} more"));
                 }
             }
             suggestions::show(app, ui);
@@ -191,7 +193,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let row = Rect::from_min_max(pos2(rect.min.x, rect.max.y - t.metrics.button_h), rect.max);
         let mut b = ui.new_child(UiBuilder::new().id_salt("people.pane.manual").max_rect(row).layout(Layout::left_to_right(Align::Center)));
         let on = app.state().people_pane.manual.is_some();
-        acts.manual = widgets::text_button(&mut b, &t, ADD_MANUALLY_ID, ADD_MANUALLY, on).clicked();
+        acts.manual = widgets::text_button(&mut b, &t, ADD_MANUALLY_ID, &tl!("Add a Person Manually"), on).clicked();
     }
     pictures::finish(app, &ctx);
     track_hover(app, &ctx, HoverFrom::Pane, acts.over);
@@ -264,7 +266,7 @@ fn person_row(app: &App, ui: &mut Ui, p: &model::Person, acts: &mut Acts) {
         painter.galley(at, g, t.text);
     }
     painter.galley(count_at.round(), count_g, t.text_dim);
-    let label = format!("{}, {count}", p.name);
+    let label = tl!("{name}, {count}", name = p.name, count = count);
     widgets::register(ui.ctx(), &person_id(&p.id), Role::Other, &label, Target::Widget(&r), selected);
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &label));
     if r.hovered() {
@@ -321,8 +323,8 @@ fn unnamed_row(app: &App, ui: &mut Ui, u: &model::Unnamed, names: &[String], act
     let fid = name_field_id(u.face);
     let mut text = drafts(&ctx, |d| d.get(&u.face).cloned().unwrap_or_default());
     let mut right = ui.new_child(UiBuilder::new().max_rect(field));
-    let out =
-        widgets::autocomplete(&mut right, &t, &fid, &mut text, names, |ui, text| widgets::text_field(ui, &t, &fid, text, NAME_HINT, field.width()));
+    let hint = tl!("Add a name");
+    let out = widgets::autocomplete(&mut right, &t, &fid, &mut text, names, |ui, text| widgets::text_field(ui, &t, &fid, text, &hint, field.width()));
     if out.field.rect.contains(ctx.pointer_hover_pos().unwrap_or(pos2(f32::NAN, f32::NAN))) {
         acts.over = Some(u.face);
     }
