@@ -10137,7 +10137,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     follows a click; Tab moves the focus through the gallery in order and Space activates the
     focused button; the focus ring passes the contrast test; setting `ui_kit::text` changes the
     date picker's month names; gallery fingerprints change only by the focus ring.
-- ⬜ **M15.15 `image` (reserved decision 2): video frames, and the clip's sound**
+- ✅ **M15.15 `image` (reserved decision 2): video frames, and the clip's sound**
   - after: M15.1, M15.2, M15.46
   - files: `crates/image/src/formats/video.rs`, `crates/image/src/formats/video/frames.rs`, `crates/image/src/formats/video/frames/**`, `crates/image/src/formats/video/sound.rs`, `crates/image/tests/video_frames.rs`, `crates/image/README.md`, `xtask/src/corpus_pins.rs`, `xtask/corpus/video.sha256`, `docs/formats.md`, `docs/video-decoders.md`
   - scope: reserved decision 2 as answered (pure-Rust decoders) with the crates

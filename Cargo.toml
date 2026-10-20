@@ -78,6 +78,15 @@ jxl-oxide-common = "1.0"
 # young decoder of untrusted files; moving the pin is a reviewed change. No `parallel` (rayon):
 # Dalica decodes on its own worker threads.
 heic-rs = { version = "=0.1.1", default-features = false, features = ["std"] }
+# Video frames and the clip's sound (dalica-image `formats::video`, M15.15; reserved decision 2 and
+# docs/video-decoders.md, M15.46's record). Each pinned exactly: young decoders of untrusted files;
+# moving a pin is a reviewed change. H.264 through `altc264` (MIT, no dependencies); HEVC through
+# `rusty_h265` (Apache-2.0) behind `dalica-image`'s non-default `hevc` feature, with its `simd`
+# kernels (the record's real-time pass); AAC through `rusty_aac` (Apache-2.0) without its defaults.
+# Never `rusty_h264` with its default features: they install a process-wide global allocator.
+altc264 = "=0.1.1"
+rusty_h265 = { version = "=0.6.2", default-features = false, features = ["simd"] }
+rusty_aac = { version = "=1.1.1", default-features = false }
 moxcms = "0.9"
 fast_image_resize = "6"
 # The export watermark's glyphs (dalica-create, M8.11; as LightCraft): Inter outlines and their
@@ -188,6 +197,15 @@ opt-level = 3
 [profile.dev.package.dalica-image]
 opt-level = 3
 [profile.dev.package.zune-jpeg]
+opt-level = 3
+# Video frames and sound decoded in tests (`crates/image/tests/video_frames.rs`, M15.15).
+[profile.dev.package.altc264]
+opt-level = 3
+[profile.dev.package.rusty_h265]
+opt-level = 3
+[profile.dev.package.rusty_h265-accel]
+opt-level = 3
+[profile.dev.package.rusty_aac]
 opt-level = 3
 # The inflate/deflate and checksum code under `png` and the JPEG decoder's core (screenshots,
 # fingerprints and thumbnails decoded in tests).
