@@ -3,7 +3,7 @@
 //! documented ISO/IEC 14496-12 boxes, with no frames Dalica decodes), `video.inspect` reports the
 //! clip's facts, that Dalica cannot play it yet and its trim; `photo.inspect` and `library.query`
 //! carry each photo's kind and duration; an export of the folder writes two files and counts one
-//! video; the slideshow plays two and counts one; a collage of the three holds two clips and says
+//! video; the slideshow plays the three and counts one video; a collage of the three holds two clips and says
 //! why; Batch Edit, an effect, Crop and Save on the clip are refused with the reason and nothing is
 //! written; its thumbnail is the video tile (no decode, no error); the viewer lists it as a video
 //! and never decodes it; the face scan never reads it; the owner thread made no `fs` call.
@@ -203,7 +203,7 @@ fn photo_inspect_and_library_query_carry_the_kind_and_duration() {
 }
 
 #[test]
-fn an_export_writes_the_photos_and_counts_the_video_and_the_slideshow_leaves_it_out() {
+fn an_export_writes_the_photos_and_counts_the_video_and_the_slideshow_plays_it() {
     let mut lib = Lib::new();
     let ids = lib.ids;
     let folder = lib.s.library().photo(ids[0]).unwrap().folder;
@@ -221,7 +221,7 @@ fn an_export_writes_the_photos_and_counts_the_video_and_the_slideshow_leaves_it_
     assert_eq!(done.state, JobState::Done, "{done:?}");
     let written = done.result.unwrap()["written"].clone();
     assert_eq!(written, json!([location.join("Trip").join("a.jpg"), location.join("Trip").join("b.jpg")]));
-    assert_eq!(show["photos"], json!([ids[0], ids[1]]));
+    assert_eq!(show["photos"], json!([ids[0], ids[1], ids[2]]), "the video plays with the photos (M15.27)");
     assert_eq!(show["videos"], 1);
 }
 

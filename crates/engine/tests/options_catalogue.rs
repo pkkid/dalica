@@ -107,8 +107,9 @@ fn each_default_is_its_accessors_and_each_option_is_read_back_from_its_key() {
     }
     // The options whose feature is still to come say why, and the HEIC row follows the build.
     let reasons: Vec<(&str, &str)> = catalogue().iter().filter_map(|o| o.unavailable.map(|r| (o.key, r))).collect();
-    for key in ["slideshow.music", "slideshow.musicFolder", "slideshow.videoSound", "viewer.defaultViewer"] {
-        assert!(reasons.iter().any(|(k, r)| *k == key && r.starts_with("Arrives with")), "{key}: {reasons:?}");
+    assert!(reasons.iter().any(|(k, r)| *k == "viewer.defaultViewer" && r.starts_with("Arrives with")), "{reasons:?}");
+    for key in ["slideshow.music", "slideshow.musicFolder", "slideshow.videoSound"] {
+        assert!(catalogue().iter().any(|o| o.key == key && o.available()), "{key} can be changed now that Dalica plays sound");
     }
     for key in ["import.detectDuplicates", "import.folder"] {
         assert!(catalogue().iter().any(|o| o.key == key && o.available()), "{key} can be changed now that Import exists");

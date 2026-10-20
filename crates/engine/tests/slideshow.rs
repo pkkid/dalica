@@ -1,7 +1,7 @@
 //! What a slideshow plays and its previews made ahead (`roadmap.md` M11.11; `viewing.md`
 //! §1.1–§1.2): `slideshow.list` for a folder, an album (in album order), a search and the tray's
-//! ids, each starting at the photo asked for, hidden photos only while shown and videos left out
-//! and counted; a show whose every decode takes 1.5 s (the preview's planted decode delay, on a
+//! ids, each starting at the photo asked for, hidden photos only while shown and videos played
+//! with them and counted (M15.27); a show whose every decode takes 1.5 s (the preview's planted decode delay, on a
 //! virtual clock) on a 3 s display time finds the next photo's preview ready at each of 30 changes; a photo deleted from the list is skipped without a stall;
 //! a photo's largest named face (else its largest face) is the Pan and Zoom focus the list and the
 //! show pass on, mapped through its recipe; graceful failures.
@@ -86,7 +86,7 @@ fn lists() -> (tempfile::TempDir, Session, AlbumId) {
     (tmp, s, album)
 }
 
-/// `slideshow.list` with `params`: the photos, the start and the videos left out.
+/// `slideshow.list` with `params`: the photos, the start and how many of them are videos.
 fn list(s: &mut Session, params: Value) -> (Vec<PhotoId>, u64, u64) {
     let v = s.execute("slideshow.list", &params).unwrap();
     let photos = serde_json::from_value(v["photos"].clone()).unwrap();
@@ -95,24 +95,24 @@ fn list(s: &mut Session, params: Value) -> (Vec<PhotoId>, u64, u64) {
 
 /// A folder in its display order, an album in its own order, a search's matches and the tray's ids
 /// in theirs, each starting at the photo asked for (the first when it is not in the list); hidden
-/// photos only while the view shows them; videos left out and counted.
+/// photos only while the view shows them; videos played with them and counted.
 #[test]
 fn the_lists_of_a_folder_an_album_a_search_and_the_tray_start_at_the_photo_asked_for() {
     let (_tmp, mut s, album) = lists();
     let p = PhotoId::new;
-    assert_eq!(list(&mut s, json!({ "section": "folder:1", "start": p(3) })), (ids(&[1, 2, 3, 5]), 2, 1), "the folder, 4 hidden");
+    assert_eq!(list(&mut s, json!({ "section": "folder:1", "start": p(3) })), (ids(&[1, 2, 3, 5, 6]), 2, 1), "the folder, 4 hidden");
     assert_eq!(list(&mut s, json!({ "section": format!("album:{album}"), "start": p(1) })), (ids(&[5, 1, 3]), 1, 0), "the album in its order");
     assert_eq!(list(&mut s, json!({ "search": "harbour", "start": p(5) })), (ids(&[2, 5]), 1, 0), "the search's matches");
-    assert_eq!(list(&mut s, json!({ "ids": [p(5), p(1), p(5), p(6), p(4)], "start": p(1) })), (ids(&[5, 1]), 1, 1), "the tray");
-    assert_eq!(list(&mut s, json!({ "section": "folder:1", "start": p(4) })), (ids(&[1, 2, 3, 5]), 0, 1), "a start not listed");
-    assert_eq!(list(&mut s, json!({ "section": "folder:1" })), (ids(&[1, 2, 3, 5]), 0, 1), "no start");
+    assert_eq!(list(&mut s, json!({ "ids": [p(5), p(1), p(5), p(6), p(4)], "start": p(1) })), (ids(&[5, 1, 6]), 1, 1), "the tray");
+    assert_eq!(list(&mut s, json!({ "section": "folder:1", "start": p(4) })), (ids(&[1, 2, 3, 5, 6]), 0, 1), "a start not listed");
+    assert_eq!(list(&mut s, json!({ "section": "folder:1" })), (ids(&[1, 2, 3, 5, 6]), 0, 1), "no start");
 
     s.change_settings(|st| {
         let mut v = st.view_options();
         v.hidden_pictures = true;
         st.set_view_options(&v);
     });
-    assert_eq!(list(&mut s, json!({ "section": "folder:1", "start": p(4) })), (ids(&[1, 2, 3, 4, 5]), 3, 1), "hidden shown");
+    assert_eq!(list(&mut s, json!({ "section": "folder:1", "start": p(4) })), (ids(&[1, 2, 3, 4, 5, 6]), 3, 1), "hidden shown");
     assert_eq!(list(&mut s, json!({ "ids": [p(4), p(2)] })), (ids(&[4, 2]), 0, 0), "hidden shown, the tray");
 }
 

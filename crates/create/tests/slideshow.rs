@@ -176,6 +176,30 @@ fn zooming_pauses_and_zooming_out_resumes() {
     assert_eq!(s.state(), State::Paused);
 }
 
+/// A held photo (a video playing to its end, M15.27) keeps the show on it past its display time,
+/// its state unchanged; Pause and Play still toggle; letting go counts on from the time spent, and
+/// moving to another photo lets go.
+#[test]
+fn a_held_photo_stays_past_its_display_time_until_let_go() {
+    let (clock, mut s) = show(3, 0, Settings::default());
+    at(&clock, 1_000);
+    s.set_held(true);
+    at(&clock, 10_000);
+    let v = s.tick();
+    assert_eq!((v.index, v.state, s.held()), (Some(0), State::Playing, true));
+    assert!(s.play_pause() && s.play_pause(), "pause and play while held");
+    at(&clock, 20_000);
+    assert_eq!((s.tick().index, s.state()), (Some(0), State::Playing));
+    s.set_held(false);
+    at(&clock, 21_999);
+    assert_eq!(s.tick().index, Some(0), "1 s was spent before the hold");
+    at(&clock, 22_000);
+    assert_eq!(s.tick().index, Some(1));
+    s.set_held(true);
+    assert!(s.next_photo());
+    assert!(!s.held(), "another photo lets go");
+}
+
 #[test]
 fn the_display_time_is_clamped_and_a_shorter_one_skips_no_photo() {
     let (clock, mut s) = show(5, 0, Settings { display_secs: 0, ..Settings::default() });

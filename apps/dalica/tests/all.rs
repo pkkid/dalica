@@ -7,5 +7,6 @@ mod control_security;
 mod default_viewer;
 mod instance;
 mod os;
+mod sound;
 mod startup;
 mod view;

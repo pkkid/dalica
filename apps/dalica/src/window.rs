@@ -231,6 +231,7 @@ impl Window {
             // The window's session reaches the real OS services; headless ones keep the recording.
             let opened = open(source, launch.as_ref(), &report).map(|mut session| {
                 session.set_os(Arc::new(crate::os::Native::new()));
+                session.set_sound(crate::sound::output());
                 session
             });
             let _ = tx.send(opened);

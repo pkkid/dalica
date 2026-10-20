@@ -53,6 +53,11 @@ altc264.workspace = true
 rusty_h265 = { workspace = true, optional = true }
 # The clip's AAC sound (formats/video/sound.rs): pure Rust, Apache-2.0, no dependencies, no defaults.
 rusty_aac.workspace = true
+# Slideshow music (formats/audio.rs, M15.27; docs/video-decoders.md §7.3): MP3, Ogg Vorbis, FLAC, WAV.
+nanomp3.workspace = true
+lewton.workspace = true
+claxon.workspace = true
+hound.workspace = true
 # GIF (first frame) and BMP through its decoders (`formats.md` §1); already in the product graph via `thumbs`.
 image.workspace = true
 # Lossy and lossless WebP, alpha, the first frame of animations (`formats.md` §1).
@@ -90,3 +95,5 @@ zune-core.workspace = true
 # The refusal of a declared size past the limits allocates nothing (tests/jxl.rs); it installs
 # its counting allocator in the test binaries that use it.
 allocation-counter.workspace = true
+# Ogg Vorbis music made by tests/audio.rs.
+rusty_vorbis.workspace = true

@@ -9,11 +9,13 @@
 //! that existed before M10 (`fileTypes`, the `files` group, M7's `edit.singleClickLeaves`, M8's
 //! export and M9's ask-first settings) are rows here, never second copies of their settings.
 //!
-//! An option whose feature does not exist yet (the slideshow's music and video sound until Dalica
-//! plays sound, the photo viewer's file types until the OS integration, the network log until it
+//! An option whose feature does not exist yet (the photo viewer's file types until the OS integration, the network log until it
 //! exists) is listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
 //! once its feature reads it, so `options.set` refuses it until then and its value is its default.
-//! The map rows and the proxy of the Network tab waited on reserved decisions 4 and 9 until M13.20
+//! The slideshow's music, its folder and video sound waited on sound until M15.27 (their reason,
+//! [`crate::sound::SOUND_UNAVAILABLE`], is now `None`; a system without a sound output greys them
+//! in the window, `Sound::status`). The map rows and the proxy of the Network tab waited on
+//! reserved decisions 4 and 9 until M13.20
 //! (their reasons, [`crate::map_tiles::TILES_UNAVAILABLE`] and
 //! [`crate::map_tiles::PROXY_UNAVAILABLE`], are now `None`: OpenStreetMap's tiles and Nominatim,
 //! off until allowed, both addresses editable). The People tab's face model (its status, Download…, Remove
@@ -43,6 +45,7 @@ use crate::settings::{
     EXPORT_SIZE_RANGE, MAX_ATTRIBUTION_BYTES, MAX_HOST_BYTES, MAX_PATH_BYTES, MAX_TEMPLATE_BYTES, MAX_WATERMARK_BYTES, PROXY_PORT_DEFAULT,
     PROXY_PORT_RANGE, QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
 };
+use crate::sound::SOUND_UNAVAILABLE;
 
 /// A tab of the Options dialog that has options in the catalogue, in the dialog's order (the
 /// Keyboard Shortcuts tab is the shortcut editor).
@@ -404,7 +407,6 @@ pub fn on_tab(tab: Tab) -> impl Iterator<Item = &'static OptionSpec> {
     CATALOGUE.iter().filter(move |o| o.tab == tab)
 }
 
-const SOUND: &str = "Arrives with sound support";
 const OS_INTEGRATION: &str = "Arrives with OS integration";
 const TRANSITIONS: &[(&str, &str)] = &[
     ("cut", "Cut"),
@@ -564,10 +566,10 @@ static CATALOGUE: &[OptionSpec] = &[
     row("slideshow.music", Tab::Slideshow, "Slideshow", "Play music during slideshows", Kind::Bool, Initial::Bool(false), |s| {
         json!(s.slideshow().music)
     })
-    .later(SOUND),
+    .unavailable_if(SOUND_UNAVAILABLE),
     row("slideshow.musicFolder", Tab::Slideshow, "Slideshow", "Music folder", Kind::Folder, Initial::Null, |s| json!(s.slideshow().music_folder))
         .hint("Every MP3, OGG, FLAC and WAV file in it plays in name order, looping.")
-        .later(SOUND),
+        .unavailable_if(SOUND_UNAVAILABLE),
     row(
         "slideshow.displayTime",
         Tab::Slideshow,
@@ -584,7 +586,7 @@ static CATALOGUE: &[OptionSpec] = &[
     row("slideshow.videoSound", Tab::Slideshow, "Slideshow", "Play video sound", Kind::Bool, Initial::Bool(false), |s| {
         json!(s.slideshow().video_sound)
     })
-    .later(SOUND),
+    .unavailable_if(SOUND_UNAVAILABLE),
     // Network → Map.
     row("network.allowMapTiles", Tab::Network, "Map", "Allow map tiles", Kind::Bool, Initial::Bool(false), |s| json!(s.network().allow_map_tiles))
         .hint("The Places pane fetches map pictures from the tile server while it is open.")

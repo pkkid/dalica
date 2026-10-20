@@ -138,10 +138,6 @@ mod tests {
         ] {
             assert!(matches!(app.run("app.preferences.folder", &bad), Err(CmdError::BadParams(_))), "{bad}");
         }
-        assert!(
-            matches!(app.run("app.preferences.folder", &json!({ "key": "slideshow.musicFolder", "path": path })), Err(CmdError::Disabled(_))),
-            "arrives with sound support"
-        );
         assert!(app.state().options.as_ref().unwrap().values.is_empty(), "nothing went into the draft");
         assert_eq!(app.run("app.preferences.folder", &p).unwrap(), json!({ "key": "export.location", "path": path }));
         assert_eq!(app.state().options.as_ref().unwrap().values.get("export.location"), Some(&json!(path)));

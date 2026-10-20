@@ -30,6 +30,7 @@ use crate::limits::{Budget, Limits};
 use crate::sniff::Format;
 use crate::{Error, Header, Result};
 
+pub mod audio;
 pub mod bmff;
 pub mod bmp;
 pub mod gif;

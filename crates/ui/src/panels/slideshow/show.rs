@@ -17,6 +17,13 @@
 //! Pan and Zoom moves each photo toward the focus the engine's [`Frame`] gives for it (its largest
 //! named face, else its largest face, else its centre: `Frame::focus`, `Frame::outgoing_focus`,
 //! M13.23); [`slides`] tells a test what the last frame drew.
+//!
+//! **A video** (M15.27): while the engine plays one in place of the photo shown ([`Frame::clip`]),
+//! its frame due ([`clip_picture`]) is drawn in the photo's place (turned as the video's own edits
+//! turn it), its poster in the pane standing in until the first frame is there; a video Dalica
+//! cannot play is drawn as the video tile (its pane has no picture). The frame's texture is one
+//! kept for the video, its pixels replaced when a new frame is due ([`clip_shown`] tells a test
+//! which frame the last paint drew).
 
 use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
@@ -25,10 +32,11 @@ use std::time::{Duration, Instant};
 
 use dalica_core::PhotoId;
 use dalica_create::slideshow::{self as create, Size, Slide};
-use dalica_edit::Recipe;
-use dalica_engine::cmd::slideshow::Frame;
+use dalica_edit::{Dihedral, Recipe};
+use dalica_engine::cmd::slideshow::{ClipView, Frame, clip_picture};
 use dalica_engine::preview::PANES;
 use dalica_engine::{Session, Thumb};
+use dalica_image::formats::video::frames::Frame as VideoFrame;
 use dalica_image::{Orientation, Rgba8};
 use dalica_ui_kit::widgets;
 use egui::{Rect, TextureHandle, Ui};
@@ -79,6 +87,10 @@ thread_local! {
     static PREPARED: Cell<Prepared> = const { Cell::new(Prepared { on_worker: 0, on_ui_thread: 0 }) };
     /// The photos the last frame placed, and their slides (at most two).
     static SLIDES: RefCell<Vec<(PhotoId, Slide)>> = const { RefCell::new(Vec::new()) };
+    /// The video's texture: the frame it holds, as turned, and its handle.
+    static CLIP_TEX: RefCell<Option<(Weak<VideoFrame>, Dihedral, TextureHandle)>> = const { RefCell::new(None) };
+    /// The video and the number of its frame the last paint drew.
+    static CLIP_SHOWN: Cell<Option<(PhotoId, usize)>> = const { Cell::new(None) };
 }
 
 /// An image to paint: photo `photo`'s preview (`preview`) or a stand-in thumbnail.
@@ -225,6 +237,74 @@ fn end_frame() {
 pub fn release() {
     TEXTURES.with(|kept| kept.borrow_mut().clear());
     PENDING.with(|pending| pending.borrow_mut().clear());
+    CLIP_TEX.with(|c| c.borrow_mut().take());
+    CLIP_SHOWN.with(|c| c.set(None));
+}
+
+/// The video and the number of its frame the last paint on this UI thread drew, while it drew one.
+pub fn clip_shown() -> Option<(PhotoId, usize)> {
+    CLIP_SHOWN.with(Cell::get)
+}
+
+/// `image` (a video frame: every alpha 255) turned by `turn`, as a colour image; `None` when its
+/// pixels are not whole.
+fn turned(image: &Rgba8, turn: Dihedral) -> Option<egui::ColorImage> {
+    let [w, h] = dims(image)?;
+    if turn == Dihedral::IDENTITY {
+        return Some(egui::ColorImage::from_rgba_premultiplied([w, h], &image.data));
+    }
+    let (ow, oh) = turn.display_size(image.width, image.height);
+    let (ow, oh) = (ow as usize, oh as usize);
+    let back = turn.inverse();
+    let mut out = Vec::with_capacity(ow.saturating_mul(oh).saturating_mul(4));
+    for y in 0..oh {
+        for x in 0..ow {
+            let (u, v) = crate::panels::thumbnails::turn_point(back, (x as f32 + 0.5) / ow as f32, (y as f32 + 0.5) / oh as f32);
+            let sx = ((u * w as f32) as usize).min(w - 1);
+            let sy = ((v * h as f32) as usize).min(h - 1);
+            let at = (sy * w + sx) * 4;
+            out.extend_from_slice(image.data.get(at..at + 4).unwrap_or(&[0, 0, 0, 255]));
+        }
+    }
+    Some(egui::ColorImage::from_rgba_premultiplied([ow, oh], &out))
+}
+
+/// The texture of the video's frame `picture` turned by `turn`: the kept one when it holds that
+/// frame, else the kept one with its pixels replaced (or a new one).
+fn clip_texture(ctx: &egui::Context, picture: &Arc<VideoFrame>, turn: Dihedral) -> Option<egui::TextureId> {
+    CLIP_TEX.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some((source, t, handle)) = c.as_ref()
+            && *t == turn
+            && std::ptr::eq(source.as_ptr(), Arc::as_ptr(picture))
+        {
+            return Some(handle.id());
+        }
+        let pixels = turned(&picture.image, turn)?;
+        let handle = match c.take() {
+            Some((_, _, mut handle)) => {
+                handle.set(pixels, egui::TextureOptions::LINEAR);
+                handle
+            }
+            None => ctx.load_texture("slideshow:video", pixels, egui::TextureOptions::LINEAR),
+        };
+        let id = handle.id();
+        *c = Some((Arc::downgrade(picture), turn, handle));
+        Some(id)
+    })
+}
+
+/// The video `clip` placed as the `index`th photo of the show, from its frame due; `None` before
+/// its first frame (the poster in its pane stands in).
+fn clip_photo(ui: &Ui, session: &Session, clip: &ClipView, index: usize) -> Option<Photo> {
+    let picture = clip_picture(clip.key)?;
+    let turn = crate::panels::thumbnails::recipe_orientation(&session.library().info(clip.photo).edits);
+    let texture = clip_texture(ui.ctx(), &picture, turn)?;
+    let size = turn.display_size(picture.image.width, picture.image.height);
+    let slide = Slide { size, focus: create::Point::CENTRE, zoom: create::pan_zoom_amount(index), motion: 0.0 };
+    SLIDES.with(|slides| slides.borrow_mut().push((clip.photo, slide)));
+    CLIP_SHOWN.with(|c| c.set(Some((clip.photo, picture.index))));
+    Some(Photo { texture, slide })
 }
 
 /// The images holding a texture on this UI thread now, least recently used first: each photo and
@@ -352,7 +432,15 @@ pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool, 
     let v = frame.view;
     let session = app.session_mut()?;
     begin_frame();
-    let incoming = frame.photo.zip(v.index).and_then(|(p, i)| photo(ui, session, p, i, (v.motion, frame.focus), need));
+    CLIP_SHOWN.with(|c| c.set(None));
+    let clip = frame.clip.filter(|c| frame.photo.is_some_and(|(p, _)| p == c.photo));
+    if clip.is_none() {
+        CLIP_TEX.with(|c| c.borrow_mut().take());
+    }
+    let incoming = clip
+        .zip(v.index)
+        .and_then(|(c, i)| clip_photo(ui, session, &c, i))
+        .or_else(|| frame.photo.zip(v.index).and_then(|(p, i)| photo(ui, session, p, i, (v.motion, frame.focus), need)));
     let change = v.change.filter(|_| frame.outgoing.is_some());
     let outgoing = frame.outgoing.zip(change).and_then(|(p, (i, _))| photo(ui, session, p, i, (v.outgoing_motion, frame.outgoing_focus), need));
     preload(ui.ctx(), session, frame);
@@ -379,6 +467,16 @@ pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool, 
             }
         }
         (None, None) => {}
+    }
+    // A video with nothing to show (one Dalica cannot play): its tile, fitted as the video.
+    if incoming.is_none()
+        && let Some((id, _)) = frame.photo
+        && session.is_video(id)
+    {
+        let size = session.library().video_facts(id).map(|f| f.display_size()).filter(|(w, h)| *w > 0 && *h > 0).unwrap_or((1920, 1080));
+        let r = create::fit(size, screen, ppp);
+        let tile = Rect::from_min_size(rect.min + egui::vec2(r.x, r.y), egui::vec2(r.width, r.height));
+        crate::panels::light_table::cell::video_tile(&painter, &t, tile);
     }
     let fit = incoming.as_ref().map(|inc| create::fit(inc.slide.size, screen, ppp));
     if !captions {
