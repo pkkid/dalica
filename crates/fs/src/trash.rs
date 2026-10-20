@@ -39,7 +39,8 @@
 //! found by its old path and identity). It holds what every thread of the process sent. An item on
 //! another volume than that folder still goes to the OS trash, so a cross-volume test sees the real
 //! thing. Each process's folder is locked while the process lives, and the next test process
-//! removes the folders of processes that have ended, so nothing piles up. A test that checks the OS
+//! removes the folders of processes that have ended once they are a minute old (a younger one may
+//! still be taking its lock), so nothing piles up. A test that checks the OS
 //! trash itself opts in with `faults::real_trash(true)`.
 //!
 //! The crate is called under `catch_unwind`: it unwraps on a malformed `.trashinfo` file or a mount
@@ -209,7 +210,7 @@ mod stand_in {
     /// Every thread's items: engine tests send on worker threads and restore on the test's own.
     static BIN: Mutex<Option<Bin>> = Mutex::new(None);
 
-    /// Folders younger than this are never removed without their lock (one may be being made).
+    /// Folders younger than this are never removed (one may be being made: [`sweep`]).
     const GRACE: Duration = Duration::from_secs(60);
 
     fn bin() -> std::sync::MutexGuard<'static, Option<Bin>> {
@@ -224,7 +225,7 @@ mod stand_in {
     fn make() -> io::Result<Bin> {
         let root = std::env::temp_dir().join("dalica-test-trash");
         fs::create_dir_all(&root)?;
-        sweep(&root);
+        sweep(&root, GRACE);
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
         let dir = root.join(format!("{}-{nanos}", std::process::id()));
         fs::create_dir(&dir)?;
@@ -236,19 +237,22 @@ mod stand_in {
         Ok(Bin { files, volume, _lock: lock, kept: Vec::new(), next: 0 })
     }
 
-    /// Removes the folders under `root` whose process has ended (their lock can be taken).
-    fn sweep(root: &Path) {
+    /// Removes the folders under `root` older than `grace` whose process has ended (their lock can
+    /// be taken, or the lock file cannot be opened). A younger folder is left alone, lock or not:
+    /// its process may be between making the lock file and taking the lock, and a sweep that took
+    /// the free lock then would remove a live process's trash (with what it holds) or leave it with
+    /// none, its next item sent to the OS trash where its restore cannot find it.
+    fn sweep(root: &Path, grace: Duration) {
         let Ok(entries) = fs::read_dir(root) else { return };
         for entry in entries.flatten().take(10_000) {
             let dir = entry.path();
-            let old = entry.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > GRACE);
+            let old = entry.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > grace);
+            if !old {
+                continue;
+            }
             let ended = match OpenOptions::new().read(true).write(true).open(dir.join("lock")) {
-                Ok(f) => match f.try_lock() {
-                    Ok(()) => true,
-                    Err(TryLockError::WouldBlock) => false,
-                    Err(TryLockError::Error(_)) => old,
-                },
-                Err(_) => old,
+                Ok(f) => !matches!(f.try_lock(), Err(TryLockError::WouldBlock)),
+                Err(_) => true,
             };
             if ended {
                 let _ = fs::remove_dir_all(&dir);
@@ -322,6 +326,40 @@ mod stand_in {
         fs::rename(&kept.at, &item.original).map_err(io_err("restore", &item.original))?;
         bin.kept.remove(pick);
         Ok(Restore::Restored)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// A process's folder as [`make`] leaves it between making its lock file and taking the
+        /// lock (the lock free), holding a trashed photo.
+        fn folder(root: &Path, name: &str) -> PathBuf {
+            let dir = root.join(name);
+            fs::create_dir_all(dir.join("files")).unwrap();
+            File::create(dir.join("lock")).unwrap();
+            fs::write(dir.join("files").join("0"), b"a trashed photo").unwrap();
+            dir
+        }
+
+        /// The sweep of another process starting never takes a young folder's free lock for an
+        /// ended process's: that removed a live process's trash with the photo in it (the review's
+        /// Windows run of `undo_faults`).
+        #[test]
+        fn a_young_folder_is_never_swept_and_an_ended_one_is() {
+            let root = tempfile::tempdir().unwrap();
+            let making = folder(root.path(), "1-1");
+            sweep(root.path(), GRACE);
+            assert_eq!(fs::read(making.join("files").join("0")).unwrap(), b"a trashed photo");
+            // Once older than the grace: a held lock keeps it; a free one is an ended process's.
+            let live = folder(root.path(), "2-2");
+            let held = OpenOptions::new().read(true).write(true).open(live.join("lock")).unwrap();
+            held.try_lock().unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+            sweep(root.path(), Duration::from_millis(1));
+            assert!(live.join("files").join("0").exists());
+            assert!(!making.exists());
+        }
     }
 }
 
