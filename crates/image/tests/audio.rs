@@ -117,7 +117,7 @@ fn an_ogg_vorbis_stream_declaring_more_than_its_headers_hold_is_refused_before_i
         let mut at = 0usize;
         for &(n, v) in fields {
             for i in 0..n {
-                if at % 8 == 0 {
+                if at.is_multiple_of(8) {
                     out.push(0);
                 }
                 *out.last_mut().unwrap() |= (((v >> i) & 1) as u8) << (at % 8);
