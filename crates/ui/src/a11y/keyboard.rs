@@ -15,6 +15,16 @@
 //! Controls outside every region (a dialog's, a menu's) come after the regions, in reading order.
 //! Tab moves to the next control and wraps; Shift+Tab to the one before. egui's own Tab move is
 //! cancelled for the frame, so the focus moves once.
+//!
+//! **One stop per tree and per light table** (the WAI-ARIA tree and grid patterns). A tree draws
+//! only the rows in view, so its rows cannot each be a stop: a stop scrolled out of the view is no
+//! longer drawn, and Tab could never come back to it. A tree's rows are one stop, its *current*
+//! row (the selection, else the row last focused, else the first): only that row takes the focus
+//! ([`row_sense`]), and the tree names it each frame with [`one_stop`], with where it reads, even
+//! while it is scrolled out of sight (the tree brings it into view as it gains the focus). In the
+//! tree the arrows, Home and End move the current row, Enter and Space act on it; Tab leaves the
+//! tree. The light table's visible cells are one stop too: the focused cell, else the first
+//! selected one, else the first; its arrows are the keymap's and the focus follows the selection.
 
 use std::collections::HashSet;
 
@@ -31,8 +41,71 @@ const MENU_KEYS: [Key; 5] = [Key::Escape, Key::Home, Key::End, Key::PageUp, Key:
 /// screenful) orders the first ones.
 const MAX_STOPS: usize = 4096;
 
+/// What a focused tree or list row takes besides: the keys that walk to its ends.
+const TREE_KEYS: [Key; 2] = [Key::Home, Key::End];
+/// The most one-row stops a frame names (a frame has a tree or two).
+const MAX_ONE_STOPS: usize = 64;
+
 fn anchor_key() -> Id {
     Id::new("dalica.a11y.focus-anchor")
+}
+
+fn one_stops_key() -> Id {
+    Id::new("dalica.a11y.one-stops")
+}
+
+/// A tree's one Tab stop: its current row's egui id, the row's layer, and where it reads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct OneStop {
+    stop: Id,
+    layer: egui::LayerId,
+    at: Rect,
+}
+
+/// The stops named in the pass being drawn and in the one before it.
+#[derive(Clone, Debug, Default)]
+struct OneStops {
+    pass: u64,
+    this: Vec<OneStop>,
+    last_pass: u64,
+    last: Vec<OneStop>,
+}
+
+/// The sense of a tree's row: only its current row (`current`) takes the focus, so the tree is one
+/// Tab stop; every row still clicks.
+pub fn row_sense(current: bool) -> egui::Sense {
+    if current { egui::Sense::click() } else { egui::Sense::CLICK }
+}
+
+/// Names a tree's one Tab stop for this frame: its current row's egui id `stop`, on `layer`, read
+/// at `at` (the row's rect, or the edge of the tree it is scrolled past). Tab reaches the row even
+/// while it is not drawn; the tree brings it into view when it gains the focus.
+pub fn one_stop(ctx: &Context, stop: Id, layer: egui::LayerId, at: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let s = d.get_temp_mut_or_default::<OneStops>(one_stops_key());
+        if s.pass != pass {
+            s.last = std::mem::take(&mut s.this);
+            s.last_pass = s.pass;
+            s.pass = pass;
+        }
+        if s.this.len() < MAX_ONE_STOPS {
+            s.this.push(OneStop { stop, layer, at });
+        }
+    });
+}
+
+/// The one-row stops the last frame named.
+fn last_one_stops(ctx: &Context) -> Vec<OneStop> {
+    let Some(before) = ctx.cumulative_pass_nr().checked_sub(1) else { return Vec::new() };
+    let s = ctx.data(|d| d.get_temp::<OneStops>(one_stops_key())).unwrap_or_default();
+    if s.pass == before {
+        s.this
+    } else if s.last_pass == before && s.pass > before {
+        s.last
+    } else {
+        Vec::new()
+    }
 }
 
 /// Where the focus was when the frame's keys were read: on a light-table cell, with this anchor.
@@ -51,7 +124,13 @@ pub fn before_keys(app: &mut App, ctx: &Context) -> Vec<Event> {
     let focused = ctx.memory(|m| m.focused()).filter(|_| pressed(ctx, |_, _| true));
     let widget = focused.and_then(|f| registry::widgets(ctx).into_iter().find(|w| w.egui_id == Some(f)));
     let on_cell = widget.as_ref().is_some_and(is_cell);
+    // On a tree's (or a list's) one stop: its rows are walked by its own keys.
+    let on_tree = focused.is_some_and(|f| last_one_stops(ctx).iter().any(|s| s.stop == f));
     let arrow = pressed(ctx, |k, m| m.is_none() && matches!(k, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight));
+    // The tree moves its own focus from row to row (egui's move would go only to drawn rows).
+    if on_tree && arrow {
+        ctx.memory_mut(|m| m.move_focus(FocusDirection::None));
+    }
     if on_cell {
         // The keymap moves the selection; egui must not move the focus as well.
         if arrow {
@@ -68,7 +147,9 @@ pub fn before_keys(app: &mut App, ctx: &Context) -> Vec<Event> {
     }
     ctx.input_mut(|i| {
         let (held, rest): (Vec<Event>, Vec<Event>) = std::mem::take(&mut i.events).into_iter().partition(|e| match e {
-            Event::Key { key, modifiers, .. } if modifiers.is_none() => CONTROL_KEYS.contains(key) || (menu && MENU_KEYS.contains(key)),
+            Event::Key { key, modifiers, .. } if modifiers.is_none() => {
+                CONTROL_KEYS.contains(key) || (menu && MENU_KEYS.contains(key)) || (on_tree && TREE_KEYS.contains(key))
+            }
             _ => false,
         });
         i.events = rest;
@@ -138,7 +219,8 @@ fn tab(ctx: &Context) {
     }
 }
 
-/// The controls of the last frame that take the focus, in the order Tab walks them.
+/// The controls of the last frame that take the focus, in the order Tab walks them: each tree and
+/// the light table one stop.
 pub fn order(ctx: &Context) -> Vec<Id> {
     // A control scrolled out of sight (a dialog body's lower rows) is read where it is drawn: right
     // after the last control drawn before it that shows, not by where it lies outside its clip.
@@ -159,6 +241,20 @@ pub fn order(ctx: &Context) -> Vec<Id> {
         }
         out
     });
+    let mut candidates = candidates;
+    // A tree's stop, where it reads, drawn or scrolled out of sight.
+    for s in last_one_stops(ctx) {
+        match candidates.iter().position(|c| c.0 == s.stop) {
+            Some(k) => {
+                if let Some(c) = candidates.get_mut(k) {
+                    c.2 = s.at;
+                }
+            }
+            None if candidates.len() < MAX_STOPS => candidates.push((s.stop, s.layer, s.at)),
+            None => {}
+        }
+    }
+    one_cell(ctx, &mut candidates);
     let layers: HashSet<egui::LayerId> = candidates.iter().map(|c| c.1).collect();
     let open: HashSet<egui::LayerId> = ctx.memory(|m| layers.into_iter().filter(|l| m.allows_interaction(*l) && m.areas().is_visible(l)).collect());
     let regions = regions(ctx);
@@ -177,6 +273,24 @@ pub fn order(ctx: &Context) -> Vec<Id> {
         }
     }
     groups.into_iter().flat_map(|g| reading_order(g).into_iter().map(|(id, _)| id)).collect()
+}
+
+/// The light table's drawn cells, one stop: the focused cell, else the first selected one in
+/// reading order, else the first.
+fn one_cell(ctx: &Context, candidates: &mut Vec<(Id, egui::LayerId, Rect)>) {
+    let cells: std::collections::HashMap<Id, bool> = registry::widgets(ctx)
+        .into_iter()
+        .filter(|w| w.role == Role::Thumbnail && w.id.starts_with("thumb:"))
+        .filter_map(|w| Some((w.egui_id?, w.active)))
+        .collect();
+    let drawn: Vec<(Id, Rect)> = candidates.iter().filter(|c| cells.contains_key(&c.0)).map(|c| (c.0, c.2)).collect();
+    if drawn.len() < 2 {
+        return;
+    }
+    let focused = ctx.memory(|m| m.focused()).filter(|f| drawn.iter().any(|c| c.0 == *f));
+    let selected: Vec<(Id, Rect)> = drawn.iter().filter(|c| cells.get(&c.0).copied().unwrap_or(false)).copied().collect();
+    let keep = focused.or_else(|| reading_order(selected).first().map(|c| c.0)).or_else(|| reading_order(drawn).first().map(|c| c.0));
+    candidates.retain(|c| !cells.contains_key(&c.0) || Some(c.0) == keep);
 }
 
 /// The window's regions of the last frame, in reading order.

@@ -46,7 +46,7 @@ use dalica_ui_kit::icons::{FolderIcon, paint_folder};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, ButtonKind, Target, checkbox_row};
 use dalica_ui_kit::{Tokens, fonts};
-use egui::{Align, Color32, CursorIcon, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
+use egui::{Align, Color32, CursorIcon, Id, Key, Layout, Modifiers, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
@@ -152,9 +152,12 @@ fn parts(root: &Path, path: &Path) -> String {
     if root == path { hash(root) } else { format!("{}/{}", hash(root), hash(path)) }
 }
 
+/// What every row's id starts with.
+pub const ROW_PREFIX: &str = "choice:dialog.folder/";
+
 /// The id of `path`'s row under `root` (the root's own row when they are the same).
 pub fn row_id(root: &Path, path: &Path) -> String {
-    format!("choice:dialog.folder/{}", parts(root, path))
+    format!("{ROW_PREFIX}{}", parts(root, path))
 }
 
 /// The id of that row's disclosure triangle.
@@ -335,6 +338,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let mut draft = Draft::read(&d.fields);
     if !draft.ready {
         listing::clear(&ctx);
+        tree::clear(&ctx);
         let folder = app.state().folder.and_then(|id| app.session().and_then(|s| s.library().folder(id)).map(|f| f.path.clone()));
         draft.selected = folder.as_deref().map(key);
         draft.reveal = draft.selected.clone();
@@ -561,7 +565,9 @@ fn watched(app: &App, draft: &Draft, roots: &[Root]) -> Vec<(PathBuf, String)> {
         .collect()
 }
 
-/// The watched list in `rect`; the folder clicked, if any.
+/// The watched list in `rect`; the folder clicked (or chosen with Enter or Space), if any. Like the
+/// tree, it is one Tab stop: its current row (the one last focused, else the first) takes the
+/// focus, ↑/↓, Home and End move it.
 fn watched_list(ui: &mut Ui, t: &Tokens, rect: Rect, watched: &[(PathBuf, String)]) -> Option<PathBuf> {
     tree::well(ui, t, rect);
     let inner = rect.shrink(1.0);
@@ -575,33 +581,96 @@ fn watched_list(ui: &mut Ui, t: &Tokens, rect: Rect, watched: &[(PathBuf, String
     }
     let mut clicked = None;
     let row_h = t.metrics.tree_row_h;
-    egui::ScrollArea::vertical()
+    let ctx = ui.ctx().clone();
+    let memory = Id::new("dialog:folderManager/watched/nav");
+    // The current row, whether it had the keyboard's focus, and the list's scroll offset and
+    // height, as last drawn.
+    let (kept, keyed, offset, view_h) = ctx.data(|d| d.get_temp::<(usize, bool, f32, f32)>(memory)).unwrap_or((0, false, 0.0, 0.0));
+    let n = watched.len();
+    let mut current = kept.min(n - 1);
+    let egui_id = |i: usize| watched.get(i).map(|(p, _)| Id::new(reveal_id(p)));
+    let mut area = egui::ScrollArea::vertical()
         .id_salt("dialog:folderManager/watched")
         .max_height(inner.height())
         .auto_shrink([false, false])
-        .scroll_source(egui::scroll_area::ScrollSource::MOUSE_WHEEL)
-        .show_rows(&mut child, row_h, watched.len(), |ui, range| {
-            let w = ui.available_width();
-            for (path, name) in watched.get(range).unwrap_or_default() {
-                let (rect, _) = ui.allocate_exact_size(vec2(w, row_h), Sense::hover());
-                let id = reveal_id(path);
-                let r = ui.interact(rect, Id::new(&id), Sense::click());
-                let p = ui.painter();
-                if r.hovered() {
-                    p.rect_filled(rect, 0, t.hover.gamma_multiply(0.6));
+        .scroll_source(egui::scroll_area::ScrollSource::MOUSE_WHEEL);
+    let keyboard = ctx.memory(|m| m.focused()) == egui_id(current);
+    let reveal = |area: egui::ScrollArea, to: usize| {
+        let top = to as f32 * row_h;
+        let view_h = view_h.max(row_h);
+        let y = if top < offset {
+            top
+        } else if top + row_h > offset + view_h {
+            top + row_h - view_h
+        } else {
+            offset
+        };
+        area.vertical_scroll_offset(y.max(0.0))
+    };
+    if keyboard && !keyed {
+        area = reveal(area, current);
+    }
+    if keyboard {
+        let keys = [Key::ArrowDown, Key::ArrowUp, Key::Home, Key::End, Key::Enter, Key::Space];
+        if let Some(key) = keys.into_iter().find(|k| ui.input_mut(|i| i.consume_key(Modifiers::NONE, *k))) {
+            let to = match key {
+                Key::ArrowDown => (current + 1).min(n - 1),
+                Key::ArrowUp => current.saturating_sub(1),
+                Key::Home => 0,
+                Key::End => n - 1,
+                _ => {
+                    clicked = watched.get(current).map(|(p, _)| p.clone());
+                    current
                 }
-                let side = t.metrics.icon_menu;
-                let icon = Rect::from_min_size(pos2(rect.min.x + 6.0, rect.center().y - side / 2.0), vec2(side, side));
-                paint_folder(p, icon, FolderIcon::ScanAlways, State::Always.color(t));
-                let tx = icon.max.x + 6.0;
-                let g = tree::one_line(ui, name, fonts::regular(t.body), t.text_label, rect.max.x - tx - 4.0);
-                p.galley(pos2(tx, rect.center().y - g.size().y / 2.0).round(), g, t.text_label);
-                widgets::register(ui.ctx(), &id, Role::Button, name, Target::Widget(&r), false);
-                if r.clicked() {
-                    clicked = Some(path.clone());
+            };
+            if to != current {
+                current = to;
+                if let Some(id) = egui_id(to) {
+                    ctx.memory_mut(|m| m.request_focus(id));
                 }
+                area = reveal(area, to);
             }
+        }
+    }
+    let mut stop_at = None;
+    let shown = area.show_rows(&mut child, row_h, watched.len(), |ui, range| {
+        let w = ui.available_width();
+        let first = range.start;
+        for (k, (path, name)) in watched.get(range).unwrap_or_default().iter().enumerate() {
+            let i = first + k;
+            let (rect, _) = ui.allocate_exact_size(vec2(w, row_h), Sense::hover());
+            let id = reveal_id(path);
+            let r = ui.interact(rect, Id::new(&id), crate::a11y::keyboard::row_sense(i == current));
+            if i == current {
+                stop_at = Some(rect);
+            }
+            let p = ui.painter();
+            if r.hovered() {
+                p.rect_filled(rect, 0, t.hover.gamma_multiply(0.6));
+            }
+            let side = t.metrics.icon_menu;
+            let icon = Rect::from_min_size(pos2(rect.min.x + 6.0, rect.center().y - side / 2.0), vec2(side, side));
+            paint_folder(p, icon, FolderIcon::ScanAlways, State::Always.color(t));
+            let tx = icon.max.x + 6.0;
+            let g = tree::one_line(ui, name, fonts::regular(t.body), t.text_label, rect.max.x - tx - 4.0);
+            p.galley(pos2(tx, rect.center().y - g.size().y / 2.0).round(), g, t.text_label);
+            widgets::focus_ring(p, t, &r, rect.shrink(2.0), 0);
+            widgets::register(ui.ctx(), &id, Role::Button, name, Target::Widget(&r), false);
+            if r.clicked() {
+                clicked = Some(path.clone());
+                current = i;
+            }
+        }
+    });
+    let (offset, view_h) = (shown.state.offset.y, shown.inner_rect.height());
+    ctx.data_mut(|d| d.insert_temp(memory, (current, keyboard, offset, view_h)));
+    if let Some(id) = egui_id(current) {
+        let at = stop_at.unwrap_or_else(|| {
+            let y = if (current as f32) * row_h < offset { inner.min.y } else { inner.max.y - row_h };
+            Rect::from_min_size(pos2(inner.min.x, y), vec2(inner.width(), row_h))
         });
+        crate::a11y::keyboard::one_stop(&ctx, id, ui.layer_id(), at);
+    }
     clicked
 }
 

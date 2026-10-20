@@ -28,7 +28,13 @@
 //!   are the pane's ([`has_focus`], [`is_tree_key`]: the shortcut dispatch leaves them alone):
 //!   ↑/↓ move the selection to the previous or next row with photos (scrolling the light table, and
 //!   the pane to keep the row in view); in tree mode ← folds the selected row or goes to its
-//!   parent, → unfolds it.
+//!   parent, → unfolds it (or, unfolded, goes to its first row below).
+//! - **Tab** (`crate::a11y::keyboard`): the rows are one Tab stop, the *current* row (the selected
+//!   one, else the row last focused, else the first with photos), brought into view as it gains the
+//!   focus and drawn with the focus ring; the group headers are stops of their own. With a row
+//!   focused, the arrows above move the focus with the selection, Home and End go to the first and
+//!   last row with photos, Enter and Space act as a click on the row; Tab goes on to the light
+//!   table.
 //! - **Scrolling:** the wheel over the pane scrolls it, and while the list is taller than the pane
 //!   an ordinary position scroll bar ([`scrollbar`]) at its right edge drags and pages it.
 //!   Collapsed groups after the last open one dock at the bottom of the pane while the list above
@@ -115,6 +121,10 @@ struct Pane {
     dirs: BTreeSet<PathBuf>,
     /// The scroll bar's drag.
     bar: scrollbar::Bar,
+    /// The current row (the one Tab stop) as last drawn: its item and egui id.
+    stop: Option<(usize, Id)>,
+    /// Whether the keyboard's focus was on it.
+    keyed: bool,
 }
 
 /// What the last frame of the pane did.
@@ -194,6 +204,16 @@ pub fn has_focus(ctx: &Context) -> bool {
     ctx.data(|d| d.get_temp::<bool>(focus_id())).unwrap_or(false)
 }
 
+/// The egui id of a row's response: the row's Tab stop when it is the current one.
+fn row_egui_id(row: &model::Row) -> Id {
+    Id::new(("tree-row", &row.id))
+}
+
+/// The keys a focused row takes besides the arrows.
+fn is_row_key(key: egui::Key, modifiers: Modifiers) -> bool {
+    modifiers.is_none() && matches!(key, egui::Key::Home | egui::Key::End | egui::Key::Enter | egui::Key::Space)
+}
+
 /// Whether the focused tree takes this key press for itself: a plain arrow.
 pub fn is_tree_key(key: egui::Key, modifiers: Modifiers) -> bool {
     modifiers.is_none() && matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight)
@@ -262,9 +282,39 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
 
     // Focus: a press in the pane takes it, a press elsewhere gives it up.
     let mut focused = has_focus(&ctx);
-    if let Some(pos) = ctx.input(|i| if i.pointer.any_pressed() { i.pointer.press_origin() } else { None }) {
+    let pressed_at = ctx.input(|i| if i.pointer.any_pressed() { i.pointer.press_origin() } else { None });
+    if let Some(pos) = pressed_at {
         focused = rect.contains(pos);
     }
+    // The current row, the one Tab stop: the selected row, else the one last current (focused),
+    // else the first row with photos.
+    let selected_row = || {
+        if state.unnamed.open {
+            return None;
+        }
+        selected_album(state).and_then(|a| model.row_of_section(Section::Album(a))).or_else(|| state.folder.and_then(|f| model.row_of(f)))
+    };
+    let kept = pane.stop.filter(|(i, id)| model.row(*i).is_some_and(|r| row_egui_id(r) == *id)).map(|s| s.0);
+    let focus = ctx.memory(|m| m.focused());
+    // The keyboard's focus on the row last current (Tab just gave it, or an arrow moved it).
+    let on_kept = kept.filter(|_| focus.is_some() && focus == pane.stop.map(|s| s.1));
+    let current = on_kept.or_else(selected_row).or(kept).or_else(|| model.step(None, true));
+    let current_id = current.and_then(|i| model.row(i)).map(row_egui_id);
+    let keyboard = current_id.is_some() && focus == current_id;
+    if keyboard {
+        focused = true;
+    } else if focus.is_some() && pressed_at.is_none() {
+        // The keyboard's focus is on another control: its arrows are not the tree's.
+        focused = false;
+    }
+    // Just focused (Tab): brought into view.
+    if keyboard
+        && !pane.keyed
+        && let Some(i) = current
+    {
+        pane.offset = model.reveal(i, pane.offset, view_h);
+    }
+    pane.keyed = keyboard;
 
     // The wheel, then the keys, before anything is drawn.
     if ui.rect_contains_pointer(rect) {
@@ -274,18 +324,24 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         }
     }
     let mut actions = Vec::new();
+    // The row the keyboard's focus moves to this frame.
+    let mut want_focus = None;
     if focused {
         let keys: Vec<egui::Key> = ctx.input(|i| {
             i.events
                 .iter()
                 .filter_map(|e| match e {
-                    egui::Event::Key { key, pressed: true, modifiers, .. } if is_tree_key(*key, *modifiers) => Some(*key),
+                    egui::Event::Key { key, pressed: true, modifiers, .. }
+                        if is_tree_key(*key, *modifiers) || (keyboard && is_row_key(*key, *modifiers)) =>
+                    {
+                        Some(*key)
+                    }
                     _ => None,
                 })
                 .collect()
         });
-        let mut cursor =
-            selected_album(state).and_then(|a| model.row_of_section(Section::Album(a))).or_else(|| state.folder.and_then(|f| model.row_of(f)));
+        let mut cursor = if keyboard { current } else { selected_row() };
+        let start = cursor;
         for k in keys {
             match k {
                 egui::Key::ArrowDown | egui::Key::ArrowUp => {
@@ -293,6 +349,24 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                         cursor = Some(i);
                         actions.push(Action::Select(i));
                         pane.offset = model.reveal(i, pane.offset, view_h);
+                    }
+                }
+                egui::Key::Home | egui::Key::End => {
+                    if let Some(i) = model.step(None, k == egui::Key::Home) {
+                        cursor = Some(i);
+                        actions.push(Action::Select(i));
+                        // Home: the top of the tree, its first header with it.
+                        let from = if k == egui::Key::Home { 0.0 } else { pane.offset };
+                        pane.offset = model.reveal(i, from, view_h);
+                    }
+                }
+                egui::Key::Enter | egui::Key::Space => {
+                    let Some(i) = cursor else { continue };
+                    match model.row(i) {
+                        Some(r) if r.unnamed => actions.push(Action::Unnamed),
+                        Some(r) if r.section.is_some() => actions.push(Action::Select(i)),
+                        Some(r) if r.has_children && tree_mode => actions.push(Action::Fold(i, None)),
+                        _ => {}
                     }
                 }
                 egui::Key::ArrowLeft if tree_mode => {
@@ -310,14 +384,26 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                     }
                 }
                 egui::Key::ArrowRight if tree_mode => {
-                    if let Some(i) = cursor
-                        && model.row(i).is_some_and(|r| r.has_children && !r.expanded)
-                    {
-                        actions.push(Action::Fold(i, Some(false)));
+                    let Some(i) = cursor else { continue };
+                    match model.row(i) {
+                        Some(r) if r.has_children && !r.expanded => actions.push(Action::Fold(i, Some(false))),
+                        // Unfolded: its first row below.
+                        Some(r) if r.has_children => {
+                            let depth = r.depth;
+                            if let Some(below) = model.step(Some(i), true).filter(|b| model.row(*b).is_some_and(|c| c.depth > depth)) {
+                                cursor = Some(below);
+                                actions.push(Action::Select(below));
+                                pane.offset = model.reveal(below, pane.offset, view_h);
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 _ => {}
             }
+        }
+        if keyboard && cursor != start {
+            want_focus = cursor;
         }
     }
     // A drag of photos held near the top or bottom edge scrolls the rows.
@@ -346,6 +432,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let face_side = pictures::side_px(&ctx, paint::FACE);
     let mut menu: Option<(egui::Response, PersonId)> = None;
     let mut visited = 0usize;
+    let mut stop_at: Option<Rect> = None;
     for i in model.visible(pane.offset, view_h) {
         let (Some(item), Some(top)) = (model.items.get(i), model.screen_top(i, pane.offset, view_h)) else { continue };
         let r = Rect::from_min_size(pos2(rows.min.x, rows.min.y + top), vec2(rows.width(), item.height));
@@ -370,7 +457,15 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             }
             Kind::Row(row) => {
                 visited += 1;
-                let response = ui.interact(r, Id::new(("tree-row", &row.id)), Sense::click());
+                // Only the current row takes the focus: the tree is one Tab stop.
+                let is_current = want_focus.or(current) == Some(i);
+                let response = ui.interact(r, row_egui_id(row), crate::a11y::keyboard::row_sense(is_current));
+                if want_focus == Some(i) {
+                    response.request_focus();
+                }
+                if is_current {
+                    stop_at = Some(r);
+                }
                 let selected = match row.album {
                     Some(album) => selected_album == Some(album),
                     None if row.unnamed => unnamed_open,
@@ -382,6 +477,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                     pictures::picture(&ctx, f, rect, face_side)
                 });
                 paint::row(&painter, &t, r, row, look, tree_mode, face);
+                widgets::focus_ring(&painter, &t, &response, r.shrink(2.0), 0);
                 if let Some(at) = dragging.filter(|p| r.contains(*p)).and_then(|_| drop_at(row))
                     && crate::drag::offer(&ctx, session, state, at, &row.id).is_some()
                 {
@@ -391,7 +487,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                 // The triangle goes over the row, so a click on it folds rather than selects.
                 let mut folded = false;
                 if let (true, Some(id)) = (tree_mode, &row.disclosure) {
-                    let d = ui.interact(paint::disclosure_rect(r, row.depth, heights.indent), Id::new(("tree-disclosure", id)), Sense::click());
+                    // A click folds; the keyboard folds with ← and → on the row (no Tab stop of its own).
+                    let d = ui.interact(paint::disclosure_rect(r, row.depth, heights.indent), Id::new(("tree-disclosure", id)), Sense::CLICK);
                     let label = if row.expanded { tl!("Collapse {name}", name = row.name) } else { tl!("Expand {name}", name = row.name) };
                     widgets::register(&ctx, id, Role::Toggle, &label, Target::Widget(&d), row.expanded);
                     if d.clicked() {
@@ -425,6 +522,16 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         }
     }
     perf::count(&ctx, Counter::TreeRowsVisited, visited as u64);
+    // The tree's one Tab stop, where it reads: its row, or the edge it is scrolled past.
+    let stop_item = want_focus.or(current);
+    pane.stop = stop_item.and_then(|i| Some((i, row_egui_id(model.row(i)?))));
+    if let (Some((_, id)), Some(item)) = (pane.stop, stop_item.and_then(|i| model.items.get(i))) {
+        let at = stop_at.unwrap_or_else(|| {
+            let y = if item.top < pane.offset { rows.min.y } else { rows.max.y - item.height };
+            Rect::from_min_size(pos2(rows.min.x, y), vec2(rows.width(), item.height))
+        });
+        crate::a11y::keyboard::one_stop(&ctx, id, ui.layer_id(), at);
+    }
     if let (Some(s), Some(f)) = (strip, &bar) {
         scrollbar::paint(ui, &t, f, s, view_h, model.height, pane.offset);
     }

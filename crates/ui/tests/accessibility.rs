@@ -494,9 +494,16 @@ fn the_trees_rows_say_their_level_whether_they_are_open_and_their_count() {
     let dir = tempfile::tempdir().unwrap();
     let mut d = demo(dir.path());
     let t = tree(&mut d);
-    let (_, row) = t.widget(&d, "tree:folder:1").unwrap();
+    let (id, row) = t.widget(&d, "tree:folder:1").unwrap();
     assert_eq!((row.role(), row.level(), row.is_expanded()), (Role::TreeItem, Some(1), None));
     assert_eq!(row.description(), Some("20 photos"));
+    // Inside its group's tree, with its place among its siblings (the rows out of view are not in
+    // the tree, so a screen reader learns the set's size from the row).
+    let folders = t.ancestor(id, Role::Tree).expect("the row is in a tree");
+    assert_eq!(folders.label(), Some("Folders"));
+    let (position, size) = (row.position_in_set().unwrap(), row.size_of_set().unwrap());
+    let count = d.app().session().unwrap().library().folders().count();
+    assert!(position >= 1 && position <= size && size == count, "{position} of {size}, {count} folders");
 
     // In tree mode a folder with folders below it says whether it is open, each at its depth.
     let dir = tempfile::tempdir().unwrap();

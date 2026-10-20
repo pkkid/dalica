@@ -196,6 +196,68 @@ pub struct Model {
     by_folder: HashMap<FolderId, usize>,
     /// Each row's section.
     by_section: HashMap<Section, usize>,
+    /// Each item's place among its siblings for a screen reader (1-based position, set size; 0, 0
+    /// for an item that is no row), and the group it is in.
+    places: Vec<Place>,
+}
+
+/// An item's place in the tree: among its siblings (the rows at its depth under the same row and
+/// header) and in a group.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Place {
+    position: usize,
+    size: usize,
+    group: Option<Group>,
+}
+
+/// Each item's [`Place`], in one pass: a header starts new sets, a row joins the set at its depth
+/// and ends the deeper ones (year dividers are no row and break nothing).
+fn places(items: &[Item]) -> Vec<Place> {
+    /// Deeper rows share the set at this depth (never seen: folder trees are shallower).
+    const MAX_DEPTH: usize = 256;
+    let mut out = vec![Place { position: 0, size: 0, group: None }; items.len()];
+    let mut group = None;
+    // The open set at each depth: the items in it.
+    let mut open: Vec<Vec<usize>> = Vec::new();
+    let close = |out: &mut Vec<Place>, set: Vec<usize>| {
+        let size = set.len();
+        for (k, i) in set.into_iter().enumerate() {
+            if let Some(p) = out.get_mut(i) {
+                p.position = k + 1;
+                p.size = size;
+            }
+        }
+    };
+    for (i, item) in items.iter().enumerate() {
+        match &item.kind {
+            Kind::Header { group: g, .. } => {
+                group = Some(*g);
+                for set in open.drain(..) {
+                    close(&mut out, set);
+                }
+            }
+            Kind::Year(_) => {}
+            Kind::Row(r) => {
+                let depth = r.depth.min(MAX_DEPTH);
+                while open.len() > depth + 1 {
+                    if let Some(set) = open.pop() {
+                        close(&mut out, set);
+                    }
+                }
+                open.resize_with(depth + 1, Vec::new);
+                if let Some(set) = open.get_mut(depth) {
+                    set.push(i);
+                }
+            }
+        }
+        if let Some(p) = out.get_mut(i) {
+            p.group = group;
+        }
+    }
+    for set in open {
+        close(&mut out, set);
+    }
+    out
 }
 
 /// A group's name in its header.
@@ -347,7 +409,19 @@ impl Model {
         }
         let by_section =
             items.iter().enumerate().filter_map(|(i, it)| if let Kind::Row(r) = &it.kind { r.section.map(|s| (s, i)) } else { None }).collect();
-        Model { items, height: y, docked, mode: tree.mode, search, by_folder, by_section }
+        let places = places(&items);
+        Model { items, height: y, docked, mode: tree.mode, search, by_folder, by_section, places }
+    }
+
+    /// Row `i`'s place among its siblings, 1-based, and how many they are; `None` for an item that
+    /// is no row.
+    pub fn set_of(&self, i: usize) -> Option<(usize, usize)> {
+        self.places.get(i).filter(|p| p.size > 0).map(|p| (p.position, p.size))
+    }
+
+    /// The group item `i` is in.
+    pub fn group_of(&self, i: usize) -> Option<Group> {
+        self.places.get(i).and_then(|p| p.group)
     }
 
     /// Marks the rows `is_offline` says are under an offline root (`TreeOptions::is_offline`);
@@ -502,10 +576,14 @@ mod tests {
     }
 
     #[test]
-    fn a_row_says_its_level_from_one_and_whether_it_is_expanded_only_with_rows_below() {
+    fn a_row_says_its_level_from_one_whether_it_is_expanded_only_with_rows_below_and_its_place_among_its_siblings() {
         let m = Model::build(&tree(), Heights::default());
         let rows: Vec<(usize, Option<bool>)> = (0..m.items.len()).filter_map(|i| m.row(i)).map(|r| (r.level(), r.expanded_state())).collect();
         assert_eq!(rows, [(1, Some(true)), (2, Some(true)), (3, Some(true)), (4, None), (2, None)]);
+        // p; a and b under it (x and y one each, deeper); headers are in no set.
+        let sets: Vec<Option<(usize, usize)>> = (0..m.items.len()).map(|i| m.set_of(i)).collect();
+        assert_eq!(sets, [None, Some((1, 1)), Some((1, 2)), Some((1, 1)), Some((1, 1)), Some((2, 2)), None]);
+        assert_eq!((m.group_of(0), m.group_of(5), m.group_of(6)), (Some(Group::Folders), Some(Group::Folders), Some(Group::Hidden)));
     }
 
     #[test]
