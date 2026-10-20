@@ -33,6 +33,12 @@
 //!   payload, the targets and the drops are final; the pill of a drag of faces is reported
 //!   ([`face_pill`]) but not painted yet.
 //!
+//! - **Out of the window (M15.23).** A drag of photos whose pointer leaves the window with the
+//!   button held becomes the OS's drag of their files ([`out`], `FILE-DRAGOUT`); released outside,
+//!   nothing inside is dropped; brought back in, it is an inside drag again. A drag from the edit
+//!   view's filmstrip (`film:<id>`, [`start_from_film`]) carries that one photo; the edit view has
+//!   no inside target, so it only leaves.
+//!
 //! **Boundary.** [`start`] is called by the part a drag starts on; [`offer`] by the parts drawn
 //! under the pointer (the tree's rows, the light table's album cells), which paint their own
 //! highlight or marker; [`frame`] once a frame after the panels (it finds the tray, resolves the
@@ -51,6 +57,8 @@ use crate::app::App;
 use crate::panels::Panels;
 use crate::panels::thumbnails::{PhotoRef, fit_within};
 use crate::state::{AlbumKey, Drag, DragOp, DropAt, FaceRef, MAX_IDS, UiState, View};
+
+pub mod out;
 
 /// The drag pill's automation id (role `other`, painted, labelled with its text).
 pub const PILL_ID: &str = "drag:pill";
@@ -249,6 +257,7 @@ pub fn escape(app: &mut App, ctx: &Context) {
     }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         end(app);
+        out::finish(ctx, true);
     }
 }
 
@@ -261,15 +270,36 @@ pub fn frame(p: &mut Panels, app: &mut App, ctx: &Context) {
         d.remove::<Offer>(offer_id());
         o
     });
-    if app.state().view != View::Library {
-        end(app);
+    let view = app.state().view;
+    let from_film = app.state().drag.as_ref().is_some_and(|d| d.from.starts_with(FILM_PREFIX));
+    if !(view == View::Library || view == View::Edit && from_film) {
+        if app.state().drag.is_some() {
+            end(app);
+        }
+        out::finish(ctx, true);
+        if view == View::Edit {
+            start_from_film(app, ctx);
+        }
         return;
     }
     if app.state().drag.is_none() {
+        out::finish(ctx, false);
         start_from_tray(app, ctx);
     }
-    let (Some(session), Some(drag)) = (app.session(), app.state().drag.as_ref()) else { return };
     let pos = ctx.input(|i| i.pointer.latest_pos()).filter(|p| p.is_finite());
+    // Out of the window with the button held: the OS's drag of the files, once (`out`).
+    if ctx.input(|i| i.pointer.primary_down())
+        && out::outside(ctx, pos)
+        && let Some(d) = app.state().drag.as_ref()
+        && d.faces.is_empty()
+    {
+        let (ids, pill) = (d.ids.clone(), d.pill.clone());
+        let tokens = *app.tokens();
+        if let Some(why) = app.session_mut().and_then(|s| out::leave(ctx, s, &tokens, &ids, &pill)) {
+            app.state_mut().status = why;
+        }
+    }
+    let (Some(session), Some(drag)) = (app.session(), app.state().drag.as_ref()) else { return };
     let tray = registry::find(ctx, TRAY_ID).map(|w| Rect::from_min_size(pos2(w.rect[0], w.rect[1]), vec2(w.rect[2], w.rect[3])));
     let offered = offered.or_else(|| {
         let over = tray.zip(pos).is_some_and(|(r, p)| r.contains(p));
@@ -284,6 +314,7 @@ pub fn frame(p: &mut Panels, app: &mut App, ctx: &Context) {
         pill(offered.as_ref().map(|o| o.op), drag.ids.len(), name.as_deref())
     };
     let (count, first) = (drag.ids.len(), drag.ids.first().copied());
+    let note = (drag.faces.is_empty() && offered.is_none()).then(|| out::note(session, &drag.ids)).flatten();
     if let Some(d) = app.state_mut().drag.as_mut() {
         d.target = offered.as_ref().map(|o| o.widget.clone());
         d.op = offered.as_ref().map(|o| o.op);
@@ -291,13 +322,17 @@ pub fn frame(p: &mut Panels, app: &mut App, ctx: &Context) {
         d.pill = text;
     }
     if !ctx.input(|i| i.pointer.primary_down()) {
-        // Released: drop where the pointer is, or nowhere.
+        // Released: drop where the pointer is, or nowhere. Outside the window the OS has the drag
+        // (`out`): nothing inside fires.
+        let inside = !out::outside(ctx, pos);
         if let Some(d) = app.state_mut().drag.take()
+            && inside
             && let (Some(at), Some(op)) = (d.at, d.op)
         {
             // A refusal's reason is on the status line.
             let _ = if d.faces.is_empty() { drop_at(app, at, op, d.ids) } else { drop_faces_at(app, at, d.faces) };
         }
+        out::finish(ctx, inside);
         return;
     }
     // A drag of faces: its pill is ui-kit's to paint once it has words for faces.
@@ -311,11 +346,17 @@ pub fn frame(p: &mut Panels, app: &mut App, ctx: &Context) {
         widgets::drop_target(&painter, &t, r);
     }
     ctx.set_cursor_icon(if op == Some(DragOp::Copy) { CursorIcon::Copy } else { CursorIcon::Grabbing });
-    if let Some(pos) = pos {
+    // Handed to the OS and outside, the OS shows the drag: no pill held at the window's edge.
+    let gone = out::state(ctx).handed && out::outside(ctx, pos);
+    if let Some(pos) = pos.filter(|_| !gone) {
         let pill = DragPill { op: pill_op(op), count, target: name.as_deref(), thumb: None };
         let rect = widgets::drag_pill(ctx, &t, PILL_ID, pos, &pill);
         if let Some(id) = first {
             paint_thumb(p, app, ctx, rect, id, op == Some(DragOp::Copy));
+        }
+        // Over nothing (where a drag out goes), a photo with unsaved edits: they stay behind.
+        if let Some(note) = note {
+            out::paint_note(ctx, &t, rect, note);
         }
     }
 }
@@ -339,6 +380,36 @@ fn paint_thumb(p: &mut Panels, app: &App, ctx: &Context, rect: Rect, id: PhotoId
         painter.line_segment([c - vec2(3.0, 0.0), c + vec2(3.0, 0.0)], stroke);
         painter.line_segment([c - vec2(0.0, 3.0), c + vec2(0.0, 3.0)], stroke);
     }
+}
+
+/// The automation id prefix of the edit view's filmstrip cells (`film:<PhotoId>`).
+const FILM_PREFIX: &str = "film:";
+
+fn film_press_id() -> Id {
+    Id::new("dalica-drag/film-press")
+}
+
+/// A drag from the edit view's filmstrip: the button went down on a `film:<id>` cell (which senses
+/// clicks only) and the pointer has moved past egui's drag threshold; once per press, so a drag
+/// ended by Esc does not start again while the button is still held.
+fn start_from_film(app: &mut App, ctx: &Context) {
+    let (down, dragging, origin) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.is_decidedly_dragging(), i.pointer.press_origin()));
+    if !down {
+        ctx.data_mut(|d| d.remove::<bool>(film_press_id()));
+        return;
+    }
+    let Some(origin) = origin.filter(|_| dragging) else { return };
+    if ctx.data(|d| d.get_temp::<bool>(film_press_id())).is_some() {
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(film_press_id(), true));
+    let hit = registry::widgets(ctx).into_iter().rev().find(|w| {
+        w.id.strip_prefix(FILM_PREFIX).is_some_and(|n| n.parse::<u64>().is_ok())
+            && Rect::from_min_size(pos2(w.rect[0], w.rect[1]), vec2(w.rect[2], w.rect[3])).contains(origin)
+    });
+    let Some(hit) = hit else { return };
+    let Some(id) = hit.id.strip_prefix(FILM_PREFIX).and_then(|n| n.parse::<u64>().ok()).map(PhotoId::new) else { return };
+    start(app, hit.id, vec![id]);
 }
 
 /// A drag from the tray: its box's drag started this frame on a mini thumbnail (which senses

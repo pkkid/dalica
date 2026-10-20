@@ -10304,7 +10304,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `crates/engine/tests/options_catalogue.rs`: the External editor row is listed as a text row with
     its default equal to its accessor's; an OS answering "not
     available" greys the row with its reason; at 900 × 600 the submenu stays inside the window.
-- ⬜ **M15.23 `ui` + `dalica`: photos dragged out to other applications**
+- ✅ **M15.23 `ui` + `dalica`: photos dragged out to other applications**
   - after: M15.12, M15.17, M15.18, M9.23
   - files: `crates/ui/src/drag.rs`, `crates/ui/src/drag/**`, `apps/dalica/src/drag_out.rs`, `apps/dalica/src/drag_out/**`, `apps/dalica/src/main.rs`, `crates/ui/tests/drag_out.rs`
   - scope: `FILE-DRAGOUT` and `ui-layout.md` §5: a drag of photos (thumbnails, tray minis, the

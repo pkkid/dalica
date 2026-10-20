@@ -68,6 +68,12 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 # (objc2 only) that keeps the Objective-C class declaration, and its `unsafe`, out of this workspace;
 # pinned, as PhotoCraft pins it.
 fmv-macos-events = "=0.1.0"
+# Photos dragged out to other applications (apps/dalica `drag_out`, M15.23): X11's XDND spoken over
+# x11rb's pure-Rust connection (already in the graph under winit and arboard; no feature of its own),
+# and on Windows and macOS CrabNebula's `drag` (MIT OR Apache-2.0), a small crate that keeps OLE's
+# `DoDragDrop` and AppKit's dragging source, and their `unsafe`, out of this workspace; pinned.
+x11rb = { version = "0.13.2", default-features = false }
+drag = "=2.1.1"
 
 # Decoding, encoding, colour, resampling
 image = { version = "0.25.10", default-features = false, features = ["png", "tiff", "webp", "gif", "bmp"] }

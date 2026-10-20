@@ -29,6 +29,7 @@ mod damaged_sidecar;
 mod delete_dialogs;
 mod dialogs;
 mod drag;
+mod drag_out;
 mod edit_canvas;
 mod edit_keys;
 mod edit_navigation;
