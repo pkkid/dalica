@@ -10,7 +10,7 @@
 //!   when Options ▸ Photo Viewer ▸ "Translucent background" is off. A platform that cannot make the
 //!   window transparent shows the transparent clear colour as black.
 //! - **Closing:** the viewer's Esc and × close it in the engine ([`Closed::Quit`]) and the app
-//!   quits; Open in Dalica ([`Closed::OpenInDalica`]) turns the window into the main window: the
+//!   quits (a viewer a later launch handed in goes back instead: [`crate::instance::receive`]); Open in Dalica ([`Closed::OpenInDalica`]) turns the window into the main window: the
 //!   frame's decorations, its saved size and place, no longer full screen or transparent, on the
 //!   edit view of that photo. [`Follow`] decides it, once, from what the engine says.
 
@@ -114,12 +114,14 @@ impl Follow {
     /// One frame: `closed` is the engine's [`dalica_engine::viewer::Viewer::closed`].
     pub fn step(&mut self, closed: Option<Closed>) -> Action {
         match (self.done, closed) {
-            (true, _) | (false, None) => Action::Nothing,
+            // A viewer handed in to the main window goes back there (`crate::instance::receive`).
+            (true, _) | (false, None | Some(Closed::Back)) => Action::Nothing,
             (false, Some(c)) => {
                 self.done = true;
                 match c {
                     Closed::Quit => Action::Quit,
                     Closed::OpenInDalica(id) => Action::BecomeMain(id),
+                    Closed::Back => Action::Nothing,
                 }
             }
         }
@@ -172,6 +174,10 @@ mod tests {
         let id: PhotoId = serde_json::from_value(serde_json::json!(7)).unwrap();
         assert_eq!(f.step(Some(Closed::OpenInDalica(id))), Action::BecomeMain(id));
         assert_eq!(f.step(Some(Closed::OpenInDalica(id))), Action::Nothing);
+        // A handed-in viewer's Esc is the receiver's to carry out, never a quit.
+        let mut f = Follow::default();
+        assert_eq!(f.step(Some(Closed::Back)), Action::Nothing);
+        assert_eq!(f.step(Some(Closed::Quit)), Action::Quit);
     }
 
     #[test]

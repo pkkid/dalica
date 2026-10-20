@@ -10201,7 +10201,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     recorded; a photo with a crop and an effect copies a picture of its edited size; Copy Path of
     three photos gives three lines; a missing file answers its reason; each command's contract and
     graceful failures; the owner thread made no `fs` call; `panic_hunt` green.
-- ⬜ **M15.18 `dalica` + `engine`: one Dalica: files handed to the running one**
+- ✅ **M15.18 `dalica` + `engine`: one Dalica: files handed to the running one**
   - after: M15.12, M11.12, M11.17
   - files: `apps/dalica/src/instance.rs`, `apps/dalica/src/instance/**`, `apps/dalica/src/main.rs`, `apps/dalica/src/viewer.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/ui/src/panels/viewer.rs`, `apps/dalica/tests/instance.rs`, `docs/viewing.md`
   - scope: `viewing.md` §3.4 with the maintainer's answer at M11.R, ported from PhotoCraft

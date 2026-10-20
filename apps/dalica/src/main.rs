@@ -10,6 +10,7 @@ mod control;
 mod frame;
 mod gpu;
 mod icon;
+mod instance;
 mod logging;
 mod native_menu;
 mod os;
@@ -36,6 +37,8 @@ Windows %LOCALAPPDATA%\\Dalica\\Library).
 --view FILE is how the file manager's Open with hands Dalica an image: it opens the photo viewer on FILE, a borderless
 window filling the screen, with the library opened as usual behind it (read-only when another Dalica has it open;
 with --headless the viewer is served over the control channel). FILE may be missing or have any name; it is never run.
+One Dalica per user: when the user's own Dalica already runs (the default library, without DALICA_HOME or a portable
+copy), a later launch hands FILE to it and exits; that Dalica shows it in its viewer, and Esc returns to where it was.
 
 On Linux the window first checks for the libraries it loads (Wayland or X11, xkbcommon, Vulkan); a missing one is
 named with the package to install and dalica exits with status 1 (DALICA_SKIP_LIB_CHECK=1 skips the check).
@@ -200,6 +203,27 @@ fn main() -> ExitCode {
         eprint!("{message}");
         return ExitCode::from(preflight::EXIT_MISSING);
     }
+    // The user's library, its caches and the log: the platform folders, or beside the executable
+    // in portable mode (`paths`). A demo uses only the log folder.
+    let dirs = paths::current();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let view = options.view.clone().map(|file| viewer::Launch::new(file, &cwd));
+    // One Dalica per user (`instance`): a later launch hands its file to the running one and exits,
+    // before it binds a port or opens anything.
+    let (primary, claimed) = match per_user_library(&options.choice, &dirs) {
+        Some(dir) => {
+            let files: Vec<PathBuf> = view.iter().map(|v| v.file().to_path_buf()).collect();
+            match instance::skip_reason(true, &files) {
+                Some(why) => (None, format!("runs on its own: {why}")),
+                None => match instance::claim(&dir, &files) {
+                    instance::Claim::Forwarded => return ExitCode::SUCCESS,
+                    instance::Claim::Primary(p) => (Some(p), "the running Dalica of this user".to_string()),
+                    instance::Claim::Standalone(why) => (None, format!("runs on its own: {why}")),
+                },
+            }
+        }
+        None => (None, "runs on its own: the settings folder is not the per-user one".to_string()),
+    };
     // The control port first: a taken port exits 2 before anything is made (§1).
     let listening = match &options.control {
         None => None,
@@ -217,9 +241,6 @@ fn main() -> ExitCode {
         }
     };
     let demo = matches!(options.choice, Choice::Demo | Choice::DemoFresh);
-    // The user's library, its caches and the log: the platform folders, or beside the executable
-    // in portable mode (`paths`). A demo uses only the log folder.
-    let dirs = paths::current();
     let data = dirs.data.clone();
     let dirs = (!demo).then_some(dirs);
     let mut fresh = None;
@@ -257,20 +278,21 @@ fn main() -> ExitCode {
     if let Some(w) = dirs.as_ref().and_then(|d| d.warning.as_ref()) {
         log::warn!("dalica: {w}");
     }
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let view = options.view.map(|file| viewer::Launch::new(file, &cwd));
+    log::info!("dalica: {claimed}");
     // A file name can be private: it goes to the log at debug level only.
     if let Some(v) = &view {
         log::debug!("dalica: --view {}: opening the photo viewer", v.file().display());
     }
     let (code, token_file) = match listening {
-        Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo, view.as_ref()),
+        Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo, view.as_ref(), primary.as_ref()),
         Some((listening, flags)) => {
             let control = window::ControlSetup { listening, control: dalica_ui::control::Control::new(flags.config(demo)) };
-            run_window(source, Some(control), view.clone())
+            run_window(source, Some(control), view.clone(), primary.as_ref())
         }
-        None => run_window(source, None, view.clone()),
+        None => run_window(source, None, view.clone(), primary.as_ref()),
     };
+    // The app has ended: later launches no longer wait on this one.
+    drop(primary);
     if let Some(t) = token_file {
         t.finish();
     }
@@ -288,6 +310,7 @@ fn run_window(
     source: window::Source,
     control: Option<window::ControlSetup>,
     view: Option<viewer::Launch>,
+    primary: Option<&instance::Primary>,
 ) -> (ExitCode, Option<control::TokenFileGuard>) {
     // The chrome and placement come from the library's settings, read (never changed) before the
     // window and the library open; the session that opens it sets a damaged file aside.
@@ -304,11 +327,27 @@ fn run_window(
     let options = eframe::NativeOptions { viewport, wgpu_options: gpu::host_options(), ..Default::default() };
     let token_file = Arc::new(std::sync::Mutex::new(None));
     let keep = token_file.clone();
+    // Files handed over by later launches (and macOS's open-documents events, whose handlers are
+    // registered on this thread before the event loop starts) open in the viewer (`instance`).
+    let decorated = frame.chrome != dalica_ui::titlebar::Chrome::Drawn;
+    let handoffs = |ctx: &egui::Context| {
+        let wake = ctx.clone();
+        primary.map(|p| p.connect(Some(Arc::new(move || wake.request_repaint()))))
+    };
+    #[cfg(target_os = "macos")]
+    let apple = instance::apple::AppleEvents::install();
     let ran = eframe::run_native(
         "Dalica",
         options,
         Box::new(move |cc| {
-            let (w, guard) = window::Window::new(&cc.egui_ctx, source, control, frame, view);
+            let receiver = instance::Receiver::new(handoffs(&cc.egui_ctx), decorated);
+            #[cfg(target_os = "macos")]
+            let receiver = {
+                let wake = cc.egui_ctx.clone();
+                apple.set_wake(move || wake.request_repaint());
+                receiver.with_apple(apple)
+            };
+            let (w, guard) = window::Window::new(&cc.egui_ctx, source, control, frame, view, Some(receiver));
             if let Ok(mut slot) = keep.lock() {
                 *slot = guard;
             }
@@ -337,6 +376,7 @@ fn run_headless(
     source: window::Source,
     demo: bool,
     view: Option<&viewer::Launch>,
+    primary: Option<&instance::Primary>,
 ) -> (ExitCode, Option<control::TokenFileGuard>) {
     let session = match window::open(source, view, &|_| {}) {
         Ok(s) => s,
@@ -356,8 +396,17 @@ fn run_headless(
     };
     eprintln!("dalica: headless, control on 127.0.0.1:{port}, token file {}", token_file.path.display());
     let control = dalica_ui::control::Control::new(flags.config(demo));
-    let saved = control::headless::run(&hub, &control, session);
+    let receiver = primary.map(|p| instance::Receiver::new(Some(p.connect(None)), false));
+    let saved = control::headless::run(&hub, &control, session, receiver);
     (if saved { ExitCode::SUCCESS } else { ExitCode::FAILURE }, Some(token_file))
+}
+
+/// The settings folder of a launch on the user's own library, which takes part in the hand-off
+/// (`instance`): the platform's per-user library folder, not one named on the command line, by
+/// `DALICA_HOME` or by a portable copy (any of which may be shared, or meant as a separate Dalica).
+fn per_user_library(choice: &Choice, dirs: &paths::Dirs) -> Option<PathBuf> {
+    let home_set = std::env::var_os("DALICA_HOME").is_some_and(|v| !v.is_empty() && std::path::Path::new(&v).is_absolute());
+    (*choice == Choice::Default && dirs.mode == paths::Mode::Platform && !home_set).then(|| dirs.library.clone()).flatten()
 }
 
 /// Removes a fresh demo's folder once the window, and the session in it, are gone. On its own

@@ -161,6 +161,8 @@ pub struct Window {
     fullscreen: FullscreenSync,
     /// `--view`: the photo viewer's window, until the viewer closes into the main window.
     viewer: Option<ViewerWindow>,
+    /// Files later launches hand over, shown in the viewer (`crate::instance::receive`).
+    receiver: Option<crate::instance::Receiver>,
     /// The chrome and saved placement the main window has (the viewer's window takes them on
     /// Open in Dalica).
     frame: FrameSetup,
@@ -184,6 +186,7 @@ impl Window {
         control: Option<ControlSetup>,
         frame: FrameSetup,
         view: Option<ViewSetup>,
+        receiver: Option<crate::instance::Receiver>,
     ) -> (Window, Option<TokenFileGuard>) {
         let mut failed = None;
         let mut token_file = None;
@@ -248,6 +251,7 @@ impl Window {
             placement: Tracker::new(frame.stored),
             fullscreen: FullscreenSync::default(),
             viewer: view.map(|v| ViewerWindow { translucent: v.translucent, follow: crate::viewer::Follow::default() }),
+            receiver,
             frame,
             #[cfg(target_os = "macos")]
             native,
@@ -456,6 +460,13 @@ impl Window {
         }
         self.app.frame(ui);
         self.follow_viewer(ui.ctx());
+        if let Some(r) = &mut self.receiver {
+            let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+            let now = crate::instance::receive::WindowNow { maximized, viewer_window: self.viewer.is_some() };
+            for command in r.step(&mut self.app, Some(now)) {
+                ui.ctx().send_viewport_cmd(command);
+            }
+        }
         if self.app.session().is_none() {
             self.bare_title_bar(ui);
         }
