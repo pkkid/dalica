@@ -7,8 +7,8 @@
 //! with each of its choices, is read back by that accessor; and the People rows and the Network
 //! rows of reserved decision 4 (M13.20) can be changed, the network log level still waiting; and
 //! "Read photo data left by the previous organizer" can be changed (M14.5); Language lists the
-//! languages the app gives and can be changed, and the Photo
-//! Viewer's File Types is a list still waiting on the OS integration (M15.4).
+//! languages the app gives and can be changed, the External editor is a text row (M15.22), and the
+//! Photo Viewer's File Types is a list still waiting on the OS integration (M15.4).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -187,8 +187,8 @@ fn the_legacy_row_can_be_changed() {
 }
 
 /// M15: Language lists the languages the session was given (System first) and takes only those;
-/// the External editor waits for the window's field (M15.22); the Photo Viewer's File Types
-/// is a list of types, still waiting on the OS integration.
+/// the External editor is a text row whose default is its accessor's (M15.22); the Photo Viewer's
+/// File Types is a list of types, still waiting on the OS integration.
 #[test]
 fn the_m15_rows_language_external_editor_and_viewer_file_types() {
     let empty = Settings::default();
@@ -209,7 +209,22 @@ fn the_m15_rows_language_external_editor_and_viewer_file_types() {
     assert!(refused.contains("interface.language must be one of \"system\", \"en\", \"th\""), "{refused}");
     assert_eq!(s.settings().interface().language, "th");
 
-    assert!(find("files.externalEditor").is_none(), "listed with its field, M15.22");
+    // The External editor: a text row of General ▸ Files, empty (the system's editor) by default,
+    // as its accessor reads it, taking a program's path and nothing past MAX_PATH_BYTES.
+    let editor = find("files.externalEditor").unwrap();
+    assert_eq!((editor.tab, editor.group, editor.available(), editor.applies), (Tab::General, "Files", true, Applies::Now));
+    assert_eq!(editor.kind, Kind::Text { max_bytes: dalica_engine::settings::MAX_PATH_BYTES });
+    assert_eq!(editor.to_json(&empty)["type"], json!("text"));
+    assert_eq!(editor.default_value(), json!(empty.external_editor()));
+    assert_eq!(editor.default_value(), json!(""));
+    let mut st = Settings::default();
+    editor.store(&mut st, &json!("/usr/bin/gimp")).unwrap();
+    assert_eq!(st.external_editor(), "/usr/bin/gimp", "read back through Settings::external_editor");
+    let long = "x".repeat(dalica_engine::settings::MAX_PATH_BYTES + 1);
+    for bad in [json!(long), json!(1), json!(null)] {
+        assert!(editor.store(&mut st, &bad).is_err(), "{bad}");
+    }
+    assert_eq!(st.external_editor(), "/usr/bin/gimp", "nothing changed");
 
     let types = find("viewer.defaultViewer").unwrap();
     assert_eq!((types.many, types.available(), types.unavailable), (true, false, Some("Arrives with OS integration")));

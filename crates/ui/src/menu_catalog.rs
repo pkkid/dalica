@@ -275,8 +275,10 @@ pub const ALBUM_SECTION: &[Entry] = &[
 /// The photo menu's Add to Album ▸: the albums by name (M9.18 adds them), then New Album….
 pub const ADD_TO_ALBUM: &[Entry] = &[item("New Album…", "album.new").e()];
 
-/// The photo menu's Open With ▸: the system's handlers (OS integration, M15).
-pub const OPEN_WITH: &[Entry] = &[item("Choose Application…", "photo.openWith").e()];
+/// The photo menu's Open With ▸: no fixed rows. The applications the system offers for the photo
+/// are added when the submenu opens ("Loading…" until then, "No other applications" when none;
+/// `crate::commands::os::open_with_rows`).
+pub const OPEN_WITH: &[Entry] = &[];
 
 /// The photo context menu of a thumbnail in a folder (`organizing.md` §9.1), in order.
 pub const PHOTO: &[Entry] = &[

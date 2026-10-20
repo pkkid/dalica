@@ -10279,7 +10279,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     cell with the sprocket edge and its duration; the Videos filter leaves only it; Enter opens it
     with the video tab and the tools greyed; at 900 × 600 the tab fits; fingerprints of a video
     cell and of the edit view on an unplayable clip at 1400 × 900.
-- ⬜ **M15.22 `ui`: Locate on Disk, Open With, the external editor and the clipboard in the window**
+- ✅ **M15.22 `ui`: Locate on Disk, Open With, the external editor and the clipboard in the window**
   - after: M15.5, M15.12, M15.17
   - files: `crates/ui/src/commands/os.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/panels/viewer/bar.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/engine/src/options.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/ui/tests/os_menus.rs`, `docs/organizing.md`, `docs/menus-and-shortcuts.md`
   - scope: `organizing.md` §9 and `menus-and-shortcuts.md` §1: the photo and tray menus' Open in

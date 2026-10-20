@@ -106,9 +106,18 @@ pub const NAME_SEARCHES: &[&str] = &["library.query", "search.set", "search.sugg
 /// (`menus-and-shortcuts.md` §5 Network, M13.28): turning Allow map tiles on, and the tile server,
 /// the geocoding service and the proxy. Without `--automation-allow-external`, `options.set`
 /// changing one of them is refused like `map.allow` ([`external_option`]); turning Allow map tiles
-/// off, the attribution and the log level are not.
-pub const EXTERNAL_OPTIONS: &[&str] =
-    &["network.allowMapTiles", "network.tileServer", "network.geocoder", "network.proxy", "network.proxyHost", "network.proxyPort"];
+/// off, the attribution and the log level are not. The external editor (`files.externalEditor`,
+/// M15.22) is one too: it names the program a click on Open in External Editor starts, so setting
+/// it would be a launch by proxy.
+pub const EXTERNAL_OPTIONS: &[&str] = &[
+    "network.allowMapTiles",
+    "network.tileServer",
+    "network.geocoder",
+    "network.proxy",
+    "network.proxyHost",
+    "network.proxyPort",
+    "files.externalEditor",
+];
 
 /// The param of [`NAME_SEARCHES`] that leaves names out of the match.
 pub const WITHHOLD_NAMES: &str = "withholdNames";

@@ -267,7 +267,18 @@ impl App {
     /// becomes the status line. In the edit view the rotations, the flips, Edit ▸ Undo / Redo and
     /// the one-click fixes are steps of the open photo's history (`commands::edit_view::route`).
     /// On an album section `section.properties` opens Album Properties (`commands::albums::route`).
+    ///
+    /// While a control request drives the app (a synthetic click or key from `ui.clickWidget`,
+    /// `ui.pointer`, `ui.key`, …), a command automation never runs (`automation::NEVER_AUTOMATED`:
+    /// Locate on Disk, Open With, Open in External Editor, removing imported files from a card) is
+    /// refused here, whatever route reached it; the person's own clicks are not marked.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        if crate::control::automated().is_some()
+            && let Err(r) = dalica_engine::automation::never_automated(id)
+        {
+            self.state.status = r.message.clone();
+            return Err(CmdError::Disabled(r.message));
+        }
         if let Some(r) = crate::commands::compare::route(self, id, params) {
             return r;
         }

@@ -48,8 +48,8 @@ Watermark:                [ ] Add watermark  [© Ana Costa 2026                 
 - Watermark: bottom-right, white text with a soft shadow, size 3 % of the long side.
 - Name collisions get `-001`. A new folder per export.
 - Progress in the status line and a small progress window ("Exporting 12 of 48…", [Cancel]); when
-  done a toast "Exported 48 pictures" with [Show Folder] (*OS integration*; until then the
-  library scrolls to the export folder); the export folder appears in the library in the
+  done a toast "Exported 48 pictures" with [Show Folder] (the library scrolls to the export
+  folder, and the system's file manager shows it selected where the system can); the export folder appears in the library in the
   **Exported** project group. If the chosen location is not inside a watched folder, the export
   folder is added to the watched folders as Scan Always so it can appear there.
 - File names: each photo keeps its own stem, sanitized (`security.md` §5.4; `Photo` when nothing
@@ -111,7 +111,9 @@ runs. Every file job that ends gives one toast: its message, or with failures a 
 the first file that failed and why ("Could not save IMG_0041.jpg: the file is read-only"). A job
 that names a folder (an export's) adds Show Folder (`button:toast.showFolder`), and the toast then
 stays 6 s: it goes back to the library, selects the folder as a unit and scrolls the light table to
-it, waiting for the scan that brings the folder in. The tree lists the export folders in Projects
+it, waiting for the scan that brings the folder in, then shows it selected in the system's file
+manager (`toast.showFolder`; not for a control request's click, which only brings it up in the
+library). The tree lists the export folders in Projects
 with the project icon (flat mode).
 
 **Built (M10.53, `dalica-ui` `status_text.rs`, `panels/status.rs`):** while an export job runs, the

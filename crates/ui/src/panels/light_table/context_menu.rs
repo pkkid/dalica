@@ -28,6 +28,7 @@ use egui::Response;
 use serde_json::{Value, json};
 
 use crate::app::App;
+use crate::commands::os;
 use crate::menu_catalog::Mark;
 use crate::menus::{self, ItemNode, Node};
 use crate::state::Section;
@@ -44,11 +45,18 @@ pub const NOT_A_MEMBER: &str = "The photo is not in this album.";
 pub const NO_ALBUM: &str = "The album no longer exists.";
 
 /// Draws the photo menu on `response` (a thumbnail cell's) while it is open, and runs the row
-/// clicked. Returns the command id run, if any.
+/// clicked. Returns the command id run, if any. Open With ▸ open this frame asks the system for
+/// the focused photo's applications, closed forgets them (`crate::commands::os::sync_open_with`).
 pub fn show(response: &Response, app: &mut App) -> Option<&'static str> {
     let nodes = menus::photo_menu(app, menus::Platform::current());
-    menus::context_menu_bold(response, app, &nodes, Some(BOLD))
+    let ran = menus::context_menu_bold(response, app, &nodes, Some(BOLD));
+    let open = dalica_ui_kit::registry::find(&response.ctx, OPEN_WITH_ID).is_some_and(|w| w.active);
+    os::sync_open_with(app, &response.ctx, os::focused(app), open && ran.is_none());
+    ran
 }
+
+/// The automation id of the photo menu's Open With ▸.
+pub const OPEN_WITH_ID: &str = "submenu:Photo/Open With";
 
 /// The user albums by name (case-insensitively, then exactly, then by id: `albums.list`'s order),
 /// with their names.
@@ -175,6 +183,9 @@ pub fn finish(app: &App, nodes: &mut [Node]) {
                 rows.push(Node::Separator);
                 rows.append(children);
                 *children = rows;
+            }
+            Node::Submenu { label, children, .. } if *label == os::OPEN_WITH_MENU => {
+                *children = os::open_with_rows(app, os::focused(app), os::NO_PHOTO);
             }
             Node::Item(i) if matches!(i.id, "album.remove" | "album.setCover") => {
                 if i.id == "album.remove" && i.shortcut.is_none() {

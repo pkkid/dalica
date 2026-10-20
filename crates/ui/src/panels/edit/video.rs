@@ -172,12 +172,16 @@ fn open_with(app: &mut App, ui: &Ui, button: Rect, clicked: bool) {
     let id = open_with_popup();
     let ctx = ui.ctx().clone();
     if !clicked && !Popup::is_id_open(&ctx, id) {
+        // Closed: its applications are forgotten (`crate::commands::os::sync_open_with`).
+        if app.state().open_with.as_ref().is_some_and(|m| Some(m.photo) == app.state().edit.photo) {
+            crate::commands::os::sync_open_with(app, &ctx, app.state().edit.photo, false);
+        }
         return;
     }
     let nodes = open_with_rows(app);
     let top = ctx.content_rect().top();
     let mut picked = None;
-    Popup::new(id, ctx, button, ui.layer_id())
+    Popup::new(id, ctx.clone(), button, ui.layer_id())
         .kind(PopupKind::Menu)
         .layout(Layout::top_down_justified(Align::Min))
         .style(menu_style)
@@ -185,6 +189,10 @@ fn open_with(app: &mut App, ui: &Ui, button: Rect, clicked: bool) {
         .align(RectAlign::RIGHT_START)
         .open_memory(clicked.then_some(SetOpenCommand::Toggle))
         .show(|ui| picked = menus::popup_rows(ui, &nodes, top));
+    // Open, it asks the system for the video's applications once ("Loading…" until then).
+    let open = Popup::is_id_open(&ctx, id) && picked.is_none();
+    let photo = app.state().edit.photo;
+    crate::commands::os::sync_open_with(app, &ctx, photo, open);
     let Some(item) = picked.filter(|i| i.enabled) else { return };
     if let Err(e) = menus::activate(app, &item, &Value::Null) {
         app.state_mut().status = e.to_string();

@@ -9,8 +9,9 @@ submenu; *(cond)* states when an item is enabled. On macOS an application menu *
 Preferences… (Cmd+,; the Options dialog), Hide, Quit; File → Exit and Tools → Options… move there.
 
 Every shortcut in this file is a **default**: the user can change any of them (§2.0). Items marked
-*(OS integration)* talk to other applications or the operating system; they are listed so the menu
-is complete but stay disabled until the last milestone (`product.md` → Scope).
+*(OS integration)* talk to other applications or the operating system (M15): where the system cannot
+do one (no file manager to show a file in, no system clipboard), its row is greyed with the
+system's reason; automation never starts another program (`security.md` §5.11).
 
 ## 1. Menu bar
 
@@ -28,7 +29,7 @@ accordingly; it is identical to the section's context menu).
 | Open File… | Ctrl+O | `library.openFile` | show a single file (adds its folder as Scan Once) |
 | Import From… | Ctrl+M | `import.open` | |
 | — | | | |
-| Open in External Editor | Ctrl+Shift+O | `photo.openExternal` | selection *(OS integration)* |
+| Open in External Editor | Ctrl+Shift+O | `photo.openExternal` | selection (the open photo in the edit view), in Options ▸ General ▸ External editor, else the system's editor; more than 20 ask first *(OS integration)* |
 | — | | | |
 | Move to New Folder… | | `photo.moveToNewFolder` | selection in one folder |
 | Rename… | F2 | `photo.rename` | selection |
@@ -40,7 +41,7 @@ accordingly; it is identical to the section's context menu).
 | Save a Copy | | `photo.saveCopy` | photos with edits |
 | Export Pictures to Folder… | Ctrl+Shift+S | `output.export` | tray not empty |
 | — | | | |
-| Locate on Disk | Ctrl+Enter | `photo.locate` | *(OS integration)* |
+| Locate on Disk | Ctrl+Enter | `photo.locate` | the photo last clicked, selected in the system's file manager *(OS integration)* |
 | Delete from Disk… | Delete (Ctrl+Delete in albums) | `photo.delete` | |
 | — | | | |
 | Exit | Ctrl+Q | `app.quit` | |
@@ -55,7 +56,7 @@ Reference order; Undo/Redo are a Dalica addition placed first.
 | Redo *<action>* | Ctrl+Y (macOS Cmd+Shift+Z) | `edit.redo` | same two histories as Undo |
 | — | | | |
 | Cut | Ctrl+X | `photo.cut` | for moving files between folders inside Dalica |
-| Copy | Ctrl+C | `photo.copy` | for copying files between folders inside Dalica; putting paths and the image on the system clipboard for other apps is *(OS integration)* |
+| Copy | Ctrl+C | `photo.copy` | for copying files between folders inside Dalica; also puts the photos on the system clipboard for other apps (`photo.copyToSystem`: one still photo as its picture with its edits, several or a video as their files; nothing there without a system clipboard) *(OS integration)* |
 | Paste | Ctrl+V | `photo.paste` | into the current folder (move after Cut, copy after Copy) |
 | — | | | |
 | Copy All Edits | | `edit.copyRecipe` | one photo with edits |
@@ -115,7 +116,7 @@ The same list as the section context menu (`organizing.md` §9.2).
 | Hide | | `folder.hide` | |
 | Unhide | | `folder.unhide` | disabled unless hidden |
 | — | | | |
-| Locate on Disk | Ctrl+Enter | `folder.locate` | disabled for albums *(OS integration)* |
+| Locate on Disk | Ctrl+Enter | `folder.locate` | the current folder (`{id}`), selected in the system's file manager; disabled for albums *(OS integration)* |
 | Remove from Dalica… | | `folder.remove` | disabled for albums and while no folder is selected; asks "Remove Folder" first, naming the folder (`organizing.md` §2) |
 | — | | | |
 | Move… | | `folder.move` | disabled for albums |
@@ -435,6 +436,11 @@ In the Collage room (the **Collage** context, active while the room is in front;
   Thumbnail · Ignore Face.
 - **Tag** (Tags pane): Add to All Selected · Search for This Tag · Remove from Selected · Rename Tag…
   (renames everywhere, with confirmation).
+- **Open With ▸** (photo menu, the viewer's ⋯ menu): no fixed rows; the applications the system
+  offers for the photo are asked when the submenu opens (`openWith.list`), "Loading…" until they
+  come, then one row per application by its name, the system's default first and Dalica left out
+  (`menuitem:photo.openWith/<n>`, running `photo.openWith {id, handler}`), or "No other
+  applications" when there are none. A photo the library does not hold (the viewer's) has none.
 - Disabled items are shown greyed, never hidden. Menus never run off the window (bounded and
   scrolling, as in LightCraft's `menu_level.rs`).
 
@@ -475,6 +481,7 @@ disagree.
 | | Update file modification time on metadata changes | `files.updateModificationTime` | off |
 | | Write XMP sidecars for RAW files | `files.writeRawXmpSidecars` | off |
 | | Write date changes to files (`xmp-interop.md` §2) | `files.writeDates` | on |
+| | External editor ([System default ▾], or a program chosen with [Browse…]: what Open in External Editor starts; empty for the system's editor) | `files.externalEditor` | System default |
 | Import | Save imported pictures in (the Import room's "Import to:" starts from it) | `import.folder` | ~/Pictures |
 
 ### File Types

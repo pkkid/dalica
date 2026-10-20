@@ -15,10 +15,11 @@
 //!   skipped" when some were skipped; a saved copy's name), `info`; when items failed, `caution`,
 //!   naming the first file that failed and why ("Could not save IMG_0041.jpg: the file is
 //!   read-only", "and 2 more" after it). A job that names a folder (an export's) gets the
-//!   **Show Folder** button (`button:toast.showFolder`; `creating.md` §2): until OS integration
-//!   (M15) it brings the folder up in the library: back from the edit view, the folder selected as
-//!   a unit and the light table scrolled to it ([`act`]; while the folder's scan is still bringing
-//!   it in, it waits for it).
+//!   **Show Folder** button (`button:toast.showFolder`; `creating.md` §2): it brings the folder up
+//!   in the library (back from the edit view, the folder selected as a unit and the light table
+//!   scrolled to it; while the folder's scan is still bringing it in, it waits for it) and shows
+//!   it selected in the system's file manager (`toast.showFolder`, where the system can; a
+//!   control request's click only brings it up in the library) ([`act`]).
 //!
 //!   A file operation's job (kind `files`: photos or folders moved, copied, renamed or trashed)
 //!   gives no toast of its own here ([`job_toast`]); its notice comes from its `FileOpEvent`.
@@ -504,7 +505,8 @@ pub fn op_toast(e: &FileOpEvent) -> JobToast {
 
 /// Does what a toast's button asked for (once a frame, after the toasts are drawn): OK on the
 /// legacy notice runs `legacy.noticeShown`, so the notice is not given again. Show Folder
-/// goes back to the library, selects the folder as a unit and scrolls the light table to it. A
+/// goes back to the library, selects the folder as a unit and scrolls the light table to it, then
+/// shows it in the system's file manager (`toast.showFolder`; not for a control request's click). A
 /// folder not in the library yet is waited for while a scan runs (an export's folder comes in by
 /// the scan its job starts at its end), then a few frames more; past that the toast says so.
 pub fn act(app: &mut App) {
@@ -524,6 +526,12 @@ pub fn act(app: &mut App) {
         app.run("select.section", &json!({ "section": section })).is_ok() && app.run("section.scrollTo", &json!({ "section": section })).is_ok()
     });
     if shown {
+        // And in the system's file manager, selected (`creating.md` §2), where the system can and
+        // the person pressed it: a control request's click only brings it up in the library.
+        let params = json!({ "path": path });
+        if crate::control::automated().is_none() && crate::commands::enabled(app, "toast.showFolder", &params).is_ok() {
+            let _ = app.run("toast.showFolder", &params);
+        }
         return;
     }
     if scanning || frames > 0 {

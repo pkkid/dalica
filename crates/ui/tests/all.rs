@@ -69,6 +69,7 @@ mod notices;
 mod offline_folders;
 mod options_dialog;
 mod options_tabs;
+mod os_menus;
 mod peek;
 mod people_pane;
 mod people_tree;

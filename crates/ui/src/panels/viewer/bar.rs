@@ -10,15 +10,18 @@
 //! Dalica (`viewer.openInDalica`), the large round Play (a slideshow of the folder's photos the
 //! library holds, from the one shown, through `view.slideshow`), rotate left and right
 //! (`viewer.rotateLeft`, `viewer.rotateRight`), star (`viewer.toggleStar`, lit while starred) and ⋯
-//! More: Open With ▸ and Show in File Manager (drawn disabled, [`OS_INTEGRATION`]) and Settings…
+//! More: Open With ▸ (the applications the system offers for the photo, asked when the submenu
+//! opens, as the photo menu's: `crate::commands::os::open_with_rows`; greyed for a photo the
+//! library does not hold), Show in File Manager (`viewer.showInFileManager`) and Settings…
 //! (`viewer.settings`). A control that cannot act is drawn disabled, its reason as its tooltip
 //! (the read-only viewer's "Dalica is already open"). "close ✕" sits at the top right
 //! (`viewer.close`).
 //!
 //! Automation ids: the bar `controls:viewer`, its buttons `button:viewer.<name>` (`zoomIn`,
 //! `zoomOut`, `actualSize`, `openInDalica`, `play`, `rotateLeft`, `rotateRight`, `star`, `more`),
-//! the More menu's rows `menuitem:viewer.openWith`, `menuitem:viewer.showInFileManager`,
-//! `menuitem:viewer.settings`, and `button:viewer.close`.
+//! the More menu's rows `menuitem:viewer.openWith` (the submenu; its rows are the photo menu's,
+//! `menuitem:photo.openWith/<n>`), `menuitem:viewer.showInFileManager`, `menuitem:viewer.settings`,
+//! and `button:viewer.close`.
 
 use dalica_core::PhotoId;
 use dalica_ui_kit::icons::{self, Glyph, Icon, ViewingIcon};
@@ -30,8 +33,10 @@ use serde_json::{Value, json};
 
 use super::listing::Photo;
 use crate::app::App;
-use crate::commands::enabled;
+use crate::commands::{enabled, os};
+use crate::menus::{self, ItemNode, Node};
 use crate::state::Zoom;
+use crate::tl;
 
 /// The bar's automation id.
 pub const BAR_ID: &str = "controls:viewer";
@@ -46,8 +51,6 @@ pub const BAR_H: f32 = 48.0;
 pub const PLAY_D: f32 = 60.0;
 /// The gap between two buttons of a group (points).
 const GAP: f32 = 6.0;
-/// Why the OS's own entries are greyed.
-pub const OS_INTEGRATION: &str = "Arrives with OS integration";
 /// Why Play is greyed for a photo outside the library.
 pub const PLAY_OUTSIDE: &str = "Plays the photos of folders in your library.";
 /// The close button's label.
@@ -79,6 +82,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect, opacity: f32, photo: &Photo,
         None => Err(PLAY_OUTSIDE.to_string()),
     };
     let mut run: Run = None;
+    // The More menu's Open With ▸ and Show in File Manager.
+    let open_rows = os::open_with_rows(app, photo.id, os::NOT_IN_LIBRARY);
+    let reveal = ready(app, "viewer.showInFileManager");
+    let mut more = More::default();
     let left_w = 3.0 * OVERLAY_BUTTON + 3.0 * GAP + open_width(ui, &t);
     let right_w = 4.0 * OVERLAY_BUTTON + 3.0 * GAP;
     overlay_bar(ui, &t, BAR_ID, rect, opacity, |ui| {
@@ -114,19 +121,34 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect, opacity: f32, photo: &Photo,
             }
             let more_open = Popup::is_id_open(ui.ctx(), more_popup());
             let r = button(ui, &t, MORE_ID, Icon::More.into(), None, more_open, Ok(()), "More");
-            Popup::menu(&r).id(more_popup()).show(|ui| {
-                if let Some(c) = more_menu(ui, &t) {
-                    run = Some((c, json!({})));
-                }
-            });
+            Popup::menu(&r).id(more_popup()).show(|ui| more = more_menu(ui, &t, &open_rows, &reveal));
         });
         if play_button(ui, &t, rect.center(), &play).clicked() {
             run = Some(("view.slideshow", play_params.clone()));
         }
     });
+    if let Some(c) = more.command {
+        run = Some((c, json!({})));
+    }
+    let ctx = ui.ctx().clone();
+    os::sync_open_with(app, &ctx, photo.id, more.open_with && more.item.is_none());
+    if let Some(item) = more.item {
+        let _ = menus::activate(app, &item, &Value::Null);
+    }
     if let Some((id, params)) = run {
         let _ = app.run(id, &params);
     }
+}
+
+/// What the More menu did this frame.
+#[derive(Default)]
+struct More {
+    /// The command of a row clicked.
+    command: Option<&'static str>,
+    /// An application of Open With ▸ clicked.
+    item: Option<ItemNode>,
+    /// Whether Open With ▸ is open.
+    open_with: bool,
 }
 
 /// The width of the Open in Dalica button (its glyph and label).
@@ -199,33 +221,35 @@ fn play_button(ui: &mut Ui, t: &Tokens, centre: egui::Pos2, ready: &Result<(), S
     widgets::tooltip(r, t, tip, None)
 }
 
-/// The More menu's rows; returns the command of the row clicked.
-fn more_menu(ui: &mut Ui, t: &Tokens) -> Option<&'static str> {
+/// The More menu's rows: Open With ▸ with `open_rows`, Show in File Manager (`reveal`: whether it
+/// can run, its reason when not) and Settings….
+fn more_menu(ui: &mut Ui, t: &Tokens, open_rows: &[Node], reveal: &Result<(), String>) -> More {
     ui.set_min_width(200.0);
-    let rows: [(&str, &str, Option<&'static str>); 3] = [
-        ("menuitem:viewer.openWith", "Open With", None),
-        ("menuitem:viewer.showInFileManager", "Show in File Manager", None),
-        ("menuitem:viewer.settings", "Settings…", Some("viewer.settings")),
-    ];
-    let mut clicked = None;
-    for (id, label, command) in rows {
-        if command.is_some() {
-            ui.separator();
-        }
-        let r = ui.add_enabled(command.is_some(), egui::Button::new(label).min_size(vec2(ui.available_width(), 0.0)));
-        if id == "menuitem:viewer.openWith" {
-            // A submenu: its chevron at the right.
-            let glyph = Rect::from_center_size(pos2(r.rect.max.x - 10.0, r.rect.center().y), Vec2::splat(12.0));
-            icons::paint(ui.painter(), glyph, Icon::ChevronRight, t.text_disabled);
-        }
-        widgets::register(ui.ctx(), id, Role::MenuItem, label, Target::Widget(&r), false);
-        let r = if command.is_none() { widgets::tooltip(r, t, OS_INTEGRATION, None) } else { r };
-        if r.clicked() {
-            clicked = command;
-            ui.close();
-        }
+    let mut more = More::default();
+    let top = ui.ctx().content_rect().top();
+    let button = egui::Button::new(tl!("Open With")).right_text("›").min_size(vec2(ui.available_width(), 0.0));
+    let (r, inner) = egui::containers::menu::SubMenuButton::from_button(button).ui(ui, |ui| menus::popup_rows(ui, open_rows, top));
+    more.open_with = inner.is_some();
+    more.item = inner.and_then(|i| i.inner);
+    widgets::register(ui.ctx(), "menuitem:viewer.openWith", Role::MenuItem, &tl!("Open With"), Target::Widget(&r), more.open_with);
+    let r = ui.add_enabled(reveal.is_ok(), egui::Button::new(tl!("Show in File Manager")).min_size(vec2(ui.available_width(), 0.0)));
+    widgets::register(ui.ctx(), "menuitem:viewer.showInFileManager", Role::MenuItem, &tl!("Show in File Manager"), Target::Widget(&r), false);
+    let r = match reveal {
+        Ok(()) => r,
+        Err(why) => widgets::tooltip(r, t, why, None),
+    };
+    if r.clicked() {
+        more.command = Some("viewer.showInFileManager");
+        ui.close();
     }
-    clicked
+    ui.separator();
+    let r = ui.add(egui::Button::new(tl!("Settings…")).min_size(vec2(ui.available_width(), 0.0)));
+    widgets::register(ui.ctx(), "menuitem:viewer.settings", Role::MenuItem, &tl!("Settings…"), Target::Widget(&r), false);
+    if r.clicked() {
+        more.command = Some("viewer.settings");
+        ui.close();
+    }
+    more
 }
 
 /// "close ✕" at the top right of `area`; returns whether it was clicked.

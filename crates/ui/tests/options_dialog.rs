@@ -199,6 +199,13 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
                 d.settle(FRAMES).unwrap();
                 json!(path)
             }
+            // The External editor as its Browse…'s picker puts it (M15.22; `os_menus.rs` clicks it).
+            "text" if row.key == dalica_ui::commands::os::EDITOR_KEY => {
+                let program = fx.dir.path().join("gimp");
+                d.run(dalica_ui::commands::os::EDITOR_COMMAND, &json!({ "path": program })).unwrap();
+                d.settle(FRAMES).unwrap();
+                json!(program)
+            }
             _ => {
                 // The pseudo-locale is listed only while it is the language chosen (M15.7).
                 let listed = |v: &Value| *v != row.saved && v.as_str() != Some(dalica_ui::i18n::PSEUDO_CODE);
