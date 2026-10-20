@@ -29,6 +29,7 @@ use serde_json::{Value, json};
 
 use crate::app::App;
 use crate::panels::thumbnails::{fit_within, shape_of, turn_point};
+use crate::tl;
 
 /// A clip's cell (points, square) and the gap between cells.
 pub const CELL: f32 = 76.0;
@@ -194,7 +195,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         app.session().and_then(|s| s.collage().document()).map(|d| d.clips.iter().map(|c| (c.id, c.on_page)).collect()).unwrap_or_default();
     let mut actions: Vec<(&'static str, Value)> = Vec::new();
     if clips.is_empty() {
-        let galley = ui.painter().layout(EMPTY.to_string(), fonts::regular(t.body), t.text_dim, grid.width().max(1.0));
+        let galley =
+            ui.painter().layout(tl!("No pictures yet. Click Get More to choose some."), fonts::regular(t.body), t.text_dim, grid.width().max(1.0));
         ui.painter().galley(grid.min, galley, t.text_dim);
     } else {
         cells(app, ui, &t, grid, &clips, &mut actions);
@@ -202,15 +204,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let foot = Rect::from_min_max(pos2(area.min.x, (area.max.y - FOOT_H).max(area.min.y)), area.max);
     let mut row = ui.new_child(UiBuilder::new().id_salt("collageClipsFoot").max_rect(foot).layout(Layout::left_to_right(Align::Center)));
     for (id, label, command, tip) in [
-        (ADD_ID, "+", "collage.addClips", "Put the selected pictures on the page"),
-        (REMOVE_ID, "\u{2212}", "collage.removeClips", "Take the selected pictures out of the Clips"),
+        (ADD_ID, "+", "collage.addClips", tl!("Put the selected pictures on the page")),
+        (REMOVE_ID, "\u{2212}", "collage.removeClips", tl!("Take the selected pictures out of the Clips")),
     ] {
         let ready = crate::commands::enabled(app, command, &json!({}));
         row.add_enabled_ui(ready.is_ok(), |ui| {
             let r = widgets::text_button(ui, &t, id, label, false);
             let r = match &ready {
                 Ok(()) => r.on_hover_text(tip),
-                Err(why) => r.on_disabled_hover_text(why.as_str()),
+                Err(why) => r.on_disabled_hover_text(crate::i18n::tr(why)),
             };
             if r.clicked() {
                 actions.push((command, json!({})));
@@ -219,14 +221,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         row.add_space(4.0);
     }
     row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        let r = widgets::text_button(ui, &t, GET_MORE_ID, "Get More", false).on_hover_text("Choose more pictures in the library");
+        let r = widgets::text_button(ui, &t, GET_MORE_ID, &tl!("Get More"), false).on_hover_text(tl!("Choose more pictures in the library"));
         if r.clicked() {
             actions.push(("collage.getMore", json!({})));
         }
     });
     for (id, params) in actions {
         if let Err(e) = app.run(id, &params) {
-            app.toast(&e.to_string(), ToastKind::Caution);
+            app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
         }
     }
 }
@@ -300,7 +302,7 @@ fn cells(app: &mut App, ui: &mut Ui, t: &Tokens, grid: Rect, clips: &[(PhotoId, 
             painter.rect_stroke(cell, CornerRadius::same(2), Stroke::new(2.0, t.accent), StrokeKind::Inside);
         }
         let resp = ui.interact(visible, Id::new(("collage.clip", id.get())), Sense::click());
-        let name = app.session().and_then(|s| s.library().photo(*id)).map_or_else(|| "Picture".to_string(), |p| p.name.clone());
+        let name = app.session().and_then(|s| s.library().photo(*id)).map_or_else(|| tl!("Picture"), |p| p.name.clone());
         widgets::register(&ctx, &clip_id(*id), Role::Thumbnail, &name, Target::Widget(&resp), is_selected);
         if resp.hovered() && !is_selected {
             painter.rect_stroke(cell, CornerRadius::same(2), Stroke::new(1.0, t.text_label), StrokeKind::Inside);

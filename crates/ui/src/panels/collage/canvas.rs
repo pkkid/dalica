@@ -36,6 +36,7 @@ use self::pictures::Pictures;
 use crate::app::App;
 use crate::menus::{self, Node, Platform};
 use crate::state::{CollageGesture, GESTURE_MAX, GESTURE_MIN, GestureKind};
+use crate::tl;
 
 /// The canvas's automation id.
 pub const CANVAS_ID: &str = "canvas:collage";
@@ -64,6 +65,22 @@ pub const FRAME_CENTER: (&str, &str) = ("collageCanvas.setFrameCenter", "Set as 
 /// The buttons below the page.
 pub const BELOW: [(&str, &str); 3] =
     [("collageCanvas.scramble", "Scramble Collage"), ("collageCanvas.shuffle", "Shuffle Pictures"), ("collageCanvas.viewAndEdit", "View and Edit")];
+
+/// A button's label of [`ABOVE`], [`FRAME_CENTER`] or [`BELOW`] in the language in effect (the
+/// tables keep the English, which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Select All" => tl!("Select All"),
+        "Select None" => tl!("Select None"),
+        "Remove" => tl!(ctx = "collage", "Remove"),
+        "Set as Background" => tl!("Set as Background"),
+        "Set as Frame Center" => tl!("Set as Frame Center"),
+        "Scramble Collage" => tl!("Scramble Collage"),
+        "Shuffle Pictures" => tl!("Shuffle Pictures"),
+        "View and Edit" => tl!("View and Edit"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// A picture's automation id: `item:<n>`, its number in the engine's placements.
 pub fn item_id(n: u32) -> String {
@@ -138,13 +155,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             Some(shown) => canvas(app, ui, page, area, shown, &mut actions),
             None => {
                 ui.painter().rect_filled(page, 0, t.canvas);
-                widgets::register(ui.ctx(), CANVAS_ID, Role::Other, "Collage page", Target::Painted { rect: page, clip: area }, false);
+                widgets::register(ui.ctx(), CANVAS_ID, Role::Other, &tl!("Collage page"), Target::Painted { rect: page, clip: area }, false);
             }
         }
     }
     for (id, params) in actions {
         if let Err(e) = app.run(id, &params) {
-            app.toast(&e.to_string(), ToastKind::Caution);
+            app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
         }
     }
 }
@@ -153,16 +170,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 fn buttons(app: &App, ui: &mut Ui, row: Rect, list: &[(&'static str, &str)], actions: &mut Vec<(&'static str, Value)>) {
     let t = *app.tokens();
     let font = fonts::semibold(t.button_label);
-    let widths: Vec<f32> = list
-        .iter()
-        .map(|(_, label)| (ui.painter().layout_no_wrap((*label).to_owned(), font.clone(), t.text).size().x + 18.0).max(37.0).round())
-        .collect();
+    let labels: Vec<String> = list.iter().map(|(_, label)| text(label)).collect();
+    let widths: Vec<f32> =
+        labels.iter().map(|label| (ui.painter().layout_no_wrap(label.clone(), font.clone(), t.text).size().x + 18.0).max(37.0).round()).collect();
     let total = widths.iter().sum::<f32>() + BUTTON_GAP * widths.len().saturating_sub(1) as f32;
     let x = (row.center().x - total / 2.0).max(row.min.x).round();
     let rect = Rect::from_min_max(pos2(x, row.min.y), row.max);
     ui.scope_builder(UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
         ui.spacing_mut().item_spacing.x = BUTTON_GAP;
-        for (command, label) in list {
+        for ((command, _), label) in list.iter().zip(&labels) {
             let enabled = crate::commands::enabled(app, command, &json!({})).is_ok();
             if ui.add_enabled_ui(enabled, |ui| widgets::text_button(ui, &t, &button_id(command), label, false)).inner.clicked() {
                 actions.push((command, json!({})));
@@ -177,7 +193,7 @@ fn canvas(app: &mut App, ui: &mut Ui, page: Rect, area: Rect, shown: &Shown, act
     let ctx = ui.ctx().clone();
     let Shown { doc, placements } = shown;
     let r = ui.interact(page, Id::new(CANVAS_ID), Sense::click_and_drag());
-    widgets::register(&ctx, CANVAS_ID, Role::Other, "Collage page", Target::Widget(&r), false);
+    widgets::register(&ctx, CANVAS_ID, Role::Other, &tl!("Collage page"), Target::Widget(&r), false);
 
     // Where every picture is now, and the gesture's picture where the gesture puts it.
     let now: Vec<Card> = placements.iter().enumerate().filter_map(|(i, p)| geometry::card(doc, page, u32::try_from(i).ok()?, p)).collect();
@@ -237,10 +253,11 @@ fn canvas(app: &mut App, ui: &mut Ui, page: Rect, area: Rect, shown: &Shown, act
     let selection = app.state().collage.selection.clone();
     let names: Vec<String> = app
         .session()
-        .map(|s| placements.iter().map(|p| s.library().photo(p.id).map_or_else(|| format!("Picture {}", p.id), |ph| ph.name.clone())).collect())
+        .map(|s| placements.iter().map(|p| s.library().photo(p.id).map_or_else(|| tl!("Picture {id}", id = p.id), |ph| ph.name.clone())).collect())
         .unwrap_or_default();
+    let picture = tl!("Picture");
     for card in &cards {
-        let label = names.get(card.item as usize).map_or("Picture", String::as_str);
+        let label = names.get(card.item as usize).unwrap_or(&picture);
         let target = Target::Painted { rect: card.picture_bounds(), clip: area };
         widgets::register(&ctx, &item_id(card.item), Role::Other, label, target, selection.contains(&card.item));
     }

@@ -32,6 +32,7 @@ use super::top_bar;
 use crate::app::App;
 use crate::commands::edit_view;
 use crate::state::{CaptionEdit, MAX_DRAFT};
+use crate::tl;
 
 pub const FIELD_ID: &str = "field:caption";
 pub const PLACEHOLDER: &str = "Add a caption";
@@ -39,6 +40,17 @@ pub const TOGGLE_ID: &str = "button:caption.toggle";
 pub const TOGGLE_TIP: &str = "Show captions in the slideshow";
 pub const TRASH_ID: &str = "button:edit.trash";
 pub const TRASH_TIP: &str = "Delete this photo";
+
+/// The field's placeholder or a button's tooltip in the language in effect (the constants keep the
+/// English, which the catalogs key on).
+pub fn say(english: &str) -> String {
+    match english {
+        "Add a caption" => tl!("Add a caption"),
+        "Show captions in the slideshow" => tl!("Show captions in the slideshow"),
+        "Delete this photo" => tl!("Delete this photo"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// Where the field's focus last frame is kept in the context's data, for [`editing`].
 const EDITING: &str = "caption:editing";
@@ -79,7 +91,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if toggle(ui, &t, button(bar.min.x + MARGIN + BUTTON / 2.0), on, live).clicked() {
         let _ = app.run("slideshow.captions", &json!({}));
     }
-    if top_bar::glyph_button(ui, &t, TRASH_ID, EditIcon::Trash, button(bar.max.x - MARGIN - BUTTON / 2.0), true, TRASH_TIP).clicked() {
+    if top_bar::glyph_button(ui, &t, TRASH_ID, EditIcon::Trash, button(bar.max.x - MARGIN - BUTTON / 2.0), true, &say(TRASH_TIP)).clicked() {
         let then: Arc<[PhotoId]> = edit_view::successors(app, photo).into();
         ui.ctx().data_mut(|d| d.insert_temp(Id::new(TRASHED), Trashed { photo, then }));
         // The delete question for the photo shown; a refusal's reason goes to the status line.
@@ -106,7 +118,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let h = t.metrics.text_field_h;
     let field = Rect::from_min_size(pos2((bar.center().x - width / 2.0).round(), (y - h / 2.0).round()), vec2(width.round(), h));
     let mut child = ui.new_child(UiBuilder::new().id_salt("captionBar").max_rect(field));
-    let out = TextField::new(FIELD_ID, PLACEHOLDER, field.width()).show(&mut child, &t, &mut text);
+    let out = TextField::new(FIELD_ID, &say(PLACEHOLDER), field.width()).show(&mut child, &t, &mut text);
     // At most `MAX_DRAFT` characters, as the view state keeps it (the light table's editor too).
     if let Some((at, _)) = text.char_indices().nth(MAX_DRAFT) {
         text.truncate(at);
@@ -147,9 +159,10 @@ fn toggle(ui: &mut Ui, t: &Tokens, rect: Rect, on: bool, live: bool) -> Response
     };
     let side = (rect.width().min(rect.height()) * 0.6).round();
     paint_edit(p, Rect::from_center_size(rect.center(), Vec2::splat(side)), EditIcon::CaptionToggle, glyph);
-    widgets::register(c.ctx(), TOGGLE_ID, Role::IconButton, TOGGLE_TIP, Target::Widget(&r), on);
-    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, live, on, TOGGLE_TIP));
-    if live { r.on_hover_text(TOGGLE_TIP) } else { r.on_disabled_hover_text(TOGGLE_TIP) }
+    let tip = say(TOGGLE_TIP);
+    widgets::register(c.ctx(), TOGGLE_ID, Role::IconButton, &tip, Target::Widget(&r), on);
+    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, live, on, &tip));
+    if live { r.on_hover_text(tip) } else { r.on_disabled_hover_text(tip) }
 }
 
 /// Whether the caption field had the keyboard last frame. egui drops the focus as soon as Esc is

@@ -24,6 +24,7 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::panels::properties::answer::{self, Answer};
+use crate::tl;
 
 pub const BOX_ID: &str = "box:histogram";
 pub const PLOT_ID: &str = "histogram:edit";
@@ -31,6 +32,17 @@ pub const INFO_ID: &str = "box:histogram/info";
 pub const TITLE: &str = "Histogram & Camera Info";
 pub const NO_CAMERA: &str = "No camera information";
 pub const READING: &str = "Reading camera information…";
+
+/// The box's title or a one-line message in the language in effect (the constants keep the
+/// English, which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Histogram & Camera Info" => tl!("Histogram & Camera Info"),
+        "No camera information" => tl!("No camera information"),
+        "Reading camera information…" => tl!("Reading camera information…"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// The padding inside the box, the title row's height, the gap between the rows, one camera line's
 /// height and the lines per column.
@@ -72,8 +84,8 @@ impl Camera {
     /// The lines as one text: the columns joined with " · ", or the one-line message.
     pub fn text(&self) -> String {
         match self {
-            Camera::Reading => READING.into(),
-            Camera::None => NO_CAMERA.into(),
+            Camera::Reading => text(READING),
+            Camera::None => text(NO_CAMERA),
             Camera::Columns(l, r) => l.iter().chain(r).cloned().collect::<Vec<_>>().join(" · "),
         }
     }
@@ -82,14 +94,16 @@ impl Camera {
 /// `35 mm (52 mm equiv.)`: the engine's focal length row ("35 mm (52 mm in 35 mm film)") made
 /// short enough for its column.
 pub fn short_focal(value: &str) -> String {
-    value.replace(" in 35 mm film", " equiv.")
+    let Some((head, tail)) = value.split_once(" in 35 mm film") else { return value.to_owned() };
+    let (before, length) = head.rfind('(').map_or(("", head), |i| (head.get(..=i).unwrap_or_default(), head.get(i + 1..).unwrap_or_default()));
+    format!("{before}{}{tail}", tl!("{length} equiv.", length = length))
 }
 
 /// The camera columns of a `photo.metadata` answer.
 pub fn camera(a: &Answer) -> Camera {
     let value = |key: &str| a.rows.iter().find(|r| r.key == key).map(|r| r.value.clone()).filter(|v| !v.is_empty());
     let left: Vec<String> = [value("camera"), value("focalLength").map(|f| short_focal(&f))].into_iter().flatten().collect();
-    let right: Vec<String> = [value("exposure"), value("aperture"), value("iso").map(|i| format!("ISO {i}"))].into_iter().flatten().collect();
+    let right: Vec<String> = [value("exposure"), value("aperture"), value("iso").map(|i| tl!("ISO {iso}", iso = i))].into_iter().flatten().collect();
     if left.is_empty() && right.is_empty() { if a.pending { Camera::Reading } else { Camera::None } } else { Camera::Columns(left, right) }
 }
 
@@ -98,6 +112,8 @@ pub fn camera(a: &Answer) -> Camera {
 struct Asked {
     photo: PhotoId,
     revision: u64,
+    /// The language the columns are written in.
+    language: &'static str,
     camera: Arc<Camera>,
 }
 
@@ -111,6 +127,7 @@ fn camera_of(app: &mut App, ctx: &egui::Context, id: PhotoId) -> Arc<Camera> {
     if let Some(k) = &kept
         && k.photo == id
         && k.revision == revision
+        && k.language == crate::i18n::current().code
         && *k.camera != Camera::Reading
     {
         return Arc::clone(&k.camera);
@@ -123,7 +140,7 @@ fn camera_of(app: &mut App, ctx: &egui::Context, id: PhotoId) -> Arc<Camera> {
         ctx.request_repaint_after(answer::POLL);
     }
     let camera = Arc::new(camera(&a));
-    ctx.data_mut(|d| d.insert_temp(key, Asked { photo: id, revision, camera: Arc::clone(&camera) }));
+    ctx.data_mut(|d| d.insert_temp(key, Asked { photo: id, revision, language: crate::i18n::current().code, camera: Arc::clone(&camera) }));
     camera
 }
 
@@ -171,8 +188,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let p = ui.painter();
     p.rect(rect, CornerRadius::same(t.radius), t.inset, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
     let (title, plot, info) = layout(rect);
-    widgets::label_in(p, title, Align2::LEFT_CENTER, TITLE, fonts::semibold(t.count), t.text_label);
-    widgets::register(ui.ctx(), BOX_ID, Role::Other, TITLE, Target::Painted { rect, clip: ui.clip_rect() }, false);
+    let heading = text(TITLE);
+    widgets::label_in(p, title, Align2::LEFT_CENTER, &heading, fonts::semibold(t.count), t.text_label);
+    widgets::register(ui.ctx(), BOX_ID, Role::Other, &heading, Target::Painted { rect, clip: ui.clip_rect() }, false);
     let Some(id) = crate::commands::edit_view::open_photo(app) else { return };
     let ctx = ui.ctx().clone();
     let empty: [Vec<u64>; 3] = Default::default();

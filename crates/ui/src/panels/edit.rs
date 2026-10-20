@@ -15,6 +15,7 @@
 //! | [`effect_panel`] | an effect's parameter panel ([`crate::commands::effect_session`]) | M12.16 |
 //! | [`crosshair`], [`soften_brush`] | an open effect's crosshair and Soften's brush on the photo | M12.17, M12.18 |
 //! | [`faces`] | the face boxes and Add a Person Manually's box on the photo (no tool open) | M13.24 |
+//! | [`words`] | the edit catalogue's words in the language in effect | M15.33 |
 //!
 //! While a room is open the room tab strip sits under the menu bar (`ui-layout.md` §8): the edit
 //! view is the Library tab's content.
@@ -40,6 +41,7 @@ pub mod straighten;
 pub mod top_bar;
 pub mod tuning;
 pub mod video;
+pub mod words;
 pub mod zoom;
 
 use egui::{Ui, UiBuilder, vec2};

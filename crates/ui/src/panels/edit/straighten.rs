@@ -39,6 +39,7 @@ use crate::app::App;
 use crate::commands::edit_view;
 use crate::commands::tools::{self, Tool};
 use crate::state::{EditState, STRAIGHTEN_MAX, StraightenDraft, ToolKind};
+use crate::tl;
 
 /// The slider's automation id (`control-protocol.md` §7).
 pub const SLIDER_ID: &str = "slider:straighten.angle";
@@ -350,12 +351,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     painter.extend(shapes);
 
     // The floating bar.
-    let buttons_w = button_width(ui, &t, "Apply") + BUTTON_GAP + button_width(ui, &t, "Cancel");
+    let (apply, cancel_label) = (tl!("Apply"), tl!("Cancel"));
+    let buttons_w = button_width(ui, &t, &apply) + BUTTON_GAP + button_width(ui, &t, &cancel_label);
     let l = bar_layout(image.intersect(area), area, buttons_w, t.metrics.button_h);
     painter.rect_filled(l.bar, CornerRadius::same(BAR_RADIUS), BAR_FILL);
     // The bar takes the clicks around its parts (an open tool owns the canvas's anyway).
     let bar = ui.interact(l.bar, Id::new(BAR_ID), Sense::click_and_drag());
-    widgets::register(ui.ctx(), BAR_ID, Role::Other, "Straighten", Target::Widget(&bar), false);
+    widgets::register(ui.ctx(), BAR_ID, Role::Other, &tl!("Straighten"), Target::Widget(&bar), false);
 
     if let Some(a) = slider(ui, &t, l.slider, draft_angle(app)) {
         set_angle(app, a);
@@ -363,8 +365,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     let mut child = ui.new_child(UiBuilder::new().max_rect(l.buttons).layout(Layout::right_to_left(egui::Align::Center)));
     child.spacing_mut().item_spacing.x = BUTTON_GAP;
-    let cancel_clicked = widgets::text_button(&mut child, &t, CANCEL_ID, "Cancel", false).clicked();
-    let apply_clicked = widgets::primary_button(&mut child, &t, APPLY_ID, "Apply").clicked();
+    let cancel_clicked = widgets::text_button(&mut child, &t, CANCEL_ID, &cancel_label, false).clicked();
+    let apply_clicked = widgets::primary_button(&mut child, &t, APPLY_ID, &apply).clicked();
     let result = if apply_clicked {
         Some(app.run("edit.tool.apply", &json!({})))
     } else if cancel_clicked {
@@ -373,7 +375,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         None
     };
     if let Some(Err(e)) = result {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 
@@ -410,10 +412,11 @@ fn slider(ui: &mut Ui, t: &Tokens, rect: Rect, angle: f32) -> Option<f32> {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         widgets::tooltip_now(&resp, t, &angle_text(shown), None);
     }
-    resp.widget_info(|| egui::WidgetInfo::slider(true, f64::from(shown), "Straighten angle"));
+    let name = tl!("Straighten angle");
+    resp.widget_info(|| egui::WidgetInfo::slider(true, f64::from(shown), &name));
     let max = f64::from(STRAIGHTEN_MAX);
     widgets::access_range(&resp, f64::from(shown), -max, max, f64::from(STEP), &angle_text(shown));
-    widgets::register(ui.ctx(), SLIDER_ID, Role::Other, "Straighten angle", Target::Widget(&resp), resp.dragged());
+    widgets::register(ui.ctx(), SLIDER_ID, Role::Other, &name, Target::Widget(&resp), resp.dragged());
     out
 }
 

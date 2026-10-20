@@ -10522,7 +10522,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: `crates/ui/tests/i18n_dialogs.rs` (headless, the pseudo-locale): each dialog opened by
     id, and every tab of Options, draws only bracketed text outside user data; no label clips at
     1400 × 900 and 900 × 600; `cargo xtask i18n` passes.
-- ⬜ **M15.33 `ui`: every string of the edit view, the rooms, the slideshow and the viewer through the catalogs**
+- ✅ **M15.33 `ui`: every string of the edit view, the rooms, the slideshow and the viewer through the catalogs**
   - after: M15.7, M15.18, M15.19, M15.26, M15.27
   - files: `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/**`, `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/**`, `crates/ui/src/panels/collage.rs`, `crates/ui/src/panels/collage/**`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/**`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/panels/peek.rs`, `crates/ui/tests/i18n_views.rs`
   - scope: the same over the edit view (its panel, tabs, tools, effect tiles and panels, the video

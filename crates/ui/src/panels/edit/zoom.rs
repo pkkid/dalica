@@ -8,6 +8,7 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Rect, Ui, pos2, vec2};
 
 use super::canvas::View;
+use crate::tl;
 
 pub const ID: &str = "text:zoom";
 /// The pill's distance from the photo area's edges, its height and its side padding.
@@ -18,7 +19,7 @@ const PAD: f32 = 10.0;
 /// The read-out's text for `scale` (1 is 100 %): "Zoomed to 200 %".
 pub fn text(scale: f32) -> String {
     let pct = if scale.is_finite() { (scale * 100.0).round().clamp(0.0, 1.0e6) } else { 0.0 };
-    format!("Zoomed to {pct:.0} %")
+    tl!("Zoomed to {pct} %", pct = format!("{pct:.0}"))
 }
 
 /// Draws the read-out while `v` is zoomed; returns its rect.

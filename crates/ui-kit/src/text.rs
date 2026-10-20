@@ -98,6 +98,9 @@ texts! {
     Position => ("video", "Position"),
     TrimStart => ("video", "Trim start"),
     TrimEnd => ("video", "Trim end"),
+    /// The player's readout of a trimmed clip: `{time}` ("00:00:09 / 00:00:41"), `{length}` the
+    /// length kept.
+    Trimmed => ("video", "{time} (trimmed to {length})"),
     Decrease => ("stepper", "Decrease"),
     Increase => ("stepper", "Increase"),
     TopLeftCorner => ("face box handle", "Top-left corner"),

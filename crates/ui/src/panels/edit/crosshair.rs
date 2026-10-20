@@ -177,7 +177,7 @@ fn reach_inside(rect: Rect, from: Pos2, dir: Vec2, most: f32) -> f32 {
 /// Sets `values` on the open panel; a refusal says why.
 fn set(app: &mut App, values: Map<String, Value>) {
     if let Err(e) = effect_session::set_values(app, &values) {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 

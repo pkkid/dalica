@@ -34,6 +34,7 @@ use crate::app::App;
 use crate::commands::import::{Ending, copying, finish, finished};
 use crate::dialogs::remove_from_card;
 use crate::state::AfterCopy;
+use crate::{tl, tln};
 
 /// The progress line's automation id (labelled with the line).
 pub const PROGRESS_ID: &str = "progress:import";
@@ -98,11 +99,11 @@ pub fn failure_lines(status: &Value) -> Vec<String> {
         .map(|f| {
             let file = f["file"].as_str().unwrap_or_default();
             let name = std::path::Path::new(file).file_name().map_or_else(|| file.to_string(), |n| n.to_string_lossy().into_owned());
-            format!("{name}: {}", f["reason"].as_str().unwrap_or_default())
+            tl!("{name}: {reason}", name = name, reason = crate::i18n::tr(f["reason"].as_str().unwrap_or_default()))
         })
         .collect();
     if list.len() > MAX_FAILURES {
-        lines.push(format!("and {} more", list.len() - MAX_FAILURES));
+        lines.push(tln!(list.len() - MAX_FAILURES, "and {n} more", "and {n} more"));
     }
     lines
 }
@@ -112,16 +113,27 @@ pub fn result_line(status: &Value) -> String {
     let imported = status["imported"].as_u64().unwrap_or(0);
     let total = status["total"].as_u64().unwrap_or(0);
     let failed = status["failed"].as_array().map_or(0, Vec::len);
-    let pictures = |n: u64| if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") };
-    let mut line = if status["state"] == "cancelled" {
-        format!("Import cancelled: {imported} of {} copied", pictures(total))
-    } else {
-        format!("Imported {}", pictures(imported))
-    };
-    if failed > 0 {
-        line.push_str(&format!("; {failed} could not be imported:"));
+    let any_failed = failed > 0;
+    let (copied, failed) = (crate::i18n::format::number(imported), crate::i18n::format::number(failed as u64));
+    match (status["state"] == "cancelled", any_failed) {
+        (true, false) => {
+            tln!(total, "Import cancelled: {copied} of {n} picture copied", "Import cancelled: {copied} of {n} pictures copied", copied = copied)
+        }
+        (true, true) => tln!(
+            total,
+            "Import cancelled: {copied} of {n} picture copied; {failed} could not be imported:",
+            "Import cancelled: {copied} of {n} pictures copied; {failed} could not be imported:",
+            copied = copied,
+            failed = failed
+        ),
+        (false, false) => tln!(imported, "Imported {n} picture", "Imported {n} pictures"),
+        (false, true) => tln!(
+            imported,
+            "Imported {n} picture; {failed} could not be imported:",
+            "Imported {n} pictures; {failed} could not be imported:",
+            failed = failed
+        ),
     }
-    line
 }
 
 /// The share of `status` copied (0 … 1), when it knows its total.

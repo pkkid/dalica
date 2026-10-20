@@ -62,6 +62,7 @@ use crate::commands::zoom as maths;
 use crate::perf::{self, Counter};
 use crate::selection::Table;
 use crate::state::Zoom;
+use crate::tl;
 
 /// The photo area's automation id; while comparing, the focused side's.
 pub const ID: &str = "canvas:edit";
@@ -79,8 +80,31 @@ pub const HOLD_SLOP: f32 = 4.0;
 /// the wait does not spin a CPU the preview's workers need. Two 60 Hz frames: egui takes one
 /// predicted frame time off a delayed repaint, which leaves at least 16 ms between frames.
 pub const PREVIEW_POLL: std::time::Duration = std::time::Duration::from_millis(33);
-/// The message drawn when the photo cannot be shown.
+/// The message drawn when the photo cannot be shown (English; [`cannot_show`] in the language in
+/// effect).
 pub const CANNOT_SHOW: &str = "This photo cannot be shown.";
+
+/// [`CANNOT_SHOW`] in the language in effect.
+pub fn cannot_show() -> String {
+    tl!("This photo cannot be shown.")
+}
+
+/// Why a photo or a clip cannot be shown (or plays without sound), in the language in effect: a
+/// codec Dalica cannot play by the codec's name ("This video can't be played (ProRes)", "This clip
+/// plays without sound (AC-3 sound can't be played)"), any other reason looked up whole by its
+/// English.
+pub fn reason(why: &str) -> String {
+    let codec = |prefix: &str, suffix: &str| {
+        why.strip_prefix(prefix).and_then(|rest| rest.strip_suffix(suffix)).filter(|c| !c.is_empty() && !c.contains(['(', ')']))
+    };
+    if let Some(c) = codec(&format!("{} (", dalica_engine::video::CANNOT_PLAY), ")") {
+        tl!("This video can't be played ({codec})", codec = c)
+    } else if let Some(c) = codec("This clip plays without sound (", " sound can't be played)") {
+        tl!("This clip plays without sound ({codec} sound can't be played)", codec = c)
+    } else {
+        crate::i18n::tr(why)
+    }
+}
 
 /// The image point (0 … 1 of the photo) shown at the area's centre when fitted.
 const CENTRE: Pos2 = pos2(0.5, 0.5);
@@ -620,7 +644,7 @@ fn side(app: &mut App, ui: &mut Ui, ctx: &egui::Context, p: &Pane, frame: &Frame
     }
 
     // A photo that cannot be shown: what the area says is its label (screen readers, agents).
-    let label = failure.as_deref().map_or_else(|| "Photo".to_owned(), message);
+    let label = failure.as_deref().map_or_else(|| tl!("Photo"), message);
     widgets::register(ctx, if p.focused { ID } else { OTHER_ID }, Role::Other, &label, Target::Widget(&response), p.focused && p.comparing);
     let v = View { photo, area, image, size, fit, scale, zoomed, pannable, refining, refined: drew_refined, animating };
     if p.focused {
@@ -740,11 +764,13 @@ fn glide_rest(ctx: &egui::Context, id: Id) -> Vec2 {
 const HINT_WIDTH: f32 = 420.0;
 
 /// The whole "cannot be shown" message as one text: [`CANNOT_SHOW`], the reason and, when its
-/// format has one, the hint (`dalica_image::formats::hint`), one per line.
+/// format has one, the hint (`dalica_image::formats::hint`), one per line; each line in the
+/// language in effect (the reason and the hint looked up whole by their English).
 pub fn message(why: &str) -> String {
+    let (title, reason) = (cannot_show(), reason(why));
     match dalica_image::formats::hint_for(why) {
-        Some(hint) => format!("{CANNOT_SHOW}\n{why}\n{hint}"),
-        None => format!("{CANNOT_SHOW}\n{why}"),
+        Some(hint) => format!("{title}\n{reason}\n{}", crate::i18n::tr(hint)),
+        None => format!("{title}\n{reason}"),
     }
 }
 
@@ -752,13 +778,13 @@ pub fn message(why: &str) -> String {
 /// hint under that, wrapped and centred.
 fn failed(painter: &egui::Painter, t: &Tokens, area: Rect, why: &str) {
     let c = area.center();
-    painter.text(c, Align2::CENTER_BOTTOM, CANNOT_SHOW, fonts::semibold(15.0), t.text_label);
-    let hint = dalica_image::formats::hint_for(why);
-    let why: String = why.chars().take(200).collect();
+    painter.text(c, Align2::CENTER_BOTTOM, cannot_show(), fonts::semibold(15.0), t.text_label);
+    let hint = dalica_image::formats::hint_for(why).map(crate::i18n::tr);
+    let why: String = reason(why).chars().take(200).collect();
     let reason = painter.text(c + vec2(0.0, 6.0), Align2::CENTER_TOP, why, fonts::regular(12.5), t.text_dim);
     if let Some(hint) = hint {
         let width = HINT_WIDTH.min(area.width() - 2.0 * PADDING).max(1.0);
-        let mut job = egui::text::LayoutJob::simple(hint.to_owned(), fonts::regular(12.5), t.text_dim, width);
+        let mut job = egui::text::LayoutJob::simple(hint, fonts::regular(12.5), t.text_dim, width);
         job.halign = egui::Align::Center;
         painter.galley(pos2(c.x, reason.bottom() + 10.0), painter.layout_job(job), t.text_dim);
     }

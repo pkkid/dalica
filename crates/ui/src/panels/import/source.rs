@@ -21,13 +21,14 @@ use serde_json::{Value, json};
 
 use super::{Action, Snapshot};
 use crate::app::App;
+use crate::tl;
 
 /// How often the room asks for the sources while it is in front.
 pub const POLL: Duration = Duration::from_secs(1);
 /// The dropdown's automation id; its items are `<id>/<n>` (from 0, in the menu's order) and
 /// `<id>/folder` (Folder…).
 pub const ID: &str = "choice:import.source";
-/// The label left of the dropdown.
+/// The label left of the dropdown (English, as the constants below; drawn through the catalogs).
 pub const LABEL: &str = "Import from:";
 /// The dropdown's text with nothing listed.
 pub const NOTHING: &str = "Choose a source";
@@ -46,13 +47,29 @@ pub enum Kind {
 
 impl Kind {
     /// The item's description line.
-    pub fn detail(self) -> &'static str {
+    pub fn detail(self) -> String {
         match self {
-            Kind::Card => "Camera card",
-            Kind::Drive => "Removable drive",
-            Kind::Camera => "Camera or phone",
-            Kind::Recent => "Recent folder",
+            Kind::Card => tl!("Camera card"),
+            Kind::Drive => tl!("Removable drive"),
+            Kind::Camera => tl!("Camera or phone"),
+            Kind::Recent => tl!("Recent folder"),
         }
+    }
+}
+
+/// Why a camera cannot be opened (`dalica_engine::camera::unreachable_reason`), in the language in
+/// effect, what the system says of it kept as it says it; any other reason looked up whole by its
+/// English.
+pub fn unavailable(why: &str) -> String {
+    let detail = |prefix: &str, suffix: &str| why.strip_prefix(prefix).and_then(|rest| rest.strip_suffix(suffix));
+    if let Some(d) = detail("Another program is using this camera (", "); close it, or import from the folder it shows") {
+        tl!("Another program is using this camera ({detail}); close it, or import from the folder it shows", detail = d)
+    } else if let Some(d) = detail("Dalica may not open this camera (", ")") {
+        tl!("Dalica may not open this camera ({detail})", detail = d)
+    } else if let Some(d) = detail("The camera did not answer as expected (", ")") {
+        tl!("The camera did not answer as expected ({detail})", detail = d)
+    } else {
+        crate::i18n::tr(why)
     }
 }
 
@@ -190,8 +207,9 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, s: &Sources, snap: &Snapshot, ac
     let _ = app;
     let rect = ui.max_rect();
     let font = fonts::regular(t.body);
-    let label = widgets::label_in(ui.painter(), rect.shrink2(vec2(12.0, 0.0)), Align2::LEFT_CENTER, LABEL, font, t.text_label);
-    let shown = snap.source.as_ref().map_or(NOTHING, |src| src.name.as_str());
+    let label = widgets::label_in(ui.painter(), rect.shrink2(vec2(12.0, 0.0)), Align2::LEFT_CENTER, &tl!("Import from:"), font, t.text_label);
+    let nothing = tl!("Choose a source");
+    let shown = snap.source.as_ref().map_or(nothing.as_str(), |src| src.name.as_str());
     let at = pos2(label.max.x + 6.0, rect.center().y - t.metrics.interact_h / 2.0);
     let slot = egui::Rect::from_min_max(at, pos2(rect.max.x - 12.0, at.y + t.metrics.interact_h));
     let current = snap.source.as_ref().map(|src| src.path.clone());
@@ -199,10 +217,10 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, s: &Sources, snap: &Snapshot, ac
         widgets::dropdown(ui, t, ID, shown, |ui| {
             for (n, item) in s.list.iter().enumerate() {
                 let checked = current.as_ref() == Some(&item.path);
-                let detail = item.unavailable.as_deref().unwrap_or(item.kind.detail());
+                let detail = item.unavailable.as_deref().map_or_else(|| item.kind.detail(), unavailable);
                 let clicked = ui
                     .add_enabled_ui(item.unavailable.is_none(), |ui| {
-                        widgets::dropdown_item(ui, t, &format!("{ID}/{n}"), &item.name, detail, checked).clicked()
+                        widgets::dropdown_item(ui, t, &format!("{ID}/{n}"), &item.name, &detail, checked).clicked()
                     })
                     .inner;
                 if clicked {
@@ -212,7 +230,9 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, s: &Sources, snap: &Snapshot, ac
             if !s.list.is_empty() {
                 ui.separator();
             }
-            if widgets::dropdown_item(ui, t, &format!("{ID}/folder"), FOLDER, FOLDER_DETAIL, false).clicked() {
+            if widgets::dropdown_item(ui, t, &format!("{ID}/folder"), &tl!("Folder\u{2026}"), &tl!("Choose a folder on this computer"), false)
+                .clicked()
+            {
                 actions.push(("import.chooseFolder", json!({})));
             }
         });

@@ -37,6 +37,7 @@ use crate::menu_catalog::Mark;
 use crate::menus::{ItemNode, Node};
 use crate::panels::folders::scrollbar;
 use crate::panels::thumbnails::fit_within;
+use crate::{tl, tln};
 
 /// The status line's height.
 pub const STATUS_H: f32 = 36.0;
@@ -67,6 +68,27 @@ pub const THUMB_ID: &str = "scroll:import/thumb";
 /// The ⊘'s label: a duplicate left out, or an excluded picture.
 pub const DUPLICATE: &str = "Already in your library";
 pub const EXCLUDED: &str = "Excluded";
+
+/// A label, tooltip, menu row or reason of the tray in the language in effect (the constants keep
+/// the English, which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Exclude duplicates" => tl!("Exclude duplicates"),
+        "Skip pictures that are already in your library" => tl!("Skip pictures that are already in your library"),
+        "Already in your library" => tl!("Already in your library"),
+        "Excluded" => tl!("Excluded"),
+        "Import tray" => tl!("Import tray"),
+        "Scroll the import tray" => tl!("Scroll the import tray"),
+        "Import tray position" => tl!("Import tray position"),
+        "Exclude" => tl!(ctx = "import", "Exclude"),
+        "Include" => tl!(ctx = "import", "Include"),
+        "Exclude All" => tl!("Exclude All"),
+        "Include All" => tl!("Include All"),
+        "Every picture chosen is excluded." => tl!("Every picture chosen is excluded."),
+        "No picture chosen is excluded." => tl!("No picture chosen is excluded."),
+        other => crate::i18n::tr(other),
+    }
+}
 
 thread_local! {
     /// The columns of the tray as last drawn on this thread (the UI thread), for Up and Down.
@@ -212,7 +234,7 @@ pub fn show(
     let mut grid_ui = ui.new_child(UiBuilder::new().max_rect(view));
     grid_ui.set_clip_rect(view.intersect(ui.clip_rect()));
     let bg = grid_ui.interact(view, Id::new(BACKGROUND_ID), Sense::click());
-    widgets::register(ui.ctx(), BACKGROUND_ID, Role::Other, "Import tray", Target::Widget(&bg), false);
+    widgets::register(ui.ctx(), BACKGROUND_ID, Role::Other, &text("Import tray"), Target::Widget(&bg), false);
     if bg.clicked() {
         actions.push(("import.select", json!({ "ids": [] })));
     }
@@ -284,8 +306,8 @@ pub fn show(
             if snap.left_out(index)
                 && let Some(mark) = widgets::excluded_mark(&painter, t, cell, image)
             {
-                let why = if c.excluded { EXCLUDED } else { DUPLICATE };
-                widgets::register(&ctx, &format!("{id}/excluded"), Role::Badge, why, Target::Painted { rect: mark, clip: view }, true);
+                let why = text(if c.excluded { EXCLUDED } else { DUPLICATE });
+                widgets::register(&ctx, &format!("{id}/excluded"), Role::Badge, &why, Target::Painted { rect: mark, clip: view }, true);
             }
             if c.starred {
                 widgets::star_badge(&painter, t, &format!("{id}/star"), image);
@@ -323,20 +345,55 @@ fn status_line(ui: &mut Ui, t: &Tokens, rect: Rect, snap: &Snapshot, actions: &m
     let mut on = snap.exclude_duplicates;
     let check = ui
         .scope_builder(UiBuilder::new().max_rect(rect.shrink2(vec2(PAD, 0.0))).layout(Layout::right_to_left(Align::Center)), |ui| {
-            let r = widgets::checkbox(ui, t, EXCLUDE_ID, EXCLUDE_LABEL, &mut on);
-            widgets::tooltip(r, t, EXCLUDE_LABEL, Some(EXCLUDE_TIP))
+            let label = text(EXCLUDE_LABEL);
+            let r = widgets::checkbox(ui, t, EXCLUDE_ID, &label, &mut on);
+            widgets::tooltip(r, t, &label, Some(&text(EXCLUDE_TIP)))
         })
         .inner;
     if check.changed() {
         actions.push(("import.options", json!({ "excludeDuplicates": on })));
     }
-    let text = if snap.candidates.is_empty() { snap.status.clone() } else { format!("{} \u{b7} {} to import", snap.status, snap.to_import()) };
+    let line = status_text(&snap.status, (!snap.candidates.is_empty()).then(|| snap.to_import()));
     let room = (check.rect.min.x - rect.min.x - PAD - 12.0).max(1.0);
-    let g = one_line(&p, &text, fonts::regular(t.body), t.text_label, room);
+    let g = one_line(&p, &line, fonts::regular(t.body), t.text_label, room);
     let at = pos2(rect.min.x + PAD, rect.center().y - g.size().y / 2.0).round();
     let shown = Rect::from_min_size(at, g.size());
     p.galley(at, g, t.text_label);
-    widgets::register(ui.ctx(), STATUS_ID, Role::Other, &text, Target::Painted { rect: shown, clip: rect }, false);
+    widgets::register(ui.ctx(), STATUS_ID, Role::Other, &line, Target::Painted { rect: shown, clip: rect }, false);
+}
+
+/// The status line: what the listing says (`import.list`'s status, its counts written in the
+/// language in effect), then how many of the pictures will be imported when any are listed.
+pub fn status_text(status: &str, to_import: Option<usize>) -> String {
+    let status = listing_status(status);
+    match to_import {
+        Some(n) => tln!(n, "{status} \u{b7} {n} to import", "{status} \u{b7} {n} to import", status = status),
+        None => status,
+    }
+}
+
+/// `import.list`'s status line (`dalica_engine::import`'s) in the language in effect: its counts
+/// by the numbers in it, a reason after "cannot be read:" as the source gave it, any other text
+/// looked up whole by its English.
+fn listing_status(status: &str) -> String {
+    // A count as the engine writes it (`1,234`).
+    let count = |s: &str| s.replace(',', "").parse::<u64>().ok();
+    if let Some(n) = status.strip_suffix(" files").or_else(|| status.strip_suffix(" file")).and_then(count) {
+        return tln!(n, "{n} file", "{n} files");
+    }
+    if let Some((done, total)) = status
+        .strip_prefix("Loading ")
+        .and_then(|r| r.strip_suffix(" files\u{2026}"))
+        .and_then(|r| r.split_once(" of "))
+        .and_then(|(d, t)| Some((count(d)?, count(t)?)))
+    {
+        let done = crate::i18n::format::number(done);
+        return tln!(total, "Loading {done} of {n} file\u{2026}", "Loading {done} of {n} files\u{2026}", done = done);
+    }
+    if let Some(reason) = status.strip_prefix("The source cannot be read: ") {
+        return tl!("The source cannot be read: {reason}", reason = crate::i18n::tr(reason));
+    }
+    crate::i18n::tr(status)
 }
 
 /// This frame's interaction with the bar.
@@ -389,14 +446,14 @@ fn bar_paint(ui: &Ui, t: &Tokens, f: &Bar, strip: Rect, view_h: f32, content_h: 
 fn row(id: &'static str, label: &'static str, part: &str, params: serde_json::Value, enabled: bool, reason: &str) -> Node {
     Node::Item(ItemNode {
         id,
-        label: label.to_string(),
+        label: text(label),
         catalog_label: label,
         params,
         widget: if part.is_empty() { format!("menuitem:{id}") } else { format!("menuitem:{id}/{part}") },
         shortcut: None,
         live: true,
         enabled,
-        reason: (!enabled).then(|| reason.to_string()),
+        reason: (!enabled).then(|| text(reason)),
         mark: Mark::None,
         checked: false,
         dialog: None,

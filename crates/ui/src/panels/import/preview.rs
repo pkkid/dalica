@@ -20,6 +20,7 @@ use serde_json::json;
 use super::{Action, Snapshot, Textures, one_line, paint_turned, turned};
 use crate::app::App;
 use crate::panels::thumbnails::fit_within;
+use crate::tl;
 
 /// The header's automation id (its label is the text shown).
 pub const HEADER_ID: &str = "text:import.preview";
@@ -48,7 +49,7 @@ pub const GROUP_GAP: f32 = 16.0;
 
 /// The header: `IMG_0001.JPG · June 4, 2026 8:00 AM · 2.4 MB`.
 pub fn header(name: &str, captured: dalica_core::DateTime, size: u64) -> String {
-    format!("{name} \u{b7} {} \u{b7} {}", crate::status_text::date_time(captured), crate::status_text::size(size))
+    tl!("{name} \u{b7} {date} \u{b7} {size}", name = name, date = crate::status_text::date_time(captured), size = crate::status_text::size(size))
 }
 
 /// The item the preview shows: the room's preview when it is listed, else the first item.
@@ -62,7 +63,7 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, textures: &mut Textures, snap: &
     let rect = ui.max_rect().shrink(PAD);
     let p = ui.painter().clone();
     let Some(index) = shown(app, snap) else {
-        widgets::label_in(&p, rect, Align2::CENTER_CENTER, NOTHING, fonts::regular(t.body), t.text_dim);
+        widgets::label_in(&p, rect, Align2::CENTER_CENTER, &tl!("No picture to preview"), fonts::regular(t.body), t.text_dim);
         return;
     };
     let Some(c) = snap.candidates.get(index) else { return };
@@ -109,22 +110,22 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, textures: &mut Textures, snap: &
         if widgets::star_toggle(ui, t, STAR_ID, c.starred).clicked() {
             actions.push(("import.mark", json!({ "ids": [c.id], "star": !c.starred })));
         }
-        let (tip, on) = if c.excluded { ("Include", false) } else { ("Exclude", true) };
-        if glyph_button(ui, t, EXCLUDE_ID, Glyph::Viewing(ViewingIcon::Exclude), c.excluded, true, tip).clicked() {
+        let (tip, on) = if c.excluded { (tl!(ctx = "import", "Include"), false) } else { (tl!(ctx = "import", "Exclude"), true) };
+        if glyph_button(ui, t, EXCLUDE_ID, Glyph::Viewing(ViewingIcon::Exclude), c.excluded, true, &tip).clicked() {
             actions.push(("import.exclude", json!({ "ids": [c.id], "on": on })));
         }
         ui.add_space(GROUP_GAP - BUTTON_GAP);
-        if glyph_button(ui, t, PREVIOUS_ID, Glyph::Viewing(ViewingIcon::Previous), false, index > 0, "Previous").clicked() {
+        if glyph_button(ui, t, PREVIOUS_ID, Glyph::Viewing(ViewingIcon::Previous), false, index > 0, &tl!("Previous")).clicked() {
             actions.push(("import.previous", json!({})));
         }
-        if glyph_button(ui, t, NEXT_ID, Glyph::Viewing(ViewingIcon::Next), false, index < last, "Next").clicked() {
+        if glyph_button(ui, t, NEXT_ID, Glyph::Viewing(ViewingIcon::Next), false, index < last, &tl!("Next")).clicked() {
             actions.push(("import.next", json!({})));
         }
         ui.add_space(GROUP_GAP - BUTTON_GAP);
-        if glyph_button(ui, t, ROTATE_LEFT_ID, Glyph::Shell(Icon::RotateCcw), false, true, "Rotate Left").clicked() {
+        if glyph_button(ui, t, ROTATE_LEFT_ID, Glyph::Shell(Icon::RotateCcw), false, true, &tl!("Rotate Left")).clicked() {
             actions.push(("import.mark", json!({ "ids": [c.id], "rotate": -1 })));
         }
-        if glyph_button(ui, t, ROTATE_RIGHT_ID, Glyph::Shell(Icon::RotateCw), false, true, "Rotate Right").clicked() {
+        if glyph_button(ui, t, ROTATE_RIGHT_ID, Glyph::Shell(Icon::RotateCw), false, true, &tl!("Rotate Right")).clicked() {
             actions.push(("import.mark", json!({ "ids": [c.id], "rotate": 1 })));
         }
     });

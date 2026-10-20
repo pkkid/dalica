@@ -21,6 +21,7 @@ use egui::{Id, Sense, Ui};
 
 use crate::app::App;
 use crate::commands::slideshow as cmd;
+use crate::tl;
 
 /// The photo area's automation id.
 pub const ID: &str = "canvas:slideshow";
@@ -47,7 +48,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // The mouse (§1.4), before the show moves on.
     let response = ui.interact(rect, Id::new(ID), Sense::click_and_drag());
-    let label = cmd::show(app).and_then(|s| s.photo()).map_or_else(|| "Slideshow".to_string(), |p| format!("Slideshow: photo {p}"));
+    let label = cmd::show(app).and_then(|s| s.photo()).map_or_else(|| tl!("Slideshow"), |p| tl!("Slideshow: photo {p}", p = p));
     widgets::register(&ctx, ID, Role::Other, &label, Target::Widget(&response), false);
     let (moved, wheel, now) = ctx.input(|i| {
         let wheel: f32 = i.events.iter().filter_map(|e| if let egui::Event::MouseWheel { delta, .. } = e { Some(delta.y) } else { None }).sum();

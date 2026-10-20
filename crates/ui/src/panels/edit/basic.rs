@@ -22,6 +22,7 @@ use serde_json::json;
 use super::fill_light;
 use crate::app::App;
 use crate::state::ToolKind;
+use crate::tl;
 
 /// What a tool button does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +44,26 @@ pub const TOOLS: [(&str, &str, EditIcon, &str, Action); 6] = [
     ("tool:autocontrast", "Auto Contrast", EditIcon::AutoContrast, "Set the black and white points", Action::Apply("autocontrast()")),
     ("tool:autocolor", "Auto Color", EditIcon::AutoColor, "Remove a color cast", Action::Apply("autocolor()")),
 ];
+
+/// A label or tooltip of [`TOOLS`] in the language in effect (the table keeps the English, which
+/// the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Crop" => tl!("Crop"),
+        "Crop the photo" => tl!("Crop the photo"),
+        "Straighten" => tl!("Straighten"),
+        "Straighten a tilted photo" => tl!("Straighten a tilted photo"),
+        "Retouch" => tl!("Retouch"),
+        "Remove blemishes and spots" => tl!("Remove blemishes and spots"),
+        "Auto Fix" => tl!("Auto Fix"),
+        "Fix the contrast and color in one click" => tl!("Fix the contrast and color in one click"),
+        "Auto Contrast" => tl!("Auto Contrast"),
+        "Set the black and white points" => tl!("Set the black and white points"),
+        "Auto Color" => tl!("Auto Color"),
+        "Remove a color cast" => tl!("Remove a color cast"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// The columns of the grid, the gap between buttons (both ways), and the gap above the Fill Light
 /// row and its height.
@@ -71,7 +92,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let mut clicked = None;
     for ((id, label, icon, tip, action), rect) in TOOLS.iter().zip(cells) {
         let active = matches!(action, Action::Open(kind) if open == Some(*kind));
-        if tool_button(ui, &t, id, *icon, label, rect, active, photo, tip).clicked() {
+        if tool_button(ui, &t, id, *icon, &text(label), rect, active, photo, &text(tip)).clicked() {
             clicked = Some(*action);
         }
     }
@@ -91,7 +112,7 @@ fn run(app: &mut App, action: Action) {
         Action::Apply(op) => app.run("photo.history.apply", &json!({ "id": photo, "op": op })),
     };
     if let Err(e) = done {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 

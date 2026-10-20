@@ -216,7 +216,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         ui.interact(area, Id::new("video.fullScreen.cover"), Sense::hover());
     }
     ui.painter().rect_filled(area, 0, t.canvas);
-    widgets::register(&ctx, REGION_ID, Role::Other, "Video", Target::Painted { rect: area, clip: area }, false);
+    widgets::register(&ctx, REGION_ID, Role::Other, &crate::tl!("Video"), Target::Painted { rect: area, clip: area }, false);
     let bar_h = bar::HEIGHT.min(area.height());
     let video = Rect::from_min_max(area.min, pos2(area.max.x, area.max.y - bar_h));
     let Some((size, facts_why)) = app.session().map(|s| look(s.library(), photo)) else { return };
@@ -238,7 +238,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 widgets::badges(&painter, &t, picture, &Badges { video: Some(widgets::Video { seconds: None }), ..Badges::default() });
             }
         }
-        widgets::register(&ctx, PICTURE_ID, Role::Other, "Video", Target::Painted { rect: picture, clip: video }, false);
+        widgets::register(&ctx, PICTURE_ID, Role::Other, &crate::tl!("Video"), Target::Painted { rect: picture, clip: video }, false);
         if why.is_some() {
             cannot_play(app, ui, &t, picture, video);
         }

@@ -68,10 +68,12 @@ use super::effect_panel::controls::ROW_GAP;
 use crate::app::App;
 use crate::commands::{edit_view, effect_session, tools};
 use crate::state::{EffectDraft, MAX_STROKE_POINTS, MAX_STROKES, SOFTEN_BRUSH_DEFAULT, SOFTEN_BRUSH_MAX, SOFTEN_BRUSH_MIN, SoftenStroke, ToolKind};
+use crate::tl;
 
 pub const PAINT_ID: &str = "button:effect.paint";
 pub const ERASE_ID: &str = "button:effect.erase";
 pub const BRUSH_ID: &str = "slider:soften.brush";
+/// The slider's label and the buttons' tooltips (English; drawn through the catalogs).
 pub const BRUSH_LABEL: &str = "Brush size";
 pub const PAINT_TIP: &str = "Paint where Soften applies";
 pub const ERASE_TIP: &str = "Erase Soften where it was painted";
@@ -318,8 +320,9 @@ pub fn rows(app: &mut App, ui: &mut Ui) {
     let half = ((row.width() - MODE_GAP) / 2.0).max(0.0).floor();
     let paint_r = Rect::from_min_size(row.min, vec2(half, row.height()));
     let erase_r = Rect::from_min_size(pos2(row.max.x - half, row.min.y), vec2(half, row.height()));
-    let paint = mode_button(ui, &t, PAINT_ID, "Paint", EffectIcon::Brush, paint_r, !d.erase, true, PAINT_TIP);
-    let erase = mode_button(ui, &t, ERASE_ID, "Erase", EffectIcon::Eraser, erase_r, d.erase, painted(&d), ERASE_TIP);
+    let paint = mode_button(ui, &t, PAINT_ID, &tl!("Paint"), EffectIcon::Brush, paint_r, !d.erase, true, &tl!("Paint where Soften applies"));
+    let erase =
+        mode_button(ui, &t, ERASE_ID, &tl!("Erase"), EffectIcon::Eraser, erase_r, d.erase, painted(&d), &tl!("Erase Soften where it was painted"));
     if paint.clicked() {
         set_mode(app, false);
     } else if erase.clicked() {
@@ -330,15 +333,16 @@ pub fn rows(app: &mut App, ui: &mut Ui) {
     let (_, slider) = ui.allocate_space(vec2(w, t.metrics.slider_row_h));
     let short = dims(app, photo).map_or(1000.0, |(w, h)| f64::from(w.min(h)));
     let px = |r: f32| (2.0 * f64::from(r) * short).round().max(1.0);
+    let (label, unit) = (tl!("Brush size"), super::retouch::px_unit());
     let spec = SliderSpec {
         id: BRUSH_ID,
-        label: BRUSH_LABEL,
+        label: &label,
         min: px(BRUSH_LO),
         max: px(BRUSH_HI).max(px(BRUSH_LO) + 1.0),
         default: px(SOFTEN_BRUSH_DEFAULT),
         step: 1.0,
         decimals: 0,
-        unit: " px",
+        unit: &unit,
     };
     let mut child = ui.new_child(UiBuilder::new().id_salt("soften.brush.size").max_rect(slider));
     let out = widgets::slider(&mut child, &t, &spec, px(d.brush));
