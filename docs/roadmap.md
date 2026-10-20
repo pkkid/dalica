@@ -10739,7 +10739,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     responder (fails before the fix), and an unplugged camera's dropped thumbnail gives the tile
     with no further request; `cargo xtask docs` and `cargo xtask assets` green; the NOTICE rows
     name both commits.
-- ⬜ **M15.36 `docs`: the 1.0 parity and security audit**
+- ✅ **M15.36 `docs`: the 1.0 parity and security audit**
   - after: M15.13, M15.19, M15.23, M15.24, M15.26, M15.27, M15.28, M15.30, M15.34, M15.41, M15.42, M15.45, M15.48, M15.49, M15.50, M15.51, M15.54
   - files: `docs/parity.md`, `docs/product.md`, `docs/security.md`
   - scope: `process.md` §5 for 1.0: every row re-measured (its cited tests run, its evidence checked
