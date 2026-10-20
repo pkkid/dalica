@@ -9,10 +9,18 @@
 # runs on every packaging pull request; macOS notarization and stapling, which need Apple's
 # credentials, are skipped there and named; the draft job never runs.
 #
+# Signing is a setting, never a fallback: RELEASE_SIGNING below says what a release run makes.
+#   signed     the signing jobs use the `release` environment and need every signing secret (the
+#              .pfx or the six Azure ones; the Developer ID certificate and the three Apple
+#              notarization secrets); a missing one fails the run, so no half-signed set is drafted.
+#   unsigned   the signing jobs read no secret and run without the environment; the Windows and
+#              macOS sets are the build jobs' (Windows unsigned, macOS signed ad hoc, not notarized),
+#              and the draft's notes start with packaging/release-notes-unsigned.md.
+# Dry runs sign with the throwaway identities in either mode.
+#
 # Least privilege: the workflow reads (`contents: read`); the build jobs read no secrets and run
-# without the `release` environment; only the signing jobs of a release run use that environment
-# and its secrets, each secret optional (a missing one is a ::warning:: and an unsigned artifact);
-# only the draft job gets `contents: write`. Inputs reach scripts through `env`, never through `${{ }}` inside a
+# without the `release` environment; only the signing jobs of a signed release run use that
+# environment and its secrets; only the draft job gets `contents: write`. Inputs reach scripts through `env`, never through `${{ }}` inside a
 # script. Actions are pinned to full commit hashes (docs/security.md §8.5).
 #
 # Adapted from LightCraft .github/workflows/release.yml @ 25ef65c8 (MIT OR Apache-2.0): the version
@@ -54,6 +62,10 @@ env:
   CRAFT_FONTS_REF: 3d9ab3a132ed0eff457e424226a435a901da30d3
   DALICA_BUILD_SHA: ${{ github.sha }}
   INPUT_VERSION: ${{ inputs.version }}
+  # `signed` or `unsigned` (see the top). Unsigned by the maintainer's decision at the M15.R review
+  # (2026-10-20): 1.0 ships without a Windows certificate or an Apple Developer ID. Switch to
+  # `signed` once every signing secret is in the `release` environment.
+  RELEASE_SIGNING: unsigned
 
 jobs:
   version:
@@ -65,6 +77,9 @@ jobs:
       date: ${{ steps.v.outputs.date }}
       prerelease: ${{ steps.v.outputs.prerelease }}
       real: ${{ steps.v.outputs.real }}
+      signing: ${{ steps.v.outputs.signing }}
+      # `true` only in a signed release run: the one case a signing job reads the secrets.
+      secrets: ${{ steps.v.outputs.secrets }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,6 +108,14 @@ jobs:
           fi
           case "$v" in *-*) pre=true ;; *) pre=false ;; esac
           if [ "$REF" = refs/heads/release ] && [ "$EVENT" != pull_request ]; then real=true; else real=false; fi
+          case "$RELEASE_SIGNING" in
+            signed | unsigned) ;;
+            *)
+              echo "::error::RELEASE_SIGNING is '${RELEASE_SIGNING//[^0-9A-Za-z.-]/?}', not signed or unsigned"
+              exit 1
+              ;;
+          esac
+          if [ "$real" = true ] && [ "$RELEASE_SIGNING" = signed ]; then secrets=true; else secrets=false; fi
           # Refuse early a version whose release is already published (the draft job checks again).
           if draft="$(gh release view "v$v" --json isDraft --jq .isDraft 2>/dev/null)" && [ "$draft" = false ]; then
             if [ "$real" = true ]; then
@@ -106,8 +129,17 @@ jobs:
             echo "date=$(date -u +%Y-%m-%d)"
             echo "prerelease=$pre"
             echo "real=$real"
+            echo "signing=$RELEASE_SIGNING"
+            echo "secrets=$secrets"
           } >>"$GITHUB_OUTPUT"
-          if [ "$real" = true ]; then kind="release run"; else kind="dry run (signed with throwaway identities; nothing notarized or drafted)"; fi
+          if [ "$real" = false ]; then
+            kind="dry run (signed with throwaway identities; nothing notarized or drafted)"
+          elif [ "$RELEASE_SIGNING" = signed ]; then
+            kind="signed release run"
+          else
+            kind="unsigned release run (RELEASE_SIGNING: unsigned; no signing secret is read)"
+            echo "::notice::An unsigned release run: the Windows artifacts are unsigned and the macOS ones signed ad hoc and not notarized, by RELEASE_SIGNING in release.yml"
+          fi
           echo "### Dalica v$v at \`${GITHUB_SHA::9}\`: $kind" >>"$GITHUB_STEP_SUMMARY"
 
   linux:
@@ -206,7 +238,8 @@ jobs:
           CRAFT_FONTS_REQUIRED: "1"
           ARCH: ${{ matrix.arch }}
         run: ./packaging/windows/package.ps1 -Arch $env:ARCH -NoSign
-      # Unsigned here; the signing job replaces it with the set it builds from the stage below.
+      # Unsigned here; the signing job replaces it with the set it builds from the stage below,
+      # except in an unsigned release run, which ships this one.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows-${{ matrix.arch }}
@@ -259,7 +292,8 @@ jobs:
           CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
           CRAFT_FONTS_REQUIRED: "1"
         run: packaging/macos/package.sh
-      # Signed ad hoc here; the signing job replaces it with the set it signs from the stage below.
+      # Signed ad hoc here; the signing job replaces it with the set it signs from the stage below,
+      # except in an unsigned release run, which ships this one.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos-universal
@@ -277,58 +311,87 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # The signing jobs: in a release run the only jobs in the `release` environment and the only
-  # ones that see its secrets. One job per Windows architecture the build matrix makes (x64 only
-  # until ARM64 lands).
+  # The signing jobs: in a signed release run the only jobs in the `release` environment and the
+  # only ones that see its secrets. One job per Windows architecture the build matrix makes (x64
+  # only until ARM64 lands). In an unsigned release run (RELEASE_SIGNING: unsigned) they run without
+  # the environment, read no secret and leave the build jobs' sets as they are: every step but the
+  # first is skipped, and the job summary says so.
   #
   # Windows (M15.10): sign.ps1 signs dalica.exe and dalica-cli.exe from the build job's stage, the
   # MSI is built around the signed programs and signed, the portable zip is made again, and
-  # test-sign.ps1 checks every signature (package.ps1 -FromStage). A release run signs with the
-  # `.pfx` (WINDOWS_CERTIFICATE) or Azure Trusted Signing (the AZURE_* secrets), whichever is set,
-  # and without either leaves the set unsigned with a ::warning:: naming each file. A dry run never
-  # reads those secrets: it signs with a throwaway self-signed certificate made in the job
-  # (sign.ps1 -Throwaway), and its output is never drafted. The checksum job runs after this one,
-  # so SHA256SUMS.txt is written over the signed set.
+  # test-sign.ps1 checks every signature (package.ps1 -FromStage). A signed release run signs with
+  # the `.pfx` (WINDOWS_CERTIFICATE + its password) or Azure Trusted Signing (all six AZURE_*
+  # secrets) and fails when neither is complete. A dry run never reads those secrets: it signs with a
+  # throwaway self-signed certificate made in the job (sign.ps1 -Throwaway), and its output is never
+  # drafted. The checksum job runs after this one, so SHA256SUMS.txt is written over the signed set.
   sign-windows:
     name: sign Windows x64
     needs: [version, windows]
     runs-on: windows-latest
     timeout-minutes: 30
-    # A release run only; an empty name runs the dry run without an environment.
-    environment: ${{ needs.version.outputs.real == 'true' && 'release' || '' }}
+    # A signed release run only; an empty name runs without an environment.
+    environment: ${{ needs.version.outputs.secrets == 'true' && 'release' || '' }}
     env:
       DALICA_VERSION: ${{ needs.version.outputs.version }}
       DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
       REAL: ${{ needs.version.outputs.real }}
+      UNSIGNED: ${{ needs.version.outputs.real == 'true' && needs.version.outputs.signing == 'unsigned' }}
     steps:
-      - run: git config --global core.autocrlf false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Signing mode
+        shell: bash
+        run: |
+          if [ "$UNSIGNED" = true ]; then
+            echo "::notice::RELEASE_SIGNING is unsigned: the Windows set stays as the build job made it, unsigned"
+            echo "#### Windows: unsigned by RELEASE_SIGNING (the build job's MSI and portable zip)" >>"$GITHUB_STEP_SUMMARY"
+          elif [ "$REAL" = true ]; then
+            echo "Signed release run: every artifact must be signed"
+          else
+            echo "Dry run: signing with a throwaway certificate"
+          fi
+      - if: env.UNSIGNED != 'true'
+        run: git config --global core.autocrlf false
+      - if: env.UNSIGNED != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: env.UNSIGNED != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: stage-windows-x64
           path: stage
       - name: Sign and package
+        if: env.UNSIGNED != 'true'
         shell: pwsh
-        # The secrets reach the scripts only through these variables, and only in a release run.
+        # The secrets reach the scripts only through these variables, and only in a signed release
+        # run.
         env:
-          WINDOWS_CERTIFICATE: ${{ needs.version.outputs.real == 'true' && secrets.WINDOWS_CERTIFICATE || '' }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
-          AZURE_TENANT_ID: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_TENANT_ID || '' }}
-          AZURE_CLIENT_ID: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_CLIENT_ID || '' }}
-          AZURE_CLIENT_SECRET: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_CLIENT_SECRET || '' }}
-          AZURE_SIGNING_ENDPOINT: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_SIGNING_ENDPOINT || '' }}
-          AZURE_SIGNING_ACCOUNT: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_SIGNING_ACCOUNT || '' }}
-          AZURE_CERT_PROFILE: ${{ needs.version.outputs.real == 'true' && secrets.AZURE_CERT_PROFILE || '' }}
+          WINDOWS_CERTIFICATE: ${{ needs.version.outputs.secrets == 'true' && secrets.WINDOWS_CERTIFICATE || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ needs.version.outputs.secrets == 'true' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+          AZURE_TENANT_ID: ${{ needs.version.outputs.secrets == 'true' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ needs.version.outputs.secrets == 'true' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ needs.version.outputs.secrets == 'true' && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_SIGNING_ENDPOINT: ${{ needs.version.outputs.secrets == 'true' && secrets.AZURE_SIGNING_ENDPOINT || '' }}
+          AZURE_SIGNING_ACCOUNT: ${{ needs.version.outputs.secrets == 'true' && secrets.AZURE_SIGNING_ACCOUNT || '' }}
+          AZURE_CERT_PROFILE: ${{ needs.version.outputs.secrets == 'true' && secrets.AZURE_CERT_PROFILE || '' }}
         run: |
           if ($env:REAL -ne 'true') {
             Write-Output 'Dry run: signing with a throwaway self-signed certificate (never trusted elsewhere, never drafted)'
             ./packaging/windows/sign.ps1 -Throwaway
           }
+          else {
+            # A signed release run never falls back to unsigned files (sign.ps1 would only warn).
+            $haveCert = [bool]$env:WINDOWS_CERTIFICATE -and [bool]$env:WINDOWS_CERTIFICATE_PASSWORD
+            $azureVars = 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_SIGNING_ENDPOINT', 'AZURE_SIGNING_ACCOUNT', 'AZURE_CERT_PROFILE'
+            $haveAzure = -not ($azureVars | Where-Object { -not [Environment]::GetEnvironmentVariable($_) })
+            if (-not $haveCert -and -not $haveAzure) {
+              Write-Output '::error::RELEASE_SIGNING is signed, but the release environment has neither WINDOWS_CERTIFICATE + WINDOWS_CERTIFICATE_PASSWORD nor all six AZURE_* secrets (set them, or set RELEASE_SIGNING: unsigned in release.yml)'
+              exit 1
+            }
+          }
           Remove-Item -Recurse -Force dist/release -ErrorAction SilentlyContinue
           ./packaging/windows/package.ps1 -Arch x64 -FromStage stage -NoTest
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: env.UNSIGNED != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows-x64
           path: dist/release/*
@@ -339,58 +402,83 @@ jobs:
   # macOS (M15.13): package.sh --from-stage assembles Dalica.app from the build job's universal
   # programs, signs it inside-out with the hardened runtime and a secure timestamp, builds and signs
   # the DMG and the CLI zip, notarizes the app, the DMG and the zip (notarize.sh) and staples the
-  # app and the DMG, then verify.sh checks the set as users download it. A release run imports the
-  # Developer ID certificate (APPLE_CERTIFICATE) into a temporary keychain and notarizes with the
-  # three Apple secrets (all or none); without the certificate it warns and signs ad hoc, without
-  # the three it warns and does not notarize. A dry run never reads those secrets: it signs with a
-  # throwaway self-signed identity made in a temporary keychain (import-cert.sh --throwaway), and
-  # notarization, stapling and Gatekeeper's checks are skipped and named. The keychain is deleted
-  # at the job's end whatever happened.
+  # app and the DMG, then verify.sh checks the set as users download it. A signed release run
+  # imports the Developer ID certificate (APPLE_CERTIFICATE) into a temporary keychain and notarizes
+  # with the three Apple secrets, and fails when the certificate or any of the three is missing. A
+  # dry run never reads those secrets: it signs with a throwaway self-signed identity made in a
+  # temporary keychain (import-cert.sh --throwaway), and notarization, stapling and Gatekeeper's
+  # checks are skipped and named. The keychain is deleted at the job's end whatever happened.
   sign-macos:
     name: sign macOS universal
     needs: [version, macos]
     runs-on: macos-latest
     timeout-minutes: 90
-    # A release run only; an empty name runs the dry run without an environment.
-    environment: ${{ needs.version.outputs.real == 'true' && 'release' || '' }}
+    # A signed release run only; an empty name runs without an environment.
+    environment: ${{ needs.version.outputs.secrets == 'true' && 'release' || '' }}
     env:
       DALICA_VERSION: ${{ needs.version.outputs.version }}
       DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
       REAL: ${{ needs.version.outputs.real }}
+      UNSIGNED: ${{ needs.version.outputs.real == 'true' && needs.version.outputs.signing == 'unsigned' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Signing mode
+        run: |
+          if [ "$UNSIGNED" = true ]; then
+            echo "::notice::RELEASE_SIGNING is unsigned: the macOS set stays as the build job made it, signed ad hoc and not notarized"
+            echo "#### macOS: signed ad hoc, not notarized, by RELEASE_SIGNING (the build job's DMG and CLI zip)" >>"$GITHUB_STEP_SUMMARY"
+          elif [ "$REAL" = true ]; then
+            echo "Signed release run: Developer ID signatures and notarization required"
+          else
+            echo "Dry run: signing with a throwaway identity"
+          fi
+      - if: env.UNSIGNED != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: env.UNSIGNED != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: stage-macos-universal
           path: stage
       - name: Signing identity
-        # The secrets reach the script only through these variables, and only in a release run.
+        if: env.UNSIGNED != 'true'
+        # The secrets reach the script only through these variables, and only in a signed release
+        # run.
         env:
-          APPLE_CERTIFICATE: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          KEYCHAIN_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.KEYCHAIN_PASSWORD || '' }}
+          APPLE_CERTIFICATE: ${{ needs.version.outputs.secrets == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ needs.version.outputs.secrets == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          KEYCHAIN_PASSWORD: ${{ needs.version.outputs.secrets == 'true' && secrets.KEYCHAIN_PASSWORD || '' }}
         run: |
           if [ "$REAL" = true ]; then
+            # A signed release run never falls back to ad hoc signatures (import-cert.sh would only warn).
+            if [ -z "$APPLE_CERTIFICATE" ]; then
+              echo "::error::RELEASE_SIGNING is signed, but the release environment has no APPLE_CERTIFICATE (set it, or set RELEASE_SIGNING: unsigned in release.yml)"
+              exit 1
+            fi
             packaging/macos/import-cert.sh
           else
             echo "Dry run: signing with a throwaway self-signed identity (never trusted elsewhere, never notarized or drafted)"
             packaging/macos/import-cert.sh --throwaway
           fi
       - name: Sign, notarize and package
+        if: env.UNSIGNED != 'true'
         env:
-          APPLE_ID: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_ID: ${{ needs.version.outputs.secrets == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ needs.version.outputs.secrets == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ needs.version.outputs.secrets == 'true' && secrets.APPLE_TEAM_ID || '' }}
         run: |
+          if [ "$REAL" = true ] && { [ -z "${MACOS_SIGN_IDENTITY:-}" ] || [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; }; then
+            echo "::error::RELEASE_SIGNING is signed, but a Developer ID identity or one of APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID is missing: a signed release is notarized too (set them, or set RELEASE_SIGNING: unsigned in release.yml)"
+            exit 1
+          fi
           rm -rf dist/release
           packaging/macos/package.sh --from-stage stage
       - name: Delete the temporary keychain
-        if: always()
+        if: always() && env.UNSIGNED != 'true'
         timeout-minutes: 5
         run: packaging/macos/import-cert.sh --delete
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: env.UNSIGNED != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos-universal
           path: dist/release/*
@@ -454,8 +542,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # SHA256SUMS.txt over the complete artifact set, written after signing: the signed set on the
-  # release branch; in a dry run the Windows and macOS sets signed with the throwaway identities and
+  # SHA256SUMS.txt over the complete artifact set, written after signing: on the release branch the
+  # signed set, or with RELEASE_SIGNING: unsigned the build jobs' sets; in a dry run the Windows and macOS sets signed with the throwaway identities and
   # the Linux build outputs as built; with the SBOMs of the `sbom` job in every run.
   checksums:
     name: checksums
@@ -534,6 +622,7 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
       PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      SIGNING: ${{ needs.version.outputs.signing }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -557,6 +646,13 @@ jobs:
         run: |
           tag="v$VERSION"
           title="Dalica v$VERSION"
+          # An unsigned set says so first thing in the notes, with how to open it
+          # (packaging/release-notes-unsigned.md; its first line is the marker an update looks for).
+          notes=""
+          if [ "$SIGNING" = unsigned ]; then
+            notes="$(cat ../packaging/release-notes-unsigned.md)"
+            marker="$(head -n 1 ../packaging/release-notes-unsigned.md)"
+          fi
           if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [ "$draft" != true ]; then
               echo "::error::$title is already published. Bump the version (cargo xtask version set) before pushing to release."
@@ -568,14 +664,23 @@ jobs:
             done
             gh release edit "$tag" --draft --title "$title" --target "$GITHUB_SHA" --prerelease="$PRERELEASE"
             gh release upload "$tag" --clobber -- *
+            if [ -n "$notes" ]; then
+              body="$(gh release view "$tag" --json body --jq .body)"
+              if ! printf '%s\n' "$body" | grep -qF -- "$marker"; then
+                echo "Adding the unsigned-builds note to the draft's notes"
+                gh release edit "$tag" --notes "$(printf '%s\n\n%s' "$notes" "$body")"
+              fi
+            fi
           else
             echo "Creating the draft $tag"
-            pre=()
-            if [ "$PRERELEASE" = true ]; then pre=(--prerelease); fi
-            gh release create "$tag" --draft --title "$title" --target "$GITHUB_SHA" --generate-notes "${pre[@]}" -- *
+            extra=()
+            if [ "$PRERELEASE" = true ]; then extra+=(--prerelease); fi
+            # gh puts --notes before the generated notes.
+            if [ -n "$notes" ]; then extra+=(--notes "$notes"); fi
+            gh release create "$tag" --draft --title "$title" --target "$GITHUB_SHA" --generate-notes "${extra[@]}" -- *
           fi
           {
-            echo "Draft release **$title** at \`${GITHUB_SHA::9}\` (each platform's signature state is in its signing job's summary):"
+            echo "Draft release **$title** at \`${GITHUB_SHA::9}\`, RELEASE_SIGNING: $SIGNING (each platform's signature state is in its signing job's summary):"
             echo
             sed 's/^/    /' SHA256SUMS.txt
           } >>"$GITHUB_STEP_SUMMARY"
