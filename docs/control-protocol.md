@@ -582,7 +582,8 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   photos holding a face of every one of them) stays allowed: ids are not names and `people.list`
   gives them. The switch belongs to one call: a `search.set` the window makes itself (typing in
   the search field, the People pane) always matches names. `library.inspect`'s `search` lists
-  the People pane's filter as `people`.
+  the People pane's filter as `people`. With `withholdNames` the folders a person's export made (§6.13) take no part
+  in the match either: no word finds a photo through such a folder's name (M15.42).
 - A person's section is `person:<PersonId>` (§5.4): `library.inspect`'s `photos` and `section`,
   `library.query`, `slideshow.list`, `export.*`, `places.list` and `section.refreshThumbs` take
   it (the photos holding the person's faces, by date like a folder); a person section listed here
@@ -1083,14 +1084,24 @@ or map tiles, only after the user allowed it, M13), `collage`, `analysis`. `jobs
 (each was written atomically), nothing is left half-written. Cancelling a job is never an undo of
 the photos it completed.
 
-An export of a person's section from the Export dialog makes its folder under the name suggested
-from theirs: without `--automation-allow-people` that job's entry, in `jobs.list`, `jobs.wait` and
-`ui.inspect`'s `jobs`, has `result.folder`, `result.name` and `result.written` `null`, its counts
-kept, and the toast its end shows has `action.folder` `null` in `ui.inspect`'s `toasts` (M14.25; `automation::withhold_export_folder`, as the draft's `export.folderName` is withheld,
-§6.4). The job is known by its id: every export job that appears while the Export draft names a
-person's section (as a control request, and each of its steps, begins) is one; a folder's name is
-never matched against people's names. An `export.run` the client sends over `engine.execute` names
-its folder itself; its job is withheld only when it starts while such a draft is open.
+An export of a person's section (`export.run` with `section: "person:<id>"`: the Export dialog's,
+whether a click or a control request confirmed it, or a client's own) makes its folder under the
+name suggested from theirs. The session marks the job, and when it ends the folder it made
+(M14.25, M15.42; `automation::PersonExports`); without `--automation-allow-people`:
+
+- that job's entry, in `jobs.list`, `jobs.wait` and `ui.inspect`'s `jobs`, has `result.folder`,
+  `result.name` and `result.written` `null`, its counts kept (`automation::withhold_export_folder`,
+  as the draft's `export.folderName` is withheld, §6.4);
+- every path into that folder is `null` wherever a job or a toast gives it: any job's entry (the
+  scan that brings the folder into the library: `result.roots`, `result.walked`) and the toast's
+  `action.folder` in `ui.inspect`'s `toasts` (`automation::withhold_export_paths`);
+- `ui.widgets` and `ui.inspect` give the folder's tree row (`tree:folder:<id>`, its count kept) and
+  its section's header, icon and title (`section:folder:<id>`, `/icon`, `/title`) the placeholder
+  `Person`;
+- searches with `withholdNames` (§6.4) find no photo through the folder's name.
+
+The job and the folder are known by the job and the path the export made, never by matching a
+folder's name against people's names. The marks last for the session.
 
 ## 7. Widget ids
 

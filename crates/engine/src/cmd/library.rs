@@ -108,7 +108,7 @@ fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         filters: q.filters.unwrap_or_default().over(Filters::default()),
         age: q.age.filter(|d| *d > 0).map(|days| Age { days, now: s.clock().now() }),
     };
-    let who = People { people: check_people(s, q.people)?, withhold_names: q.withhold_names };
+    let who = People { people: check_people(s, q.people)?, withhold_names: q.withhold_names, ..People::default() };
     let asks = search.is_active() || who.is_active();
     let section = match &q.section {
         Some(text) => Some(section_ids(s, text)?),

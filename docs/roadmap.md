@@ -10590,7 +10590,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: `crates/engine/tests/crop_commands.rs`: `crop.ratios.list` answers the same names,
     ratios and order as before for both photo-size settings, and a test fails if the Crop tool's
     list and the collage's page formats differ; every existing crop test passes unchanged.
-- ⬜ **M15.42 `ui` + `engine`: M14.25's follow-ups: a person's name over automation, two flaky tests**
+- ✅ **M15.42 `ui` + `engine`: M14.25's follow-ups: a person's name over automation, two flaky tests**
   - after: M15.5
   - files: `crates/ui/src/control/view.rs`, `crates/ui/src/control/tests.rs`, `crates/ui/src/notices.rs`, `crates/engine/src/automation.rs`, `crates/ui/tests/adjust_date.rs`, `crates/ui/tests/status_tags.rs`, `docs/control-protocol.md`
   - scope: what M14.25 found outside its files: without the people permission, automation can

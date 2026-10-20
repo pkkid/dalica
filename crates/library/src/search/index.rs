@@ -548,7 +548,6 @@ impl SearchIndex {
     fn matched(&self, parsed: &Parsed, query: &Query, who: &People, scope: &Scope) -> Bits {
         // The people filter and the words that must match narrow the photos first; the filters
         // and the scope then look only at what is left, and the negated words take theirs out.
-        let names = !who.withhold_names;
         let mut candidates: Option<Bits> = None;
         for p in &who.people {
             let mut hits = Bits::new(self.docs.len());
@@ -569,7 +568,7 @@ impl SearchIndex {
             }
         }
         for atom in parsed.atoms.iter().filter(|a| !a.negated) {
-            let hits = self.atom_bits(atom, names);
+            let hits = self.atom_bits(atom, who);
             let next = match candidates {
                 None => hits,
                 Some(mut c) => {
@@ -607,16 +606,17 @@ impl SearchIndex {
             if bits.is_empty() {
                 break;
             }
-            bits.and_not(&self.atom_bits(atom, names));
+            bits.and_not(&self.atom_bits(atom, who));
         }
         bits
     }
 
-    /// The slots one word matches (every token must); people's names only with `names`.
-    fn atom_bits(&self, atom: &Atom, names: bool) -> Bits {
+    /// The slots one word matches (every token must); people's names only without
+    /// `who.withhold_names`.
+    fn atom_bits(&self, atom: &Atom, who: &People) -> Bits {
         let mut acc: Option<Bits> = None;
         for token in &atom.tokens {
-            let hits = self.token_bits(atom.field, token, names);
+            let hits = self.token_bits(atom.field, token, who);
             let next = match acc {
                 None => hits,
                 Some(mut a) => {
@@ -634,8 +634,10 @@ impl SearchIndex {
     }
 
     /// The slots with a term in `field` that `token` starts; people's names and nicknames only
-    /// with `names` (without, `person:` matches nothing).
-    fn token_bits(&self, field: Field, token: &str, names: bool) -> Bits {
+    /// without `who.withhold_names` (with it, `person:` matches nothing, and the folders named after
+    /// a person match by no term of theirs: [`People::named_folders`]).
+    fn token_bits(&self, field: Field, token: &str, who: &People) -> Bits {
+        let names = !who.withhold_names;
         let mut bits = Bits::new(self.docs.len());
         let maps: &[&TermMap<u32>] = match field {
             Field::Any => &[&self.own, &self.tags, &self.camera],
@@ -661,7 +663,7 @@ impl SearchIndex {
         }
         if field == Field::Any {
             let folders: HashSet<FolderId> = with_prefix(&self.folder_terms, token).flatten().copied().collect();
-            for f in folders {
+            for f in folders.into_iter().filter(|f| who.folder_terms(*f)) {
                 for slot in self.folders.get(&f).map(|e| &e.photos).into_iter().flatten() {
                     bits.set(*slot);
                 }

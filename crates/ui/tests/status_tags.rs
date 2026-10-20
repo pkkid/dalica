@@ -10,9 +10,11 @@
 use std::sync::Arc;
 
 use crate::common::{FRAMES, LARGE, SMALL, check_pixels, new_driver, out_dir};
+use dalica_core::PhotoId;
 use dalica_engine::Session;
+use dalica_library::Photo;
 use dalica_scenes::fingerprint;
-use dalica_ui::status_text::{ELLIPSIS, SEP};
+use dalica_ui::status_text::{ELLIPSIS, SEP, several};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
 
@@ -56,6 +58,15 @@ fn status(t: &T) -> String {
     t.d.state().status_line.clone()
 }
 
+/// The status line of photos `ids` without the tags field, from the library as the last frame drew
+/// it: their size on disk grows as the tag writes land in their files (in the background, so a
+/// line kept from before them goes stale).
+fn untagged(t: &T, ids: &[u64]) -> String {
+    let lib = t.d.app().session().unwrap().library();
+    let photos: Vec<&Photo> = ids.iter().map(|id| lib.photo(PhotoId::new(*id)).unwrap()).collect();
+    several(lib, &photos, &[]).text()
+}
+
 fn select(t: &mut T, ids: &[u64]) {
     run(t, "select.set", json!({ "ids": ids }));
 }
@@ -67,18 +78,23 @@ fn the_status_line_lists_the_tags_of_a_tagged_selection() {
     select(&mut t, &ids[0..8]);
     let base = status(&t);
     assert!(base.starts_with("8 pictures") && !base.contains("Tags:"), "no tags, no field: {base}");
+    assert_eq!(base, untagged(&t, &ids[0..8]));
 
     run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "lisbon" }));
     run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..3], "tags": "tram" }));
     run(&mut t, "photo.tags.add", json!({ "ids": &ids[7..10], "tags": "harbour" }));
-    assert_eq!(status(&t), format!("{base}{SEP}Tags: lisbon (8), tram (3), harbour (1)"), "most used first; only the selection counts");
+    assert_eq!(
+        status(&t),
+        format!("{}{SEP}Tags: lisbon (8), tram (3), harbour (1)", untagged(&t, &ids[0..8])),
+        "most used first; only the selection counts"
+    );
     // Ties in alphabetical order, ignoring case.
     run(&mut t, "photo.tags.add", json!({ "ids": &ids[4..7], "tags": "Alfama" }));
-    assert_eq!(status(&t), format!("{base}{SEP}Tags: lisbon (8), Alfama (3), tram (3), harbour (1)"));
+    assert_eq!(status(&t), format!("{}{SEP}Tags: lisbon (8), Alfama (3), tram (3), harbour (1)", untagged(&t, &ids[0..8])));
     // Undo takes the field back with the tags.
     t.d.key("Ctrl+Z").unwrap();
     t.d.settle(FRAMES).unwrap();
-    assert_eq!(status(&t), format!("{base}{SEP}Tags: lisbon (8), tram (3), harbour (1)"));
+    assert_eq!(status(&t), format!("{}{SEP}Tags: lisbon (8), tram (3), harbour (1)", untagged(&t, &ids[0..8])));
 
     // One photo: its own fields, no tags field.
     select(&mut t, &ids[0..1]);
@@ -99,7 +115,7 @@ fn the_status_line_lists_the_tags_of_a_tagged_selection() {
     // Untagged photos only: no field.
     run(&mut t, "photo.tags.remove", json!({ "ids": &ids, "tags": "lisbon, tram, harbour" }));
     select(&mut t, &ids[0..8]);
-    assert_eq!(status(&t), base);
+    assert_eq!(status(&t), untagged(&t, &ids[0..8]));
 }
 
 /// A tag list too long for the window is cut at its end with "…"; the line fits in the large

@@ -421,12 +421,19 @@ impl Policy {
 /// automation surface asks this before it runs a command.
 pub fn never_automated(id: &str) -> Result<(), Refused> {
     if NEVER_AUTOMATED.contains(&id) {
-        return Err(Refused::new(
-            Refusal::ExternalDenied,
-            format!("`{id}` never runs over automation: it deletes files from a card, and only the person at the computer may answer its question"),
-        ));
+        return Err(Refused::new(Refusal::ExternalDenied, format!("`{id}` never runs over automation: {}", never_automated_reason(id))));
     }
     Ok(())
+}
+
+/// Why command `id` of [`NEVER_AUTOMATED`] is refused, in the words of its refusal.
+fn never_automated_reason(id: &str) -> &'static str {
+    match id {
+        "import.removeFromSource" => "it deletes files from a card, and only the person at the computer may answer its question",
+        "photo.openWith" | "photo.openExternal" => "it starts another program, which only the person at the computer may do",
+        "photo.locate" | "folder.locate" => "it opens the system's file manager, which only the person at the computer may do",
+        _ => "only the person at the computer may run it",
+    }
 }
 
 /// The option of [`EXTERNAL_OPTIONS`] that command `id` with `params` would change, if it is
@@ -514,6 +521,127 @@ pub fn withhold_export_folder(mut entry: Value) -> Value {
         }
     }
     entry
+}
+
+/// The most person's-export jobs and folders a session remembers ([`PersonExports`]); the
+/// oldest are forgotten first.
+pub const MAX_PERSON_EXPORTS: usize = 256;
+
+/// What the session knows of the exports named after a person (`control-protocol.md` §6.4, §6.13):
+/// the export jobs `export.run` started from a person's section (`section: "person:<id>"`, the
+/// Export dialog's and automation's alike), and the folders those jobs made. Known by the job and
+/// the folder it made, never by comparing a name with people's names. Kept for the session.
+#[derive(Clone, Debug, Default)]
+pub struct PersonExports {
+    jobs: Vec<crate::JobId>,
+    folders: Vec<PathBuf>,
+}
+
+impl PersonExports {
+    /// Notes that job `job` exports a person's section.
+    pub(crate) fn mark_job(&mut self, job: crate::JobId) {
+        push_bounded(&mut self.jobs, job);
+    }
+
+    /// Notes that the person's export `job` made folder `folder` (nothing for another job).
+    pub(crate) fn mark_folder(&mut self, job: crate::JobId, folder: &Path) {
+        if self.is_job(job) {
+            push_bounded(&mut self.folders, folder.to_path_buf());
+        }
+    }
+
+    /// Whether job `job` exports a person's section.
+    pub fn is_job(&self, job: crate::JobId) -> bool {
+        self.jobs.contains(&job)
+    }
+
+    /// The folders the person's exports made.
+    pub fn folders(&self) -> &[PathBuf] {
+        &self.folders
+    }
+
+    /// Whether `path` is one of [`PersonExports::folders`] or lies inside one (compared by whole
+    /// components).
+    pub fn holds(&self, path: &Path) -> bool {
+        self.folders.iter().any(|f| path.starts_with(f))
+    }
+}
+
+fn push_bounded<T: PartialEq>(list: &mut Vec<T>, value: T) {
+    if list.contains(&value) {
+        return;
+    }
+    if list.len() >= MAX_PERSON_EXPORTS {
+        list.remove(0);
+    }
+    list.push(value);
+}
+
+/// `value` with every string that is the path of a person's export folder, or of a file inside one
+/// ([`PersonExports::holds`]), `null`, at any depth (bounded as [`withhold_people`]): a job's
+/// entry (the export's `folder` and `written`, a scan's `roots` and `walked`) or a toast. Paths are
+/// compared with the folders the exports made, never with people's names.
+pub fn withhold_export_paths(mut value: Value, exports: &PersonExports) -> Value {
+    if exports.folders.is_empty() {
+        return value;
+    }
+    let mut stack: Vec<(&mut Value, usize)> = vec![(&mut value, 0)];
+    while let Some((v, depth)) = stack.pop() {
+        let withheld = match &*v {
+            Value::String(s) => Path::new(s.as_str()).is_absolute() && exports.holds(Path::new(s.as_str())),
+            Value::Object(_) | Value::Array(_) => depth >= MAX_REPLY_DEPTH,
+            _ => false,
+        };
+        if withheld {
+            *v = Value::Null;
+            continue;
+        }
+        match v {
+            Value::Object(map) => stack.extend(map.values_mut().map(|v| (v, depth + 1))),
+            Value::Array(list) => stack.extend(list.iter_mut().map(|v| (v, depth + 1))),
+            _ => {}
+        }
+    }
+    value
+}
+
+impl crate::Session {
+    /// The exports named after a person in this session ([`PersonExports`]).
+    pub fn person_exports(&self) -> &PersonExports {
+        &self.person_exports
+    }
+
+    /// The library's folders that a person's export made ([`PersonExports::holds`]).
+    pub fn person_export_folders(&self) -> Vec<dalica_core::FolderId> {
+        if self.person_exports.folders.is_empty() {
+            return Vec::new();
+        }
+        self.library.folders().filter(|f| self.person_exports.holds(&f.path)).map(|f| f.id).collect()
+    }
+
+    /// Job `e` as an automation surface may give it (`control-protocol.md` §6.4, §6.13): without
+    /// the people permission (`allow_people` false) a person's export has its folder, name and
+    /// written files `null` ([`withhold_export_folder`]), and any job's paths into a folder such an
+    /// export made too ([`withhold_export_paths`]: the scan that brings it into the library).
+    pub fn job_for_automation(&self, e: &crate::JobEntry, allow_people: bool) -> Value {
+        let v = serde_json::to_value(e).unwrap_or(Value::Null);
+        if allow_people {
+            return v;
+        }
+        let v = if self.person_exports.is_job(e.job) { withhold_export_folder(v) } else { v };
+        withhold_export_paths(v, &self.person_exports)
+    }
+
+    /// `who` with the folders named after a person ([`People::named_folders`]) when it withholds
+    /// names: a search then finds no photo through such a folder's name.
+    ///
+    /// [`People::named_folders`]: dalica_library::search::People::named_folders
+    pub(crate) fn people_for_search(&self, mut who: dalica_library::search::People) -> dalica_library::search::People {
+        if who.withhold_names {
+            who.named_folders = self.person_export_folders();
+        }
+        who
+    }
 }
 
 /// Adds `dir` to `roots` when it is absolute and not there yet, up to [`MAX_ROOTS`].
@@ -681,6 +809,23 @@ fn resolve_existing(path: &Path) -> Result<PathBuf, Refused> {
             }
             _ => return Err(Refused::new(Refusal::NotFound, format!("no part of {} exists", path.display()))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each command refused whatever was granted says why in its own words.
+    #[test]
+    fn a_never_automated_command_is_refused_for_its_own_reason() {
+        let refused = never_automated("import.removeFromSource").unwrap_err();
+        assert_eq!(refused.code(), "external_denied");
+        assert!(refused.message.contains("deletes files from a card"), "{}", refused.message);
+        assert!(never_automated_reason("photo.openWith").contains("starts another program"));
+        assert!(never_automated_reason("folder.locate").contains("file manager"));
+        assert!(!never_automated_reason("anything.else").contains("card"));
+        assert!(never_automated("photo.star.set").is_ok());
     }
 }
 

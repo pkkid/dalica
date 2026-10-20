@@ -1424,6 +1424,49 @@ fn a_persons_export_job_keeps_her_folder_name_from_automation_without_the_people
     }
 }
 
+/// An export of Ana's section into the watched folder, started over automation or by a click no
+/// control request saw (§6.4, §6.13): the folder it makes ("Ana") joins the library. Without
+/// `--automation-allow-people` no job (the export's nor the scan's), no part of `ui.inspect`, no
+/// folder widget of `ui.widgets` names it, and `library.query` finds no photo through its name;
+/// with it, all of them do. Known by the job and the folder the session marked, not by the text.
+#[test]
+fn a_persons_export_folder_in_the_library_keeps_her_name_from_automation_without_the_people_permission() {
+    for (allow, click) in [(false, false), (false, true), (true, false), (true, true)] {
+        let at = format!("allow_people {allow}, by a click {click}");
+        let mut t = setup_with(2, |_| Config { allow_people: allow, ..Config::default() });
+        let s = t.d.app_mut().session_mut().unwrap();
+        let face = s.execute("faces.add", &json!({ "id": t.ids[0], "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap()["face"].clone();
+        let ana = s.execute("faces.name", &json!({ "faces": [face], "name": "Ana", "create": true })).unwrap()["person"].clone();
+        t.d.settle(600).unwrap();
+        let section = format!("person:{}", ana.as_str().unwrap());
+        let location = t.folder.to_string_lossy().into_owned();
+        if click {
+            // The person's own clicks: no control request runs while the dialog is open.
+            t.d.app_mut().run("output.export", &json!({ "section": section })).unwrap();
+            t.d.app_mut().state_mut().export.as_mut().unwrap().location = location;
+            t.d.settle(60).unwrap();
+            t.d.click("button:dialog.export").unwrap();
+        } else {
+            ok(&mut t, "engine.execute", json!({ "command": "output.export", "params": { "section": section } }));
+            ok(&mut t, "ui.set", json!({ "export": { "location": location } }));
+            ok(&mut t, "ui.dialog.confirm", json!({}));
+        }
+        t.d.settle(600).unwrap();
+        let made = t.folder.join("Ana");
+        assert!(t.d.app().session().unwrap().library().folder_by_path(&made).is_some(), "{at}: the folder joined the library");
+
+        let jobs = ok(&mut t, "jobs.list", json!({})).to_string();
+        let inspected = ok(&mut t, "ui.inspect", json!({})).to_string();
+        let widgets = ok(&mut t, "ui.widgets", json!({ "filter": "folder:" })).to_string();
+        for (what, text) in [("jobs.list", &jobs), ("ui.inspect", &inspected), ("ui.widgets", &widgets)] {
+            assert_eq!(text.contains("Ana"), allow, "{at}: {what}: {text}");
+        }
+        let query = ok(&mut t, "engine.execute", json!({ "command": "library.query", "params": { "text": "Ana" } }));
+        let total = query["total"].as_u64().unwrap();
+        assert!(if allow { total >= 2 } else { total == 0 }, "{at}: her photo and her export's: {query}");
+    }
+}
+
 /// `ui.clickWidget` on a widget an open dialog covers is `disabled`, naming the dialog by its id,
 /// and runs no frame (§6.8): the dialog's backdrop would take the click and nothing happen. The
 /// dialog's own buttons are clicked as before, and once it is closed the widget is too.

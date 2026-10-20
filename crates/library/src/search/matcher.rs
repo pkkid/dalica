@@ -83,11 +83,16 @@ pub const MAX_PEOPLE: usize = 1024;
 ///   the people permission): `person:` matches nothing and stays `unavailable`, plain words skip
 ///   names and nicknames; everything else matches as before, so a reply never tells a guessed name
 ///   from an unknown one. Ids are not names: `people` still filters.
+/// - `named_folders`: the folders named after a person (the folder an export of a person's section
+///   made, under the name suggested from theirs); with `withhold_names` their names, descriptions
+///   and places take no part in the match either, so a word finds no photo through them. Known by
+///   the folder (the caller's to know), never by comparing a folder's name with people's names.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct People {
     pub people: Vec<PersonId>,
     pub withhold_names: bool,
+    pub named_folders: Vec<FolderId>,
 }
 
 impl People {
@@ -99,6 +104,12 @@ impl People {
     /// Whether a photo holding the faces of `on` passes the people filter.
     pub(crate) fn passes(&self, on: &[PersonId]) -> bool {
         self.people.iter().all(|p| on.contains(p))
+    }
+
+    /// Whether folder `id`'s own terms take part in the match: not for a folder named after a
+    /// person while names are withheld.
+    pub(crate) fn folder_terms(&self, id: FolderId) -> bool {
+        !(self.withhold_names && self.named_folders.contains(&id))
     }
 }
 
@@ -235,13 +246,14 @@ impl Extract {
             .iter()
             .filter(|p| {
                 let folder = folders.get(&p.folder).copied();
+                let terms = folder.filter(|f| who.folder_terms(f.id));
                 let in_albums: Vec<&AlbumDoc> = p.albums.iter().filter_map(|a| albums.get(a).copied()).collect();
                 let with: Vec<&PersonDoc> =
                     if who.withhold_names { Vec::new() } else { p.people.iter().filter_map(|id| people.get(id).copied()).collect() };
                 scope.shows(p, folder.is_some_and(|f| f.hidden))
                     && passes(p, &query.filters, query.age.as_ref(), cutoff)
                     && who.passes(&p.people)
-                    && text_matches(&parsed, p, folder, &in_albums, &with)
+                    && text_matches(&parsed, p, terms, &in_albums, &with)
             })
             .map(|p| p.id)
             .collect();

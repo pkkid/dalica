@@ -271,6 +271,8 @@ pub struct Session {
     pub(crate) tuning_wands: crate::cmd::tuning::Wands,
     /// The jobs that write photo files, and their events (`filejobs.rs`).
     pub(crate) file_jobs: crate::filejobs::FileJobs,
+    /// The exports named after a person, by job and folder (`automation.rs`).
+    pub(crate) person_exports: crate::automation::PersonExports,
     /// The user's Pictures folder as known when the library opened: the default export location
     /// lies under it (`settings.rs`).
     pub(crate) pictures_dir: Option<PathBuf>,
@@ -430,6 +432,7 @@ impl Session {
             crop_suggestions: crate::cmd::crop::Suggestions::default(),
             tuning_wands: crate::cmd::tuning::Wands::default(),
             file_jobs: crate::filejobs::FileJobs::default(),
+            person_exports: crate::automation::PersonExports::default(),
             pictures_dir,
             fileops: crate::fileops::FileOps::default(),
             search: crate::search::SearchState::default(),
@@ -771,11 +774,13 @@ impl Session {
             return Ok(op);
         }
         let op = crate::cmd::dates::without_file_dates(&self.library, op);
+        let dates = crate::cmd::dates::effective_dates(&self.library, &op);
         // An undo or redo puts the times back that its op holds; it is no change of its own.
         let stamping = std::mem::replace(&mut self.stamping, false);
         let result = self.apply(op);
         self.stamping = stamping;
-        result
+        // The step back holds the dates written out (`cmd/dates.rs`).
+        result.map(|inverse| if dates.is_empty() { inverse } else { crate::cmd::dates::written_out(inverse, &dates) })
     }
 
     /// Undoes the last library step. `Ok(None)` when there is nothing to undo. A file step starts

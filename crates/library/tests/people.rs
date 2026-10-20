@@ -293,8 +293,22 @@ fn the_people_filter_is_exact_and_withheld_names_match_nothing() {
     assert_eq!(search_with(&lib, &Query::text("nita"), &withheld).0, Vec::<PhotoId>::new(), "and nicknames");
     assert_eq!(search_with(&lib, &Query::text("-person:rui"), &withheld).0, [A, B, C, D], "a negated name takes nothing out");
     assert_eq!(search_with(&lib, &Query::text("b.jpg"), &withheld), (vec![B], vec![]), "everything else as before");
-    assert_eq!(search_with(&lib, &all, &People { people: vec![ana()], withhold_names: true }).0, [A, B], "ids are not names");
+    assert_eq!(search_with(&lib, &all, &People { people: vec![ana()], withhold_names: true, ..People::default() }).0, [A, B], "ids are not names");
     assert_eq!(search_with(&lib, &Query::text("person:ana"), &People::default()).1, Vec::<&str>::new());
+}
+
+/// A folder named after a person (a person's export, `People::named_folders`): with names
+/// withheld no word finds a photo through the folder's name; its photos' own terms still match,
+/// and with names, or a folder not so named, everything matches as before.
+#[test]
+fn a_folder_named_after_a_person_matches_by_no_name_of_its_own_while_names_are_withheld() {
+    let lib = fixture();
+    let named = |withhold_names| People { withhold_names, named_folders: vec![LISBON], ..People::default() };
+    assert_eq!(search_with(&lib, &Query::text("lisbon"), &named(true)).0, Vec::<PhotoId>::new());
+    assert_eq!(search_with(&lib, &Query::text("-lisbon"), &named(true)).0, [A, B, C, D], "a negated name takes nothing out");
+    assert_eq!(search_with(&lib, &Query::text("a.jpg"), &named(true)).0, [A], "the photo's own terms");
+    assert_eq!(search_with(&lib, &Query::text("porto"), &named(true)).0, [D], "other folders as before");
+    assert_eq!(search_with(&lib, &Query::text("lisbon"), &named(false)).0, [A, B, C], "with names");
 }
 
 /// An index kept up to date op by op (and inverse by inverse) equals one built from scratch.
