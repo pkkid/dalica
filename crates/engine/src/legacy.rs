@@ -437,6 +437,40 @@ pub(crate) fn transition(lib: &Library, folder: &FoundFolder, reread: bool, defs
     Some(Op::Batch { ops: read_folder_again(lib, id, folder, defs, fact) })
 }
 
+/// The diff's `ops` for the folder a `transition` reads again, with the stars it sets: the diff was
+/// made against the model before the transition, and a photo it updates (its file changed on
+/// disk) carries the star the model had then, which would undo the transition's (M15.50: the
+/// legacy star brought back with the option off, and written into a folder with no sidecar in
+/// effect).
+pub(crate) fn after_transition(transition: &Op, ops: &mut [Op]) {
+    let mut stars: BTreeMap<PhotoId, bool> = BTreeMap::new();
+    let mut stack = vec![transition];
+    while let Some(op) = stack.pop() {
+        match op {
+            Op::Batch { ops } => stack.extend(ops),
+            Op::SetStars { stars: list } => stars.extend(list.iter().copied()),
+            _ => {}
+        }
+    }
+    if stars.is_empty() {
+        return;
+    }
+    let mut stack: Vec<&mut Op> = ops.iter_mut().collect();
+    while let Some(op) = stack.pop() {
+        match op {
+            Op::Batch { ops } => stack.extend(ops.iter_mut()),
+            Op::UpdatePhotos { photos } => {
+                for p in photos.iter_mut() {
+                    if let Some(star) = stars.get(&p.id) {
+                        p.star = *star;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The ops that give folder `id`'s known photos and the folder itself what the scan found, after
 /// `fact`; then the albums and people with a legacy id they leave empty go.
 fn read_folder_again(lib: &Library, id: FolderId, folder: &FoundFolder, defs: Defs<'_>, fact: Op) -> Vec<Op> {
@@ -638,8 +672,10 @@ impl Session {
     /// The folders of `touched` (marked for a sidecar write by an op from the files, whose inverse
     /// is `inverse`) that are written. Legacy data enters the model as a scan's imports do, with
     /// nothing written (`data-model.md` §9): a folder whose fact the op changed to or from
-    /// legacy-only is left out, and so is a legacy-only folder, unless a write of the user's is
-    /// queued there already (that write then takes the scan's data too).
+    /// legacy-only is left out, and so is a legacy-only folder, unless a write of the user's (a
+    /// command's) is queued there already (that write then takes the scan's data too). A write
+    /// of the files' queued there (sent while the folder was read without legacy data, the option
+    /// off) lets nothing in (M15.50).
     pub(crate) fn keep_legacy_unwritten(&self, touched: BTreeSet<FolderId>, inverse: &Op) -> BTreeSet<FolderId> {
         let mut steady = BTreeSet::new();
         let mut quiet = BTreeSet::new();
@@ -658,7 +694,7 @@ impl Session {
         if quiet.is_empty() && steady.is_empty() {
             return touched;
         }
-        let queued = if steady.is_empty() { BTreeSet::new() } else { self.queued_sidecars() };
+        let queued = if steady.is_empty() { BTreeSet::new() } else { self.queued_user_sidecars() };
         touched.into_iter().filter(|f| !quiet.contains(f) && (!steady.contains(f) || queued.contains(f))).collect()
     }
 }

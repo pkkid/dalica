@@ -295,6 +295,8 @@ pub fn legacy(exe: &Path, home: &Path) {
     // The option off: the unconverted Lake loses its star, Lisbon keeps everything; on: back.
     run(c, "options.set", json!({ "values": { OPTION: false } }));
     until(c, "Lake read without legacy data", |c| !star(c, &pictures, "Lake/a.jpg") && !star(c, &pictures, "Odd/b.jpg"));
+    let unwritten = |fx: &Fixture| ["Lake", "Odd"].iter().all(|f| !fx.dir(f).join(".dalica.json").exists());
+    assert!(unwritten(&fx), "nothing written with the option off");
     let p1 = photo(c, &pictures, "Lisbon/IMG_0001.jpg");
     assert_eq!(
         (&p1["star"], &p1["caption"], edits(&p1)),
@@ -303,7 +305,10 @@ pub fn legacy(exe: &Path, home: &Path) {
     );
     run(c, "options.set", json!({ "values": { OPTION: true } }));
     until(c, "Lake's star back", |c| star(c, &pictures, "Lake/a.jpg") && star(c, &pictures, "Odd/b.jpg"));
-    assert!(!fx.dir("Lake").join(".dalica.json").exists() && !fx.dir("Odd").join(".dalica.json").exists(), "nothing written");
+    // Past the writer's debounce, every write the rescans sent was made, none of them in Lake or
+    // Odd (M15.50: a fact-only op once sent Lake's write, which the on rescan's then joined).
+    app::flush(c);
+    assert!(unwritten(&fx), "nothing written");
     println!("  the option off took Lake's legacy star away, Lisbon kept its data; on brought it back; nothing written");
 
     // Undo Save and Revert from the legacy originals.

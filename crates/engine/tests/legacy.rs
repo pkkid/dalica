@@ -280,3 +280,103 @@ fn a_dalica_file_that_appeared_before_the_first_write_wins_and_is_read() {
     let (album, person) = lib.album_and_person();
     assert_eq!((album.map(|m| m.len()), person.map(|m| m.len())), (Some(1), Some(1)), "Garden still holds them");
 }
+
+/// "Read photo data left by the previous organizer" off and on again while the I/O worker has not
+/// yet written what the session sent (CI run 39333340837, M15.50): no op of the files' writes a
+/// legacy-only folder. The sidecar writes are held, as inside the debounce, so every change the two
+/// rescans send waits, counted as pending, until both are applied; then the clock steps past the
+/// debounce and the I/O worker drains.
+/// `Lake` sorts before `Lisbon`, so `Lisbon`'s fact-only op (derived, no revision of its own)
+/// comes right after `Lake`'s, as in the app.
+#[test]
+fn the_option_off_and_on_with_writes_still_queued_writes_no_legacy_only_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Pictures");
+    let ini = |folder: &str, lines: &[&str]| legacy(&root.join(folder), &lines.iter().map(|l| l.to_string()).collect::<Vec<_>>());
+    for n in 1..=2u64 {
+        put(&root.join("Lisbon").join(format!("IMG_{n:04}.jpg")), &jpeg(n));
+    }
+    ini("Lisbon", &["[IMG_0001.jpg]", "star=yes", "caption=By the river"]);
+    put(&root.join("Lake").join("a.jpg"), &jpeg(11));
+    ini("Lake", &["[a.jpg]", "star=yes"]);
+    let clock = crate::common::virtual_clock();
+    let mut s = crate::common::open_with(&dir.path().join("library"), clock.clone());
+    s.execute("folders.add", &json!({ "path": root })).unwrap();
+    s.wait_idle();
+    s.flush().unwrap();
+    // The first change in Lisbon converts it (its fact turns `both`); Lake stays legacy-only.
+    let (lisbon, lake) = (s.library().folder_by_path(&root.join("Lisbon")).unwrap(), s.library().folder_by_path(&root.join("Lake")).unwrap());
+    let p2 = s.library().photo_by_name(lisbon, "IMG_0002.jpg").unwrap().id;
+    s.execute("photo.star.set", &json!({ "ids": [p2], "on": true })).unwrap();
+    s.flush().unwrap();
+    clock.advance(dalica_store::writer::DEBOUNCE);
+    let lake_file = root.join("Lake").join(".dalica.json");
+    let legacy_file = root.join("Lake").join(&sidecar_names()[0]);
+    let legacy_bytes = crate::common::read(&legacy_file);
+    assert!(!lake_file.exists() && s.pending_writes().is_none());
+    assert_eq!(s.library().folder_sidecar(lake), dalica_library::FolderSidecar::Legacy);
+
+    s.hold_sidecar_writes(true);
+    let set = |s: &mut Session, on: bool| {
+        s.execute("options.set", &json!({ "values": { "files.readLegacyData": on } })).unwrap();
+        s.wait_idle();
+    };
+    set(&mut s, false);
+    let a = s.library().photo_by_name(lake, "a.jpg").unwrap().id;
+    assert!(!s.library().photo(a).unwrap().star, "off: Lake's legacy star is out");
+    set(&mut s, true);
+    assert!(s.library().photo(a).unwrap().star, "on: back");
+    s.hold_sidecar_writes(false);
+    clock.advance(dalica_store::writer::DEBOUNCE);
+    s.flush().unwrap();
+    assert!(!lake_file.exists(), "a rescan wrote the legacy-only folder Lake");
+    assert_eq!(crate::common::read(&legacy_file), legacy_bytes, "the legacy file byte-identical");
+    assert_eq!(s.library().folder_sidecar(lake), dalica_library::FolderSidecar::Legacy, "Lake is still legacy-only");
+    // The user's own change there still writes it, with the legacy data.
+    s.execute("photo.caption.set", &json!({ "ids": [a], "caption": "Still water" })).unwrap();
+    s.flush().unwrap();
+    let written = read_json(&lake_file).expect("the first change wrote .dalica.json");
+    assert_eq!((written["photos"]["a.jpg"]["star"].clone(), written["photos"]["a.jpg"]["caption"].clone()), (json!(true), json!("Still water")));
+}
+
+/// The same, with a scan's op of its own in the legacy-only folder each time (its photo's file
+/// changed on disk before each rescan): the update keeps the star the option gives (the diff was
+/// made before the folder was read again), and the off rescan's write of `Lake` (a folder with no
+/// sidecar in effect then, nothing to say) is still queued when the on rescan's update comes; a
+/// queued write of the files' is not one of the user's: nothing written.
+#[test]
+fn a_queued_write_of_the_files_lets_no_rescan_into_a_legacy_only_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Pictures");
+    put(&root.join("Lake").join("a.jpg"), &jpeg(11));
+    legacy(&root.join("Lake"), &["[a.jpg]".into(), "star=yes".into()]);
+    let clock = crate::common::virtual_clock();
+    let mut s = crate::common::open_with(&dir.path().join("library"), clock.clone());
+    s.set_watching(dalica_engine::watching::WatchMode::Off);
+    s.execute("folders.add", &json!({ "path": root })).unwrap();
+    s.wait_idle();
+    s.flush().unwrap();
+    let lake = s.library().folder_by_path(&root.join("Lake")).unwrap();
+    let a = s.library().photo_by_name(lake, "a.jpg").unwrap().id;
+    let photo = root.join("Lake").join("a.jpg");
+    let size = |s: &Session| s.library().photo(a).unwrap().size;
+    s.hold_sidecar_writes(true);
+    for (on, seed) in [(false, 12), (true, 13)] {
+        let before = size(&s);
+        let bytes = crate::common::jpeg_of(seed, 120 + seed as u32, 80);
+        let path = photo.clone();
+        off_owner(move || {
+            let id = dalica_fs::identity(&path).unwrap().unwrap();
+            dalica_fs::replace(&path, &bytes, Expect::Unchanged(id)).unwrap();
+        });
+        s.execute("options.set", &json!({ "values": { "files.readLegacyData": on } })).unwrap();
+        s.wait_idle();
+        assert_ne!(size(&s), before, "the rescan updated the photo");
+        assert_eq!(s.library().folder_sidecar(lake) == dalica_library::FolderSidecar::Legacy, on);
+        assert_eq!(s.library().photo(a).unwrap().star, on, "the legacy star follows the option, not the update made before it");
+    }
+    s.hold_sidecar_writes(false);
+    clock.advance(dalica_store::writer::DEBOUNCE);
+    s.flush().unwrap();
+    assert!(!root.join("Lake").join(".dalica.json").exists(), "a rescan wrote the legacy-only folder Lake");
+}
