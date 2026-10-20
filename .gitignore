@@ -17,6 +17,11 @@ target/
 # Release packages, written by packaging/ scripts (default $DIST: dist/release)
 /dist/
 
+# The from-source Flatpak manifest's crate sources, generated from Cargo.lock by `cargo xtask
+# flatpak`, and flatpak-builder's state
+/packaging/linux/flatpak/cargo-sources.json
+/.flatpak-builder/
+
 # Editor / OS cruft
 *~
 .DS_Store

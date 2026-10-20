@@ -14,6 +14,7 @@ mod corpus;
 mod corpus_pins;
 mod deps;
 mod docs;
+mod flatpak;
 mod i18n;
 mod layers;
 mod metadata;
@@ -46,6 +47,8 @@ commands:
   budgets   cargo xtask budgets [--plant-ms N]: the release frame budgets the milestones assert (run locally at each review)
   assets    every asset has an ATTRIBUTION.md row; licence files exist; no forbidden names or formats
   docs      every `cargo xtask` command the docs name exists (AGENTS.md, development.md, task-board.md)
+  flatpak   cargo xtask flatpak [--check | --flathub <tag> [--out <dir>]]: the from-source Flatpak manifest's crate sources from
+            Cargo.lock (packaging/linux/flatpak/cargo-sources.json); --flathub: the Flathub submission files for a release tag
   deps      audit dependencies: licences, banned and *-sys crates, C builds, sources (docs/security.md §8)
   i18n      the translatable keys (tl! literals, command labels, options rows), each language's coverage; fails on a catalog fault
             or a key a complete_menus language lacks (localization.md)
@@ -72,6 +75,7 @@ pub const COMMANDS: &[&str] = &[
     "test-corpus",
     "docs",
     "deps",
+    "flatpak",
     "i18n",
     "layers",
     "names",
@@ -122,6 +126,7 @@ fn main() -> ExitCode {
         Some("stats") => stats::run(&root, args.get(1..).unwrap_or(&[])),
         Some("deps") => deps::run(&root),
         Some("docs") => docs::run(&root),
+        Some("flatpak") => flatpak::run(&root, args.get(1..).unwrap_or(&[])),
         Some("names") => names::run(&root),
         Some("test-layout") => test_layout::run(&root),
         Some("i18n") => i18n::run(&root, args.get(1..).unwrap_or(&[])),

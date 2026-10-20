@@ -108,7 +108,8 @@ jobs:
       - name: Flatpak manifests agree
         run: |
           shopt -s globstar nullglob
-          files=(packaging/**/flatpak/*.yml packaging/**/flatpak/*.yaml packaging/**/flatpak/*.json)
+          # Not cargo-sources.json: the crate sources `cargo xtask flatpak` generates (gitignored).
+          files=(packaging/**/flatpak/*.yml packaging/**/flatpak/*.yaml)
           if [ ${#files[@]} = 0 ]; then echo "no Flatpak manifests yet (M6.21)"; exit 0; fi
           python3 - "${files[@]}" <<'EOF'
           import json, sys, yaml
