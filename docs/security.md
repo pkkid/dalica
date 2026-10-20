@@ -1167,17 +1167,20 @@ exceptions (`LICENCE_EXCEPTIONS` in `xtask/src/deps.rs`, each the maintainer's):
     *Owner:* the lead. *Review:* by 2027-01-31, at every milestone review, and when `rsa` 0.10
     (constant-time) reaches `rustls-rustcrypto`.
   - **RUSTSEC-2026-0049, RUSTSEC-2026-0098, RUSTSEC-2026-0099, RUSTSEC-2026-0104,
-    `rustls-webpki` 0.102** (in certificate path validation: CRL distribution points not matched,
-    a reachable panic in CRL parsing, and two name-constraint checks that accepted what they should
-    refuse). Brought in by `rustls-rustcrypto` 0.0.2-alpha (§8.2), which uses its 0.102 copy only
+    RUSTSEC-2026-0382, `rustls-webpki` 0.102** (in certificate path validation: CRL distribution
+    points not matched, a reachable panic in CRL parsing, two name-constraint checks that accepted
+    what they should refuse, and distrusted intermediates accepted; no 0.102 release fixes the
+    last). Brought in by `rustls-rustcrypto` 0.0.2-alpha (§8.2), which uses its 0.102 copy only
     for the `alg_id` constants of its signature algorithms (`src/verify/{rsa,ecdsa,eddsa}.rs`).
     *Rationale:* no code of the 0.102 copy validates a certificate or parses a CRL: chains are
-    validated by rustls's own `rustls-webpki` 0.103 (0.103.15 at M15.40, which has all four
-    fixes, and `cargo xtask advisories` keeps checking it), and Dalica configures no CRLs.
+    validated by rustls's own `rustls-webpki` 0.103 (0.103.16 since 2026-10-20, which has all
+    five fixes, and `cargo xtask advisories` keeps checking it) against `webpki-roots` 1.0.10
+    (RUSTSEC-2026-0381 fixed), and Dalica configures no CRLs.
     *Compensating control:* downloads are pinned to a SHA-256 in the source, so a broken channel
     cannot change a model. *Owner:* the lead. *Review:* by 2027-01-31, at every milestone review,
     and when `rustls-rustcrypto` moves to `rustls-webpki` 0.103. Recorded at M15.40 (2026-10-20)
-    when the check first ran; the maintainer confirms it at M15.R.
+    when the check first ran; the maintainer kept it at M15.R and drops the copy in M16.17.
+    RUSTSEC-2026-0382 joined it on 2026-10-20 (the 1.0 release check) on the same grounds.
 - Sources: crates.io, plus git dependencies on the LightCraft and PhotoCraft repositories pinned to
   a full commit hash (never a branch). Other git sources are refused.
 - Duplicate versions warn; duplicates of parser crates are reviewed.
