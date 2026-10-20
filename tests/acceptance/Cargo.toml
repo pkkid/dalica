@@ -31,6 +31,9 @@ dalica-scenes.workspace = true
 # The legacy sidecar's and originals folder's names and the folder section, for the fixtures (M14).
 dalica-sidecar.workspace = true
 dalica-ui.workspace = true
+# Whether this build carries the fallback faces (`fonts::CRAFT_FONTS`): the Thai window's fingerprint
+# needs them (M15).
+dalica-ui-kit.workspace = true
 egui.workspace = true
 png.workspace = true
 tempfile.workspace = true
@@ -106,3 +109,7 @@ path = "m13.rs"
 [[test]]
 name = "m14"
 path = "m14.rs"
+
+[[test]]
+name = "m15"
+path = "m15.rs"

@@ -846,6 +846,7 @@
 ~	Reset the data of the folder "{name}"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	รีเซ็ตข้อมูลของโฟลเดอร์ "{name}" หรือไม่ Dalica จะเขียนไฟล์ข้อมูลใหม่จากสิ่งที่รู้เกี่ยวกับรูปภาพเหล่านี้ ไฟล์ที่เสียหายจะยังอยู่ข้างรูปภาพโดยไม่ถูกแตะต้อง
 ~	Reset this folder's data? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	รีเซ็ตข้อมูลของโฟลเดอร์นี้หรือไม่ Dalica จะเขียนไฟล์ข้อมูลใหม่จากสิ่งที่รู้เกี่ยวกับรูปภาพเหล่านี้ ไฟล์ที่เสียหายจะยังอยู่ข้างรูปภาพโดยไม่ถูกแตะต้อง
 ~	Resize	ปรับขนาด
+~	Resize the library tree	ปรับขนาดแผนผังคลังภาพ
 ~	Resize the window	ปรับขนาดหน้าต่าง
 ~	Resize to	ปรับขนาดเป็น
 ~	Resolution	ความละเอียด
