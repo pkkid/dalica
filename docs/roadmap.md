@@ -10608,7 +10608,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     automation and one started by a click each leave no person's name in `ui.inspect`,
     `library.query` or the job's reply without the permission, and show it with the permission);
     the two tests pass 200 runs under `taskset -c 0`.
-- ⬜ **M15.44 `ui`: five small look fixes from the M14.R screenshots**
+- ✅ **M15.44 `ui`: five small look fixes from the M14.R screenshots**
   - after: M14.R
   - files: `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/titlebar.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/collage_room.rs`, `crates/ui/tests/options_dialog.rs`
   - scope: the maintainer's answer at M14.R (2026-10-19, Q7), from the review's screenshots: (1)

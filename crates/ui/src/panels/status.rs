@@ -14,6 +14,9 @@
 //! place among its section's photos: "Lisbon › IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000
 //!     3.1 MB     (12 of 48)" ([`status_text::edit_photo`]).
 //!
+//! The Collage room in front speaks of its own selection, the pictures selected on its canvas and
+//! the clips selected in its Clips tab ([`status_text::collage_photos`]), not of the library's tray.
+//!
 //! The line is rebuilt only when the library, the selection, the held photos, the photo shown or
 //! the sections change, and fitted
 //! only when it, the scan's or the export's count or the width changes (both are read from the
@@ -33,7 +36,7 @@ use super::Panels;
 use crate::app::App;
 use crate::commands::edit_view;
 use crate::panels::light_table::folder_name;
-use crate::state::Section;
+use crate::state::{Room, Section};
 use crate::status_text::{self, Line};
 
 // The formatters' first home was here; callers still reach them through this module.
@@ -52,6 +55,8 @@ struct Built {
     held: Vec<PhotoId>,
     photo: Option<PhotoId>,
     sections: u64,
+    /// The Collage room's selection while it is in front.
+    collage: Option<Vec<PhotoId>>,
     line: Line,
 }
 
@@ -66,7 +71,7 @@ struct Fitted {
 /// The line for the tray in `app` (in the edit view, for the photo shown), rebuilt only when the
 /// library, the selection, the held photos, the photo shown or the sections changed; `None` before
 /// the library is open.
-fn cached_line(p: &Panels, app: &App, ctx: &egui::Context) -> Option<Line> {
+fn cached_line(p: &Panels, app: &App, ctx: &egui::Context, collage: Option<Vec<PhotoId>>) -> Option<Line> {
     let session = app.session()?;
     let state = app.state();
     let revision = session.library().revision();
@@ -79,16 +84,19 @@ fn cached_line(p: &Panels, app: &App, ctx: &egui::Context) -> Option<Line> {
             || b.held != state.tray.held
             || b.photo != photo
             || b.sections != sections
+            || b.collage != collage
         {
             b.revision = Some(revision);
             b.selection.clone_from(&state.selection.ids);
             b.held.clone_from(&state.tray.held);
             b.photo = photo;
             b.sections = sections;
-            b.line = match photo.and_then(|id| edit_line(p, session.library(), id)) {
-                Some(line) => line,
-                None => status_text::line(session.library(), state),
+            b.line = match (&collage, photo.and_then(|id| edit_line(p, session.library(), id))) {
+                (Some(ids), _) => status_text::photos_line(session.library(), ids),
+                (None, Some(line)) => line,
+                (None, None) => status_text::line(session.library(), state),
             };
+            b.collage = collage;
         }
         Some(b.line.clone())
     })
@@ -182,7 +190,11 @@ pub fn show(p: &Panels, app: &mut App, ui: &mut Ui) {
     let line = match app.state().status.as_str() {
         "" => {
             let activity = export_field(app).into_iter().chain(scan_field(app)).collect();
-            status_text::with_activity(cached_line(p, app, &ctx).unwrap_or_default(), activity)
+            let collage = (app.state().room == Room::Collage).then(|| {
+                let placed = crate::commands::collage_canvas::photos(app);
+                status_text::collage_photos(app.state(), &placed)
+            });
+            status_text::with_activity(cached_line(p, app, &ctx, collage).unwrap_or_default(), activity)
         }
         message => Line::plain(message),
     };

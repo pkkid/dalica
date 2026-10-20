@@ -466,7 +466,8 @@ disagree.
 | | UI scale (Auto, 75–300 % in steps of 25) | `interface.uiScale` | Auto |
 | | UI font size (Small, Medium, Large) | `interface.fontSize` | Small |
 | | Language (System, then the languages the app offers; applies at once) | `interface.language` | System |
-| Files | Detect duplicates while importing (the Import room's "Exclude duplicates" starts from it) | `import.detectDuplicates` | on |
+| Files | Read photo data left by the previous organizer (`data-model.md` §9; a change rescans the watched folders; drawn first in the group) | `files.readLegacyData` | on |
+| | Detect duplicates while importing (the Import room's "Exclude duplicates" starts from it) | `import.detectDuplicates` | on |
 | | Delete from disk without asking | `organize.deleteWithoutAsking` | off |
 | | Remove from albums without asking | `organize.removeFromAlbumsWithoutAsking` | off |
 | | Write captions, tags and places into photo files | `files.writeCaptionsTagsPlaces` | on |
@@ -474,7 +475,6 @@ disagree.
 | | Update file modification time on metadata changes | `files.updateModificationTime` | off |
 | | Write XMP sidecars for RAW files | `files.writeRawXmpSidecars` | off |
 | | Write date changes to files (`xmp-interop.md` §2) | `files.writeDates` | on |
-| | Read photo data left by the previous organizer (`data-model.md` §9; a change rescans the watched folders) | `files.readLegacyData` | on |
 | Import | Save imported pictures in (the Import room's "Import to:" starts from it) | `import.folder` | ~/Pictures |
 
 ### File Types

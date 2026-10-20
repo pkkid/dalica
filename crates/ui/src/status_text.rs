@@ -8,6 +8,8 @@
 //!   a unit: how many, their date range and their size on disk, and their tags when they have
 //!   some, most used first ([`several`], [`selection_tags`]). The edit view prefixes the folder
 //!   and adds the photo's place in its section ([`edit_photo`]): "Lisbon › IMG_0361.jpg … (12 of 48)".
+//!   The Collage room in front speaks of its own selection instead ([`collage_photos`]: the
+//!   pictures selected on its canvas and the clips selected in its Clips tab, [`photos_line`]).
 //! - **How it is written**: sizes in decimal units with one decimal ([`size`]), dates in full
 //!   ([`date_time`], [`date_range`]), fields separated by wide spaces ([`SEP`]).
 //! - **Background work** ([`exporting`], [`scanning`], [`with_activity`]): while an export runs,
@@ -335,13 +337,32 @@ pub fn edit_photo(library: &Library, folder: &str, p: &Photo, nth: usize, of: us
 /// What the line says about the Photo Tray's contents in `state`: one photo; several; else "No
 /// selection". Photos the library no longer has are left out.
 pub fn line(library: &Library, state: &UiState) -> Line {
-    let ids: Vec<PhotoId> = tray::photos(state);
+    photos_line(library, &tray::photos(state))
+}
+
+/// What the line says about photos `ids`: one photo; several; else "No selection". Photos the
+/// library no longer has are left out.
+pub fn photos_line(library: &Library, ids: &[PhotoId]) -> Line {
     let picked: Vec<&Photo> = ids.iter().filter_map(|id| library.photo(*id)).collect();
     match picked.as_slice() {
         [] => Line::plain(NO_SELECTION),
         [p] => one(library, p),
-        many => several(library, many, &selection_tags(library, &ids)),
+        many => several(library, many, &selection_tags(library, ids)),
     }
+}
+
+/// The photos the Collage room's selection holds in `state`: the pictures selected on its canvas
+/// (by number into `placed`, the photo of each picture on the page in the engine's order), then
+/// the clips selected in its Clips tab, each photo once. A number past the page is left out.
+pub fn collage_photos(state: &UiState, placed: &[PhotoId]) -> Vec<PhotoId> {
+    let canvas = state.collage.selection.iter().filter_map(|n| placed.get(*n as usize).copied());
+    let mut out: Vec<PhotoId> = Vec::new();
+    for id in canvas.chain(state.collage.clips.iter().copied()) {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
 }
 
 /// The tags of the photos `ids` with how many of them hold each, most used first, ties in
@@ -556,6 +577,19 @@ mod tests {
         let mut s = UiState { selection: Selection::new(vec![PhotoId::new(9)], None, None, false), ..UiState::default() };
         s.tray.set_held(vec![PhotoId::new(4)]);
         assert_eq!(line(&lib, &s).text(), NO_SELECTION, "unknown ids say nothing");
+    }
+
+    /// The Collage room's selection: canvas pictures by number into the placed photos, then the
+    /// clips selected, each once; a number past the page is left out.
+    #[test]
+    fn the_collage_rooms_selection_is_its_canvas_pictures_then_its_clips() {
+        let placed = [PhotoId::new(7), PhotoId::new(3), PhotoId::new(5)];
+        let mut s = UiState::default();
+        assert!(collage_photos(&s, &placed).is_empty());
+        s.collage.selection = vec![2, 0, 9];
+        s.collage.clips = vec![PhotoId::new(7), PhotoId::new(11)];
+        assert_eq!(collage_photos(&s, &placed), [PhotoId::new(5), PhotoId::new(7), PhotoId::new(11)]);
+        assert_eq!(photos_line(&Library::new(), &collage_photos(&s, &placed)).text(), NO_SELECTION, "unknown ids say nothing");
     }
 
     /// A photo turned a quarter by its recipe reads at the size it shows at, not its file's.

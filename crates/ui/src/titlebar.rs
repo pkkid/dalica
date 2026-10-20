@@ -11,6 +11,11 @@
 //! `title_x`) @ b41e34c2 (MIT OR Apache-2.0); its default (Pro) theme's bar is 32 pt with an 18 pt
 //! app mark 10 pt from the left edge.
 //!
+//! The title names the selected folder or album; in the edit view it names the folder of the photo
+//! shown ([`edit_folder`]), as the status line's prefix does, so a photo opened from elsewhere (a
+//! collage just made, in its Collages folder) is not titled with the folder left selected in the
+//! tree.
+//!
 //! Which chrome the row draws is a [`Chrome`] the window sets once, at creation, from the host OS and
 //! the "Use system title bar" setting ([`set_chrome`]). Renders never ask the OS themselves:
 //! headless and snapshot renders get the default, [`Chrome::Drawn`], on every OS, so whole-window
@@ -85,6 +90,15 @@ pub fn window_title(section: Option<&str>) -> String {
     }
 }
 
+/// In the edit view, the name of the folder holding the photo shown (the folder's last component,
+/// as its section is titled); `None` outside the edit view or for a photo the library lacks.
+pub fn edit_folder(app: &App) -> Option<String> {
+    let id = crate::commands::edit_view::open_photo(app)?;
+    let library = app.session()?.library();
+    let folder = library.folder(library.photo(id)?.folder)?;
+    Some(crate::panels::light_table::folder_name(&folder.path))
+}
+
 /// Where the parts of the title bar go in the menu row `bar`, given where the menus end.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Parts {
@@ -124,12 +138,14 @@ pub fn parts(bar: Rect, chrome: Chrome, menus_right: f32) -> Parts {
 
 /// Draws the menu row `bar` (the region `region:menuBar`) for the window's [`chrome`]: the title
 /// bar, or only the menus under OS decorations, or the macOS strip. `section` names the selected
-/// folder or album for the window title, which is also given to the OS window.
+/// folder or album for the window title, which is also given to the OS window; in the edit view
+/// the photo's own folder ([`edit_folder`]) is named instead.
 pub fn show(ui: &mut Ui, app: &mut App, bar: Rect, section: Option<&str>) {
     let ctx = ui.ctx().clone();
     let t = *app.tokens();
     let chrome = chrome(&ctx);
-    let title = window_title(section);
+    let own = edit_folder(app);
+    let title = window_title(own.as_deref().or(section));
     send_title(&ctx, &title);
     let before = parts(bar, chrome, bar.left());
     let menus_right = if chrome == Chrome::Mac {

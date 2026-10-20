@@ -5,14 +5,15 @@
 //! labels of the photo's history, walked by its buttons, and Edit ▸ Undo / Redo following the same
 //! history; an open tool draws the grid, the tab content and Undo / Redo disabled; the histogram
 //! follows an edit; the camera columns for a JPEG with EXIF and the empty text without; the panel's
-//! fingerprints per tab at 1400 × 900 (at 900 × 600 they only have to fit).
+//! fingerprints per tab at 1400 × 900 (at 900 × 600 they only have to fit, the room tab strip's
+//! 28 points taken too: Fill Light stays above Undo / Redo).
 //!
 //! `DALICA_SHOTS=<dir>` writes the panel's screenshots there too.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{FRAMES, LARGE, check_rect, new_driver};
+use crate::common::{FRAMES, LARGE, SMALL, check_rect, new_driver, shot};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
@@ -370,4 +371,27 @@ fn the_edit_panel_matches_its_fingerprints() {
     click(&mut t, "tab:edit.basic");
     click(&mut t, "tool:straighten");
     check_region(&t, &format!("edit-panel-straighten-{w}x{h}"), panel);
+}
+
+/// At 900 × 600 with a room open (the room tab strip takes 28 points), Basic Fixes still shows its
+/// Fill Light row whole above Undo / Redo: the histogram box gives way, the content is not cut off
+/// (M14.R's screenshots).
+#[test]
+fn fill_light_stays_above_undo_in_the_small_window_with_a_room_open() {
+    let mut t = setup(SMALL, 2);
+    key(&mut t, "Ctrl+M");
+    click(&mut t, "tab:room/library");
+    assert!(find(&t, "region:tabStrip").is_some(), "the room tab strip shows");
+    let p = t.photos[0];
+    open(&mut t, p);
+    shot(&t.d, "edit-panel-basic-strip-900x600");
+    // The grid starts at Crop's top; its two rows and the Fill Light row (`basic::layout`) end
+    // above Undo / Redo's margin.
+    use dalica_ui::panels::edit::{basic, panel};
+    let (crop, undo) = (widget(&t, "tool:crop").rect, widget(&t, "button:edit.undo").rect);
+    let fill_bottom = crop[1] + 2.0 * dalica_ui_kit::widgets::TOOL_BUTTON_H + basic::GAP + basic::FILL_GAP + basic::FILL_H;
+    assert!(fill_bottom <= undo[1] - panel::MARGIN + 0.01, "Fill Light ends at {fill_bottom}, under Undo at {undo:?}");
+    let panel = widget(&t, "region:editPanel").rect;
+    let hist = widget(&t, "box:histogram").rect;
+    assert!(hist[1] + hist[3] <= panel[1] + panel[3] + 0.01 && hist[1] >= undo[1] + undo[3], "{hist:?} in {panel:?}");
 }

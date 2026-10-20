@@ -14,7 +14,10 @@
 //! **A short panel** (the 900 × 600 window): the effect tabs' grids never scroll, so the content
 //! claims the grid's height ([`effects::needed_height`]) and the Histogram & Camera Info box gives
 //! way: it shrinks (to [`MIN_HISTOGRAM`]) and, when even that leaves too little, is not drawn. The
-//! other tabs and a panel tall enough (1400 × 900) keep the full box.
+//! other tabs and a panel tall enough (1400 × 900) keep the full box. Basic Fixes claims its
+//! grid and Fill Light row the same way ([`needed_height`]), so a panel made shorter by the room
+//! tab strip (900 × 600 with a room open) shrinks the box rather than cutting off Fill Light
+//! under Undo / Redo.
 //!
 //! **Show original** (`button:edit.showOriginal`, `editing.md` §4) sits at the tab strip's right
 //! end: pressed and held, it shows the focused photo unedited (`edit.showOriginal {on: true}`), and
@@ -147,8 +150,18 @@ fn part(ui: &mut Ui, salt: &str, rect: Rect, enabled: bool, add: impl FnOnce(&mu
     add(&mut child);
 }
 
+/// The height the content of `tab` needs undivided: the effect tabs' grid, or Basic Fixes' two rows
+/// of buttons and its Fill Light row (`basic::layout`); Tuning asks for nothing (the box keeps its
+/// height).
+pub fn needed_height(t: &Tokens, tab: EditTab) -> f32 {
+    match tab {
+        EditTab::Basic => 2.0 * widgets::TOOL_BUTTON_H + basic::GAP + basic::FILL_GAP + basic::FILL_H,
+        _ => effects::needed_height(t, tab),
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut Ui) {
-    let need = effects::needed_height(app.tokens(), app.state().edit.tab);
+    let need = needed_height(app.tokens(), app.state().edit.tab);
     // The line counting the previous organizer's edits sits on top of Undo / Redo.
     let p = parts_with_line(ui.max_rect(), need, history::line_height(app));
     // A modal tool (Crop, Straighten, Retouch) holds the panel until Apply or Cancel.
