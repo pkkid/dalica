@@ -1,0 +1,1603 @@
+# Thai (th) catalog for Dalica. UTF-8, one entry per line: context<TAB>English source<TAB>translation.
+# Empty context: plain UI text; @id: a command id or option:<key>; @plural: `one|other` English
+# source with ONE Thai form (Thai has no plural inflection); any other context disambiguates an
+# English word (`month`, `verb`, …).
+# A line starting with `~` is a machine-assisted DRAFT awaiting the fluent review: the reviewer
+# checks the translation, fixes it if needed, and deletes the `~` (docs/localization.md → Draft
+# entries). `cargo xtask i18n` prints how many drafts remain.
+# Keep {name} placeholders, the escapes \n \t \\, and a trailing … ; keep product and technology
+# names (Dalica, JPEG, EXIF, XMP, GPS, …) in Latin letters. Style guide: docs/localization-th.md.
+# Original translations written from the meaning of Dalica's English text; no other product's
+# localisation resources were consulted or copied. Licensed MIT OR Apache-2.0; see
+# LICENSE-translations.txt and ATTRIBUTION.md.
+
+~	({nth} of {of})	({nth} จาก {of})
+~	16:10 (Widescreen)	16:10 (จอกว้าง)
+~	16:9 (HD video)	16:9 (วิดีโอ HD)
+~	4:3 (Standard screen)	4:3 (จอมาตรฐาน)
+~	5:3 (Photo frame)	5:3 (กรอบรูป)
+~	A change rescans your folders. Files of a type turned off are hidden, never deleted.	การเปลี่ยนค่านี้จะสแกนโฟลเดอร์ของคุณใหม่ ไฟล์ชนิดที่ปิดไว้จะถูกซ่อน ไม่ถูกลบ
+~	A custom ratio already has that name.	มีอัตราส่วนแบบกำหนดเองที่ใช้ชื่อนี้แล้ว
+~	A folder's own music isn't kept yet: the music folder in Options › Slideshow plays	ยังไม่เก็บเพลงเฉพาะของโฟลเดอร์: เพลงจะเล่นจากโฟลเดอร์เพลงใน ตัวเลือก › สไลด์โชว์
+~	A mosaic around a large center picture	โมเสกรอบรูปภาพใหญ่ตรงกลาง
+~	A photo organizer with simple editing	โปรแกรมจัดระเบียบรูปภาพพร้อมการแก้ไขอย่างง่าย
+~	A soft, bright, dreamy glow.	แสงเรืองนุ่มนวล สว่าง ชวนฝัน
+~	A tag is at most {max} bytes.	แท็กยาวได้ไม่เกิน {max} ไบต์
+~	A web address with {query} for the place typed in "Search for a place".	ที่อยู่เว็บที่มี {query} แทนสถานที่ที่พิมพ์ใน "ค้นหาสถานที่"
+~	A web address with {z}, {x} and {y} for the tile's zoom, column and row.	ที่อยู่เว็บที่มี {z}, {x} และ {y} แทนระดับซูม คอลัมน์ และแถวของไทล์
+~	A zoom blur outside a sharp circle.	เบลอแบบซูมนอกวงกลมที่คมชัด
+~	AI models credited in the Co-Authored-By trailers of Dalica's commits.	โมเดล AI ที่ได้รับเครดิตในบรรทัด Co-Authored-By ของคอมมิตของ Dalica
+~	AVIF	AVIF
+~	About Dalica	เกี่ยวกับ Dalica
+~	Actions	การกระทำ
+~	Actual Size	ขนาดจริง
+~	Actual size	ขนาดจริง
+~	Add	เพิ่ม
+~	Add Custom Ratio	เพิ่มอัตราส่วนแบบกำหนดเอง
+~	Add Custom Ratio…	เพิ่มอัตราส่วนแบบกำหนดเอง…
+~	Add Folder…	เพิ่มโฟลเดอร์…
+~	Add Model	เพิ่มโมเดล
+~	Add Tags	เพิ่มแท็ก
+~	Add a Folder…	เพิ่มโฟลเดอร์…
+~	Add a Model File	เพิ่มไฟล์โมเดล
+~	Add a Model File…	เพิ่มไฟล์โมเดล…
+~	Add a Person Manually	เพิ่มบุคคลด้วยตนเอง
+~	Add a caption	เพิ่มคำบรรยายภาพ
+~	Add a description	เพิ่มคำอธิบาย
+~	Add a folder of photos to see them here, or import them from a camera or a card.	เพิ่มโฟลเดอร์รูปภาพเพื่อดูรูปที่นี่ หรือนำเข้าจากกล้องหรือการ์ดหน่วยความจำ
+~	Add a name	เพิ่มชื่อ
+~	Add a tag:	เพิ่มแท็ก:
+~	Add numbers to file names to keep the order	เติมตัวเลขในชื่อไฟล์เพื่อคงลำดับ
+~	Add or remove “{tag}” on the selected photos	เพิ่มหรือเอา “{tag}” ออกจากรูปภาพที่เลือก
+~	Add or remove “{tag}” on the selected photos ({key})	เพิ่มหรือเอา “{tag}” ออกจากรูปภาพที่เลือก ({key})
+~	Add the date taken to the name	เพิ่มวันที่ถ่ายในชื่อ
+~	Add the image size to the name	เพิ่มขนาดภาพในชื่อ
+~	Add the photos in the tray to the collage and go back to it	เพิ่มรูปภาพในถาดลงในภาพปะติด แล้วกลับไปที่ภาพปะติด
+~	Add the tag to the selected photos	เพิ่มแท็กให้รูปภาพที่เลือก
+~	Add these photos to an album	เพิ่มรูปภาพเหล่านี้ลงในอัลบั้ม
+~	Add to Album	เพิ่มลงในอัลบั้ม
+~	Add to All Selected	เพิ่มให้ทุกรูปที่เลือก
+~	Add to Collage	เพิ่มลงในภาพปะติด
+~	Add watermark	เพิ่มลายน้ำ
+~	Adds the grain of film.	เพิ่มเกรนแบบฟิล์ม
+~	Adjust Date	ปรับวันที่
+~	Adjust Date and Time…	ปรับวันที่และเวลา…
+~	Adjust Picture Date	ปรับวันที่ของรูปภาพ
+~	After copying:	หลังคัดลอก:
+~	Album Properties	คุณสมบัติอัลบั้ม
+~	Album Properties…	คุณสมบัติอัลบั้ม…
+~	Album name	ชื่ออัลบั้ม
+~	Albums	อัลบั้ม
+~	All pictures	รูปภาพทั้งหมด
+~	Allow	อนุญาต
+~	Allow Map Tiles	อนุญาตไทล์แผนที่
+~	Allow map tiles	อนุญาตไทล์แผนที่
+~	Already in your library	มีอยู่ในคลังภาพแล้ว
+~	Also delete the face data Dalica worked out from your photos? Face rectangles and names stay.	ลบข้อมูลใบหน้าที่ Dalica วิเคราะห์จากรูปภาพของคุณด้วยหรือไม่ กรอบใบหน้าและชื่อจะยังคงอยู่
+~	Another program is using this camera ({detail}); close it, or import from the folder it shows	มีโปรแกรมอื่นกำลังใช้กล้องนี้ ({detail}) ปิดโปรแกรมนั้น หรือนำเข้าจากโฟลเดอร์ที่กล้องแสดง
+~	Applies at next launch.	มีผลเมื่อเปิดโปรแกรมครั้งถัดไป
+~	Apply	นำไปใช้
+~	Apply Changes	นำการเปลี่ยนแปลงไปใช้
+~	Apply Edit	นำการแก้ไขไปใช้
+~	Apply Effect	ใช้เอฟเฟกต์
+~	Apply Quick Tag	ใช้แท็กด่วน
+~	Apply changes to the current photo?	นำการเปลี่ยนแปลงไปใช้กับรูปภาพปัจจุบันหรือไม่
+~	Apply the crop (Enter)	ครอบตัด (Enter)
+~	Ascending: reverse the order	จากน้อยไปมาก: กลับลำดับ
+~	Asking the system which applications open this file.	กำลังถามระบบว่าแอปพลิเคชันใดเปิดไฟล์นี้ได้
+~	Auto Color	ปรับสีอัตโนมัติ
+~	Auto Contrast	ปรับคอนทราสต์อัตโนมัติ
+~	Auto Fix	แก้ไขอัตโนมัติ
+~	Auto Tuning	ปรับแต่งอัตโนมัติ
+~	Auto color	ปรับสีอัตโนมัติ
+~	Auto follows the system's scale and the monitor.	อัตโนมัติจะใช้สเกลของระบบและจอภาพ
+~	Auto lighting	ปรับแสงอัตโนมัติ
+~	Automatic	อัตโนมัติ
+~	B&W	ขาวดำ
+~	BMP	BMP
+~	Back to Collage	กลับไปที่ภาพปะติด
+~	Back to Library	กลับไปที่คลังภาพ
+~	Background activity	งานเบื้องหลัง
+~	Background color	สีพื้นหลัง
+~	Balances quality and size	สมดุลระหว่างคุณภาพและขนาด
+~	Basic fixes	การแก้ไขพื้นฐาน
+~	Batch Edit	แก้ไขเป็นชุด
+~	Binary assets added	ไฟล์ไบนารีที่เพิ่ม
+~	Binary assets removed	ไฟล์ไบนารีที่ลบ
+~	Black and White	ขาวดำ
+~	Black and white as if shot through a coloured filter.	ขาวดำเหมือนถ่ายผ่านฟิลเตอร์สี
+~	Black and white infrared film: bright foliage, dark skies.	ฟิล์มอินฟราเรดขาวดำ: ใบไม้สว่าง ท้องฟ้ามืด
+~	Blue	น้ำเงิน
+~	Blurs the photo outside a sharp circle.	เบลอรูปภาพนอกวงกลมที่คมชัด
+~	Boost	เพิ่มความเข้ม
+~	Border	ขอบ
+~	Bottom of Library	ท้ายคลังภาพ
+~	Bring to Top	นำขึ้นบนสุด
+~	Bring to Top / Send to Bottom	นำขึ้นบนสุด / ส่งไปล่างสุด
+~	Brings out detail with strong local contrast.	ดึงรายละเอียดด้วยคอนทราสต์เฉพาะจุดที่เข้มข้น
+~	Browse Folders	เรียกดูโฟลเดอร์
+~	Browse…	เรียกดู…
+~	Brush size	ขนาดแปรง
+~	Build date	วันที่สร้าง
+~	Camera card	การ์ดกล้อง
+~	Camera or phone	กล้องหรือโทรศัพท์
+~	Cameras	กล้อง
+~	Can Edit Collage	แก้ไขภาพปะติดได้
+~	Cancel	ยกเลิก
+~	Cancel Face Model Download	ยกเลิกการดาวน์โหลดโมเดลใบหน้า
+~	Cancelling…	กำลังยกเลิก…
+~	Cannot show this photo: {why}	แสดงรูปภาพนี้ไม่ได้: {why}
+~	Cannot show this photo: {why}\n{hint}	แสดงรูปภาพนี้ไม่ได้: {why}\n{hint}
+~	Caption	คำบรรยายภาพ
+~	Caption: {caption}	คำบรรยายภาพ: {caption}
+~	Captions	คำบรรยายภาพ
+~	Change Folder Settings	เปลี่ยนการตั้งค่าโฟลเดอร์
+~	Change Location	เปลี่ยนตำแหน่ง
+~	Change this collage in the Collage room	เปลี่ยนภาพปะติดนี้ในห้องภาพปะติด
+~	Changed in another application; Dalica's value kept	มีการเปลี่ยนในแอปพลิเคชันอื่น เก็บค่าของ Dalica ไว้
+~	Choose Folder	เลือกโฟลเดอร์
+~	Choose a Folder…	เลือกโฟลเดอร์…
+~	Choose a folder	เลือกโฟลเดอร์
+~	Choose a folder name to continue	เลือกชื่อโฟลเดอร์เพื่อดำเนินการต่อ
+~	Choose a folder on this computer	เลือกโฟลเดอร์ในคอมพิวเตอร์เครื่องนี้
+~	Choose a size below, then drag on the photo to select the part you want to keep.	เลือกขนาดด้านล่าง แล้วลากบนรูปภาพเพื่อเลือกส่วนที่ต้องการเก็บไว้
+~	Choose a source	เลือกแหล่งที่มา
+~	Choose another folder	เลือกโฟลเดอร์อื่น
+~	Choose folders…	เลือกโฟลเดอร์…
+~	Choose more pictures in the library	เลือกรูปภาพเพิ่มเติมในคลังภาพ
+~	Choose the External Editor	เลือกโปรแกรมแก้ไขภายนอก
+~	Choose the quality yourself	เลือกคุณภาพเอง
+~	Choose this if you keep your photos in these folders.	เลือกตัวเลือกนี้หากคุณเก็บรูปภาพไว้ในโฟลเดอร์เหล่านี้
+~	Choose…	เลือก…
+~	Circle	วงกลม
+~	Clear Location	ล้างตำแหน่ง
+~	Clear Location…	ล้างตำแหน่ง…
+~	Clear Tray	ล้างถาด
+~	Clear all photos from the tray?	ล้างรูปภาพทั้งหมดออกจากถาดหรือไม่
+~	Click Import All or Import Selected	คลิก นำเข้าทั้งหมด หรือ นำเข้ารายการที่เลือก
+~	Click a blemish, then click a clean area to copy from.	คลิกที่รอยตำหนิ แล้วคลิกบริเวณที่สะอาดเพื่อคัดลอกมาแทน
+~	Click a shortcut to change it: Esc cancels, Backspace removes it.	คลิกทางลัดเพื่อเปลี่ยน: Esc ยกเลิก, Backspace เอาออก
+~	Click ✓ to confirm a match or × to reject it.	คลิก ✓ เพื่อยืนยันว่าตรงกัน หรือ × เพื่อปฏิเสธ
+~	Clips ({n})	คลิป ({n})
+~	Close	ปิด
+~	Close (Esc)	ปิด (Esc)
+~	Close Collage	ปิดภาพปะติด
+~	Close Import Source	ปิดแหล่งนำเข้า
+~	Close Open With	ปิด เปิดด้วย
+~	Close Room	ปิดห้อง
+~	Close Video	ปิดวิดีโอ
+~	Close the list	ปิดรายการ
+~	Close the pane	ปิดแผง
+~	Close without cropping (Esc)	ปิดโดยไม่ครอบตัด (Esc)
+~	Close without the patches	ปิดโดยไม่ใช้แพตช์
+~	Collage	ภาพปะติด
+~	Collage Settings	การตั้งค่าภาพปะติด
+~	Collage Style	รูปแบบภาพปะติด
+~	Collage page	หน้าภาพปะติด
+~	Collapse	ยุบ
+~	Collapse Folder	ยุบโฟลเดอร์
+~	Collapse Group	ยุบกลุ่ม
+~	Collapse {name}	ยุบ {name}
+~	Color Temperature	อุณหภูมิสี
+~	Commit	คอมมิต
+~	Commits	คอมมิต
+~	Company	บริษัท
+~	Compare	เปรียบเทียบ
+~	Compare Photo	เปรียบเทียบรูปภาพ
+~	Compare Two Versions	เปรียบเทียบสองเวอร์ชัน
+~	Compare two photos	เปรียบเทียบสองรูปภาพ
+~	Compare two versions of this photo	เปรียบเทียบรูปภาพนี้สองเวอร์ชัน
+~	Compared photo	รูปภาพที่เปรียบเทียบ
+~	Configure Photo Viewer…	กำหนดค่าโปรแกรมดูรูปภาพ…
+~	Configure Quick Tags	กำหนดค่าแท็กด่วน
+~	Configure Quick Tags…	กำหนดค่าแท็กด่วน…
+~	Confirm	ยืนยัน
+~	Confirm All	ยืนยันทั้งหมด
+~	Contact Sheet	แผ่นรวมภาพย่อ
+~	Context	บริบท
+~	Continue	ดำเนินการต่อ
+~	Contributors	ผู้ร่วมพัฒนา
+~	Coordinates, such as 38.7, -9.14	พิกัด เช่น 38.7, -9.14
+~	Copy	คัดลอก
+~	Copy All Edits	คัดลอกการแก้ไขทั้งหมด
+~	Copy Files	คัดลอกไฟล์
+~	Copy Location	คัดลอกตำแหน่ง
+~	Copy Path	คัดลอกพาธ
+~	Copy to the Clipboard	คัดลอกไปยังคลิปบอร์ด
+~	Copyright © 2026 the Dalica contributors; see the Contributors and Models tabs.	ลิขสิทธิ์ © 2026 ผู้ร่วมพัฒนา Dalica ดูแท็บผู้ร่วมพัฒนาและโมเดล
+~	Could not analyse the photo.	วิเคราะห์รูปภาพไม่ได้
+~	Could not copy {name}: {reason}	คัดลอก {name} ไม่ได้: {reason}
+~	Could not export {name}	ส่งออก {name} ไม่ได้
+~	Could not export {name}: {reason}	ส่งออก {name} ไม่ได้: {reason}
+~	Could not import {name}	นำเข้า {name} ไม่ได้
+~	Could not import {name}: {reason}	นำเข้า {name} ไม่ได้: {reason}
+~	Could not move {name} back: {reason}	ย้าย {name} กลับไม่ได้: {reason}
+~	Could not move {name} to the Trash: {reason}	ย้าย {name} ไปที่ถังขยะไม่ได้: {reason}
+~	Could not move {name}: {reason}	ย้าย {name} ไม่ได้: {reason}
+~	Could not read the file: {error}	อ่านไฟล์ไม่ได้: {error}
+~	Could not remove the copy {name}: {reason}	ลบสำเนา {name} ไม่ได้: {reason}
+~	Could not rename {name} back: {reason}	เปลี่ยนชื่อ {name} กลับไม่ได้: {reason}
+~	Could not rename {name}: {reason}	เปลี่ยนชื่อ {name} ไม่ได้: {reason}
+~	Could not restore {name}: {reason}	กู้คืน {name} ไม่ได้: {reason}
+~	Could not save {name}	บันทึก {name} ไม่ได้
+~	Could not save {name}: {reason}	บันทึก {name} ไม่ได้: {reason}
+~	Create Collage	สร้างภาพปะติด
+~	Create a new album	สร้างอัลบั้มใหม่
+~	Crop	ครอบตัด
+~	Crop Photo	ครอบตัดรูปภาพ
+~	Crop Ratios	อัตราส่วนการครอบตัด
+~	Crop rectangle {w} × {h}	กรอบครอบตัด {w} × {h}
+~	Crop the photo	ครอบตัดรูปภาพ
+~	Crops to a wide 1.7:1 frame with a film look and black bars. Changes the picture's size.	ครอบตัดเป็นกรอบกว้าง 1.7:1 ให้ดูเหมือนภาพยนตร์พร้อมแถบดำ เปลี่ยนขนาดของรูปภาพ
+~	Current	ปัจจุบัน
+~	Current Display	จอแสดงผลปัจจุบัน
+~	Current date	วันที่ปัจจุบัน
+~	Current ratio	อัตราส่วนปัจจุบัน
+~	Custom	กำหนดเอง
+~	Custom ({quality})	กำหนดเอง ({quality})
+~	Custom quality	คุณภาพแบบกำหนดเอง
+~	Custom ratios	อัตราส่วนแบบกำหนดเอง
+~	Cut	ตัด
+~	Dalica	Dalica
+~	Dalica does not know this model, so it assumes:	Dalica ไม่รู้จักโมเดลนี้ จึงถือว่า:
+~	Dalica is ready to look for pictures on your computer	Dalica พร้อมค้นหารูปภาพในคอมพิวเตอร์ของคุณแล้ว
+~	Dalica knows no face model by this name.	Dalica ไม่รู้จักโมเดลใบหน้าชื่อนี้
+~	Dalica may not open this camera ({detail})	Dalica อาจเปิดกล้องนี้ไม่ได้ ({detail})
+~	Darkens the edges, or takes them toward a colour.	ทำให้ขอบมืดลง หรือเปลี่ยนขอบเป็นสีที่เลือก
+~	Date	วันที่
+~	Date taken (YYYY-MM-DD)	วันที่ถ่าย (YYYY-MM-DD)
+~	Default Viewer	โปรแกรมดูเริ่มต้น
+~	Default export location	ตำแหน่งส่งออกเริ่มต้น
+~	Default watermark text	ข้อความลายน้ำเริ่มต้น
+~	Delete	ลบ
+~	Delete Album	ลบอัลบั้ม
+~	Delete Album…	ลบอัลบั้ม…
+~	Delete Copied Files from the Card	ลบไฟล์ที่คัดลอกแล้วออกจากการ์ด
+~	Delete Custom Ratio	ลบอัตราส่วนแบบกำหนดเอง
+~	Delete Face Data	ลบข้อมูลใบหน้า
+~	Delete Folder	ลบโฟลเดอร์
+~	Delete Folder…	ลบโฟลเดอร์…
+~	Delete Page Format	ลบรูปแบบหน้า
+~	Delete Person	ลบบุคคล
+~	Delete copied files from the card	ลบไฟล์ที่คัดลอกแล้วออกจากการ์ด
+~	Delete from Disk…	ลบออกจากดิสก์…
+~	Delete from disk without asking	ลบออกจากดิสก์โดยไม่ถาม
+~	Delete the album "{name}"? The pictures in it are not deleted.	ลบอัลบั้ม "{name}" หรือไม่ รูปภาพในอัลบั้มจะไม่ถูกลบ
+~	Delete this album? The pictures in it are not deleted.	ลบอัลบั้มนี้หรือไม่ รูปภาพในอัลบั้มจะไม่ถูกลบ
+~	Delete this custom ratio	ลบอัตราส่วนแบบกำหนดเองนี้
+~	Delete this page format	ลบรูปแบบหน้านี้
+~	Delete this photo	ลบรูปภาพนี้
+~	Delete {person}? Their faces go back to Unnamed.	ลบ {person} หรือไม่ ใบหน้าของบุคคลนี้จะกลับไปเป็น ไม่มีชื่อ
+~	Delete…	ลบ…
+~	Descending: reverse the order	จากมากไปน้อย: กลับลำดับ
+~	Description	คำอธิบาย
+~	Destination	ปลายทาง
+~	Details	รายละเอียด
+~	Detect duplicates while importing	ตรวจหารายการซ้ำระหว่างนำเข้า
+~	Discard	ทิ้ง
+~	Display Time	เวลาแสดง
+~	Display name	ชื่อที่แสดง
+~	Display time	เวลาแสดง
+~	Dissolve	ค่อย ๆ จางเปลี่ยน
+~	Don't ask again	ไม่ต้องถามอีก
+~	Don't ask again, always apply	ไม่ต้องถามอีก นำไปใช้เสมอ
+~	Don't show this again	ไม่ต้องแสดงอีก
+~	Don't use Dalica as a viewer	ไม่ใช้ Dalica เป็นโปรแกรมดู
+~	Download	ดาวน์โหลด
+~	Download Face Model	ดาวน์โหลดโมเดลใบหน้า
+~	Downloading…	กำลังดาวน์โหลด…
+~	Download…	ดาวน์โหลด…
+~	Drag onto a photo to magnify it	ลากไปบนรูปภาพเพื่อขยาย
+~	Drag the box to fit the face, then type a name.	ลากกรอบให้พอดีกับใบหน้า แล้วพิมพ์ชื่อ
+~	Draw shadows	วาดเงา
+~	Dream Glow	แสงเรืองชวนฝัน
+~	Drop Photos on the Map	วางรูปภาพบนแผนที่
+~	Drop Shadow	เงาตกกระทบ
+~	Duo-Tone	สองโทนสี
+~	Duplicate Files	ไฟล์ซ้ำ
+~	Each capture date gets its own folder	วันที่ถ่ายแต่ละวันมีโฟลเดอร์ของตัวเอง
+~	Edit Caption	แก้ไขคำบรรยายภาพ
+~	Edit Collage	แก้ไขภาพปะติด
+~	Edit Description…	แก้ไขคำอธิบาย…
+~	Edit Tab	แท็บแก้ไข
+~	Edit View	มุมมองแก้ไข
+~	Edit panel	แผงแก้ไข
+~	Edit toolbar	แถบเครื่องมือแก้ไข
+~	Edit view	มุมมองแก้ไข
+~	Edited	แก้ไขแล้ว
+~	Effects	เอฟเฟกต์
+~	English	English
+~	Enter the folder's name.	ป้อนชื่อของโฟลเดอร์
+~	Erase	ลบ
+~	Erase Soften where it was painted	ลบการทำให้นุ่มในบริเวณที่ระบายไว้
+~	Errors only	เฉพาะข้อผิดพลาด
+~	Evaluate Suggestions	ประเมินคำแนะนำ
+~	Even more effects	เอฟเฟกต์เพิ่มเติม
+~	Every MP3, OGG, FLAC and WAV file in it plays in name order, looping.	ไฟล์ MP3, OGG, FLAC และ WAV ทุกไฟล์ในโฟลเดอร์จะเล่นตามลำดับชื่อและวนซ้ำ
+~	Every picture chosen is excluded.	รูปภาพทุกรูปที่เลือกถูกยกเว้น
+~	Every selected photo has this tag.	รูปภาพที่เลือกทุกรูปมีแท็กนี้
+~	Example: {name}	ตัวอย่าง: {name}
+~	Example: {name} ({width} × {height})	ตัวอย่าง: {name} ({width} × {height})
+~	Exclude	ยกเว้น
+~	Exclude All	ยกเว้นทั้งหมด
+~	Exclude Duplicates	ยกเว้นรายการซ้ำ
+~	Exclude duplicates	ยกเว้นรายการซ้ำ
+~	Exclude or Include	ยกเว้นหรือรวม
+~	Excluded	ยกเว้นแล้ว
+~	Exit	ออก
+~	Exit Slideshow	ออกจากสไลด์โชว์
+~	Exit the slideshow (Esc)	ออกจากสไลด์โชว์ (Esc)
+~	Expand	ขยาย
+~	Expand Groups	ขยายกลุ่ม
+~	Expand {name}	ขยาย {name}
+~	Experimental	ทดลอง
+~	Export	ส่งออก
+~	Export Clip	ส่งออกคลิป
+~	Export Defaults	ค่าเริ่มต้นการส่งออก
+~	Export Location	ตำแหน่งส่งออก
+~	Export Pictures to Folder…	ส่งออกรูปภาพไปยังโฟลเดอร์…
+~	Export location	ตำแหน่งส่งออก
+~	Export the trimmed clip	ส่งออกคลิปที่ตัดแล้ว
+~	Export these photos to a folder	ส่งออกรูปภาพเหล่านี้ไปยังโฟลเดอร์
+~	Export to Folder	ส่งออกไปยังโฟลเดอร์
+~	Export videos as	ส่งออกวิดีโอเป็น
+~	Exporting	กำลังส่งออก
+~	Exporting {done} of {total}	กำลังส่งออก {done} จาก {total}
+~	Exporting…	กำลังส่งออก…
+~	External editor	โปรแกรมแก้ไขภายนอก
+~	Face Model	โมเดลใบหน้า
+~	Face Models	โมเดลใบหน้า
+~	Face Model…	โมเดลใบหน้า…
+~	Face Scan Status	สถานะการสแกนใบหน้า
+~	Face model	โมเดลใบหน้า
+~	Face models cannot be added here: this session has no models folder.	เพิ่มโมเดลใบหน้าที่นี่ไม่ได้: เซสชันนี้ไม่มีโฟลเดอร์โมเดล
+~	Faces	ใบหน้า
+~	Faces appear here once face recognition finds them.	ใบหน้าจะปรากฏที่นี่เมื่อการจดจำใบหน้าพบใบหน้า
+~	Faces are found on this computer; nothing is sent anywhere.	การค้นหาใบหน้าทำในคอมพิวเตอร์เครื่องนี้ ไม่มีข้อมูลใดถูกส่งออกไป
+~	File Types	ชนิดไฟล์
+~	Filename	ชื่อไฟล์
+~	Files	ไฟล์
+~	Files with the Same Names	ไฟล์ที่มีชื่อเดียวกัน
+~	Fill Empty with Common Tags	เติมแท็กที่ใช้ร่วมกันในช่องว่าง
+~	Fill Light	เติมแสง
+~	Film Grain	เกรนฟิล์ม
+~	Filmstrip	แถบฟิล์ม
+~	Filter by People	กรองตามบุคคล
+~	Filtered B&W	ขาวดำแบบฟิลเตอร์
+~	Filters	ตัวกรอง
+~	Find	ค้นหา
+~	Find Faces Again	ค้นหาใบหน้าอีกครั้ง
+~	Find Faces Now	ค้นหาใบหน้าตอนนี้
+~	Find Faces in My Photos	ค้นหาใบหน้าในรูปภาพของฉัน
+~	Find More	ค้นหาเพิ่มเติม
+~	Find faces in my photos	ค้นหาใบหน้าในรูปภาพของฉัน
+~	Find faces in this folder	ค้นหาใบหน้าในโฟลเดอร์นี้
+~	Finding faces… {done} of {total}	กำลังค้นหาใบหน้า… {done} จาก {total}
+~	First Photo	รูปภาพแรก
+~	First commit	คอมมิตแรก
+~	First frame	เฟรมแรก
+~	Fit	พอดี
+~	Fit the photo to the window	ปรับรูปภาพให้พอดีกับหน้าต่าง
+~	Fit to the window	พอดีกับหน้าต่าง
+~	Fits pictures into the page automatically	จัดรูปภาพให้พอดีกับหน้าโดยอัตโนมัติ
+~	Fix the contrast and color in one click	แก้ไขคอนทราสต์และสีในคลิกเดียว
+~	Flat Folder View	มุมมองโฟลเดอร์แบบแบน
+~	Flip Horizontal	พลิกแนวนอน
+~	Flip Vertical	พลิกแนวตั้ง
+~	Floats the photo over a background with a shadow. Changes the picture's size.	ทำให้รูปภาพลอยเหนือพื้นหลังพร้อมเงา เปลี่ยนขนาดของรูปภาพ
+~	Focal B&W	ขาวดำเฉพาะจุด
+~	Focal Zoom	ซูมเฉพาะจุด
+~	Folder Manager	ตัวจัดการโฟลเดอร์
+~	Folder Manager…	ตัวจัดการโฟลเดอร์…
+~	Folder Properties	คุณสมบัติโฟลเดอร์
+~	Folder View	มุมมองโฟลเดอร์
+~	Folder name	ชื่อโฟลเดอร์
+~	Folder name:	ชื่อโฟลเดอร์:
+~	Folders	โฟลเดอร์
+~	Folder…	โฟลเดอร์…
+~	For each folder, choose whether Dalica looks for pictures in it. Watched folders are checked for new pictures automatically.	เลือกสำหรับแต่ละโฟลเดอร์ว่าจะให้ Dalica ค้นหารูปภาพในโฟลเดอร์นั้นหรือไม่ โฟลเดอร์ที่เฝ้าดูจะถูกตรวจหารูปภาพใหม่โดยอัตโนมัติ
+~	For the selected folder:	สำหรับโฟลเดอร์ที่เลือก:
+~	Frame Mosaic	โมเสกแบบมีกรอบ
+~	Frames the photo with two bands of colour. Changes the picture's size.	ใส่กรอบรูปภาพด้วยแถบสีสองแถบ เปลี่ยนขนาดของรูปภาพ
+~	From {site}	จาก {site}
+~	Full Screen	เต็มหน้าจอ
+~	Full video (no resizing)	วิดีโอเต็ม (ไม่ปรับขนาด)
+~	GIF	GIF
+~	Geocoding service	บริการค้นหาพิกัด
+~	Geotag	แท็กตำแหน่ง
+~	Get More	รับเพิ่มเติม
+~	Get photos from a camera, card or folder	รับรูปภาพจากกล้อง การ์ด หรือโฟลเดอร์
+~	Glow	เรืองแสง
+~	Go to Time	ไปยังเวลา
+~	Grab bag	รวมคละ
+~	Graduated Tint	ไล่สี
+~	Green	เขียว
+~	Grid spacing	ระยะห่างตาราง
+~	Grouping confidence	ความมั่นใจในการจัดกลุ่ม
+~	HDR Look	ลุค HDR
+~	HEIC/HEIF	HEIC/HEIF
+~	Height	ความสูง
+~	Held	พักไว้
+~	Help	วิธีใช้
+~	Help Contents	เนื้อหาวิธีใช้
+~	Hidden Folders	โฟลเดอร์ที่ซ่อน
+~	Hidden Pictures	รูปภาพที่ซ่อน
+~	Hide	ซ่อน
+~	Hide Dalica	ซ่อน Dalica
+~	Hide Folder	ซ่อนโฟลเดอร์
+~	Hide controls automatically	ซ่อนตัวควบคุมโดยอัตโนมัติ
+~	Higher values make fewer, more certain suggestions.	ค่าที่สูงขึ้นจะให้คำแนะนำน้อยลงแต่แม่นยำขึ้น
+~	Higher values make smaller, more certain groups of unnamed faces.	ค่าที่สูงขึ้นจะทำให้กลุ่มใบหน้าที่ไม่มีชื่อเล็กลงแต่แม่นยำขึ้น
+~	Highlights	ไฮไลต์
+~	Histogram & Camera Info	ฮิสโตแกรมและข้อมูลกล้อง
+~	Hold	พักไว้
+~	I have read these terms and accept them for my own use	ฉันได้อ่านข้อกำหนดเหล่านี้และยอมรับสำหรับการใช้งานส่วนตัว
+~	ISO {iso}	ISO {iso}
+~	Ignore Face	ละเว้นใบหน้า
+~	Ignore Faces	ละเว้นใบหน้า
+~	Ignore Group	ละเว้นกลุ่ม
+~	Ignore these faces	ละเว้นใบหน้าเหล่านี้
+~	Ignore these faces?	ละเว้นใบหน้าเหล่านี้หรือไม่
+~	Ignored faces · {count}	ใบหน้าที่ละเว้น · {count}
+~	Image quality	คุณภาพของภาพ
+~	Image size	ขนาดภาพ
+~	Import	นำเข้า
+~	Import All	นำเข้าทั้งหมด
+~	Import Destination	ปลายทางการนำเข้า
+~	Import From…	นำเข้าจาก…
+~	Import Listing	รายการนำเข้า
+~	Import Selected	นำเข้ารายการที่เลือก
+~	Import Selected ({n})	นำเข้ารายการที่เลือก ({n})
+~	Import Sources	แหล่งนำเข้า
+~	Import Status	สถานะการนำเข้า
+~	Import from:	นำเข้าจาก:
+~	Import to:	นำเข้าไปยัง:
+~	Import tray	ถาดนำเข้า
+~	Import tray position	ตำแหน่งถาดนำเข้า
+~	Import…	นำเข้า…
+~	Include All	รวมทั้งหมด
+~	Infrared Film	ฟิล์มอินฟราเรด
+~	Insert a camera's card or a removable drive, or choose a folder from “Import from:”.	ใส่การ์ดของกล้องหรือไดรฟ์แบบถอดได้ หรือเลือกโฟลเดอร์จาก “นำเข้าจาก:”
+~	Inspect Collage	ตรวจสอบภาพปะติด
+~	Inspect Face Model File	ตรวจสอบไฟล์โมเดลใบหน้า
+~	Inspect Legacy Data	ตรวจสอบข้อมูลเดิม
+~	Inspect Library	ตรวจสอบคลังภาพ
+~	Inspect Photos	ตรวจสอบรูปภาพ
+~	Inspect Video	ตรวจสอบวิดีโอ
+~	Installed	ติดตั้งแล้ว
+~	Installed · in use	ติดตั้งแล้ว · กำลังใช้งาน
+~	Instant photo border	ขอบภาพแบบอินสแตนต์
+~	Interface	ส่วนติดต่อผู้ใช้
+~	Invert Colors	กลับสี
+~	Invert Selection	กลับการเลือก
+~	JPEG	JPEG
+~	JPEG XL	JPEG XL
+~	Keep Faces	เก็บใบหน้าไว้
+~	Keep Files	เก็บไฟล์ไว้
+~	Keep Importing	นำเข้าต่อ
+~	Keep Version	เก็บเวอร์ชันนี้
+~	Keep Which Version?	เก็บเวอร์ชันใด
+~	Keep each side at most 10000.	แต่ละด้านต้องไม่เกิน 10000
+~	Keep the name at most 256 bytes.	ชื่อต้องยาวไม่เกิน 256 ไบต์
+~	Keep the patches	เก็บแพตช์ไว้
+~	Keep the ratio between 1:20 and 20:1.	อัตราส่วนต้องอยู่ระหว่าง 1:20 ถึง 20:1
+~	Keep these photos in the tray	เก็บรูปภาพเหล่านี้ไว้ในถาด
+~	Keep which version?	เก็บเวอร์ชันใด
+~	Keeps fine detail; large files	เก็บรายละเอียดเล็ก ๆ ไฟล์ใหญ่
+~	Keeps the colour inside a circle and turns the rest black and white.	คงสีไว้ภายในวงกลม และเปลี่ยนส่วนที่เหลือเป็นขาวดำ
+~	Keeps the original's quality	คงคุณภาพของต้นฉบับ
+~	Kept in Dalica's file in this folder.	เก็บไว้ในไฟล์ของ Dalica ในโฟลเดอร์นี้
+~	Kept in Dalica's file. The previous organizer's file is also here; it is no longer read and never changed.	เก็บไว้ในไฟล์ของ Dalica ไฟล์ของโปรแกรมจัดระเบียบเดิมก็อยู่ที่นี่ด้วย แต่จะไม่ถูกอ่านอีกและไม่ถูกเปลี่ยนแปลง
+~	Kept in the photo's edits in their place, but Dalica cannot show them	เก็บไว้ในตำแหน่งเดิมในการแก้ไขของรูปภาพ แต่ Dalica แสดงไม่ได้
+~	Keyboard Shortcuts…	แป้นพิมพ์ลัด…
+~	Landscape	แนวนอน
+~	Language	ภาษา
+~	Large	ใหญ่
+~	Last Photo	รูปภาพสุดท้าย
+~	Last commit	คอมมิตล่าสุด
+~	Leave files on the card	เก็บไฟล์ไว้ในการ์ด
+~	Legacy Notice Shown	แสดงประกาศข้อมูลเดิมแล้ว
+~	Library	คลังภาพ
+~	Library View	มุมมองคลังภาพ
+~	Library tree	แผนผังคลังภาพ
+~	Library tree position	ตำแหน่งแผนผังคลังภาพ
+~	Licence	สัญญาอนุญาต
+~	Licence: {name} · {commercial}	สัญญาอนุญาต: {name} · {commercial}
+~	Light table	โต๊ะไฟ
+~	Lighting and color tuning	การปรับแสงและสี
+~	Line delta	ผลต่างบรรทัด
+~	Lines +/−	บรรทัด +/−
+~	Lines added	บรรทัดที่เพิ่ม
+~	Lines deleted	บรรทัดที่ลบ
+~	List Albums	แสดงรายการอัลบั้ม
+~	List Faces	แสดงรายการใบหน้า
+~	List Options	แสดงรายการตัวเลือก
+~	List People	แสดงรายการบุคคล
+~	List Places	แสดงรายการสถานที่
+~	List Shortcuts	แสดงรายการทางลัด
+~	List Tags	แสดงรายการแท็ก
+~	Loading…	กำลังโหลด…
+~	Locate on Disk	ค้นหาบนดิสก์
+~	Locate on Disk is not available yet.	ค้นหาบนดิสก์ยังไม่พร้อมใช้งาน
+~	Location	ตำแหน่ง
+~	Looking at the file…	กำลังตรวจดูไฟล์…
+~	Looking for pictures never moves or copies files. You can change which folders are shown at any time with Tools → Folder Manager.	การค้นหารูปภาพจะไม่ย้ายหรือคัดลอกไฟล์ คุณเปลี่ยนโฟลเดอร์ที่แสดงได้ทุกเมื่อด้วย เครื่องมือ → ตัวจัดการโฟลเดอร์
+~	Looking for your folders…	กำลังค้นหาโฟลเดอร์ของคุณ…
+~	Looks like a pile of scattered pictures	ดูเหมือนกองรูปภาพที่วางกระจัดกระจาย
+~	Loop slideshow	เล่นสไลด์โชว์วนซ้ำ
+~	Make a collage from this folder	สร้างภาพปะติดจากโฟลเดอร์นี้
+~	Make a collage from this person's photos	สร้างภาพปะติดจากรูปภาพของบุคคลนี้
+~	Make the pane narrower	ทำให้แผงแคบลง
+~	Make the pane wider	ทำให้แผงกว้างขึ้น
+~	Makes a negative, or turns a scanned negative positive.	ทำเป็นภาพเนกาทีฟ หรือเปลี่ยนฟิล์มเนกาทีฟที่สแกนเป็นภาพปกติ
+~	Makes the bright areas glow.	ทำให้บริเวณที่สว่างเรืองแสง
+~	Makes the colours richer or paler.	ทำให้สีสดขึ้นหรือซีดลง
+~	Manual	กำหนดเอง
+~	Manual: {w} × {h}	กำหนดเอง: {w} × {h}
+~	Map	แผนที่
+~	Map attribution	การอ้างอิงแหล่งที่มาของแผนที่
+~	Map tile server	เซิร์ฟเวอร์ไทล์แผนที่
+~	Maps the photo's tones onto two colours.	จับคู่โทนของรูปภาพเข้ากับสองสี
+~	Mark for Import	ทำเครื่องหมายเพื่อนำเข้า
+~	Maximum	สูงสุด
+~	Medium	กลาง
+~	Menu bar	แถบเมนู
+~	Merge Into	รวมเข้ากับ
+~	Merge People	รวมบุคคล
+~	Merge {person} into {into}? {person}'s faces become {into}'s.	รวม {person} เข้ากับ {into} หรือไม่ ใบหน้าของ {person} จะกลายเป็นของ {into}
+~	Merged pull requests	พูลรีเควสต์ที่รวมแล้ว
+~	Minimum	ต่ำสุด
+~	Models	โมเดล
+~	More	เพิ่มเติม
+~	More actions	การกระทำเพิ่มเติม
+~	More effects	เอฟเฟกต์เพิ่มเติม
+~	More folders are not shown.	ยังมีโฟลเดอร์อื่นที่ไม่ได้แสดง
+~	More…	เพิ่มเติม…
+~	Mosaic	โมเสก
+~	Mounts the photo in a double mat. Changes the picture's size.	ใส่รูปภาพในกรอบคู่แบบพิพิธภัณฑ์ เปลี่ยนขนาดของรูปภาพ
+~	Mouse wheel	ล้อเมาส์
+~	Mouse wheel moves through photos (hold Ctrl to zoom)	ล้อเมาส์เลื่อนดูรูปภาพ (กด Ctrl ค้างเพื่อซูม)
+~	Mouse wheel zooms (hold Ctrl to navigate)	ล้อเมาส์ซูม (กด Ctrl ค้างเพื่อเลื่อนดู)
+~	Move	ย้าย
+~	Move Files	ย้ายไฟล์
+~	Move Folder…	ย้ายโฟลเดอร์…
+~	Move Picture	ย้ายรูปภาพ
+~	Move the Map	เลื่อนแผนที่
+~	Move the folder "{name}" and everything in it (including non-picture files) to the trash?	ย้ายโฟลเดอร์ "{name}" และทุกอย่างในโฟลเดอร์ (รวมถึงไฟล์ที่ไม่ใช่รูปภาพ) ไปที่ถังขยะหรือไม่
+~	Move the selected pictures to the trash?	ย้ายรูปภาพที่เลือกไปที่ถังขยะหรือไม่
+~	Move these files on disk? The files will be moved, not copied.	ย้ายไฟล์เหล่านี้บนดิสก์หรือไม่ ไฟล์จะถูกย้าย ไม่ใช่คัดลอก
+~	Move this folder and everything in it (including non-picture files) to the trash?	ย้ายโฟลเดอร์นี้และทุกอย่างในโฟลเดอร์ (รวมถึงไฟล์ที่ไม่ใช่รูปภาพ) ไปที่ถังขยะหรือไม่
+~	Move to New Folder	ย้ายไปยังโฟลเดอร์ใหม่
+~	Move to New Folder…	ย้ายไปยังโฟลเดอร์ใหม่…
+~	Move to New Person…	ย้ายไปยังบุคคลใหม่…
+~	Move to Person	ย้ายไปยังบุคคล
+~	Move to Trash	ย้ายไปที่ถังขยะ
+~	Moved the folder	ย้ายโฟลเดอร์แล้ว
+~	Moved the folder back	ย้ายโฟลเดอร์กลับแล้ว
+~	Moved the folder to the Trash	ย้ายโฟลเดอร์ไปที่ถังขยะแล้ว
+~	Moved the folder to {folder}	ย้ายโฟลเดอร์ไปยัง {folder} แล้ว
+~	Move…	ย้าย…
+~	Multiple Exposure	ซ้อนภาพหลายชั้น
+~	Museum Matte	กรอบพิพิธภัณฑ์
+~	Music folder	โฟลเดอร์เพลง
+~	Music for slideshows	เพลงสำหรับสไลด์โชว์
+~	Name	ชื่อ
+~	Name (A–Z)	ชื่อ (ก–ฮ, A–Z)
+~	Name Faces	ตั้งชื่อใบหน้า
+~	Name Group	ตั้งชื่อกลุ่ม
+~	Name Suggestions	ชื่อที่แนะนำ
+~	Name a face first: a person is made when you type a name.	ตั้งชื่อใบหน้าก่อน: บุคคลจะถูกสร้างเมื่อคุณพิมพ์ชื่อ
+~	Name of exported folder	ชื่อโฟลเดอร์ที่ส่งออก
+~	Name the album.	ตั้งชื่ออัลบั้ม
+~	Name the folder.	ตั้งชื่อโฟลเดอร์
+~	Name the ratio.	ตั้งชื่ออัตราส่วน
+~	Name them in the Unnamed view.	ตั้งชื่อได้ในมุมมอง ไม่มีชื่อ
+~	Navigator	ตัวนำทาง
+~	Network log level	ระดับบันทึกเครือข่าย
+~	Neutral Color Picker	ตัวเลือกสีกลาง
+~	New Album	อัลบั้มใหม่
+~	New Album…	อัลบั้มใหม่…
+~	New Folder	โฟลเดอร์ใหม่
+~	New Person	บุคคลใหม่
+~	New date	วันที่ใหม่
+~	New name	ชื่อใหม่
+~	Next	ถัดไป
+~	Next Photo	รูปภาพถัดไป
+~	Next Section	ส่วนถัดไป
+~	Next photo	รูปภาพถัดไป
+~	Next section	ส่วนถัดไป
+~	Nickname	ชื่อเล่น
+~	No background work	ไม่มีงานเบื้องหลัง
+~	No border	ไม่มีขอบ
+~	No camera information	ไม่มีข้อมูลกล้อง
+~	No collage is open. Choose photos and click Collage to make one.	ไม่มีภาพปะติดที่เปิดอยู่ เลือกรูปภาพแล้วคลิก ภาพปะติด เพื่อสร้าง
+~	No contributor data was built into this copy.	สำเนานี้ไม่มีข้อมูลผู้ร่วมพัฒนา
+~	No face models are known here.	ไม่รู้จักโมเดลใบหน้าใดที่นี่
+~	No folder	ไม่มีโฟลเดอร์
+~	No folders are watched.	ไม่มีโฟลเดอร์ที่เฝ้าดู
+~	No model credits were built into this copy.	สำเนานี้ไม่มีเครดิตของโมเดล
+~	No other applications	ไม่มีแอปพลิเคชันอื่น
+~	No people yet	ยังไม่มีบุคคล
+~	No photo here has a date.	ไม่มีรูปภาพใดที่นี่ที่มีวันที่
+~	No photo in this folder has unsaved edits.	ไม่มีรูปภาพในโฟลเดอร์นี้ที่มีการแก้ไขที่ยังไม่บันทึก
+~	No photo in this folder is starred.	ไม่มีรูปภาพในโฟลเดอร์นี้ที่ติดดาว
+~	No photos found	ไม่พบรูปภาพ
+~	No picture chosen is excluded.	ไม่มีรูปภาพที่เลือกถูกยกเว้น
+~	No picture to preview	ไม่มีรูปภาพให้แสดงตัวอย่าง
+~	No pictures yet	ยังไม่มีรูปภาพ
+~	No pictures yet. Click Get More to choose some.	ยังไม่มีรูปภาพ คลิก รับเพิ่มเติม เพื่อเลือก
+~	No places found.	ไม่พบสถานที่
+~	No places in the selection	ไม่มีสถานที่ในรายการที่เลือก
+~	No selection	ไม่ได้เลือก
+~	No shortcuts match.	ไม่มีทางลัดที่ตรงกัน
+~	None	ไม่มี
+~	None of these folders exists here: Continue opens the Folder Manager.	ไม่มีโฟลเดอร์เหล่านี้อยู่ที่นี่: ดำเนินการต่อ จะเปิดตัวจัดการโฟลเดอร์
+~	None saved for this folder yet.	ยังไม่มีการบันทึกสำหรับโฟลเดอร์นี้
+~	Normal	ปกติ
+~	Normal Thumbnails	ภาพย่อปกติ
+~	Not Now	ไม่ใช่ตอนนี้
+~	Not available yet.	ยังไม่พร้อมใช้งาน
+~	Not downloaded	ยังไม่ได้ดาวน์โหลด
+~	Not recorded (a development build)	ไม่ได้บันทึก (บิลด์สำหรับพัฒนา)
+~	Nothing copied: {skipped}	ไม่มีการคัดลอก: {skipped}
+~	Nothing is downloaded until you accept. Your photos and faces never leave this computer.	จะไม่มีการดาวน์โหลดจนกว่าคุณจะยอมรับ รูปภาพและใบหน้าของคุณจะไม่ออกจากคอมพิวเตอร์เครื่องนี้
+~	Nothing is written here until you reset it or restore the file.	จะไม่มีการเขียนข้อมูลที่นี่จนกว่าคุณจะรีเซ็ตหรือกู้คืนไฟล์
+~	Nothing moved back: {skipped}	ไม่มีการย้ายกลับ: {skipped}
+~	Nothing moved to the Trash: {skipped}	ไม่มีการย้ายไปที่ถังขยะ: {skipped}
+~	Nothing moved: {skipped}	ไม่มีการย้าย: {skipped}
+~	Nothing removed: {skipped}	ไม่มีการเอาออก: {skipped}
+~	Nothing renamed back: {skipped}	ไม่มีการเปลี่ยนชื่อกลับ: {skipped}
+~	Nothing renamed: {skipped}	ไม่มีการเปลี่ยนชื่อ: {skipped}
+~	Nothing restored: {skipped}	ไม่มีการกู้คืน: {skipped}
+~	Nothing to import yet	ยังไม่มีอะไรให้นำเข้า
+~	OK	ตกลง
+~	Off: use the original size.	ปิด: ใช้ขนาดต้นฉบับ
+~	One folder for each capture date	หนึ่งโฟลเดอร์ต่อวันที่ถ่ายแต่ละวัน
+~	One folder named with today's date	หนึ่งโฟลเดอร์ตั้งชื่อด้วยวันที่วันนี้
+~	Only look in my Pictures, Documents and Desktop folders	ค้นหาเฉพาะในโฟลเดอร์รูปภาพ เอกสาร และเดสก์ท็อปของฉัน
+~	Only the first fields are listed.	แสดงเฉพาะฟิลด์แรก ๆ
+~	Open Camera	เปิดกล้อง
+~	Open File…	เปิดไฟล์…
+~	Open Import Source	เปิดแหล่งนำเข้า
+~	Open Tool	เปิดเครื่องมือ
+~	Open Video	เปิดวิดีโอ
+~	Open With	เปิดด้วย
+~	Open a Bubble	เปิดบับเบิล
+~	Open in Dalica	เปิดใน Dalica
+~	Open in External Editor	เปิดในโปรแกรมแก้ไขภายนอก
+~	Open page	เปิดหน้า
+~	Open the Collage Room	เปิดห้องภาพปะติด
+~	Optional	ไม่บังคับ
+~	Options	ตัวเลือก
+~	Options…	ตัวเลือก…
+~	Orange	ส้ม
+~	Original	ต้นฉบับ
+~	Other photo	รูปภาพอื่น
+~	PNG	PNG
+~	PSD	PSD
+~	Page Down	Page Down
+~	Page Up	Page Up
+~	Page format	รูปแบบหน้า
+~	Paint	ระบาย
+~	Paint where Soften applies	ระบายบริเวณที่จะใช้การทำให้นุ่ม
+~	Pan and Zoom	แพนและซูม
+~	Panic	ร้ายแรง
+~	Partly downloaded ({size})	ดาวน์โหลดบางส่วน ({size})
+~	Paste	วาง
+~	Paste All Edits	วางการแก้ไขทั้งหมด
+~	Paste Location	วางตำแหน่ง
+~	Pause	หยุดชั่วคราว
+~	Pause / Play	หยุดชั่วคราว / เล่น
+~	People	บุคคล
+~	People Manager…	ตัวจัดการบุคคล…
+~	People in these photos	บุคคลในรูปภาพเหล่านี้
+~	Photo	รูปภาพ
+~	Photo History	ประวัติรูปภาพ
+~	Photo Metadata	ข้อมูลเมตาของรูปภาพ
+~	Photo Viewer Photos	รูปภาพของโปรแกรมดูรูปภาพ
+~	Photo Viewer Settings	การตั้งค่าโปรแกรมดูรูปภาพ
+~	Photo data	ข้อมูลรูปภาพ
+~	Photo tray	ถาดรูปภาพ
+~	Photo viewer	โปรแกรมดูรูปภาพ
+~	Photo {index} of {count}	รูปภาพที่ {index} จาก {count}
+~	Pick a Colour from the Photo	เลือกสีจากรูปภาพ
+~	Pick a grey or white area of the photo to remove a color cast	เลือกบริเวณสีเทาหรือสีขาวในรูปภาพเพื่อลบสีเพี้ยน
+~	Pick the background colour	เลือกสีพื้นหลัง
+~	Pick the folders you want Dalica to watch. You can change this at any time in the Folder Manager.	เลือกโฟลเดอร์ที่ต้องการให้ Dalica เฝ้าดู คุณเปลี่ยนได้ทุกเมื่อในตัวจัดการโฟลเดอร์
+~	Picture	รูปภาพ
+~	Picture Collage…	ภาพปะติด…
+~	Picture Pile	กองรูปภาพ
+~	Picture borders	ขอบรูปภาพ
+~	Picture {id}	รูปภาพ {id}
+~	Pictures blended on top of one another	รูปภาพซ้อนผสมกัน
+~	Pictures in regular rows and columns	รูปภาพเรียงเป็นแถวและคอลัมน์อย่างสม่ำเสมอ
+~	Pictures smaller than this on both sides show only with View › Small Pictures.	รูปภาพที่เล็กกว่านี้ทั้งสองด้านจะแสดงเฉพาะเมื่อเลือก มุมมอง › รูปภาพขนาดเล็ก
+~	Pictures will go into a folder named with today's date	รูปภาพจะไปอยู่ในโฟลเดอร์ที่ตั้งชื่อด้วยวันที่วันนี้
+~	Pictures/Dalica/Exports unless chosen.	Pictures/Dalica/Exports หากไม่ได้เลือก
+~	Pixelate	พิกเซล
+~	Place	สถานที่
+~	Place the Pin	ปักหมุด
+~	Places	สถานที่
+~	Plastic Lens	เลนส์พลาสติก
+~	Play	เล่น
+~	Play / Pause	เล่น / หยุดชั่วคราว
+~	Play a slideshow from this photo	เล่นสไลด์โชว์จากรูปภาพนี้
+~	Play a slideshow of the folder	เล่นสไลด์โชว์ของโฟลเดอร์
+~	Play a slideshow of this folder	เล่นสไลด์โชว์ของโฟลเดอร์นี้
+~	Play a slideshow of this person's photos	เล่นสไลด์โชว์รูปภาพของบุคคลนี้
+~	Play music during slideshows	เล่นเพลงระหว่างสไลด์โชว์
+~	Play video sound	เล่นเสียงวิดีโอ
+~	Plays the photos of folders in your library.	เล่นรูปภาพของโฟลเดอร์ในคลังภาพของคุณ
+~	Portrait	แนวตั้ง
+~	Preferences…	การกำหนดลักษณะ…
+~	Press and hold to show the original (or hold \\)	กดค้างไว้เพื่อแสดงต้นฉบับ (หรือกด \\ ค้างไว้)
+~	Previous	ก่อนหน้า
+~	Previous Photo	รูปภาพก่อนหน้า
+~	Previous Section	ส่วนก่อนหน้า
+~	Previous photo	รูปภาพก่อนหน้า
+~	Previous section	ส่วนก่อนหน้า
+~	Print, Banner…	พิมพ์, แบนเนอร์…
+~	Privacy	ความเป็นส่วนตัว
+~	Projects	โครงการ
+~	Properties	คุณสมบัติ
+~	Properties of {name}	คุณสมบัติของ {name}
+~	Proxy	พร็อกซี
+~	Proxy host	โฮสต์พร็อกซี
+~	Proxy port	พอร์ตพร็อกซี
+~	Purple	ม่วง
+~	Push	พุช
+~	Put Photos Here	วางรูปภาพที่นี่
+~	Put back the edit removed last	นำการแก้ไขที่เอาออกล่าสุดกลับมา
+~	Put back the patch removed last	นำแพตช์ที่เอาออกล่าสุดกลับมา
+~	Put every Tuning control back to its default	คืนค่าตัวควบคุมการปรับแต่งทั้งหมดเป็นค่าเริ่มต้น
+~	Put on Page	วางบนหน้า
+~	Put the selected pictures on the page	วางรูปภาพที่เลือกบนหน้า
+~	Put the settings back to their defaults	คืนค่าการตั้งค่าเป็นค่าเริ่มต้น
+~	Query Library	สืบค้นคลังภาพ
+~	Quick Preview (hold Ctrl+Alt)	แสดงตัวอย่างด่วน (กด Ctrl+Alt ค้างไว้)
+~	Quick Tags	แท็กด่วน
+~	Quick tag {n} has no tag: click to choose quick tags	แท็กด่วน {n} ยังไม่มีแท็ก: คลิกเพื่อเลือกแท็กด่วน
+~	Quick tags	แท็กด่วน
+~	Quick tags add a tag to the selected photos with one click, or with Ctrl+Alt+1 … Ctrl+Alt+0. Type the tags you use most below. With the option ticked, the top two buttons show the tags you added most recently instead.	แท็กด่วนเพิ่มแท็กให้รูปภาพที่เลือกได้ในคลิกเดียว หรือด้วย Ctrl+Alt+1 … Ctrl+Alt+0 พิมพ์แท็กที่คุณใช้บ่อยที่สุดด้านล่าง หากเลือกตัวเลือกนี้ไว้ ปุ่มสองปุ่มบนสุดจะแสดงแท็กที่คุณเพิ่มล่าสุดแทน
+~	Quit Dalica	ออกจาก Dalica
+~	RAW formats	รูปแบบ RAW
+~	Read from the previous organizer's file, which is never changed. Dalica writes its own file on the first change.	อ่านจากไฟล์ของโปรแกรมจัดระเบียบเดิม ซึ่งจะไม่ถูกเปลี่ยนแปลง Dalica จะเขียนไฟล์ของตัวเองเมื่อมีการเปลี่ยนแปลงครั้งแรก
+~	Read photo data left by the previous organizer	อ่านข้อมูลรูปภาพที่โปรแกรมจัดระเบียบเดิมทิ้งไว้
+~	Read this face model's terms before it is added. The file is copied into Dalica's models folder.	อ่านข้อกำหนดของโมเดลใบหน้านี้ก่อนเพิ่ม ไฟล์จะถูกคัดลอกไปยังโฟลเดอร์โมเดลของ Dalica
+~	Read this face model's terms before it is downloaded. It stays on this computer.	อ่านข้อกำหนดของโมเดลใบหน้านี้ก่อนดาวน์โหลด โมเดลจะอยู่ในคอมพิวเตอร์เครื่องนี้
+~	Reading camera information…	กำลังอ่านข้อมูลกล้อง…
+~	Reading the file…	กำลังอ่านไฟล์…
+~	Reading the folder…	กำลังอ่านโฟลเดอร์…
+~	Reading the models folder…	กำลังอ่านโฟลเดอร์โมเดล…
+~	Real name	ชื่อจริง
+~	Rebuild Library…	สร้างคลังภาพใหม่…
+~	Recent folder	โฟลเดอร์ล่าสุด
+~	Recent folder name	ชื่อโฟลเดอร์ล่าสุด
+~	Recently Updated	อัปเดตล่าสุด
+~	Recently used	ใช้ล่าสุด
+~	Rectangle	สี่เหลี่ยมผืนผ้า
+~	Red	แดง
+~	Redo	ทำซ้ำ
+~	Redo Edit	ทำการแก้ไขซ้ำ
+~	Redo Patch	ทำแพตช์ซ้ำ
+~	Redo {action}	ทำซ้ำ {action}
+~	Refresh Thumbnails	รีเฟรชภาพย่อ
+~	Reject	ปฏิเสธ
+~	Release Notes	บันทึกประจำรุ่น
+~	Removable drive	ไดรฟ์แบบถอดได้
+~	Remove	เอาออก
+~	Remove Edits	เอาการแก้ไขออก
+~	Remove Face Model	เอาโมเดลใบหน้าออก
+~	Remove Faces	เอาใบหน้าออก
+~	Remove Folder	เอาโฟลเดอร์ออก
+~	Remove Imported Files	เอาไฟล์ที่นำเข้าแล้วออก
+~	Remove Location	เอาตำแหน่งออก
+~	Remove Tags	เอาแท็กออก
+~	Remove a color cast	ลบสีเพี้ยน
+~	Remove blemishes and spots	ลบรอยตำหนิและจุด
+~	Remove every patch	เอาแพตช์ทั้งหมดออก
+~	Remove from Album	เอาออกจากอัลบั้ม
+~	Remove from Card	เอาออกจากการ์ด
+~	Remove from Clips	เอาออกจากคลิป
+~	Remove from Dalica	เอาออกจาก Dalica
+~	Remove from Dalica…	เอาออกจาก Dalica…
+~	Remove from Person	เอาออกจากบุคคล
+~	Remove from Selected	เอาออกจากรายการที่เลือก
+~	Remove from Tray	เอาออกจากถาด
+~	Remove from albums without asking	เอาออกจากอัลบั้มโดยไม่ถาม
+~	Remove location from exported photos	ลบตำแหน่งออกจากรูปภาพที่ส่งออก
+~	Remove photos from the tray	เอารูปภาพออกจากถาด
+~	Remove the face rectangles found in these folders? Names you've given stay with the photos that are still scanned.	เอากรอบใบหน้าที่พบในโฟลเดอร์เหล่านี้ออกหรือไม่ ชื่อที่คุณตั้งไว้จะยังอยู่กับรูปภาพที่ยังถูกสแกน
+~	Remove the folder "{name}" and its subfolders from Dalica? The files stay on your disk.	เอาโฟลเดอร์ "{name}" และโฟลเดอร์ย่อยออกจาก Dalica หรือไม่ ไฟล์จะยังอยู่ในดิสก์ของคุณ
+~	Remove the imported files from the card? This cannot be undone.	เอาไฟล์ที่นำเข้าแล้วออกจากการ์ดหรือไม่ การดำเนินการนี้เลิกทำไม่ได้
+~	Remove the last patch	เอาแพตช์ล่าสุดออก
+~	Remove the latest edit	เอาการแก้ไขล่าสุดออก
+~	Remove the selected pictures from this album? The files are not deleted.	เอารูปภาพที่เลือกออกจากอัลบั้มนี้หรือไม่ ไฟล์จะไม่ถูกลบ
+~	Remove the tag from the selected photos	เอาแท็กออกจากรูปภาพที่เลือก
+~	Remove this face model? Its file and the face data worked out with it are deleted; face rectangles and names stay.	เอาโมเดลใบหน้านี้ออกหรือไม่ ไฟล์ของโมเดลและข้อมูลใบหน้าที่วิเคราะห์ด้วยโมเดลนี้จะถูกลบ กรอบใบหน้าและชื่อจะยังคงอยู่
+~	Remove this folder and its subfolders from Dalica? The files stay on your disk.	เอาโฟลเดอร์นี้และโฟลเดอร์ย่อยออกจาก Dalica หรือไม่ ไฟล์จะยังอยู่ในดิสก์ของคุณ
+~	Rename Duplicates	เปลี่ยนชื่อรายการซ้ำ
+~	Rename Files	เปลี่ยนชื่อไฟล์
+~	Rename Folder	เปลี่ยนชื่อโฟลเดอร์
+~	Rename Person	เปลี่ยนชื่อบุคคล
+~	Rename Tag	เปลี่ยนชื่อแท็ก
+~	Rename Tag…	เปลี่ยนชื่อแท็ก…
+~	Renamed the folder	เปลี่ยนชื่อโฟลเดอร์แล้ว
+~	Renamed the folder back	เปลี่ยนชื่อโฟลเดอร์กลับแล้ว
+~	Renamed the folder to {name}	เปลี่ยนชื่อโฟลเดอร์เป็น {name} แล้ว
+~	Rename…	เปลี่ยนชื่อ…
+~	Reorder Album	จัดลำดับอัลบั้มใหม่
+~	Replace	แทนที่
+~	Report a Problem…	รายงานปัญหา…
+~	Requests	คำขอ
+~	Rescanning your folders…	กำลังสแกนโฟลเดอร์ของคุณใหม่…
+~	Reset	รีเซ็ต
+~	Reset All	รีเซ็ตทั้งหมด
+~	Reset Folder Data	รีเซ็ตข้อมูลโฟลเดอร์
+~	Reset Shortcuts	รีเซ็ตทางลัด
+~	Reset folder data	รีเซ็ตข้อมูลโฟลเดอร์
+~	Reset the data of the folder "{name}"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	รีเซ็ตข้อมูลของโฟลเดอร์ "{name}" หรือไม่ Dalica จะเขียนไฟล์ข้อมูลใหม่จากสิ่งที่รู้เกี่ยวกับรูปภาพเหล่านี้ ไฟล์ที่เสียหายจะยังอยู่ข้างรูปภาพโดยไม่ถูกแตะต้อง
+~	Reset this folder's data? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	รีเซ็ตข้อมูลของโฟลเดอร์นี้หรือไม่ Dalica จะเขียนไฟล์ข้อมูลใหม่จากสิ่งที่รู้เกี่ยวกับรูปภาพเหล่านี้ ไฟล์ที่เสียหายจะยังอยู่ข้างรูปภาพโดยไม่ถูกแตะต้อง
+~	Resize	ปรับขนาด
+~	Resize the window	ปรับขนาดหน้าต่าง
+~	Resize to	ปรับขนาดเป็น
+~	Resolution	ความละเอียด
+~	Restore all default shortcuts?	คืนค่าทางลัดเริ่มต้นทั้งหมดหรือไม่
+~	Restore the default: no shortcut	คืนค่าเริ่มต้น: ไม่มีทางลัด
+~	Restore the default: {keys}	คืนค่าเริ่มต้น: {keys}
+~	Restored the folder from the Trash	กู้คืนโฟลเดอร์จากถังขยะแล้ว
+~	Retouch	รีทัช
+~	Reverse Order	กลับลำดับ
+~	Revert to the original? Your edits will be lost. To undo only the last save and keep the edits, choose Undo Save.	คืนค่าเป็นต้นฉบับหรือไม่ การแก้ไขของคุณจะหายไป หากต้องการเลิกทำเฉพาะการบันทึกครั้งล่าสุดและเก็บการแก้ไขไว้ ให้เลือก เลิกทำการบันทึก
+~	Revert…	คืนค่า…
+~	Rooms	ห้อง
+~	Rotate	หมุน
+~	Rotate Clockwise	หมุนตามเข็มนาฬิกา
+~	Rotate Counterclockwise	หมุนทวนเข็มนาฬิกา
+~	Rotate Left	หมุนซ้าย
+~	Rotate Right	หมุนขวา
+~	Rotate clockwise	หมุนตามเข็มนาฬิกา
+~	Rotate counterclockwise	หมุนทวนเข็มนาฬิกา
+~	Rotate left	หมุนซ้าย
+~	Rotate right	หมุนขวา
+~	Rotate the video clockwise	หมุนวิดีโอตามเข็มนาฬิกา
+~	Rotate the video counterclockwise	หมุนวิดีโอทวนเข็มนาฬิกา
+~	Saturation	ความอิ่มตัวของสี
+~	Save	บันทึก
+~	Save As	บันทึกเป็น
+~	Save As…	บันทึกเป็น…
+~	Save Draft	บันทึกฉบับร่าง
+~	Save Frame as Picture	บันทึกเฟรมเป็นรูปภาพ
+~	Save Search Results…	บันทึกผลการค้นหา…
+~	Save a Copy	บันทึกสำเนา
+~	Save edited photos to disk	บันทึกรูปภาพที่แก้ไขลงดิสก์
+~	Save imported pictures in	บันทึกรูปภาพที่นำเข้าใน
+~	Save the changes to this collage?	บันทึกการเปลี่ยนแปลงของภาพปะติดนี้หรือไม่
+~	Save the frame shown as a picture	บันทึกเฟรมที่แสดงเป็นรูปภาพ
+~	Saving writes your edits into the photo's file. Dalica first keeps the original, unchanged, in a hidden .dalica-originals folder beside it, so Undo Save and Revert can always bring it back.	การบันทึกจะเขียนการแก้ไขลงในไฟล์ของรูปภาพ Dalica จะเก็บต้นฉบับที่ไม่เปลี่ยนแปลงไว้ก่อนในโฟลเดอร์ซ่อน .dalica-originals ข้างไฟล์ เพื่อให้ เลิกทำการบันทึก และ คืนค่า นำต้นฉบับกลับมาได้เสมอ
+~	Saving {name} in Video Frames	กำลังบันทึก {name} ในเฟรมวิดีโอ
+~	Scan Always	สแกนเสมอ
+~	Scan Once	สแกนครั้งเดียว
+~	Scramble Collage	สุ่มจัดภาพปะติด
+~	Scroll bar	แถบเลื่อน
+~	Scroll down	เลื่อนลง
+~	Scroll menu down	เลื่อนเมนูลง
+~	Scroll menu up	เลื่อนเมนูขึ้น
+~	Scroll speed	ความเร็วในการเลื่อน
+~	Scroll the import tray	เลื่อนถาดนำเข้า
+~	Scroll the library tree	เลื่อนแผนผังคลังภาพ
+~	Scroll to Section	เลื่อนไปยังส่วน
+~	Scroll up	เลื่อนขึ้น
+~	Search	ค้นหา
+~	Search Suggestions	คำค้นหาที่แนะนำ
+~	Search commands and keys	ค้นหาคำสั่งและแป้น
+~	Search for	ค้นหา
+~	Search for This Tag	ค้นหาแท็กนี้
+~	Search for a Place	ค้นหาสถานที่
+~	Search for a place:	ค้นหาสถานที่:
+~	Search results	ผลการค้นหา
+~	Search results for "{text}"	ผลการค้นหาสำหรับ "{text}"
+~	Searching…	กำลังค้นหา…
+~	Seek	กรอ
+~	Select	เลือก
+~	Select All	เลือกทั้งหมด
+~	Select Clips	เลือกคลิป
+~	Select None	ไม่เลือกเลย
+~	Select Pictures	เลือกรูปภาพ
+~	Select Section	เลือกส่วน
+~	Select Starred	เลือกรูปที่ติดดาว
+~	Select a folder first.	เลือกโฟลเดอร์ก่อน
+~	Select a photo of this person first.	เลือกรูปภาพของบุคคลนี้ก่อน
+~	Select in Import	เลือกในการนำเข้า
+~	Select in Tray	เลือกในถาด
+~	Select one photo to see all of its metadata.	เลือกรูปภาพหนึ่งรูปเพื่อดูข้อมูลเมตาทั้งหมด
+~	Select some photos first.	เลือกรูปภาพก่อน
+~	Select the photos to put here.	เลือกรูปภาพที่จะวางที่นี่
+~	Select the starred photos in this folder	เลือกรูปภาพที่ติดดาวในโฟลเดอร์นี้
+~	Selection	การเลือก
+~	Send to Bottom	ส่งไปล่างสุด
+~	Sepia	ซีเปีย
+~	Set Caption	ตั้งคำบรรยายภาพ
+~	Set End	ตั้งจุดสิ้นสุด
+~	Set Location	ตั้งตำแหน่ง
+~	Set Options	ตั้งตัวเลือก
+~	Set Recipe	ตั้งสูตร
+~	Set Shortcut	ตั้งทางลัด
+~	Set Star	ตั้งดาว
+~	Set Start	ตั้งจุดเริ่มต้น
+~	Set all pictures to the same date and time	ตั้งรูปภาพทั้งหมดเป็นวันที่และเวลาเดียวกัน
+~	Set as Album Cover	ตั้งเป็นปกอัลบั้ม
+~	Set as Background	ตั้งเป็นพื้นหลัง
+~	Set as Frame Center	ตั้งเป็นภาพกลางกรอบ
+~	Set as Person Thumbnail	ตั้งเป็นภาพย่อของบุคคล
+~	Set the black and white points	ตั้งจุดดำและจุดขาว
+~	Settings…	การตั้งค่า…
+~	Shadows	เงา
+~	Share of commits	สัดส่วนคอมมิต
+~	Sharpen	เพิ่มความคมชัด
+~	Sharpens detail and edges.	เพิ่มความคมชัดของรายละเอียดและขอบ
+~	Shift all dates by the same amount	เลื่อนวันที่ทั้งหมดด้วยระยะเวลาเท่ากัน
+~	Show All	แสดงทั้งหมด
+~	Show All Metadata	แสดงข้อมูลเมตาทั้งหมด
+~	Show Collage Tab	แสดงแท็บภาพปะติด
+~	Show Duplicate Files	แสดงไฟล์ซ้ำ
+~	Show Edit Controls	แสดงตัวควบคุมการแก้ไข
+~	Show Fewer	แสดงน้อยลง
+~	Show Folder	แสดงโฟลเดอร์
+~	Show Ignored Faces	แสดงใบหน้าที่ละเว้น
+~	Show JPEG files and:	แสดงไฟล์ JPEG และ:
+~	Show Log Folder	แสดงโฟลเดอร์บันทึก
+~	Show Original (hold \\)	แสดงต้นฉบับ (กด \\ ค้างไว้)
+~	Show Room	แสดงห้อง
+~	Show Tag as Album…	แสดงแท็กเป็นอัลบั้ม…
+~	Show These Photos	แสดงรูปภาพเหล่านี้
+~	Show Thumbnails in Tree	แสดงภาพย่อในแผนผัง
+~	Show Whole Photos	แสดงรูปภาพเต็มรูป
+~	Show a Place Found	แสดงสถานที่ที่พบ
+~	Show captions	แสดงคำบรรยายภาพ
+~	Show captions in the slideshow	แสดงคำบรรยายภาพในสไลด์โชว์
+~	Show commands without a shortcut	แสดงคำสั่งที่ไม่มีทางลัด
+~	Show folders as a flat list	แสดงโฟลเดอร์เป็นรายการแบบแบน
+~	Show in File Manager	แสดงในตัวจัดการไฟล์
+~	Show in Folder	แสดงในโฟลเดอร์
+~	Show map tiles from {provider}? Dalica fetches map pictures from the internet while this pane is open.	แสดงไทล์แผนที่จาก {provider} หรือไม่ Dalica จะดึงภาพแผนที่จากอินเทอร์เน็ตขณะที่แผงนี้เปิดอยู่
+~	Show one photo	แสดงรูปภาพเดียว
+~	Show only geotagged photos	แสดงเฉพาะรูปภาพที่มีแท็กตำแหน่ง
+~	Show only photos with faces	แสดงเฉพาะรูปภาพที่มีใบหน้า
+~	Show only recent photos	แสดงเฉพาะรูปภาพล่าสุด
+~	Show only suggestions	แสดงเฉพาะคำแนะนำ
+~	Show side by side, or one above the other	แสดงเคียงข้างกัน หรือบนล่าง
+~	Show starred photos only	แสดงเฉพาะรูปภาพที่ติดดาว
+~	Show the cropped photo (hold to look while pressed)	แสดงรูปภาพที่ครอบตัดแล้ว (กดค้างเพื่อดู)
+~	Show the folder tree	แสดงแผนผังโฟลเดอร์
+~	Show the photo at actual size	แสดงรูปภาพในขนาดจริง
+~	Show tooltips	แสดงคำแนะนำเครื่องมือ
+~	Show videos only	แสดงเฉพาะวิดีโอ
+~	Show/hide the People pane	แสดง/ซ่อนแผงบุคคล
+~	Show/hide the Places pane	แสดง/ซ่อนแผงสถานที่
+~	Show/hide the Properties pane	แสดง/ซ่อนแผงคุณสมบัติ
+~	Show/hide the Tags pane	แสดง/ซ่อนแผงแท็ก
+~	Shown on the map under the tiles.	แสดงบนแผนที่ใต้ไทล์
+~	Shuffle Pictures	สลับรูปภาพแบบสุ่ม
+~	Side pane	แผงด้านข้าง
+~	Simplified Tree	แผนผังแบบย่อ
+~	Simplified Tree View	มุมมองแผนผังแบบย่อ
+~	Single click on the photo returns to the library	คลิกครั้งเดียวบนรูปภาพเพื่อกลับไปที่คลังภาพ
+~	Size	ขนาด
+~	Size and quality	ขนาดและคุณภาพ
+~	Skip Duplicates	ข้ามรายการซ้ำ
+~	Skip pictures that are already in your library	ข้ามรูปภาพที่มีอยู่ในคลังภาพแล้ว
+~	Slideshow	สไลด์โชว์
+~	Slideshow Photos	รูปภาพสไลด์โชว์
+~	Slideshow: photo {p}	สไลด์โชว์: รูปภาพ {p}
+~	Small	เล็ก
+~	Small Pictures	รูปภาพขนาดเล็ก
+~	Small Thumbnails	ภาพย่อขนาดเล็ก
+~	Small files with some quality loss	ไฟล์เล็ก คุณภาพลดลงบ้าง
+~	Small pictures	รูปภาพขนาดเล็ก
+~	Small pictures with their names	รูปภาพขนาดเล็กพร้อมชื่อ
+~	Small-picture threshold	เกณฑ์รูปภาพขนาดเล็ก
+~	Smooth transitions when rotating, applying edits and previewing.	การเปลี่ยนภาพที่ราบรื่นเมื่อหมุน ใช้การแก้ไข และแสดงตัวอย่าง
+~	Soft Focus	โฟกัสนุ่ม
+~	Soften	ทำให้นุ่ม
+~	Softens the photo, or only where you paint.	ทำให้รูปภาพนุ่มนวลขึ้น หรือเฉพาะบริเวณที่คุณระบาย
+~	Solid color	สีพื้น
+~	Sort	เรียงลำดับ
+~	Sort Album By	เรียงอัลบั้มตาม
+~	Sort By	เรียงตาม
+~	Sort Folders	เรียงลำดับโฟลเดอร์
+~	Sort People	เรียงลำดับบุคคล
+~	Sort People by Count	เรียงบุคคลตามจำนวน
+~	Sort People by Name	เรียงบุคคลตามชื่อ
+~	Sort by Date	เรียงตามวันที่
+~	Sort by Name	เรียงตามชื่อ
+~	Sort by Recent Changes	เรียงตามการเปลี่ยนแปลงล่าสุด
+~	Sort by Size	เรียงตามขนาด
+~	Source code: {address}	ซอร์สโค้ด: {address}
+~	Split Folder Here…	แยกโฟลเดอร์ที่นี่…
+~	Square (1:1)	สี่เหลี่ยมจัตุรัส (1:1)
+~	Stamp photos with your name, a web address or a copyright notice.	ประทับชื่อของคุณ ที่อยู่เว็บ หรือข้อความลิขสิทธิ์ลงบนรูปภาพ
+~	Star / Unstar	ติดดาว / เอาดาวออก
+~	Starred	ติดดาวแล้ว
+~	Starred Photos	รูปภาพที่ติดดาว
+~	Start again from the crop in effect	เริ่มใหม่จากการครอบตัดที่ใช้อยู่
+~	Status line	บรรทัดสถานะ
+~	Step Frame	เลื่อนทีละเฟรม
+~	Step Frames	เลื่อนทีละเฟรม
+~	Stop Import	หยุดนำเข้า
+~	Stop importing?	หยุดการนำเข้าหรือไม่
+~	Store people names in photos	เก็บชื่อบุคคลไว้ในรูปภาพ
+~	Straighten	ปรับให้ตรง
+~	Straighten a tilted photo	ปรับรูปภาพที่เอียงให้ตรง
+~	Straighten angle	มุมปรับให้ตรง
+~	Stronger colour and contrast.	สีและคอนทราสต์เข้มข้นขึ้น
+~	Suggest Crops	แนะนำการครอบตัด
+~	Suggest names	แนะนำชื่อ
+~	Suggested crop {n}	การครอบตัดที่แนะนำ {n}
+~	Suggested crop {n} (on its way)	การครอบตัดที่แนะนำ {n} (กำลังเตรียม)
+~	Suggested crop {n} ({reason})	การครอบตัดที่แนะนำ {n} ({reason})
+~	Suggestion confidence	ความมั่นใจของคำแนะนำ
+~	Suggestions	คำแนะนำ
+~	Suggestions:	คำแนะนำ:
+~	Swap Pictures	สลับรูปภาพ
+~	Switch Focus	สลับโฟกัส
+~	Switch Layout	สลับเค้าโครง
+~	Switch focus to the other side	สลับโฟกัสไปอีกด้าน
+~	System	ระบบ
+~	System default	ค่าเริ่มต้นของระบบ
+~	TIFF	TIFF
+~	TIFF-based: {makers}	แบบ TIFF: {makers}
+~	Table	ตาราง
+~	Tags	แท็ก
+~	Tags in the selection:	แท็กในรายการที่เลือก:
+~	Tags: {tags}	แท็ก: {tags}
+~	Take off Page	นำออกจากหน้า
+~	Take the selected pictures out of the Clips	นำรูปภาพที่เลือกออกจากคลิป
+~	Takes the colour out, then tints the photo with one colour.	ดึงสีออก แล้วย้อมรูปภาพด้วยสีเดียว
+~	The Pictures folder unless chosen.	โฟลเดอร์รูปภาพ หากไม่ได้เลือก
+~	The Places pane fetches map pictures from the tile server while it is open.	แผงสถานที่จะดึงภาพแผนที่จากเซิร์ฟเวอร์ไทล์ขณะที่แผงเปิดอยู่
+~	The camera did not answer as expected ({detail})	กล้องไม่ตอบสนองตามที่คาดไว้ ({detail})
+~	The default folder	โฟลเดอร์เริ่มต้น
+~	The file could not be looked at.	ตรวจดูไฟล์ไม่ได้
+~	The file holds no other metadata.	ไฟล์นี้ไม่มีข้อมูลเมตาอื่น
+~	The folder already has files with the same names.	โฟลเดอร์มีไฟล์ที่ใช้ชื่อเดียวกันอยู่แล้ว
+~	The folder holds no photo Dalica can show.	โฟลเดอร์นี้ไม่มีรูปภาพที่ Dalica แสดงได้
+~	The folder is not in the library.	โฟลเดอร์ไม่อยู่ในคลังภาพ
+~	The library is still opening.	คลังภาพยังเปิดไม่เสร็จ
+~	The map needs an https:// address with {z}, {x} and {y}.	แผนที่ต้องใช้ที่อยู่ https:// ที่มี {z}, {x} และ {y}
+~	The model is kept on this computer only; Dalica never uploads or shares it.	โมเดลจะเก็บไว้ในคอมพิวเตอร์เครื่องนี้เท่านั้น Dalica จะไม่อัปโหลดหรือแชร์โมเดล
+~	The new name is the same.	ชื่อใหม่เหมือนเดิม
+~	The page's address is on the clipboard: {url}	คัดลอกที่อยู่ของหน้าไปยังคลิปบอร์ดแล้ว: {url}
+~	The program Open in External Editor starts; empty for the system's editor.	โปรแกรมที่ เปิดในโปรแกรมแก้ไขภายนอก จะเรียกใช้ เว้นว่างไว้เพื่อใช้โปรแกรมแก้ไขของระบบ
+~	The search needs an https:// address with {query}.	การค้นหาต้องใช้ที่อยู่ https:// ที่มี {query}
+~	The soft edges, grain and dark corners of a toy camera.	ขอบนุ่ม เกรน และมุมมืดแบบกล้องของเล่น
+~	The source cannot be read: {reason}	อ่านแหล่งที่มาไม่ได้: {reason}
+~	The system offers no other application for this file.	ระบบไม่มีแอปพลิเคชันอื่นสำหรับไฟล์นี้
+~	There are no release notes in this copy.	สำเนานี้ไม่มีบันทึกประจำรุ่น
+~	This clip plays without sound ({codec} sound can't be played)	คลิปนี้เล่นโดยไม่มีเสียง (เล่นเสียง {codec} ไม่ได้)
+~	This file cannot be used.	ใช้ไฟล์นี้ไม่ได้
+~	This file cannot be used: {why}	ใช้ไฟล์นี้ไม่ได้: {why}
+~	This folder cannot be read.	อ่านโฟลเดอร์นี้ไม่ได้
+~	This folder's data file was damaged and kept aside.	ไฟล์ข้อมูลของโฟลเดอร์นี้เสียหายและถูกแยกเก็บไว้
+~	This is the first photo (turn on Loop slideshow to go round).	นี่คือรูปภาพแรก (เปิด เล่นสไลด์โชว์วนซ้ำ เพื่อวนกลับ)
+~	This model is installed already.	ติดตั้งโมเดลนี้แล้ว
+~	This photo cannot be shown.	แสดงรูปภาพนี้ไม่ได้
+~	This photo has two different sets of edits. Which one do you want to keep?	รูปภาพนี้มีการแก้ไขสองชุดที่ต่างกัน คุณต้องการเก็บชุดใด
+~	This video can't be played	เล่นวิดีโอนี้ไม่ได้
+~	This video can't be played ({codec})	เล่นวิดีโอนี้ไม่ได้ ({codec})
+~	Thumbnail Caption	คำบรรยายภาพย่อ
+~	Thumbnail size	ขนาดภาพย่อ
+~	Tint	ย้อมสี
+~	Tints the photo with a gradient, such as a deeper sky.	ย้อมรูปภาพด้วยสีไล่ระดับ เช่น ท้องฟ้าที่เข้มขึ้น
+~	To find faces, Dalica needs these model files. Each is downloaded once from its own site and stays on this computer.	ในการค้นหาใบหน้า Dalica ต้องใช้ไฟล์โมเดลเหล่านี้ แต่ละไฟล์ดาวน์โหลดครั้งเดียวจากเว็บไซต์ของไฟล์นั้นและอยู่ในคอมพิวเตอร์เครื่องนี้
+~	Today's date	วันที่วันนี้
+~	Toggle Side Pane	สลับแผงด้านข้าง
+~	Toggle Tag	สลับแท็ก
+~	Too many changed shortcuts: apply them first.	มีทางลัดที่เปลี่ยนมากเกินไป: นำไปใช้ก่อน
+~	Tool Action	การกระทำของเครื่องมือ
+~	Toolbar	แถบเครื่องมือ
+~	Top of Library	ต้นคลังภาพ
+~	Transition	การเปลี่ยนภาพ
+~	Translucent Background	พื้นหลังโปร่งแสง
+~	Translucent background	พื้นหลังโปร่งแสง
+~	Tray buttons	ปุ่มของถาด
+~	Tree View	มุมมองแผนผัง
+~	Trim	ตัด
+~	Trim end	จุดสิ้นสุดการตัด
+~	Trim start	จุดเริ่มต้นการตัด
+~	Troubleshooting	การแก้ปัญหา
+~	Try fewer words or other filters.	ลองใช้คำน้อยลงหรือตัวกรองอื่น
+~	Tuning	การปรับแต่ง
+~	Turn and Scale Picture	หมุนและปรับขนาดรูปภาพ
+~	Turn the rectangle between portrait and landscape	สลับกรอบสี่เหลี่ยมระหว่างแนวตั้งและแนวนอน
+~	Turns the photo black and white.	เปลี่ยนรูปภาพเป็นขาวดำ
+~	Turns the photo into large square pixels.	เปลี่ยนรูปภาพเป็นพิกเซลสี่เหลี่ยมขนาดใหญ่
+~	Turns the photo warm brown, like an old print.	เปลี่ยนรูปภาพเป็นโทนน้ำตาลอุ่นเหมือนภาพพิมพ์เก่า
+~	Type a name	พิมพ์ชื่อ
+~	Type a tag	พิมพ์แท็ก
+~	Type a width and a height above 0.	พิมพ์ความกว้างและความสูงที่มากกว่า 0
+~	Type the date as YYYY-MM-DD.	พิมพ์วันที่ในรูปแบบ YYYY-MM-DD
+~	Type the tag's new name.	พิมพ์ชื่อใหม่ของแท็ก
+~	UI font size	ขนาดแบบอักษรของส่วนติดต่อ
+~	UI scale	สเกลของส่วนติดต่อ
+~	Undo	เลิกทำ
+~	Undo All Edits	เลิกทำการแก้ไขทั้งหมด
+~	Undo All Edits…	เลิกทำการแก้ไขทั้งหมด…
+~	Undo Edit	เลิกทำการแก้ไข
+~	Undo Patch	เลิกทำแพตช์
+~	Undo Save	เลิกทำการบันทึก
+~	Undo {action}	เลิกทำ {action}
+~	Unhide	เลิกซ่อน
+~	Unhide Folder	เลิกซ่อนโฟลเดอร์
+~	Unknown licence	สัญญาอนุญาตที่ไม่ทราบ
+~	Unnamed faces	ใบหน้าที่ไม่มีชื่อ
+~	Unnamed people	บุคคลที่ไม่มีชื่อ
+~	Update file modification time on metadata changes	อัปเดตเวลาแก้ไขไฟล์เมื่อข้อมูลเมตาเปลี่ยน
+~	Use Color Management	ใช้การจัดการสี
+~	Use Dalica	ใช้ Dalica
+~	Use Dalica as the Default Viewer	ใช้ Dalica เป็นโปรแกรมดูเริ่มต้น
+~	Use Dalica as the default viewer for these file types	ใช้ Dalica เป็นโปรแกรมดูเริ่มต้นสำหรับไฟล์ชนิดเหล่านี้
+~	Use Dalica as the default viewer for these file types:	ใช้ Dalica เป็นโปรแกรมดูเริ่มต้นสำหรับไฟล์ชนิดเหล่านี้:
+~	Use Face Model	ใช้โมเดลใบหน้า
+~	Use animations	ใช้ภาพเคลื่อนไหว
+~	Use original size	ใช้ขนาดต้นฉบับ
+~	Use picture	ใช้รูปภาพ
+~	Use system title bar	ใช้แถบชื่อเรื่องของระบบ
+~	Use the date of the newest photo	ใช้วันที่ของรูปภาพใหม่ที่สุด
+~	Use the date of the oldest photo	ใช้วันที่ของรูปภาพเก่าที่สุด
+~	Use the system's proxy settings	ใช้การตั้งค่าพร็อกซีของระบบ
+~	Use the top two buttons for recently used tags	ใช้ปุ่มสองปุ่มบนสุดสำหรับแท็กที่ใช้ล่าสุด
+~	Username	ชื่อผู้ใช้
+~	Version	เวอร์ชัน
+~	Video	วิดีโอ
+~	Video State	สถานะวิดีโอ
+~	Video, {duration}	วิดีโอ, {duration}
+~	Videos (MP4, MOV, M4V, MKV)	วิดีโอ (MP4, MOV, M4V, MKV)
+~	View Slideshow	ดูสไลด์โชว์
+~	View and Edit	ดูและแก้ไข
+~	View controls	ตัวควบคุมมุมมอง
+~	View options	ตัวเลือกมุมมอง
+~	Vignette	ขอบมืด
+~	Volume	ระดับเสียง
+~	Warmify	เพิ่มโทนอุ่น
+~	Warms the colours and gives skin a golden tone.	ทำให้สีอุ่นขึ้นและให้ผิวมีโทนสีทอง
+~	Watch Drive	เฝ้าดูไดรฟ์
+~	Watched Folders	โฟลเดอร์ที่เฝ้าดู
+~	Watched folders	โฟลเดอร์ที่เฝ้าดู
+~	Watching a whole drive can slow down your computer and fill the library with non-photo images. It's usually better to choose a few folders. Watch the whole drive anyway?	การเฝ้าดูทั้งไดรฟ์อาจทำให้คอมพิวเตอร์ช้าลงและทำให้คลังภาพเต็มไปด้วยภาพที่ไม่ใช่รูปถ่าย โดยปกติควรเลือกเพียงไม่กี่โฟลเดอร์ ยังต้องการเฝ้าดูทั้งไดรฟ์หรือไม่
+~	Watermark	ลายน้ำ
+~	WebP	WebP
+~	What it was trained on is not known.	ไม่ทราบว่าโมเดลนี้ฝึกด้วยข้อมูลใด
+~	Where these photos were taken	สถานที่ที่ถ่ายรูปภาพเหล่านี้
+~	White border	ขอบขาว
+~	Widescreen Film	ฟิล์มจอกว้าง
+~	Width	ความกว้าง
+~	Width × Height	กว้าง × สูง
+~	Wipe	กวาดเปลี่ยน
+~	Working in the background	กำลังทำงานเบื้องหลัง
+~	Write Names	เขียนชื่อ
+~	Write People Names	เขียนชื่อบุคคล
+~	Write People Names to Photos…	เขียนชื่อบุคคลลงในรูปภาพ…
+~	Write XMP sidecars for RAW files	เขียนไฟล์ประกอบ XMP สำหรับไฟล์ RAW
+~	Write a new data file for this folder	เขียนไฟล์ข้อมูลใหม่สำหรับโฟลเดอร์นี้
+~	Write captions, tags and places into photo files	เขียนคำบรรยายภาพ แท็ก และสถานที่ลงในไฟล์รูปภาพ
+~	Write date changes to files	เขียนการเปลี่ยนวันที่ลงในไฟล์
+~	Write stars as ratings (XMP)	เขียนดาวเป็นคะแนน (XMP)
+~	Write the names of the people in the selected picture into the files? Other applications will show them.	เขียนชื่อของบุคคลในรูปภาพที่เลือกลงในไฟล์หรือไม่ แอปพลิเคชันอื่นจะแสดงชื่อเหล่านี้
+~	Writes the names of the people in a photo into its file as face regions (XMP).	เขียนชื่อของบุคคลในรูปภาพลงในไฟล์เป็นบริเวณใบหน้า (XMP)
+~	Yellow	เหลือง
+~	You can change this at any time in Tools → Options → Photo Viewer.	คุณเปลี่ยนได้ทุกเมื่อใน เครื่องมือ → ตัวเลือก → โปรแกรมดูรูปภาพ
+~	Zoom	ซูม
+~	Zoom (pauses the slideshow)	ซูม (หยุดสไลด์โชว์ชั่วคราว)
+~	Zoom In	ซูมเข้า
+~	Zoom Out	ซูมออก
+~	Zoom in	ซูมเข้า
+~	Zoom out	ซูมออก
+~	Zoom to Faces	ซูมไปที่ใบหน้า
+~	Zoom {percent} %	ซูม {percent} %
+~	Zoomed to {pct} %	ซูมเป็น {pct} % แล้ว
+~	commercial use allowed	อนุญาตให้ใช้เชิงพาณิชย์
+~	commercial use not stated	ไม่ได้ระบุการใช้เชิงพาณิชย์
+~	face detector	ตัวตรวจจับใบหน้า
+~	face recogniser	ตัวจดจำใบหน้า
+~	folder {folder}	โฟลเดอร์ {folder}
+~	it could not be read	อ่านไม่ได้
+~	list…	รายการ…
+~	not for commercial use	ห้ามใช้เชิงพาณิชย์
+~	offline	ออฟไลน์
+~	or drop a .onnx file on the window	หรือวางไฟล์ .onnx บนหน้าต่าง
+~	the tile server	เซิร์ฟเวอร์ไทล์
+~	version {version}	เวอร์ชัน {version}
+~	{command}, {context}: {keys}	{command}, {context}: {keys}
+~	{contributors} · {commits}	{contributors} · {commits}
+~	{done}. {failed}	{done} {failed}
+~	{done}; the rest was cancelled	{done} ส่วนที่เหลือถูกยกเลิก
+~	{done}; {skipped}	{done}; {skipped}
+~	{key} is already {command} in {context}.	{key} ใช้กับ {command} ใน {context} อยู่แล้ว
+~	{length} equiv.	เทียบเท่า {length}
+~	{login}: {prs} merged pull requests, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binary_added} / −{binary_deleted} binary assets, {first} – {last}	{login}: พูลรีเควสต์ที่รวมแล้ว {prs} รายการ, {commits} คอมมิต, +{added} / −{deleted} บรรทัด (Δ {delta}), +{binary_added} / −{binary_deleted} ไฟล์ไบนารี, {first} – {last}
+~	{maker}, older cameras	{maker}, กล้องรุ่นเก่า
+~	{name} ({role})	{name} ({role})
+~	{name} ({w} × {h})	{name} ({w} × {h})
+~	{name} · {date} · {size}	{name} · {date} · {size}
+~	{name}, {count}	{name}, {count}
+~	{name}: {reason}	{name}: {reason}
+~	{percent} %	{percent} %
+~	{question} Saved pictures keep their saved pixels: {names} (Undo Save gives the original back).	{question} รูปภาพที่บันทึกแล้วจะคงพิกเซลที่บันทึกไว้: {names} (เลิกทำการบันทึก จะนำต้นฉบับกลับมา)
+~	{section} — Dalica	{section} — Dalica
+~	{size} GB	{size} GB
+~	{size} KB	{size} KB
+~	{size} MB	{size} MB
+~	{size} TB	{size} TB
+~	{size} in the file	{size} ในไฟล์
+~	{size} on disk	{size} บนดิสก์
+~	{tag} ({count} of {of})	{tag} ({count} จาก {of})
+~	{tool} tool open	เครื่องมือ{tool}เปิดอยู่
+~	{type} ({program})	{type} ({program})
+~@plural	Adjust Picture Date — {n} picture|Adjust Picture Date — {n} pictures	ปรับวันที่ของรูปภาพ — {n} รูป
+~@plural	Album selected — {n} photo|Album selected — {n} photos	เลือกอัลบั้มแล้ว — {n} รูป
+~@plural	Change the location of {n} photo?|Change the location of {n} photos?	เปลี่ยนตำแหน่งของรูปภาพ {n} รูปหรือไม่
+~@plural	Copied {n} photo to {folder}|Copied {n} photos to {folder}	คัดลอกรูปภาพ {n} รูปไปยัง {folder} แล้ว
+~@plural	Copied {n} photo|Copied {n} photos	คัดลอกรูปภาพ {n} รูปแล้ว
+~@plural	Copy {n} file to {folder}?|Copy {n} files to {folder}?	คัดลอกไฟล์ {n} ไฟล์ไปยัง {folder} หรือไม่
+~@plural	Folder selected — {n} photo|Folder selected — {n} photos	เลือกโฟลเดอร์แล้ว — {n} รูป
+~@plural	Found photo data from your previous photo program in {n} folder. Dalica shows it and saves any changes in its own files; the old files are never changed.|Found photo data from your previous photo program in {n} folders. Dalica shows it and saves any changes in its own files; the old files are never changed.	พบข้อมูลรูปภาพจากโปรแกรมรูปภาพเดิมของคุณใน {n} โฟลเดอร์ Dalica จะแสดงข้อมูลนี้และบันทึกการเปลี่ยนแปลงในไฟล์ของตัวเอง ไฟล์เดิมจะไม่ถูกเปลี่ยนแปลง
+~@plural	Import cancelled: {copied} of {n} picture copied; {failed} could not be imported:|Import cancelled: {copied} of {n} pictures copied; {failed} could not be imported:	ยกเลิกการนำเข้า: คัดลอกแล้ว {copied} จาก {n} รูป นำเข้าไม่ได้ {failed} รูป:
+~@plural	Import cancelled: {copied} of {n} picture copied|Import cancelled: {copied} of {n} pictures copied	ยกเลิกการนำเข้า: คัดลอกแล้ว {copied} จาก {n} รูป
+~@plural	Imported {n} picture; {failed} could not be imported:|Imported {n} pictures; {failed} could not be imported:	นำเข้ารูปภาพ {n} รูปแล้ว นำเข้าไม่ได้ {failed} รูป:
+~@plural	Imported {n} picture|Imported {n} pictures	นำเข้ารูปภาพ {n} รูปแล้ว
+~@plural	Loading {done} of {n} file…|Loading {done} of {n} files…	กำลังโหลด {done} จาก {n} ไฟล์…
+~@plural	Move the selected picture to the trash?|Move the {n} selected pictures to the trash?	ย้ายรูปภาพที่เลือก {n} รูปไปที่ถังขยะหรือไม่
+~@plural	Move {n} photo here?|Move {n} photos here?	ย้ายรูปภาพ {n} รูปมาที่นี่หรือไม่
+~@plural	Moved {n} copy to the Trash|Moved {n} copies to the Trash	ย้ายสำเนา {n} ชุดไปที่ถังขยะแล้ว
+~@plural	Moved {n} folder back|Moved {n} folders back	ย้ายโฟลเดอร์ {n} โฟลเดอร์กลับแล้ว
+~@plural	Moved {n} folder to the Trash|Moved {n} folders to the Trash	ย้ายโฟลเดอร์ {n} โฟลเดอร์ไปที่ถังขยะแล้ว
+~@plural	Moved {n} folder to {folder}|Moved {n} folders to {folder}	ย้ายโฟลเดอร์ {n} โฟลเดอร์ไปยัง {folder} แล้ว
+~@plural	Moved {n} folder|Moved {n} folders	ย้ายโฟลเดอร์ {n} โฟลเดอร์แล้ว
+~@plural	Moved {n} photo back|Moved {n} photos back	ย้ายรูปภาพ {n} รูปกลับแล้ว
+~@plural	Moved {n} photo to the Trash|Moved {n} photos to the Trash	ย้ายรูปภาพ {n} รูปไปที่ถังขยะแล้ว
+~@plural	Moved {n} photo to {folder}|Moved {n} photos to {folder}	ย้ายรูปภาพ {n} รูปไปยัง {folder} แล้ว
+~@plural	Moved {n} photo|Moved {n} photos	ย้ายรูปภาพ {n} รูปแล้ว
+~@plural	Names {n} face.|Names {n} faces.	ตั้งชื่อใบหน้า {n} ใบหน้า
+~@plural	Pictures up to {n} day old|Pictures up to {n} days old	รูปภาพอายุไม่เกิน {n} วัน
+~@plural	Pictures up to {n} month old|Pictures up to {n} months old	รูปภาพอายุไม่เกิน {n} เดือน
+~@plural	Pictures up to {n} week old|Pictures up to {n} weeks old	รูปภาพอายุไม่เกิน {n} สัปดาห์
+~@plural	Pictures up to {n} year old|Pictures up to {n} years old	รูปภาพอายุไม่เกิน {n} ปี
+~@plural	Properties of {n} photo|Properties of {n} photos	คุณสมบัติของรูปภาพ {n} รูป
+~@plural	Put {n} photo here?|Put {n} photos here?	วางรูปภาพ {n} รูปที่นี่หรือไม่
+~@plural	Remove all edits from {n} picture?|Remove all edits from {n} pictures?	เอาการแก้ไขทั้งหมดออกจากรูปภาพ {n} รูปหรือไม่
+~@plural	Remove the location from {n} photo?|Remove the location from {n} photos?	เอาตำแหน่งออกจากรูปภาพ {n} รูปหรือไม่
+~@plural	Remove the selected picture from this album? The file is not deleted.|Remove the {n} selected pictures from this album? The files are not deleted.	เอารูปภาพที่เลือก {n} รูปออกจากอัลบั้มนี้หรือไม่ ไฟล์จะไม่ถูกลบ
+~@plural	Rename “{tag}” on {n} photo to:|Rename “{tag}” on {n} photos to:	เปลี่ยนชื่อ “{tag}” บนรูปภาพ {n} รูปเป็น:
+~@plural	Renamed {n} folder back|Renamed {n} folders back	เปลี่ยนชื่อโฟลเดอร์ {n} โฟลเดอร์กลับแล้ว
+~@plural	Renamed {n} folder to {name}|Renamed {n} folders to {name}	เปลี่ยนชื่อโฟลเดอร์ {n} โฟลเดอร์เป็น {name} แล้ว
+~@plural	Renamed {n} folder|Renamed {n} folders	เปลี่ยนชื่อโฟลเดอร์ {n} โฟลเดอร์แล้ว
+~@plural	Renamed {n} photo back|Renamed {n} photos back	เปลี่ยนชื่อรูปภาพ {n} รูปกลับแล้ว
+~@plural	Renamed {n} photo|Renamed {n} photos	เปลี่ยนชื่อรูปภาพ {n} รูปแล้ว
+~@plural	Restored {n} folder from the Trash|Restored {n} folders from the Trash	กู้คืนโฟลเดอร์ {n} โฟลเดอร์จากถังขยะแล้ว
+~@plural	Restored {n} photo from the Trash|Restored {n} photos from the Trash	กู้คืนรูปภาพ {n} รูปจากถังขยะแล้ว
+~@plural	Scanning: {n} picture found|Scanning: {n} pictures found	กำลังสแกน: พบรูปภาพ {n} รูป
+~@plural	Showing {n} picture in {folders} ({seconds} s) · {size}|Showing {n} pictures in {folders} ({seconds} s) · {size}	แสดงรูปภาพ {n} รูปใน {folders} ({seconds} วินาที) · {size}
+~@plural	The picture keeps its date.|Every picture keeps its date.	รูปภาพคงวันที่เดิมไว้
+~@plural	The picture moves {amount} earlier.|Every picture moves {amount} earlier.	รูปภาพเลื่อนเร็วขึ้น {amount}
+~@plural	The picture moves {amount} later.|Every picture moves {amount} later.	รูปภาพเลื่อนช้าลง {amount}
+~@plural	and {n} more|and {n} more	และอีก {n} รายการ
+~@plural	{date} · {n} photo|{date} · {n} photos	{date} · {n} รูป
+~@plural	{detail}, and {n} more|{detail}, and {n} more	{detail} และอีก {n} รายการ
+~@plural	{names} and {n} more|{names} and {n} more	{names} และอีก {n} คน
+~@plural	{n} byte|{n} bytes	{n} ไบต์
+~@plural	{n} commit|{n} commits	{n} คอมมิต
+~@plural	{n} contributor|{n} contributors	ผู้ร่วมพัฒนา {n} คน
+~@plural	{n} day|{n} days	{n} วัน
+~@plural	{n} duplicate group ({files})|{n} duplicate groups ({files})	กลุ่มที่ซ้ำ {n} กลุ่ม ({files})
+~@plural	{n} duplicate skipped|{n} duplicates skipped	ข้ามรายการซ้ำ {n} รายการ
+~@plural	{n} edit from the previous program (not supported)|{n} edits from the previous program (not supported)	การแก้ไขจากโปรแกรมเดิม {n} รายการ (ไม่รองรับ)
+~@plural	{n} edited|{n} edited	แก้ไขแล้ว {n} รูป
+~@plural	{n} face They leave Unnamed and are never found again; Show Ignored Faces shows them.|{n} faces They leave Unnamed and are never found again; Show Ignored Faces shows them.	{n} ใบหน้า ใบหน้าเหล่านี้จะออกจาก ไม่มีชื่อ และจะไม่ถูกค้นพบอีก แสดงใบหน้าที่ละเว้น จะแสดงใบหน้าเหล่านี้
+~@plural	{n} face|{n} faces	{n} ใบหน้า
+~@plural	{n} file selected. Enter a new name:|{n} files selected. Enter a new name:	เลือกไฟล์ {n} ไฟล์ ป้อนชื่อใหม่:
+~@plural	{n} file|{n} files	{n} ไฟล์
+~@plural	{n} folder|{n} folders	{n} โฟลเดอร์
+~@plural	{n} item skipped|{n} items skipped	ข้าม {n} รายการ
+~@plural	{n} more|{n} more	อีก {n} รายการ
+~@plural	{n} photo here|{n} photos here	{n} รูปที่นี่
+~@plural	{n} photo moves into the new folder beside {folder}.|{n} photos move into the new folder beside {folder}.	รูปภาพ {n} รูปจะย้ายไปยังโฟลเดอร์ใหม่ข้าง {folder}
+~@plural	{n} photo moves into the new folder.|{n} photos move into the new folder.	รูปภาพ {n} รูปจะย้ายไปยังโฟลเดอร์ใหม่
+~@plural	{n} photo|{n} photos	{n} รูป
+~@plural	{n} picture|{n} pictures	{n} รูป
+~@plural	{n} place found|{n} places found	พบสถานที่ {n} แห่ง
+~@plural	{n} place in the selection|{n} places in the selection	{n} สถานที่ในรายการที่เลือก
+~@plural	{n} second|{n} seconds	{n} วินาที
+~@plural	{shown} of {n} face|{shown} of {n} faces	{shown} จาก {n} ใบหน้า
+~@plural	{status} · {n} to import|{status} · {n} to import	{status} · นำเข้า {n} รายการ
+~@plural	“{tag}” is already on {n} photo: the two tags will become one.|“{tag}” is already on {n} photos: the two tags will become one.	“{tag}” มีอยู่แล้วบนรูปภาพ {n} รูป: แท็กทั้งสองจะรวมเป็นแท็กเดียว
+~about tab	About	เกี่ยวกับ
+~action	Collage	ภาพปะติด
+~action	Export	ส่งออก
+~action	Slideshow	สไลด์โชว์
+~blend mode	Multiply	คูณ
+~blend mode	Normal	ปกติ
+~blend mode	Overlay	ซ้อนทับ
+~blend mode	Screen	สกรีน
+~blend mode	Soft Light	แสงนุ่ม
+~collage	Background	พื้นหลัง
+~collage	Remove	เอาออก
+~collage	Settings	การตั้งค่า
+~collage	Turn and scale	หมุนและปรับขนาด
+~collage	Turned {angle}°, scaled {scale} %	หมุน {angle}° ปรับขนาด {scale} %
+~collage style	Grid	ตาราง
+~colour picker	Hex color	รหัสสีฐานสิบหก
+~colour picker	Hue	เฉดสี
+~colour picker	Pick a color from the photo	เลือกสีจากรูปภาพ
+~colour picker	Saturation and brightness	ความอิ่มตัวและความสว่าง
+~compare	A	A
+~compare	A|A	A|A
+~compare	A|B	A|B
+~compare	Selected	ที่เลือก
+~credits	Show	แสดง
+~credits	Sort	เรียงลำดับ
+~credits column	+Bin	+ไบนารี
+~credits column	+Lines	+บรรทัด
+~credits column	First	แรก
+~credits column	Last	ล่าสุด
+~credits column	Model	โมเดล
+~credits column	Name	ชื่อ
+~credits column	PRs	PR
+~credits column	ΔLines	Δบรรทัด
+~credits column	−Bin	−ไบนารี
+~credits column	−Lines	−บรรทัด
+~crop	Manual	กำหนดเอง
+~crop	Preview	แสดงตัวอย่าง
+~crop	Rotate	หมุน
+~date	None	ไม่มี
+~date	YYYY-MM-DD	YYYY-MM-DD
+~date	{date} {time}	{date} {time}
+~date	{first} to {last}	{first} ถึง {last}
+~date	{month} {day}, {year}	{day} {month} {year}
+~date	{start} – {end}	{start} – {end}
+~date	{weekday}, {date}	{weekday}ที่ {date}
+~duration	{hours} h	{hours} ชม.
+~duration	{minutes} min	{minutes} นาที
+~duration	{seconds} s	{seconds} วินาที
+~edit panel	Histogram	ฮิสโตแกรม
+~effect	Amount	ปริมาณ
+~effect	Angle	มุม
+~effect	Background	พื้นหลัง
+~effect	Blend mode	โหมดผสม
+~effect	Bloom	การเรืองแสง
+~effect	Blur	ความเบลอ
+~effect	Blur Edges	เบลอขอบ
+~effect	Brightness	ความสว่าง
+~effect	Caption height	ความสูงคำบรรยาย
+~effect	Color	สี
+~effect	Contrast	คอนทราสต์
+~effect	Corner radius	รัศมีมุม
+~effect	Crosshair	เป้าเล็ง
+~effect	Distance	ระยะ
+~effect	Edge Hardness	ความคมของขอบ
+~effect	Fade	จางลง
+~effect	Feather	ขอบนุ่ม
+~effect	Filter color	สีฟิลเตอร์
+~effect	First color	สีที่หนึ่ง
+~effect	Focal Size	ขนาดจุดโฟกัส
+~effect	Grain	เกรน
+~effect	Inner color	สีด้านใน
+~effect	Inner thickness	ความหนาด้านใน
+~effect	Intensity	ความเข้ม
+~effect	Letterbox	แถบดำบนล่าง
+~effect	Lighten	ทำให้สว่าง
+~effect	Outer color	สีด้านนอก
+~effect	Outer thickness	ความหนาด้านนอก
+~effect	Pixel Size	ขนาดพิกเซล
+~effect	Radius	รัศมี
+~effect	Second color	สีที่สอง
+~effect	Shade	เฉด
+~effect	Shadow color	สีเงา
+~effect	Sharpness	ความคมชัด
+~effect	Size	ขนาด
+~effect	Softness	ความนุ่ม
+~effect	Strength	ความแรง
+~effect	Tint color	สีย้อม
+~effect	Zoom Amount	ระดับการซูม
+~face	Confirm	ยืนยัน
+~face	Confirm this match	ยืนยันว่าตรงกัน
+~face	Face	ใบหน้า
+~face	Ignore	ละเว้น
+~face	Ignore this face	ละเว้นใบหน้านี้
+~face	Not this person	ไม่ใช่บุคคลนี้
+~face	Reject	ปฏิเสธ
+~face	Unnamed face	ใบหน้าที่ไม่มีชื่อ
+~face box handle	Bottom edge	ขอบล่าง
+~face box handle	Bottom-left corner	มุมล่างซ้าย
+~face box handle	Bottom-right corner	มุมล่างขวา
+~face box handle	Left edge	ขอบซ้าย
+~face box handle	Right edge	ขอบขวา
+~face box handle	Top edge	ขอบบน
+~face box handle	Top-left corner	มุมบนซ้าย
+~face box handle	Top-right corner	มุมบนขวา
+~filter banner	Leave search	ออกจากการค้นหา
+~filter banner	Show All	แสดงทั้งหมด
+~folder group	Other	อื่น ๆ
+~form label	{label}:	{label}:
+~group header	Select this group	เลือกกลุ่มนี้
+~group header	Selects every picture taken in this period	เลือกรูปภาพทั้งหมดที่ถ่ายในช่วงเวลานี้
+~import	Exclude	ยกเว้น
+~import	Include	รวม
+~in progress	{label}…	{label}…
+~list	, 	,
+~list	None	ไม่มี
+~long date	{weekday}, {month} {day}, {year}	{weekday}ที่ {day} {month} {year}
+~map	Drop a pin	ปักหมุด
+~map	Map	แผนที่
+~map	Pin	หมุด
+~map	Zoom in	ซูมเข้า
+~map	Zoom level {zoom}	ระดับการซูม {zoom}
+~map	Zoom out	ซูมออก
+~menu	Album	อัลบั้ม
+~menu	Create	สร้าง
+~menu	Dalica	Dalica
+~menu	Edit	แก้ไข
+~menu	File	ไฟล์
+~menu	Folder	โฟลเดอร์
+~menu	Help	วิธีใช้
+~menu	Picture	รูปภาพ
+~menu	Tools	เครื่องมือ
+~menu	View	มุมมอง
+~month	April	เมษายน
+~month	August	สิงหาคม
+~month	December	ธันวาคม
+~month	February	กุมภาพันธ์
+~month	January	มกราคม
+~month	July	กรกฎาคม
+~month	June	มิถุนายน
+~month	March	มีนาคม
+~month	May	พฤษภาคม
+~month	November	พฤศจิกายน
+~month	October	ตุลาคม
+~month	September	กันยายน
+~options group	Faces	ใบหน้า
+~options group	Files	ไฟล์
+~options group	Map	แผนที่
+~options group	Proxy	พร็อกซี
+~options group	Slideshow	สไลด์โชว์
+~options group	Sound	เสียง
+~options tab	Export	ส่งออก
+~options tab	File Types	ชนิดไฟล์
+~options tab	General	ทั่วไป
+~options tab	Interface	ส่วนติดต่อผู้ใช้
+~options tab	Keyboard Shortcuts	แป้นพิมพ์ลัด
+~options tab	Network	เครือข่าย
+~options tab	People	บุคคล
+~options tab	Photo Viewer	โปรแกรมดูรูปภาพ
+~options tab	Slideshow	สไลด์โชว์
+~overlay	Controls	ตัวควบคุม
+~people	Unnamed	ไม่มีชื่อ
+~photo size	10 × 15	10 × 15
+~photo size	13 × 18	13 × 18
+~photo size	20 × 25	20 × 25
+~photo size	4 × 6	4 × 6
+~photo size	5 × 7	5 × 7
+~photo size	8 × 10	8 × 10
+~photo size	8.5 × 11 (Letter)	8.5 × 11 (Letter)
+~photo size	A4	A4
+~place	Desktop	เดสก์ท็อป
+~place	Documents	เอกสาร
+~place	Home	โฮม
+~place	Pictures	รูปภาพ
+~progress row	Cancel	ยกเลิก
+~property	Aperture	รูรับแสง
+~property	Camera	กล้อง
+~property	Caption	คำบรรยายภาพ
+~property	Color space	ปริภูมิสี
+~property	Date digitized	วันที่แปลงเป็นดิจิทัล
+~property	Date taken	วันที่ถ่าย
+~property	Dates	วันที่
+~property	Description	คำอธิบาย
+~property	Dimensions	ขนาดภาพ
+~property	Exposure	การรับแสง
+~property	File modified	วันที่แก้ไขไฟล์
+~property	File size	ขนาดไฟล์
+~property	Flash	แฟลช
+~property	Focal length	ทางยาวโฟกัส
+~property	GPS	GPS
+~property	ISO	ISO
+~property	Lens	เลนส์
+~property	Orientation	การวางแนว
+~property	Path	พาธ
+~property	Pictures	รูปภาพ
+~property	Place	สถานที่
+~property	Rating	คะแนน
+~property	Size on disk	ขนาดบนดิสก์
+~property	Tags	แท็ก
+~quality	Automatic	อัตโนมัติ
+~quality	Custom	กำหนดเอง
+~quality	Maximum	สูงสุด
+~quality	Minimum	ต่ำสุด
+~quality	Normal	ปกติ
+~room	Collage	ภาพปะติด
+~room	Import	นำเข้า
+~room	Library	คลังภาพ
+~room tab	Close	ปิด
+~room tab	Close {name}	ปิด {name}
+~scale	Auto	อัตโนมัติ
+~search field	Clear search	ล้างการค้นหา
+~shortcut context	All	ทั้งหมด
+~shortcut context	Collage	ภาพปะติด
+~shortcut context	Edit view	มุมมองแก้ไข
+~shortcut context	Global	ทั่วทั้งโปรแกรม
+~shortcut context	Import	นำเข้า
+~shortcut context	Library	คลังภาพ
+~shortcut context	Photo viewer	โปรแกรมดูรูปภาพ
+~shortcut context	Slideshow	สไลด์โชว์
+~shortcut context	Text input	การป้อนข้อความ
+~shortcut editor	No shortcut	ไม่มีทางลัด
+~shortcut editor	Press the new shortcut…	กดทางลัดใหม่…
+~shortcuts column	Command	คำสั่ง
+~shortcuts column	Context	บริบท
+~shortcuts column	Shortcuts	ทางลัด
+~side	Bottom	ล่าง
+~side	Left	ซ้าย
+~side	Right	ขวา
+~side	Top	บน
+~slideshow	Exit	ออก
+~slideshow	Play	เล่น
+~splitter	Splitter	ตัวแบ่ง
+~star toggle	Star	ดาว
+~star toggle	Star / Unstar	ติดดาว / เอาดาวออก
+~stepper	Decrease	ลด
+~stepper	Increase	เพิ่ม
+~suggestion	Confirm	ยืนยัน
+~suggestion	Reject	ปฏิเสธ
+~suggestion	{name}?	{name} ใช่ไหม
+~tab strip	More tabs	แท็บเพิ่มเติม
+~text menu	Copy	คัดลอก
+~text menu	Cut	ตัด
+~text menu	Paste	วาง
+~text menu	Select All	เลือกทั้งหมด
+~time	{hour}:{minute} AM	{hour}:{minute} ก่อนเที่ยง
+~time	{hour}:{minute} PM	{hour}:{minute} หลังเที่ยง
+~time	{hour}:{minute}:{second} AM	{hour}:{minute}:{second} ก่อนเที่ยง
+~time	{hour}:{minute}:{second} PM	{hour}:{minute}:{second} หลังเที่ยง
+~transition	Circle	วงกลม
+~transition	Cut	ตัดฉับ
+~transition	Dissolve	ค่อย ๆ จางเปลี่ยน
+~transition	Pan and Zoom	แพนและซูม
+~transition	Push	ผลัก
+~transition	Rectangle	สี่เหลี่ยมผืนผ้า
+~transition	Wipe	กวาดเปลี่ยน
+~unit	pixels	พิกเซล
+~unit	px	px
+~unit	{size} KB	{size} KB
+~unit	{size} MB	{size} MB
+~verb	Copy	คัดลอก
+~verb	Delete	ลบ
+~verb	Ignore	ละเว้น
+~verb	Keep	เก็บไว้
+~verb	Merge	รวม
+~verb	Move	ย้าย
+~verb	Remove	เอาออก
+~verb	Rename	เปลี่ยนชื่อ
+~verb	Reset	รีเซ็ต
+~verb	Revert	คืนค่า
+~verb	Star	ติดดาว
+~verb	Use	ใช้
+~video	Mute	ปิดเสียง
+~video	Position	ตำแหน่ง
+~video	Trim end	จุดสิ้นสุดการตัด
+~video	Trim start	จุดเริ่มต้นการตัด
+~video	Unmute	เปิดเสียง
+~video	Volume	ระดับเสียง
+~video	{time} (trimmed to {length})	{time} (ตัดเหลือ {length})
+~viewer	close	ปิด
+~weekday	Friday	วันศุกร์
+~weekday	Monday	วันจันทร์
+~weekday	Saturday	วันเสาร์
+~weekday	Sunday	วันอาทิตย์
+~weekday	Thursday	วันพฤหัสบดี
+~weekday	Tuesday	วันอังคาร
+~weekday	Wednesday	วันพุธ
+~window	Close	ปิด
+~window	Maximize	ขยายใหญ่สุด
+~window	Minimize	ย่อเล็กสุด
+~window	Restore	คืนขนาด
+~zoom	Fit	พอดี
