@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod control;
+mod drag_out;
 mod frame;
 mod gpu;
 mod icon;
@@ -351,7 +352,10 @@ fn run_window(
             if let Ok(mut slot) = keep.lock() {
                 *slot = guard;
             }
-            Ok(Box::new(w))
+            // Photos dragged out of the window become the OS's drag of their files (M15.23).
+            let drag_out = drag_out::Native::new();
+            dalica_ui::drag::out::install(&cc.egui_ctx, drag_out.clone());
+            Ok(Box::new(drag_out::Host::new(w, drag_out)))
         }),
     );
     let code = match ran {
