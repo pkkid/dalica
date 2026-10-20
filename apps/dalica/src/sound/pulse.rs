@@ -46,6 +46,7 @@ const SEQ_NAME: u32 = 1;
 const SEQ_CREATE: u32 = 2;
 const SEQ_TIMING: u32 = 3;
 const SEQ_DELETE: u32 = 4;
+const SEQ_TRIGGER: u32 = 5;
 
 /// The PulseAudio backend: the server's socket (none found: no output) and the user's cookie.
 pub struct Pulse {
@@ -253,8 +254,9 @@ impl Backend for Pulse {
         let mut heard: Option<(u64, Instant, bool)> = None;
         // Since when the sink has read everything written (what it still holds then plays out).
         let mut drained: Option<(i64, Instant)> = None;
-        // When samples were last sent.
+        // When samples were last sent, and the read offset last found stuck.
         let mut sent = Instant::now();
+        let mut unstuck: Option<i64> = None;
         let write = |w: &mut UnixStream, bytes: &[u8]| protocol::write_memblock(w, channel, bytes, 0).map_err(|e| format!("the sound server: {e}"));
         loop {
             match events.recv_timeout(Duration::from_millis(5)) {
@@ -275,10 +277,14 @@ impl Backend for Pulse {
                     } else {
                         drained = None;
                     }
-                    // Stopped short of what was written, with nothing more to come: the server
-                    // plays whole quanta, so the rest is padded with silence it then plays.
-                    if !l.playing && l.read_offset < l.write_offset && sent.elapsed() >= TIMING_EVERY && owed >= frame_bytes {
-                        let pad = owed.min(u64::from(bytes_for(TARGET_MS, format.rate, out))) / frame_bytes;
+                    // Stopped short of what was written, with nothing more to come (below the
+                    // pre-buffer, or short of a whole quantum): the server is told to play what it
+                    // holds, and the rest is padded with silence it then plays. Once per place.
+                    if !l.playing && l.read_offset < l.write_offset && sent.elapsed() >= TIMING_EVERY && unstuck != Some(l.read_offset) {
+                        unstuck = Some(l.read_offset);
+                        send(&mut w, SEQ_TRIGGER, &Command::TriggerPlaybackStream(channel), version)?;
+                        let pad = owed.max(u64::from(bytes_for(PREBUF_MS + MIN_REQUEST_MS, format.rate, out))) / frame_bytes;
+                        let pad = pad.min(u64::from(bytes_for(TARGET_MS, format.rate, out)) / frame_bytes);
                         write(&mut w, &vec![0u8; usize::try_from(pad * frame_bytes).unwrap_or(0)])?;
                         owed = owed.saturating_sub(pad * frame_bytes);
                         at.padded_with(pad);

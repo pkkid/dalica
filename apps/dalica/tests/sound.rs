@@ -139,11 +139,21 @@ fn on_this_os_the_default_output_plays_half_a_second_of_silence() {
     }
     out.queue(&vec![0.0; 48_000]).unwrap();
     let played = Instant::now();
-    until("half a second heard", || out.clock_ms() >= 500 || matches!(out.queue(&[]), Err(SoundError::Failed(_))));
+    let start = Instant::now();
+    while out.clock_ms() < 500 && !matches!(out.queue(&[]), Err(SoundError::Failed(_))) && start.elapsed() < PATIENCE {
+        std::thread::sleep(Duration::from_millis(5));
+    }
     if let Err(SoundError::Failed(why)) = out.queue(&[]) {
         eprintln!("skipped: the output failed: {why}");
         return;
     }
+    if out.clock_ms() == 0 {
+        // A device that takes no samples at all (a CI machine's placeholder output): nothing to
+        // measure here.
+        eprintln!("skipped: the default output took no samples in {} s", PATIENCE.as_secs());
+        return;
+    }
+    assert!(out.clock_ms() >= 500, "half a second heard, not {} ms", out.clock_ms());
     assert!(played.elapsed() >= Duration::from_millis(300), "the clock follows what is heard, not what is queued");
     out.stop();
 }
