@@ -30,12 +30,13 @@ use crate::commands::suggestions::{self as cmd, Kind, Snapshot};
 use crate::panels::people_pane::pictures;
 use crate::panels::thumbnails::Drawn;
 use crate::state::{self, FaceRef, PersonKey};
+use crate::tl;
 
 /// The strip's top in the header block (points): the row under the buttons.
 pub const TOP: f32 = 70.0;
 // Below the 22-high button row at 46.
 const _: () = assert!(TOP >= 68.0);
-/// What the strip says.
+/// What the strip says (English; drawn through the catalogs).
 pub const LABEL: &str = "Suggestions:";
 pub const HINT: &str = "Click ✓ to confirm a match or × to reject it.";
 pub const ONLY: &str = "Show only suggestions";
@@ -105,10 +106,17 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, section: state::Section, person: &Person
     strip.set_clip_rect(row.intersect(ui.clip_rect()));
     strip.spacing_mut().item_spacing.x = 6.0;
     let painter = strip.painter().clone();
-    let label = painter.layout_no_wrap(LABEL.to_owned(), fonts::regular(t.detail), t.text_label);
+    let label = painter.layout_no_wrap(tl!("Suggestions:"), fonts::regular(t.detail), t.text_label);
     let (_, at) = strip.allocate_space(label.size());
     painter.galley(at.min, label, t.text_label);
-    for (part, text, command) in BUTTONS {
+    for (part, english, command) in BUTTONS {
+        let text = match part {
+            "confirmAll" => tl!("Confirm All"),
+            "confirm" => tl!(ctx = "suggestion", "Confirm"),
+            "reject" => tl!(ctx = "suggestion", "Reject"),
+            "findMore" => tl!("Find More"),
+            _ => crate::i18n::tr(english),
+        };
         let on = match part {
             "confirmAll" => snapshot.pending(person) > 0,
             "confirm" | "reject" => selected,
@@ -120,7 +128,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, section: state::Section, person: &Person
                 if !on {
                     ui.disable();
                 }
-                widgets::text_button(ui, t, &id, text, false)
+                widgets::text_button(ui, t, &id, &text, false)
             })
             .inner;
         if r.clicked() {
@@ -131,13 +139,13 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, section: state::Section, person: &Person
     strip.add_space(8.0);
     let was = f.state.people.only_suggestions.contains(person);
     let mut now = was;
-    widgets::checkbox(&mut strip, t, &format!("section:{section}/{ONLY_PART}"), ONLY, &mut now);
+    widgets::checkbox(&mut strip, t, &format!("section:{section}/{ONLY_PART}"), &tl!("Show only suggestions"), &mut now);
     if now != was {
         out.push(("suggestions.only".to_string(), json!({ "person": person, "on": now })));
     }
     // The hint, where there is room for it.
     let left = strip.cursor().min.x + 10.0;
-    let hint = painter.layout_no_wrap(HINT.to_owned(), fonts::regular(t.detail), t.text_dim);
+    let hint = painter.layout_no_wrap(tl!("Click ✓ to confirm a match or × to reject it."), fonts::regular(t.detail), t.text_dim);
     if left + hint.size().x <= row.max.x {
         painter.galley(pos2(left, row.center().y - hint.size().y / 2.0).round(), hint, t.text_dim);
     }

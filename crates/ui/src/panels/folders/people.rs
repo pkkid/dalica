@@ -20,11 +20,14 @@ use dalica_engine::{JobState, Session};
 use dalica_library::{Library, PeopleSort as LibSort, Section as LibSection, TreeOptions, section_photos};
 
 use crate::state::{FaceRef, PeopleSort, PersonKey};
+use crate::tl;
 
 /// How many people Sort People by Top 10 puts first.
 pub const TOP: usize = 10;
 /// The Unnamed row's label.
-pub const UNNAMED: &str = "Unnamed";
+pub fn unnamed() -> String {
+    tl!(ctx = "people", "Unnamed")
+}
 
 /// A person's row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,5 +126,8 @@ pub fn sections(library: &Library, options: &TreeOptions, sort: PeopleSort) -> V
 pub fn scan_title(session: &Session) -> Option<String> {
     let job = session.job(session.face_scan().job()?)?;
     let running = matches!(job.state, JobState::Running | JobState::Queued) && job.progress.total > 0;
-    running.then(|| dalica_engine::faces_scan::progress_label(job.progress.done.min(job.progress.total), job.progress.total))
+    let number = crate::i18n::format::number;
+    running.then(|| {
+        tl!("Finding faces… {done} of {total}", done = number(job.progress.done.min(job.progress.total)), total = number(job.progress.total))
+    })
 }

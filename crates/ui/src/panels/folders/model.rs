@@ -38,9 +38,10 @@ use std::path::{Path, PathBuf};
 use dalica_core::FolderId;
 use dalica_library::{AlbumTree, Group, Row as TreeRow, Tree, TreeMode};
 
-use super::people::{PeopleGroup, UNNAMED};
+use super::people::{PeopleGroup, unnamed};
 use crate::panels::light_table::album_section;
 use crate::state::{AlbumSection, FaceRef, Section};
+use crate::tl;
 
 /// The heights of the pane's items and the indent per tree level (`design-system.md` §4).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -103,7 +104,9 @@ pub struct Row {
 }
 
 /// The marker an offline row carries.
-pub const OFFLINE: &str = "offline";
+pub fn offline() -> String {
+    tl!("offline")
+}
 
 impl Row {
     /// What `ui.widgets` says for it: `Lisbon Weekend (48)`. An offline row says the same (labels
@@ -196,14 +199,14 @@ pub struct Model {
 }
 
 /// A group's name in its header.
-pub fn group_name(g: Group) -> &'static str {
+pub fn group_name(g: Group) -> String {
     match g {
-        Group::Albums => "Albums",
-        Group::People => "People",
-        Group::Projects => "Projects",
-        Group::Folders => "Folders",
-        Group::Other => "Other",
-        Group::Hidden => "Hidden Folders",
+        Group::Albums => tl!("Albums"),
+        Group::People => tl!("People"),
+        Group::Projects => tl!("Projects"),
+        Group::Folders => tl!("Folders"),
+        Group::Other => tl!(ctx = "folder group", "Other"),
+        Group::Hidden => tl!("Hidden Folders"),
     }
 }
 
@@ -261,7 +264,7 @@ impl Model {
                     folder: None,
                     album: Some(album),
                     path: PathBuf::new(),
-                    name: a.name.clone(),
+                    name: crate::panels::light_table::album_title(&a.album, &a.name),
                     count: a.count,
                     depth: 0,
                     has_children: false,
@@ -282,7 +285,7 @@ impl Model {
             let header = Kind::Header { group: Group::People, title: group_title(Group::People, people.people), collapsed: people.collapsed };
             push(&mut items, header, h.header);
             if !people.collapsed {
-                let unnamed = Row { unnamed: true, ..Row::plain(UNNAMED_ID.into(), UNNAMED.into(), people.unnamed) };
+                let unnamed = Row { unnamed: true, ..Row::plain(UNNAMED_ID.into(), unnamed(), people.unnamed) };
                 push(&mut items, Kind::Row(unnamed), h.person);
                 for p in &people.rows {
                     let album = AlbumSection::Person(p.key);

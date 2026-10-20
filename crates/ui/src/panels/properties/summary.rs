@@ -14,9 +14,10 @@ use egui::Id;
 use super::answer::{Row, one_line};
 use crate::app::App;
 use crate::status_text as status;
+use crate::tl;
 
-fn row(key: &str, label: &str, value: String) -> Row {
-    Row { key: key.to_owned(), label: label.to_owned(), value: one_line(&value), note: None }
+fn row(key: &str, label: String, value: String) -> Row {
+    Row { key: key.to_owned(), label, value: one_line(&value), note: None }
 }
 
 /// The rows for the photos `ids` (unknown ones left out) and, for a folder selected as a unit,
@@ -24,26 +25,26 @@ fn row(key: &str, label: &str, value: String) -> Row {
 pub fn rows(library: &Library, ids: &[PhotoId], folder: Option<FolderId>) -> Vec<Row> {
     let mut out = Vec::new();
     if let Some(f) = folder.and_then(|f| library.folder(f).map(|folder| (f, folder))) {
-        out.push(row("path", "Path", f.1.path.display().to_string()));
+        out.push(row("path", tl!(ctx = "property", "Path"), f.1.path.display().to_string()));
         let info = library.folder_info(f.0);
         if !info.place.is_empty() {
-            out.push(row("place", "Place", info.place.clone()));
+            out.push(row("place", tl!(ctx = "property", "Place"), info.place.clone()));
         }
         if !info.description.is_empty() {
-            out.push(row("description", "Description", info.description.clone()));
+            out.push(row("description", tl!(ctx = "property", "Description"), info.description.clone()));
         }
     }
     let photos: Vec<_> = ids.iter().filter_map(|id| library.photo(*id)).collect();
-    out.push(row("pictures", "Pictures", status::grouped(photos.len())));
+    out.push(row("pictures", tl!(ctx = "property", "Pictures"), status::grouped(photos.len())));
     if let Some(dates) = status::date_range(photos.iter().filter_map(|p| library.sort_date(p).map(|d| d.date()))) {
-        out.push(row("dates", "Dates", dates));
+        out.push(row("dates", tl!(ctx = "property", "Dates"), dates));
     }
     let bytes = photos.iter().fold(0u64, |sum, p| sum.saturating_add(p.size));
-    out.push(row("size", "Size on disk", status::size(bytes)));
+    out.push(row("size", tl!(ctx = "property", "Size on disk"), status::size(bytes)));
     let tags = status::selection_tags(library, ids);
     if !tags.is_empty() {
         let list: Vec<String> = tags.iter().map(|(tag, n)| format!("{tag} ({n})")).collect();
-        out.push(row("tags", "Tags", list.join(", ")));
+        out.push(row("tags", tl!(ctx = "property", "Tags"), list.join(&tl!(ctx = "list", ", "))));
     }
     out
 }
@@ -54,6 +55,8 @@ struct Kept {
     revision: Option<u64>,
     ids: Vec<PhotoId>,
     folder: Option<FolderId>,
+    /// The language the rows were written in.
+    language: &'static str,
     rows: Arc<Vec<Row>>,
 }
 
@@ -64,15 +67,16 @@ pub fn kept(app: &App, ctx: &egui::Context, folder: Option<FolderId>) -> Arc<Vec
     let Some(library) = app.session().map(dalica_engine::Session::library) else { return Arc::default() };
     let revision = library.revision();
     let ids = &app.state().selection.ids;
+    let language = crate::i18n::current().code;
     let hit = ctx.data_mut(|d| {
         let k = d.get_temp_mut_or_default::<Kept>(key);
-        (k.revision == Some(revision) && k.folder == folder && k.ids == *ids).then(|| Arc::clone(&k.rows))
+        (k.revision == Some(revision) && k.folder == folder && k.ids == *ids && k.language == language).then(|| Arc::clone(&k.rows))
     });
     if let Some(rows) = hit {
         return rows;
     }
     let made = Arc::new(rows(library, ids, folder));
-    ctx.data_mut(|d| d.insert_temp(key, Kept { revision: Some(revision), ids: ids.clone(), folder, rows: Arc::clone(&made) }));
+    ctx.data_mut(|d| d.insert_temp(key, Kept { revision: Some(revision), ids: ids.clone(), folder, language, rows: Arc::clone(&made) }));
     made
 }
 

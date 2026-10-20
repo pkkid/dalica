@@ -36,8 +36,10 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::state::{Bubble, DropAt, MAP_LAT_MAX, MAX_DRAFT};
+use crate::tl;
 
-/// The status line with nothing geotagged.
+/// The status line with nothing geotagged (this and the texts below in English; drawn through the
+/// catalogs).
 pub const NONE: &str = "No places in the selection";
 /// The map's name: it registers `map:places`.
 pub const MAP: &str = "places";
@@ -73,7 +75,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let ctx = ui.ctx().clone();
     let body = ui.max_rect();
-    widgets::register(&ctx, REGION_ID, Role::Other, "Places", Target::Painted { rect: body, clip: ui.clip_rect() }, false);
+    widgets::register(&ctx, REGION_ID, Role::Other, &tl!("Places"), Target::Painted { rect: body, clip: ui.clip_rect() }, false);
     let (status, map_rect, caption, field) = parts(&t, body);
     let places = markers::cached(app, &ctx);
 
@@ -93,7 +95,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         map_part(app, ui, map_rect, &places);
     }
 
-    widgets::label_in(&painter, caption, Align2::LEFT_CENTER, SEARCH_CAPTION, fonts::regular(t.body), t.text_label);
+    widgets::label_in(&painter, caption, Align2::LEFT_CENTER, &tl!("Search for a place:"), fonts::regular(t.body), t.text_label);
     let mut row = ui.new_child(egui::UiBuilder::new().max_rect(field).layout(egui::Layout::left_to_right(egui::Align::Center)));
     search_field(app, &mut row, field.width());
     tiles::show(app, &mut row);
@@ -104,7 +106,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 fn search_field(app: &mut App, ui: &mut Ui, width: f32) {
     let t = *app.tokens();
     let mut text = app.state().places.search.clone();
-    let out = widgets::text_field(ui, &t, SEARCH_ID, &mut text, SEARCH_HINT, width);
+    let out = widgets::text_field(ui, &t, SEARCH_ID, &mut text, &tl!("Coordinates, such as 38.7, -9.14"), width);
     if text != app.state().places.search {
         if let Some((at, _)) = text.char_indices().nth(MAX_DRAFT) {
             text.truncate(at);
@@ -179,7 +181,12 @@ fn map_part(app: &mut App, ui: &mut Ui, rect: Rect, places: &[markers::Place]) {
     m.pin = pin;
     m.pin_tool = armed;
     m.payload = payload;
-    m.bubble = shown.as_ref().map(|b| MapBubble { anchor: b.anchor, thumbs: &thumbs, text: &b.text, buttons: &b.buttons });
+    let labels: Vec<String> = shown.as_ref().map(|b| b.buttons.iter().map(|x| bubble::label(x.id, x.label)).collect()).unwrap_or_default();
+    let buttons: Vec<widgets::BubbleButton<'_>> = shown
+        .as_ref()
+        .map(|b| b.buttons.iter().zip(&labels).map(|(x, label)| widgets::BubbleButton { id: x.id, label, primary: x.primary }).collect())
+        .unwrap_or_default();
+    m.bubble = shown.as_ref().map(|b| MapBubble { anchor: b.anchor, thumbs: &thumbs, text: &b.text, buttons: &buttons });
     let out = widgets::map(ui, &t, rect, &m);
     tiles::after_map(app, ui, rect, &out, layer.attribution.as_deref());
 

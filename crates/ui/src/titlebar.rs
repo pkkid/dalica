@@ -27,6 +27,7 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Context, CursorIcon, Id, PointerButton, Rect, ResizeDirection, Sense, Stroke, StrokeKind, Ui, UiBuilder, ViewportCommand, pos2, vec2};
 
 use crate::app::App;
+use crate::tl;
 
 /// The title bar's height (the menu row, `layout::MENU_BAR`), its last point the divider line.
 pub const HEIGHT: f32 = 32.0;
@@ -85,8 +86,8 @@ pub fn chrome(ctx: &Context) -> Chrome {
 /// The window title: "Dalica", or "<folder or album> — Dalica" while a section is selected.
 pub fn window_title(section: Option<&str>) -> String {
     match section.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(s) => format!("{s} — {APP_NAME}"),
-        None => APP_NAME.to_string(),
+        Some(s) => tl!("{section} — Dalica", section = s),
+        None => tl!("Dalica"),
     }
 }
 
@@ -198,14 +199,15 @@ pub fn show(ui: &mut Ui, app: &mut App, bar: Rect, section: Option<&str>) {
         }
     }
     if let Some([min, max, close]) = p.captions {
-        let (max_glyph, max_label) = if maximized { (Glyph::Restore, "Restore") } else { (Glyph::Maximize, "Maximize") };
-        if caption(ui, &t, min, "button:window.minimize", Glyph::Minimize, "Minimize").clicked() {
+        let (max_glyph, max_label) =
+            if maximized { (Glyph::Restore, tl!(ctx = "window", "Restore")) } else { (Glyph::Maximize, tl!(ctx = "window", "Maximize")) };
+        if caption(ui, &t, min, "button:window.minimize", Glyph::Minimize, &tl!(ctx = "window", "Minimize")).clicked() {
             ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
         }
-        if caption(ui, &t, max, "button:window.maximize", max_glyph, max_label).clicked() {
+        if caption(ui, &t, max, "button:window.maximize", max_glyph, &max_label).clicked() {
             ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
         }
-        if caption(ui, &t, close, "button:window.close", Glyph::Close, "Close").clicked() {
+        if caption(ui, &t, close, "button:window.close", Glyph::Close, &tl!(ctx = "window", "Close")).clicked() {
             // File → Exit: the window closes the way the OS close does, so the library is flushed
             // (`on_exit`) before the process ends.
             ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -348,7 +350,7 @@ pub fn resize_edges(ui: &mut Ui) {
         let r = ui.interact(rect, Id::new(("dalica-resize", i)), Sense::drag()).on_hover_cursor(cursor(dir));
         // A corner has two bands under one id: the registry keeps the first.
         if i % 2 == 0 || i >= 8 {
-            widgets::register(&ctx, id, Role::Other, "Resize the window", Target::Widget(&r), false);
+            widgets::register(&ctx, id, Role::Other, &tl!("Resize the window"), Target::Widget(&r), false);
         }
         if pressed && r.is_pointer_button_down_on() {
             ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));

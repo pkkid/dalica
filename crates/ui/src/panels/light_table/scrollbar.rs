@@ -104,13 +104,13 @@ impl Part {
         }
     }
 
-    fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Part::PrevSection => "Previous section",
-            Part::Up => "Scroll up",
-            Part::Track => "Scroll bar",
-            Part::Down => "Scroll down",
-            Part::NextSection => "Next section",
+            Part::PrevSection => crate::tl!("Previous section"),
+            Part::Up => crate::tl!("Scroll up"),
+            Part::Track => crate::tl!("Scroll bar"),
+            Part::Down => crate::tl!("Scroll down"),
+            Part::NextSection => crate::tl!("Next section"),
         }
     }
 }
@@ -393,7 +393,7 @@ pub fn paint(ui: &mut Ui, f: &Frame<'_>, bar: &mut Scrollbar, rect: Rect) {
     let enabled = bar.scrollable;
     for (part, r) in &bar.responses {
         if *part == Part::Track {
-            widgets::register(ui.ctx(), part.id(), Role::ScrollTrack, part.label(), Target::Widget(r), r.is_pointer_button_down_on());
+            widgets::register(ui.ctx(), part.id(), Role::ScrollTrack, &part.label(), Target::Widget(r), r.is_pointer_button_down_on());
             continue;
         }
         let area = p.get(*part);
@@ -410,7 +410,7 @@ pub fn paint(ui: &mut Ui, f: &Frame<'_>, bar: &mut Scrollbar, rect: Rect) {
             t.icon
         };
         paint_arrow(&painter, area, *part, color);
-        widgets::register(ui.ctx(), part.id(), Role::IconButton, part.label(), Target::Widget(r), pressed);
+        widgets::register(ui.ctx(), part.id(), Role::IconButton, &part.label(), Target::Widget(r), pressed);
     }
     let th = thumb(p.track, bar.displacement);
     let active = enabled && (thumb_r.is_pointer_button_down_on() || thumb_r.hovered());
@@ -424,7 +424,14 @@ pub fn paint(ui: &mut Ui, f: &Frame<'_>, bar: &mut Scrollbar, rect: Rect) {
         painter.rect_filled(m, 0, t.text_dim.gamma_multiply(0.4));
     }
     bar.painted = Some((th, m));
-    widgets::register(ui.ctx(), "scroll:thumb", Role::ScrollThumb, "Scroll speed", Target::Widget(&thumb_r), thumb_r.is_pointer_button_down_on());
+    widgets::register(
+        ui.ctx(),
+        "scroll:thumb",
+        Role::ScrollThumb,
+        &crate::tl!("Scroll speed"),
+        Target::Widget(&thumb_r),
+        thumb_r.is_pointer_button_down_on(),
+    );
 }
 
 /// ▲ / ▼ as a chevron; ⇑ / ⇓ as a chevron under (over) a bar.

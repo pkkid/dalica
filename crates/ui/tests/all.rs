@@ -50,6 +50,7 @@ mod folder_properties;
 mod heic_hint;
 mod hidden;
 mod i18n;
+mod i18n_window;
 mod idle_write_back;
 mod import_camera;
 mod import_room;

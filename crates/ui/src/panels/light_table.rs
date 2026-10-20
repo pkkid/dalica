@@ -70,6 +70,7 @@ use super::thumbnails::Motion;
 use crate::app::App;
 use crate::perf::{self, Counter};
 use crate::state::{self, Caption, ScrollAnchor, UiState};
+use crate::{tl, tln};
 
 /// How long `section.scrollTo` (and any scroll written from outside) takes to arrive (seconds).
 pub const SCROLL_SECONDS: f64 = 0.2;
@@ -79,13 +80,26 @@ pub const ADD_FOLDER_ID: &str = "button:empty.addFolder";
 pub const IMPORT_ID: &str = "button:empty.import";
 /// The empty state of a search that matches nothing (`control-protocol.md` §7).
 pub const NO_MATCHES_ID: &str = "empty:search";
-/// What it says (`ui-layout.md` §5.3), and its [Show All], which leaves search mode.
+/// What it says (`ui-layout.md` §5.3), and its [Show All], which leaves search mode (English; the
+/// window draws them through the catalogs).
 pub const NO_MATCHES_TITLE: &str = "No photos found";
 pub const NO_MATCHES_BODY: &str = "Try fewer words or other filters.";
 pub const SHOW_ALL_ID: &str = "button:empty.showAll";
 pub const SHOW_ALL_LABEL: &str = "Show All";
-/// The title of Find Duplicates' section.
+/// The title of Find Duplicates' section, in English ([`duplicates_title`] in the language in
+/// effect).
 pub const DUPLICATES_TITLE: &str = "Duplicate Files";
+
+/// The title of Find Duplicates' section.
+pub fn duplicates_title() -> String {
+    tl!("Duplicate Files")
+}
+
+/// The subtitle of Find Duplicates' section: `3 duplicate groups (7 files)`.
+pub fn duplicates_banner(groups: usize, files: usize) -> String {
+    let files = tln!(files, "{n} file", "{n} files");
+    tln!(groups, "{n} duplicate group ({files})", "{n} duplicate groups ({files})", files = files)
+}
 
 /// One section of the light table: a folder's or an album's photos as the light table shows them.
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +149,8 @@ struct ModelKey {
     duplicates: Option<u64>,
     /// The order of the person sections (the view options' Sort People by …).
     people: state::PeopleSort,
+    /// The language the titles and subtitles are written in.
+    language: &'static str,
     /// The suggestions the person sections show (`suggestions`).
     suggested: suggestions::SectionsKey,
 }
@@ -191,6 +207,7 @@ impl Sections {
                 && k.duplicates == generation
                 && k.people == people
                 && k.suggested == sk
+                && k.language == crate::i18n::current().code
         });
         if fresh {
             return false;
@@ -205,10 +222,10 @@ impl Sections {
             );
             let photos = shown.into_iter().next().map(|(_, ids)| ids).unwrap_or_default();
             if !photos.is_empty() {
-                let subtitle = dalica_engine::duplicates::banner(d.groups.len(), d.files);
+                let subtitle = duplicates_banner(d.groups.len(), d.files);
                 let id = state::Section::Album(state::AlbumSection::Search);
                 self.list.retain(|s| s.id != id);
-                self.list.insert(0, Section { id, folder: None, title: DUPLICATES_TITLE.into(), subtitle, photos });
+                self.list.insert(0, Section { id, folder: None, title: duplicates_title(), subtitle, photos });
             }
         }
         self.index = self.list.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
@@ -220,6 +237,7 @@ impl Sections {
             duplicates: generation,
             people,
             suggested: sk,
+            language: crate::i18n::current().code,
         });
         true
     }
@@ -228,7 +246,7 @@ impl Sections {
     /// the default tree options. The panels refresh them with the real options first each frame
     /// ([`refresh`]), so in the app this is a no-op.
     pub fn update(&mut self, library: &Library) {
-        if self.key.as_ref().is_some_and(|k| k.revision == library.revision()) {
+        if self.key.as_ref().is_some_and(|k| k.revision == library.revision() && k.language == crate::i18n::current().code) {
             return;
         }
         self.refresh(library, &[], &TreeOptions::default());
@@ -333,7 +351,7 @@ fn build(
         out.push(Section {
             id: state::Section::Album(album_section(album)),
             folder: None,
-            title: title.to_string(),
+            title: album_title(album, title),
             subtitle: subtitle(date.map(|d| d.date()), photos.len()),
             photos,
         });
@@ -375,21 +393,32 @@ fn build(
     out
 }
 
-/// The line under a section's title: `June 4, 2026 · 48 photos`, or the count alone.
-fn subtitle(date: Option<dalica_core::Date>, count: usize) -> String {
-    let count = if count == 1 { "1 photo".to_string() } else { format!("{count} photos") };
-    match date {
-        Some(d) => format!("{} · {count}", long_date(d)),
-        None => count,
+/// The name the light table and the tree give an album of the Albums group: a user album's as
+/// the library has it, the built-in albums' in the language in effect (the search's around the
+/// text searched for, which the library's English name quotes).
+pub fn album_title(album: &AlbumRef, name: &str) -> String {
+    match album {
+        AlbumRef::Starred => tl!("Starred Photos"),
+        AlbumRef::Recent => tl!("Recently Updated"),
+        AlbumRef::Search => match name.strip_prefix("Search results for \"").and_then(|r| r.strip_suffix('"')) {
+            Some(text) => tl!("Search results for \"{text}\"", text = text),
+            None => name.to_string(),
+        },
+        AlbumRef::User(_) => name.to_string(),
     }
 }
 
-/// `June 4, 2026`.
+/// The line under a section's title: `June 4, 2026 · 48 photos`, or the count alone.
+fn subtitle(date: Option<dalica_core::Date>, count: usize) -> String {
+    match date {
+        Some(d) => tln!(count, "{date} · {n} photo", "{date} · {n} photos", date = long_date(d)),
+        None => tln!(count, "{n} photo", "{n} photos"),
+    }
+}
+
+/// `June 4, 2026`, in the language in effect ([`crate::i18n::format::long_date`]).
 pub fn long_date(d: dalica_core::Date) -> String {
-    const MONTHS: [&str; 12] =
-        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    let month = MONTHS.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("?");
-    format!("{month} {}, {}", d.day(), d.year())
+    crate::i18n::format::long_date(d)
 }
 
 /// A folder's display name: its last path component.
@@ -596,8 +625,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
             empty_state(app, ui, area);
         } else if no_matches {
             let mut child = ui.new_child(UiBuilder::new().id_salt("lightTable.noMatches").max_rect(area));
-            let show_all =
-                widgets::empty_state(&mut child, &t, NO_MATCHES_ID, NO_MATCHES_TITLE, NO_MATCHES_BODY, Some((SHOW_ALL_ID, SHOW_ALL_LABEL)));
+            let (title, body, show) = (tl!("No photos found"), tl!("Try fewer words or other filters."), tl!("Show All"));
+            let show_all = widgets::empty_state(&mut child, &t, NO_MATCHES_ID, &title, &body, Some((SHOW_ALL_ID, &show)));
             if show_all.is_some_and(|r| r.clicked()) {
                 crate::commands::search::clear(app);
             }
@@ -753,16 +782,16 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
 fn empty_state(app: &mut App, ui: &mut Ui, area: Rect) {
     let t = *app.tokens();
     let mut child = ui.new_child(UiBuilder::new().id_salt("lightTable.empty").max_rect(area));
-    let body = "Add a folder of photos to see them here, or import them from a camera or a card.";
-    widgets::empty_state(&mut child, &t, EMPTY_ID, "No pictures yet", body, None);
+    let body = tl!("Add a folder of photos to see them here, or import them from a camera or a card.");
+    widgets::empty_state(&mut child, &t, EMPTY_ID, &tl!("No pictures yet"), &body, None);
     let can_add = crate::dialogs::can_open(app, crate::dialogs::DialogKind::FolderManager).is_ok();
     let can_import = available(app, "import.open");
     let width = |label: &str| {
         let g = child.painter().layout_no_wrap(label.to_owned(), fonts::semibold(t.button_label), t.text);
         (g.size().x + 18.0).max(37.0).round()
     };
-    let (add, import) = ("Add a Folder…", "Import…");
-    let (wa, wi) = (width(add), width(import));
+    let (add, import) = (tl!("Add a Folder…"), tl!("Import…"));
+    let (wa, wi) = (width(&add), width(&import));
     const GAP: f32 = 8.0;
     let top = (child.cursor().top() + 16.0).round();
     let left = (area.center().x - (wa + GAP + wi) / 2.0).round();
@@ -774,7 +803,7 @@ fn empty_state(app: &mut App, ui: &mut Ui, area: Rect) {
             if !can_add {
                 ui.disable();
             }
-            widgets::primary_button(ui, &t, ADD_FOLDER_ID, add).clicked()
+            widgets::primary_button(ui, &t, ADD_FOLDER_ID, &add).clicked()
         })
         .inner;
     let imported = child
@@ -782,7 +811,7 @@ fn empty_state(app: &mut App, ui: &mut Ui, area: Rect) {
             if !can_import {
                 ui.disable();
             }
-            widgets::text_button(ui, &t, IMPORT_ID, import, false).clicked()
+            widgets::text_button(ui, &t, IMPORT_ID, &import, false).clicked()
         })
         .inner;
     if added {
@@ -805,6 +834,18 @@ mod tests {
     #[test]
     fn dates_read_as_words() {
         assert_eq!(long_date(dalica_core::Date::new(2026, 6, 4).unwrap()), "June 4, 2026");
+    }
+
+    #[test]
+    fn subtitles_and_the_duplicates_banner_read_as_before_in_english() {
+        let day = dalica_core::Date::new(2026, 6, 4).ok();
+        assert_eq!(subtitle(day, 1), "June 4, 2026 · 1 photo");
+        assert_eq!(subtitle(day, 48), "June 4, 2026 · 48 photos");
+        assert_eq!(subtitle(None, 0), "0 photos");
+        for (g, f) in [(1, 1), (1, 2), (3, 7), (0, 0)] {
+            assert_eq!(duplicates_banner(g, f), dalica_engine::duplicates::banner(g, f));
+        }
+        assert_eq!(duplicates_title(), DUPLICATES_TITLE);
     }
 
     /// The small-picture threshold of Options ▸ File Types reaches the light table and the tree.

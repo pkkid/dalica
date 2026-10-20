@@ -19,6 +19,8 @@ use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
 use egui::{CornerRadius, Id, Rect, Response, Sense, Ui, pos2, vec2};
 
+use crate::tl;
+
 /// The automation ids of the track and the thumb (`control-protocol.md` §7).
 pub const TRACK_ID: &str = "scroll:tree";
 pub const THUMB_ID: &str = "scroll:tree/thumb";
@@ -120,11 +122,11 @@ pub fn paint(ui: &Ui, t: &Tokens, f: &Frame, strip: Rect, view_h: f32, content_h
         ui.ctx(),
         TRACK_ID,
         Role::ScrollTrack,
-        "Scroll the library tree",
+        &tl!("Scroll the library tree"),
         Target::Widget(&f.track),
         f.track.is_pointer_button_down_on(),
     );
-    widgets::register(ui.ctx(), THUMB_ID, Role::ScrollThumb, "Library tree position", Target::Widget(&f.thumb), f.thumb.dragged());
+    widgets::register(ui.ctx(), THUMB_ID, Role::ScrollThumb, &tl!("Library tree position"), Target::Widget(&f.thumb), f.thumb.dragged());
 }
 
 #[cfg(test)]

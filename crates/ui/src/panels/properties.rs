@@ -35,10 +35,12 @@ use self::answer::{Answer, Group, Row};
 use self::paint::{Item, Painted, Tone};
 use crate::app::App;
 use crate::state::{Section, UiState};
+use crate::{tl, tln};
 
 /// The Show All switch's widget id.
 pub const SHOW_ALL_ID: &str = "button:properties.showAll";
-/// The row shown while the file is being read.
+/// The lines below in English (drawn through the catalogs). The row shown while the file is being
+/// read.
 pub const LOADING: &str = "Reading the file…";
 /// What Show All says for several photos.
 pub const ONE_PHOTO: &str = "Select one photo to see all of its metadata.";
@@ -64,12 +66,12 @@ pub fn heading(app: &App, state: &UiState) -> String {
         return name;
     }
     match sel.ids.as_slice() {
-        [] => "No selection".into(),
+        [] => crate::status_text::no_selection(),
         [one] => match library.and_then(|l| l.photo(*one)) {
-            Some(p) => format!("Properties of {}", p.name),
-            None => "Properties of 1 photo".into(),
+            Some(p) => tl!("Properties of {name}", name = p.name),
+            None => tln!(1, "Properties of {n} photo", "Properties of {n} photos"),
         },
-        many => format!("Properties of {} photos", many.len()),
+        many => tln!(many.len(), "Properties of {n} photo", "Properties of {n} photos"),
     }
 }
 
@@ -135,7 +137,7 @@ struct Drawn {
     answer: Option<Arc<Answer>>,
     summary: Option<Arc<Vec<Row>>>,
     all: bool,
-    message: Option<&'static str>,
+    message: Option<String>,
     /// Where the rows and Show All's groups start among the painted items.
     rows_at: usize,
     groups_at: usize,
@@ -182,7 +184,7 @@ pub fn shown(ctx: &egui::Context) -> Option<Shown> {
         error: d.answer.as_ref().and_then(|a| a.error.clone()),
         note: d.answer.as_ref().and_then(|a| a.note.clone()),
         groups,
-        message: d.message.map(str::to_owned),
+        message: d.message.clone(),
         pass: d.pass,
     })
 }
@@ -209,8 +211,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     col.add_space(8.0);
     let all = app.state().properties_show_all;
-    let label = if all { "Show Fewer" } else { "Show All Metadata" };
-    if widgets::text_button(&mut col, &t, SHOW_ALL_ID, label, all).clicked() {
+    let label = if all { tl!("Show Fewer") } else { tl!("Show All Metadata") };
+    if widgets::text_button(&mut col, &t, SHOW_ALL_ID, &label, all).clicked() {
         app.state_mut().properties_show_all = !all;
     }
     col.add_space(4.0);
@@ -225,7 +227,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         (None, Some(s)) => s,
         (None, None) => &[],
     };
-    let error = answer.as_ref().and_then(|a| a.error.as_ref()).map(|e| format!("Could not read the file: {e}"));
+    let error = answer.as_ref().and_then(|a| a.error.as_ref()).map(|e| tl!("Could not read the file: {error}", error = e));
+    let loading = tl!("Reading the file…");
     let mut items: Vec<Item<'_>> = Vec::with_capacity(rows.len() + 4);
     if let Some(note) = answer.as_ref().and_then(|a| a.note.as_deref()) {
         items.push(Item::Line(note, Tone::Caution));
@@ -233,7 +236,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     drawn.rows_at = items.len();
     items.extend(rows.iter().map(Item::Row));
     if answer.as_ref().is_some_and(|a| a.pending) {
-        items.push(Item::Line(LOADING, Tone::Dim));
+        items.push(Item::Line(&loading, Tone::Dim));
     }
     if let Some(e) = &error {
         items.push(Item::Line(e, Tone::Caution));
@@ -241,9 +244,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let groups: &[Group] = answer.as_ref().and_then(|a| a.groups.as_deref()).unwrap_or(&[]);
     drawn.message = match (&answer, all) {
         (_, false) => None,
-        (None, true) => Some(ONE_PHOTO),
-        (Some(a), true) if a.groups.as_ref().is_some_and(Vec::is_empty) => Some(NOTHING_MORE),
-        (Some(a), true) if a.truncated => Some(TRUNCATED),
+        (None, true) => Some(tl!("Select one photo to see all of its metadata.")),
+        (Some(a), true) if a.groups.as_ref().is_some_and(Vec::is_empty) => Some(tl!("The file holds no other metadata.")),
+        (Some(a), true) if a.truncated => Some(tl!("Only the first fields are listed.")),
         (Some(_), true) => None,
     };
     drawn.groups_at = items.len();
@@ -253,7 +256,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             items.extend(g.rows.iter().map(Item::Field));
         }
     }
-    if let Some(m) = drawn.message {
+    if let Some(m) = &drawn.message {
         items.push(Item::Line(m, Tone::Dim));
     }
     drawn.painted = paint::list(&mut col, &t, &items);

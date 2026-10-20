@@ -56,6 +56,7 @@ use crate::panels::people_pane::pictures;
 use crate::panels::thumbnails::{Drawn, PhotoRef, Thumbnails};
 use crate::state::{self, Caption, FaceRef};
 use crate::status_text as status;
+use crate::tl;
 
 /// How long the pointer rests on a cell before its tooltip shows (seconds, `ui-layout.md` §5.5).
 pub const TOOLTIP_SECONDS: f64 = 0.6;
@@ -368,9 +369,10 @@ pub fn tooltip_shown(photo: &Photo, date: Option<dalica_core::DateTime>, shown: 
     let detail = match failure {
         // What to do about it under the reason, where there is something (HEIC in a build
         // without its decoder, `formats.md` §3).
+        // The decoder's reason stays as reported; its hint is looked up whole.
         Some(why) => match dalica_image::formats::hint_for(why) {
-            Some(hint) => format!("Cannot show this photo: {why}\n{hint}"),
-            None => format!("Cannot show this photo: {why}"),
+            Some(hint) => tl!("Cannot show this photo: {why}\n{hint}", why = why, hint = crate::i18n::tr(hint)),
+            None => tl!("Cannot show this photo: {why}", why = why),
         },
         None => {
             let mut parts: Vec<String> = Vec::with_capacity(3);

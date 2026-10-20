@@ -19,10 +19,11 @@ use dalica_engine::thumbs::{Size, Thumb};
 use dalica_ui_kit::widgets::{BUBBLE_STACK, BUBBLE_STACK_MAX, BubbleAnchor, BubbleButton, BubbleThumb, MarkerGroup};
 use egui::{Context, Id, TextureHandle, vec2};
 
-use super::markers::{Place, grouped, photos_text};
+use super::markers::{Place, grouped};
 use crate::app::App;
 use crate::commands::places as cmd;
 use crate::state::Bubble;
+use crate::{tl, tln};
 
 pub const OK_ID: &str = "button:places.put";
 pub const CANCEL_ID: &str = "button:places.cancel";
@@ -45,14 +46,25 @@ pub struct Shown {
     pub buttons: Vec<BubbleButton<'static>>,
 }
 
+/// A button's label in the language in effect (the buttons keep the English).
+pub fn label(id: &str, english: &str) -> String {
+    match id {
+        OK_ID => tl!("OK"),
+        CANCEL_ID => tl!("Cancel"),
+        SHOW_ID => tl!("Show These Photos"),
+        REMOVE_ID => tl!("Remove Location"),
+        _ => crate::i18n::tr(english),
+    }
+}
+
 /// "Put 3 photos here?", or "Move 3 photos here?" when `moving`.
 pub fn put_text(n: usize, moving: bool) -> String {
-    format!("{} {} here?", if moving { "Move" } else { "Put" }, photos_text(n))
+    if moving { tln!(n, "Move {n} photo here?", "Move {n} photos here?") } else { tln!(n, "Put {n} photo here?", "Put {n} photos here?") }
 }
 
 /// "3 photos here".
 pub fn here_text(n: usize) -> String {
-    format!("{} here", photos_text(n))
+    tln!(n, "{n} photo here", "{n} photos here")
 }
 
 /// The bubble the view state has open, among `places` drawn as `groups`; `None` for none, or for
@@ -69,7 +81,7 @@ pub fn shown(app: &App, places: &[Place], groups: &[MarkerGroup]) -> Option<Show
             state.pin.as_ref()?;
             let ids = app.state().selection.ids.clone();
             if ids.is_empty() {
-                return Some(Shown { anchor: BubbleAnchor::Pin, ids, text: SELECT_TEXT.into(), buttons: vec![CANCEL] });
+                return Some(Shown { anchor: BubbleAnchor::Pin, ids, text: tl!("Select the photos to put here."), buttons: vec![CANCEL] });
             }
             let text = put_text(ids.len(), cmd::some_located(app, &ids));
             Some(Shown { anchor: BubbleAnchor::Pin, ids, text, buttons: vec![OK, CANCEL] })

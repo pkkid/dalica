@@ -235,6 +235,13 @@ pub fn sync(ctx: &egui::Context, setting: Option<&str>) -> &'static Language {
     if dalica_ui_kit::fonts::set_script(ctx, lang.script) {
         ctx.request_repaint();
     }
+    // `ui-kit`'s own texts (`ui_kit::text`) in this language, set when the language changes.
+    let key = egui::Id::new("dalica.i18n.kitTexts");
+    if ctx.data(|d| d.get_temp::<&'static str>(key)) != Some(lang.code) {
+        use dalica_ui_kit::text::{self, Texts};
+        text::set(ctx, Texts::translated(|t| Some(tr_ctx(t.context(), t.english()))));
+        ctx.data_mut(|d| d.insert_temp(key, lang.code));
+    }
     lang
 }
 

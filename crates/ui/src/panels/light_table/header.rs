@@ -85,7 +85,7 @@ use super::{Frame, Section};
 use crate::app::App;
 use crate::menus;
 use crate::state;
-use crate::tl;
+use crate::{tl, tln};
 
 /// The header's left (and right) padding (points).
 pub const PADDING: f32 = 12.0;
@@ -110,14 +110,14 @@ const DESCRIPTION_TOP: f32 = 72.0;
 const DESCRIPTION_H: f32 = 18.0;
 /// The icon of the pinned form, which is one 32-high line.
 pub const STICKY_ICON: f32 = 20.0;
-/// What the description row says when the section has none.
+/// What the description row says when the section has none (English; drawn through the catalogs).
 pub const PLACEHOLDER: &str = "Add a description";
-/// The label of the Save text button at the top right.
+/// The label of the Save text button at the top right (English; drawn through the catalogs).
 pub const SAVE_LABEL: &str = "Save";
 
 /// What the first line says beside Save: "3 edited".
 pub fn edited_text(count: usize) -> String {
-    format!("{count} edited")
+    tln!(count, "{n} edited", "{n} edited")
 }
 /// The inline description editor's automation id (`control-protocol.md` §7).
 pub const DESCRIPTION_FIELD: &str = "field:section.description";
@@ -181,7 +181,7 @@ impl Button {
         }
     }
 
-    /// Its tooltip (`ui-layout.md` §5.2).
+    /// Its tooltip (`ui-layout.md` §5.2), in English ([`Button::text`] in the language in effect).
     pub fn tooltip(self) -> &'static str {
         match self {
             Button::Play => "Play a slideshow of this folder",
@@ -194,13 +194,30 @@ impl Button {
         }
     }
 
-    /// Its tooltip in a person's section, zoomed to their faces or not.
+    /// Its tooltip in a person's section, zoomed to their faces or not, in English.
     pub fn person_tooltip(self, zoomed: bool) -> &'static str {
         match self {
             Button::Play => "Play a slideshow of this person's photos",
             Button::Collage => "Make a collage from this person's photos",
             Button::ZoomToFaces if zoomed => WHOLE_PHOTOS,
             _ => self.tooltip(),
+        }
+    }
+
+    /// A tooltip of [`Button::tooltip`] or [`Button::person_tooltip`] in the language in effect.
+    pub fn text(english: &str) -> String {
+        match english {
+            "Play a slideshow of this folder" => tl!("Play a slideshow of this folder"),
+            "Make a collage from this folder" => tl!("Make a collage from this folder"),
+            "Select the starred photos in this folder" => tl!("Select the starred photos in this folder"),
+            "Save edited photos to disk" => tl!("Save edited photos to disk"),
+            "Export these photos to a folder" => tl!("Export these photos to a folder"),
+            "Zoom to Faces" => tl!("Zoom to Faces"),
+            "Set as Person Thumbnail" => tl!("Set as Person Thumbnail"),
+            "Play a slideshow of this person's photos" => tl!("Play a slideshow of this person's photos"),
+            "Make a collage from this person's photos" => tl!("Make a collage from this person's photos"),
+            "Show Whole Photos" => tl!("Show Whole Photos"),
+            other => crate::i18n::tr(other),
         }
     }
 
@@ -214,7 +231,8 @@ impl Button {
     }
 }
 
-/// The Zoom to Faces toggle's tooltip while the cells show whole photos, and while they show faces.
+/// The Zoom to Faces toggle's tooltip while the cells show whole photos, and while they show faces
+/// (English; [`Button::person_tooltip`] in the language in effect).
 pub const ZOOM_TO_FACES: &str = "Zoom to Faces";
 pub const WHOLE_PHOTOS: &str = "Show Whole Photos";
 /// Why Set as Person Thumbnail is greyed with no photo of the person selected.
@@ -223,43 +241,33 @@ pub const NO_FACE: &str = "Select a photo of this person first.";
 /// Whether a header button takes clicks: its command is `live` (registered, and its `enabled`
 /// accepts the click's parameters), Select Starred also needs a starred photo, Save an unsaved
 /// edit. Otherwise the reason, for its tooltip.
-pub fn button_enabled(button: Button, live: bool, starred: bool, edited: usize) -> Result<(), &'static str> {
+pub fn button_enabled(button: Button, live: bool, starred: bool, edited: usize) -> Result<(), String> {
     if !live {
-        return Err(NOT_YET);
+        return Err(tl!("Not available yet."));
     }
     match button {
-        Button::SelectStarred if !starred => Err("No photo in this folder is starred."),
-        Button::Save if edited == 0 => Err(NO_EDITS),
+        Button::SelectStarred if !starred => Err(tl!("No photo in this folder is starred.")),
+        Button::Save if edited == 0 => Err(tl!("No photo in this folder has unsaved edits.")),
         _ => Ok(()),
     }
 }
 
-/// A button whose command is not there yet says so.
-const NOT_YET: &str = "Not available yet.";
-/// Save's tooltip when the folder has no unsaved edits.
+/// Save's tooltip when the folder has no unsaved edits (English; drawn through the catalogs).
 pub const NO_EDITS: &str = "No photo in this folder has unsaved edits.";
 
-/// The day of the week of `d` (proleptic Gregorian).
-pub fn weekday(d: Date) -> &'static str {
-    const NAMES: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const OFFSETS: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-    let month = usize::from(d.month());
-    let mut y = i32::from(d.year());
-    if month < 3 {
-        y -= 1;
-    }
-    let offset = OFFSETS.get(month.wrapping_sub(1)).copied().unwrap_or(0);
-    let w = (y + y / 4 - y / 100 + y / 400 + offset + i32::from(d.day())).rem_euclid(7);
-    NAMES.get(w as usize).copied().unwrap_or("")
+/// The day of the week of `d` (proleptic Gregorian), in the language in effect.
+pub fn weekday(d: Date) -> String {
+    crate::i18n::format::weekday_name(crate::i18n::format::weekday(d))
 }
 
 /// The header's date line: the long date ("Thursday, June 4, 2026"), then " · place" when the
 /// section has one.
 pub fn date_line(date: Option<Date>, place: Option<&str>) -> String {
     let place = place.map(str::trim).filter(|p| !p.is_empty());
+    let long = crate::i18n::format::long_date_with_weekday;
     match (date, place) {
-        (Some(d), Some(p)) => format!("{}, {} · {p}", weekday(d), super::long_date(d)),
-        (Some(d), None) => format!("{}, {}", weekday(d), super::long_date(d)),
+        (Some(d), Some(p)) => format!("{} · {p}", long(d)),
+        (Some(d), None) => long(d),
         (None, Some(p)) => p.to_string(),
         (None, None) => String::new(),
     }
@@ -420,10 +428,11 @@ pub fn save_params(ids: &[PhotoId]) -> Value {
 /// the tooltip.
 pub fn save_enabled(session: &Session, ids: &[PhotoId]) -> Result<(), String> {
     if ids.is_empty() {
-        return Err(NO_EDITS.into());
+        return Err(tl!("No photo in this folder has unsaved edits."));
     }
-    let spec = session.spec(Button::Save.command()).ok_or_else(|| NOT_YET.to_string())?;
-    (spec.enabled)(session, &save_params(ids)).map_err(|d| d.0)
+    let spec = session.spec(Button::Save.command()).ok_or_else(|| tl!("Not available yet."))?;
+    // The engine's reason, looked up whole.
+    (spec.enabled)(session, &save_params(ids)).map_err(|d| crate::i18n::tr(&d.0))
 }
 
 /// What the description row asks for.
@@ -646,8 +655,8 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let text_x = icon.max.x + ICON_GAP;
     let mut right = rect.max.x - PADDING;
     if !unsaved.is_empty() {
-        let label = SAVE_LABEL;
-        let w = (painter.layout_no_wrap(label.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
+        let label = tl!("Save");
+        let w = (painter.layout_no_wrap(label.clone(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
         let slot = Rect::from_min_size(pos2(right - w, (line_mid - t.metrics.button_h / 2.0).round()), vec2(w, t.metrics.button_h));
         if takes_input(slot) {
             let is_live = save_state.is_ok();
@@ -656,10 +665,10 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
                     if !is_live {
                         ui.disable();
                     }
-                    widgets::text_button(ui, t, &part_id("saveEdited"), label, false)
+                    widgets::text_button(ui, t, &part_id("saveEdited"), &label, false)
                 })
                 .inner;
-            let r = widgets::tooltip(r, t, Button::Save.tooltip(), save_state.as_ref().err().map(String::as_str));
+            let r = widgets::tooltip(r, t, &Button::text(Button::Save.tooltip()), save_state.as_ref().err().map(String::as_str));
             if r.clicked() {
                 out.commands.push((Button::Save.command().to_string(), save_params(&unsaved)));
             }
@@ -700,7 +709,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         // when it cannot run (an offline folder, a system without a file manager to show it in).
         let locate_params = json!({ "id": folder });
         let ready = match f.session.spec("folder.locate") {
-            Some(spec) => (spec.enabled)(f.session, &locate_params).map_err(|d| d.0),
+            Some(spec) => (spec.enabled)(f.session, &locate_params).map_err(|d| crate::i18n::tr(&d.0)),
             None => Err(tl!("Locate on Disk is not available yet.")),
         };
         let locate = ready.is_ok();
@@ -781,13 +790,13 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
             _ => row_params.get_or_insert_with(|| params(f, section)).clone(),
         };
         let enabled = match b {
-            Button::Save => save_state.as_ref().map(|_| ()).map_err(String::as_str),
-            Button::Thumbnail if thumb.is_none() => Err(NO_FACE),
+            Button::Save => save_state.as_ref().map(|_| ()).map_err(String::clone),
+            Button::Thumbnail if thumb.is_none() => Err(tl!("Select a photo of this person first.")),
             _ => button_enabled(b, live(f.session, b.command(), || p.clone()), facts.starred, 0),
         };
-        let tip = if person.is_some() { b.person_tooltip(zoomed) } else { b.tooltip() };
+        let tip = Button::text(if person.is_some() { b.person_tooltip(zoomed) } else { b.tooltip() });
         let toggled = b == Button::ZoomToFaces && zoomed;
-        let resp = button(ui, t, &part_id(b.part()), egui_id(b.part()), r, b, tip, toggled, enabled);
+        let resp = button(ui, t, &part_id(b.part()), egui_id(b.part()), r, b, &tip, toggled, enabled.as_ref().map(|_| ()).map_err(String::as_str));
         if resp.clicked() {
             out.commands.push((b.command().to_string(), p));
         }
@@ -813,7 +822,8 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         out.description = description_editor(ui, f, headers, section, owner, &e.draft, row, &takes_input);
         return out;
     }
-    let (text, color) = if facts.shown.is_empty() { (PLACEHOLDER, t.text_dim) } else { (&*facts.shown, t.text_label) };
+    let placeholder = tl!("Add a description");
+    let (text, color) = if facts.shown.is_empty() { (placeholder.as_str(), t.text_dim) } else { (&*facts.shown, t.text_label) };
     let g = one_line(&painter, text, fonts::regular(t.detail), color, rect.max.x - PADDING - x);
     let d = Rect::from_min_size(pos2(x, top), vec2(g.size().x.max(1.0), DESCRIPTION_H));
     painter.galley(pos2(x, top + (DESCRIPTION_H - g.size().y) / 2.0).round(), g, color);
@@ -858,7 +868,7 @@ fn description_editor(
     let mut text = draft.to_owned();
     let field = ui
         .scope_builder(UiBuilder::new().max_rect(slot).layout(egui::Layout::left_to_right(Align::Center)), |ui| {
-            TextField::new(DESCRIPTION_FIELD, PLACEHOLDER, w).show(ui, t, &mut text)
+            TextField::new(DESCRIPTION_FIELD, &tl!("Add a description"), w).show(ui, t, &mut text)
         })
         .inner;
     if field.cancelled() {

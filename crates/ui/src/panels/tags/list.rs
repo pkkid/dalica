@@ -26,6 +26,7 @@ use crate::app::App;
 use crate::menu_catalog::Mark;
 use crate::menus::{self, ItemNode, Node};
 use crate::state::DialogKind;
+use crate::tl;
 
 /// The room the rows leave below them for the quick tags (points).
 const QUICK_ROOM: f32 = 165.0;
@@ -70,6 +71,8 @@ pub fn remove_id(tag: &str) -> String {
 struct Cached {
     revision: Option<u64>,
     ids: Vec<PhotoId>,
+    /// The language the labels are written in.
+    language: &'static str,
     rows: Arc<Vec<Row>>,
 }
 
@@ -80,7 +83,11 @@ pub fn rows_of(reply: &Value) -> Vec<Row> {
         .filter_map(|t| {
             let count = usize::try_from(t.get("count")?.as_u64()?).ok()?;
             let of = usize::try_from(t.get("of")?.as_u64()?).ok()?;
-            Some(Row { tag: t.get("tag")?.as_str()?.to_owned(), count, of, label: t.get("label")?.as_str()?.to_owned() })
+            let tag = t.get("tag")?.as_str()?.to_owned();
+            // The engine's label is English: the window writes its own.
+            t.get("label")?.as_str()?;
+            let label = if count < of { tl!("{tag} ({count} of {of})", tag = tag, count = count, of = of) } else { tag.clone() };
+            Some(Row { tag, count, of, label })
         })
         .collect()
 }
@@ -92,9 +99,10 @@ pub fn rows(app: &mut App, ctx: &egui::Context) -> Arc<Vec<Row>> {
     let key = Id::new("tags.list.rows");
     let Some(revision) = app.session().map(|s| s.library().revision()) else { return Arc::default() };
     let selection = &app.state().selection.ids;
+    let language = crate::i18n::current().code;
     let hit = ctx.data_mut(|d| {
         let c = d.get_temp_mut_or_default::<Cached>(key);
-        (c.revision == Some(revision) && c.ids == *selection).then(|| Arc::clone(&c.rows))
+        (c.revision == Some(revision) && c.ids == *selection && c.language == language).then(|| Arc::clone(&c.rows))
     });
     if let Some(rows) = hit {
         return rows;
@@ -105,7 +113,7 @@ pub fn rows(app: &mut App, ctx: &egui::Context) -> Arc<Vec<Row>> {
     let rows =
         if known.is_empty() { Vec::new() } else { session.execute("tags.list", &json!({ "ids": known })).map(|v| rows_of(&v)).unwrap_or_default() };
     let rows = Arc::new(rows);
-    ctx.data_mut(|d| d.insert_temp(key, Cached { revision: Some(revision), ids, rows: Arc::clone(&rows) }));
+    ctx.data_mut(|d| d.insert_temp(key, Cached { revision: Some(revision), ids, language, rows: Arc::clone(&rows) }));
     rows
 }
 
@@ -115,13 +123,13 @@ pub fn menu(app: &App, row: &Row, selected: &[PhotoId]) -> Vec<Node> {
     let ids = json!({ "ids": selected, "tags": [row.tag] });
     let none = selected.is_empty();
     let add = if none {
-        Err(SELECT_FIRST.to_owned())
+        Err(tl!("Select some photos first."))
     } else if !row.partial() {
-        Err(ALL_HOLD.to_owned())
+        Err(tl!("Every selected photo has this tag."))
     } else {
         Ok(())
     };
-    let remove = if none { Err(SELECT_FIRST.to_owned()) } else { Ok(()) };
+    let remove = if none { Err(tl!("Select some photos first.")) } else { Ok(()) };
     let items: [(&'static str, &'static str, Value, Result<(), String>); 4] = [
         ("photo.tags.add", "Add to All Selected", ids.clone(), add),
         (SEARCH_TAG, "Search for This Tag", json!({ "tag": row.tag }), crate::commands::enabled(app, SEARCH_TAG, &json!({ "tag": row.tag }))),
@@ -132,9 +140,15 @@ pub fn menu(app: &App, row: &Row, selected: &[PhotoId]) -> Vec<Node> {
         .into_iter()
         .map(|(id, label, params, ok)| {
             let reason = ok.err();
+            let shown = match id {
+                "photo.tags.add" => tl!("Add to All Selected"),
+                SEARCH_TAG => tl!("Search for This Tag"),
+                "photo.tags.remove" => tl!("Remove from Selected"),
+                _ => tl!("Rename Tag…"),
+            };
             Node::Item(ItemNode {
                 id,
-                label: label.to_owned(),
+                label: shown,
                 catalog_label: label,
                 params,
                 widget: format!("menuitem:{id}"),
@@ -176,12 +190,12 @@ fn paint_label(app: &App, painter: &egui::Painter, row: &Row, rect: Rect) {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
-    super::caption(app, ui, "Tags in the selection:");
+    super::caption(app, ui, &tl!("Tags in the selection:"));
     let t = *app.tokens();
     let ctx = ui.ctx().clone();
     let rows = rows(app, &ctx);
     if rows.is_empty() {
-        ui.label(RichText::new("None").font(fonts::regular(t.body)).color(t.text_dim));
+        ui.label(RichText::new(tl!(ctx = "list", "None")).font(fonts::regular(t.body)).color(t.text_dim));
         return;
     }
     let row_h = t.metrics.interact_h;
@@ -218,8 +232,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             if over {
                 let x = Rect::from_center_size(pos2(rect.max.x - 2.0 - REMOVE / 2.0, rect.center().y), Vec2::splat(REMOVE));
                 let mut child = ui.new_child(UiBuilder::new().max_rect(x));
-                let tip = "Remove the tag from the selected photos";
-                if widgets::icon_button(&mut child, &t, &remove_id(&row.tag), Icon::Close, REMOVE, false, true, tip).clicked() {
+                let tip = tl!("Remove the tag from the selected photos");
+                if widgets::icon_button(&mut child, &t, &remove_id(&row.tag), Icon::Close, REMOVE, false, true, &tip).clicked() {
                     remove = Some(row.tag.clone());
                 }
             }

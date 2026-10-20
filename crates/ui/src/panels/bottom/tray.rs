@@ -46,7 +46,7 @@ use crate::menu_catalog::Mark;
 use crate::menus::{self, ItemNode, Node};
 use crate::panels::light_table::context_menu;
 use crate::state::{Section, UiState};
-use crate::{selection, tray};
+use crate::{selection, tl, tln, tray};
 
 /// The pill's padding either side of its text.
 const PILL_PAD: f32 = 8.0;
@@ -72,7 +72,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
     painter.rect(rect, CornerRadius::same(t.radius), t.tray_bg, Stroke::new(1.0, t.divider), StrokeKind::Inside);
     // The box's own interaction, under the minis so they win their clicks.
     let bg = ui.interact(rect, Id::new("tray.box"), Sense::click_and_drag());
-    widgets::register(&ctx, "tray", Role::Other, "Photo tray", Target::Widget(&bg), false);
+    widgets::register(&ctx, "tray", Role::Other, &tl!("Photo tray"), Target::Widget(&bg), false);
     let mut actions: Vec<Action> = Vec::new();
     let mut menu: Option<(Response, Vec<PhotoId>)> = None;
 
@@ -80,7 +80,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
     let can_edit = crate::app::UI_COMMANDS.iter().any(|c| c.id == "view.edit") || app.session().is_some_and(|s| s.spec("view.edit").is_some());
     let state = app.state();
     if tray::is_empty(state) {
-        painter.text(rect.center(), Align2::CENTER_CENTER, "Selection", fonts::regular(t.body), t.text_dim);
+        painter.text(rect.center(), Align2::CENTER_CENTER, tl!("Selection"), fonts::regular(t.body), t.text_dim);
     }
 
     // The token, at the left.
@@ -144,8 +144,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
             thumbs_painter.rect_stroke(cell, 0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
         }
         let r = ui.interact(visible, Id::new(("tray.item", id.get())), Sense::click());
-        let name = photo.map_or("Photo", |(_, p)| p.name.as_str());
-        widgets::register(&ctx, &tray::item_id(id), Role::Thumbnail, name, Target::Widget(&r), selected);
+        let name = photo.map_or_else(|| tl!("Photo"), |(_, p)| p.name.clone());
+        widgets::register(&ctx, &tray::item_id(id), Role::Thumbnail, &name, Target::Widget(&r), selected);
         if r.double_clicked() && can_edit {
             actions.push(("view.edit", json!({ "ids": [id] })));
         } else if r.clicked() {
@@ -165,7 +165,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
         thumbs_painter.rect_filled(cell, CornerRadius::same(2), t.hover);
         let font = fonts::semibold(if m.size >= 28.0 { t.small } else { t.small * 0.8 });
         thumbs_painter.text(cell.center(), Align2::CENTER_CENTER, format!("+{more}"), font, t.text_label);
-        widgets::register(&ctx, tray::MORE_ID, Role::Other, &format!("{more} more"), Target::Painted { rect: cell, clip }, false);
+        widgets::register(&ctx, tray::MORE_ID, Role::Other, &tln!(more, "{n} more", "{n} more"), Target::Painted { rect: cell, clip }, false);
     }
 
     // The box's empty space: a click tray-selects nothing, a drag is a rubber band.
@@ -196,7 +196,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
     }
 }
 
-/// Back to Collage's automation id and label.
+/// Back to Collage's automation id and label (English; drawn through the catalogs).
 pub const BACK_TO_COLLAGE_ID: &str = "button:tray.backToCollage";
 pub const BACK_TO_COLLAGE: &str = "Back to Collage";
 /// Its distance from the box's top-right corner.
@@ -209,15 +209,16 @@ pub fn back_to_collage(app: &App, ui: &mut Ui, t: &Tokens, rect: Rect) -> bool {
     if !(state.collage.get_more && state.rooms.contains(&crate::state::Room::Collage)) {
         return false;
     }
-    let w = (ui.painter().layout_no_wrap(BACK_TO_COLLAGE.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
+    let label = tl!("Back to Collage");
+    let w = (ui.painter().layout_no_wrap(label.clone(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
     let h = t.metrics.button_h;
     let at = Rect::from_min_size(pos2(rect.max.x - BACK_INSET - w, rect.min.y + BACK_INSET), Vec2::new(w, h)).intersect(rect);
     if !at.is_positive() {
         return false;
     }
     let mut child = ui.new_child(egui::UiBuilder::new().id_salt("tray.backToCollage").max_rect(at));
-    widgets::text_button(&mut child, t, BACK_TO_COLLAGE_ID, BACK_TO_COLLAGE, false)
-        .on_hover_text("Add the photos in the tray to the collage and go back to it")
+    widgets::text_button(&mut child, t, BACK_TO_COLLAGE_ID, &label, false)
+        .on_hover_text(tl!("Add the photos in the tray to the collage and go back to it"))
         .clicked()
 }
 
@@ -246,7 +247,7 @@ pub fn album_nodes(app: &App) -> Vec<Node> {
     let new_ready = if empty { Err(tray::EMPTY.to_string()) } else { crate::dialogs::can_open(app, DialogKind::AlbumProperties) };
     let mut out = vec![Node::Item(ItemNode {
         id: "album.new",
-        label: "New Album…".into(),
+        label: tl!("New Album…"),
         catalog_label: "New Album…",
         params: Value::Null,
         widget: "menuitem:album.new".into(),
@@ -352,7 +353,7 @@ fn held_badge(painter: &egui::Painter, t: &Tokens, id: PhotoId, cell: Rect) {
     painter.rect_filled(plate, CornerRadius::same(2), t.badge_plate);
     icons::paint(painter, plate.shrink(edge * 0.15), Icon::Hold, t.pick);
     let clip = painter.clip_rect();
-    widgets::register(painter.ctx(), &format!("{}/held", tray::item_id(id)), Role::Badge, "Held", Target::Painted { rect: plate, clip }, true);
+    widgets::register(painter.ctx(), &format!("{}/held", tray::item_id(id)), Role::Badge, &tl!("Held"), Target::Painted { rect: plate, clip }, true);
 }
 
 /// The rubber band: a drag from the box's empty space tray-selects the minis it touches (Ctrl:
@@ -457,9 +458,19 @@ pub fn context_nodes(app: &App, targets: &[PhotoId]) -> Vec<Node> {
                     let k = k.to_string();
                     if cfg!(target_os = "macos") { k.replace("Ctrl+", "Cmd+") } else { k }
                 });
+                let shown = match id {
+                    "view.edit" => tl!("View and Edit"),
+                    "tray.hold" => tl!("Hold"),
+                    "tray.clear" => tl!("Remove from Tray"),
+                    "photo.rotate.cw" => tl!("Rotate Clockwise"),
+                    "photo.rotate.ccw" => tl!("Rotate Counterclockwise"),
+                    "photo.locate" => tl!("Locate on Disk"),
+                    "pane.properties" => tl!("Properties"),
+                    _ => crate::i18n::command_label(id, label),
+                };
                 Node::Item(ItemNode {
                     id,
-                    label: label.to_string(),
+                    label: shown,
                     catalog_label: label,
                     params,
                     widget: format!("menuitem:{id}"),

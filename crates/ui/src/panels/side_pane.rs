@@ -15,6 +15,7 @@ use egui::{Align2, Id, Rect, Ui, UiBuilder, pos2, vec2};
 use super::layout::side_pane_width;
 use crate::app::App;
 use crate::state::{LIGHT_TABLE_MIN, Pane, TREE_MIN, UiState};
+use crate::tl;
 
 /// Header height and its two icon buttons' edge and inset (`design-system.md` §4).
 pub const HEADER: f32 = 30.0;
@@ -22,12 +23,12 @@ pub const BUTTON: f32 = 24.0;
 const INSET: f32 = 3.0;
 
 /// The pane's title and its protocol name.
-pub fn title(pane: Pane) -> (&'static str, &'static str) {
+pub fn title(pane: Pane) -> (String, &'static str) {
     match pane {
-        Pane::People => ("People", "people"),
-        Pane::Places => ("Places", "places"),
-        Pane::Tags => ("Tags", "tags"),
-        Pane::Properties => ("Properties", "properties"),
+        Pane::People => (tl!("People"), "people"),
+        Pane::Places => (tl!("Places"), "places"),
+        Pane::Tags => (tl!("Tags"), "tags"),
+        Pane::Properties => (tl!("Properties"), "properties"),
     }
 }
 
@@ -85,25 +86,25 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     painter.rect_filled(Rect::from_min_max(pos2(header.min.x, header.max.y - 1.0), header.max), 0, t.divider);
     let button = |x: f32| Rect::from_min_size(pos2(x, header.min.y + (HEADER - BUTTON) / 2.0), vec2(BUTTON, BUTTON));
     let large = app.state().pane_large;
-    let widen_tip = if large { "Make the pane narrower" } else { "Make the pane wider" };
+    let widen_tip = if large { tl!("Make the pane narrower") } else { tl!("Make the pane wider") };
     let mut left = ui.new_child(UiBuilder::new().max_rect(button(header.min.x + INSET)));
-    let widen = widgets::icon_button(&mut left, &t, "button:pane.widen", Icon::ChevronsLeft, BUTTON, large, true, widen_tip);
+    let widen = widgets::icon_button(&mut left, &t, "button:pane.widen", Icon::ChevronsLeft, BUTTON, large, true, &widen_tip);
     let mut right = ui.new_child(UiBuilder::new().max_rect(button(header.max.x - INSET - BUTTON)));
-    let close = widgets::icon_button(&mut right, &t, "button:pane.close", Icon::Close, BUTTON, false, true, "Close the pane");
+    let close = widgets::icon_button(&mut right, &t, "button:pane.close", Icon::Close, BUTTON, false, true, &tl!("Close the pane"));
     let room = (header.width() - 2.0 * (INSET + BUTTON + 4.0)).max(0.0);
     let title_rect = Rect::from_center_size(header.center(), vec2(room, HEADER));
     widgets::label_in(
         &painter.with_clip_rect(title_rect.intersect(rect)),
         title_rect,
         Align2::CENTER_CENTER,
-        name,
+        &name,
         fonts::semibold(t.body),
         t.text_label,
     );
 
     // The body: each pane draws its own.
     let body = Rect::from_min_max(pos2(rect.min.x, header.max.y), rect.max);
-    widgets::register(&ctx, &format!("pane:{id}"), Role::Other, name, Target::Painted { rect: body, clip: rect }, false);
+    widgets::register(&ctx, &format!("pane:{id}"), Role::Other, &name, Target::Painted { rect: body, clip: rect }, false);
     if body.is_positive() {
         let mut inner = ui.new_child(UiBuilder::new().id_salt(("pane", id)).max_rect(body));
         inner.set_clip_rect(body.intersect(ui.clip_rect()));

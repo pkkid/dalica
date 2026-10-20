@@ -43,6 +43,7 @@ use serde_json::{Value, json};
 use super::layout;
 use crate::app::App;
 use crate::menus::{self, UI_COMMANDS};
+use crate::{tl, tln};
 
 /// Automation ids (`control-protocol.md` §7).
 pub const IMPORT_ID: &str = "button:toolbar.import";
@@ -185,6 +186,23 @@ pub const VIEW_OPTIONS_ROWS: &[ViewOption] = &[
     ViewOption::Row { label: "Simplified Tree", command: "view.simplifiedTree", part: None, params: "", checked: false },
 ];
 
+/// A view option row's label in the language in effect (the table keeps the English, which the
+/// catalogs key on).
+fn view_option_label(label: &str) -> String {
+    match label {
+        "Sort by Date" => tl!("Sort by Date"),
+        "Sort by Recent Changes" => tl!("Sort by Recent Changes"),
+        "Sort by Size" => tl!("Sort by Size"),
+        "Sort by Name" => tl!("Sort by Name"),
+        "Reverse Order" => tl!("Reverse Order"),
+        "Sort People by Name" => tl!("Sort People by Name"),
+        "Sort People by Count" => tl!("Sort People by Count"),
+        "Show Thumbnails in Tree" => tl!("Show Thumbnails in Tree"),
+        "Simplified Tree" => tl!("Simplified Tree"),
+        other => crate::i18n::tr(other),
+    }
+}
+
 impl ViewOption {
     /// The row's automation id while the popup is open; `None` for a separator.
     pub fn widget_id(&self) -> Option<String> {
@@ -241,11 +259,29 @@ fn suggestions(app: &App, text: &str, last: &[Suggestion]) -> Vec<Suggestion> {
     }
 }
 
-const NOT_YET: &str = "Not available yet.";
+/// What the age slider says ("Pictures up to 3 months old"; "All pictures" for `None`) in the
+/// language in effect: `ui-kit`'s [`widgets::age_label`] says it in English, in the same units
+/// (one count each, so a language words each unit's plural itself).
+pub fn age_caption(days: Option<u32>) -> String {
+    const MONTH: f64 = 30.4375;
+    const YEAR: f64 = 365.25;
+    let Some(days) = days else { return tl!("All pictures") };
+    let d = days.clamp(1, widgets::AGE_MAX_DAYS);
+    let n = |len: f64| ((f64::from(d) / len).round() as u32).max(1);
+    if d < 7 {
+        tln!(d, "Pictures up to {n} day old", "Pictures up to {n} days old")
+    } else if d < 30 {
+        tln!(n(7.0), "Pictures up to {n} week old", "Pictures up to {n} weeks old")
+    } else if d < 365 && n(MONTH) < 12 {
+        tln!(n(MONTH), "Pictures up to {n} month old", "Pictures up to {n} months old")
+    } else {
+        tln!(n(YEAR).min(20), "Pictures up to {n} year old", "Pictures up to {n} years old")
+    }
+}
 
 /// A tooltip that also shows while `r` is disabled, saying why.
 fn disabled_tooltip(r: Response, t: &Tokens, title: &str) -> Response {
-    if r.enabled() { r } else { widgets::tooltip(r, t, title, Some(NOT_YET)) }
+    if r.enabled() { r } else { widgets::tooltip(r, t, title, Some(&tl!("Not available yet."))) }
 }
 
 /// Runs `add` in a child ui that fills `rect`, enabled or not, with no spacing between widgets.
@@ -273,14 +309,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if r.clicked() {
         let _ = app.run("import.open", &json!({}));
     }
-    if single(ui, &t, l.new_album, available(app, "album.new"), NEW_ALBUM_ID, Icon::NewAlbum, "Create a new album", false) {
+    if single(ui, &t, l.new_album, available(app, "album.new"), NEW_ALBUM_ID, Icon::NewAlbum, &tl!("Create a new album"), false) {
         let _ = app.run("album.new", &json!({}));
     }
 
     // Flat | Tree, the selected segment as the view state says.
+    let (flat_tip, tree_tip) = (tl!("Show folders as a flat list"), tl!("Show the folder tree"));
     let pair = [
-        Segment { id: FLAT_ID, label: SegmentLabel::Icon(Icon::FlatList), tooltip: "Show folders as a flat list" },
-        Segment { id: TREE_ID, label: SegmentLabel::Icon(Icon::Tree), tooltip: "Show the folder tree" },
+        Segment { id: FLAT_ID, label: SegmentLabel::Icon(Icon::FlatList), tooltip: &flat_tip },
+        Segment { id: TREE_ID, label: SegmentLabel::Icon(Icon::Tree), tooltip: &tree_tip },
     ];
     let active = usize::from(menus::checked(app, "view.folderView", &json!({ "mode": "tree" })));
     let clicked = place(ui, l.flat.union(l.tree), available(app, "view.folderView"), |ui| widgets::segmented(ui, &t, &pair, Some(active), SEGMENT));
@@ -294,18 +331,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // The filters, with the caption the hovered one's tooltip replaces.
     let filters = [
-        (Icon::Star, "Show starred photos only"),
-        (Icon::Faces, "Show only photos with faces"),
-        (Icon::Videos, "Show videos only"),
-        (Icon::Geotagged, "Show only geotagged photos"),
+        (Icon::Star, tl!("Show starred photos only")),
+        (Icon::Faces, tl!("Show only photos with faces")),
+        (Icon::Videos, tl!("Show videos only")),
+        (Icon::Geotagged, tl!("Show only geotagged photos")),
     ];
     let mut hovered: Option<String> = None;
     for (i, ((id, (icon, tip)), rect)) in FILTER_IDS.iter().zip(filters).zip(l.filters).enumerate() {
         let f = &app.state().search.filters;
         let on = [f.starred, f.faces, f.videos, f.geotagged].get(i).copied().unwrap_or(false);
-        let r = place(ui, rect, true, |ui| widgets::toggle_filter(ui, &t, id, icon, on, tip));
+        let r = place(ui, rect, true, |ui| widgets::toggle_filter(ui, &t, id, icon, on, &tip));
         if r.contains_pointer() {
-            hovered = Some(tip.to_owned());
+            hovered = Some(tip);
         }
         if r.clicked() {
             let f = &mut app.state_mut().search.filters;
@@ -319,17 +356,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     }
     // The age slider: its position is view state; its label shows in the caption while hovered.
-    let age_tip = "Show only recent photos";
+    let age_tip = tl!("Show only recent photos");
     let mut days = widgets::age_days(app.state().search.age);
-    let r = place(ui, l.age, true, |ui| widgets::age_slider(ui, &t, AGE_ID, &mut days, AGE.x, age_tip));
+    let r = place(ui, l.age, true, |ui| widgets::age_slider(ui, &t, AGE_ID, &mut days, AGE.x, &age_tip));
     if r.changed() {
         app.state_mut().search.age = widgets::age_position(days);
     }
     if r.contains_pointer() || r.dragged() {
-        hovered = Some(if days.is_some() { widgets::age_label(days) } else { age_tip.to_owned() });
+        hovered = Some(if days.is_some() { age_caption(days) } else { age_tip });
     }
     if let Some(caption) = l.caption {
-        let text = hovered.as_deref().unwrap_or("Filters");
+        let text = hovered.unwrap_or_else(|| tl!("Filters"));
         ui.painter().with_clip_rect(rect).text(caption.center(), Align2::CENTER_CENTER, text, fonts::regular(t.small), t.text_dim);
     }
 
@@ -378,7 +415,7 @@ fn search_field(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
         Some(s) => pick(&before, s),
         None => before.clone(),
     };
-    let out = place(ui, rect, true, |ui| widgets::search_field(ui, t, SEARCH_ID, SEARCH_CLEAR_ID, &mut text, "Search", rect.width()));
+    let out = place(ui, rect, true, |ui| widgets::search_field(ui, t, SEARCH_ID, SEARCH_CLEAR_ID, &mut text, &tl!("Search"), rect.width()));
     if picked.is_some() {
         memory.closed_for = Some(text.clone());
     }
@@ -482,7 +519,7 @@ fn suggestion_list(ui: &mut Ui, t: &Tokens, field: Rect, list: &[Suggestion], hi
 /// A one-segment button (New Album, ▾): a segment plate of `rect`'s size with an icon, `open`
 /// showing it pressed. Returns whether it was clicked.
 #[allow(clippy::too_many_arguments)] // a rect, its state and its labels; a struct would not read better
-fn single(ui: &mut Ui, t: &Tokens, rect: Rect, enabled: bool, id: &'static str, icon: Icon, tooltip: &'static str, open: bool) -> bool {
+fn single(ui: &mut Ui, t: &Tokens, rect: Rect, enabled: bool, id: &'static str, icon: Icon, tooltip: &str, open: bool) -> bool {
     let seg = [Segment { id, label: SegmentLabel::Icon(icon), tooltip }];
     let clicked = place(ui, rect, enabled, |ui| widgets::segmented(ui, t, &seg, open.then_some(0), rect.size()));
     segment_tooltips(ui, t, &seg);
@@ -522,17 +559,17 @@ fn import_button(ui: &mut Ui, t: &Tokens) -> Response {
     } else {
         (t.icon, t.text)
     };
-    let label = "Import";
-    let galley = p.layout_no_wrap(label.to_owned(), fonts::semibold(t.button_label), text);
+    let label = tl!("Import");
+    let galley = p.layout_no_wrap(label.clone(), fonts::semibold(t.button_label), text);
     let icon = t.metrics.icon_toolbar;
     let content = icon + GAP + galley.size().x;
     let x = (rect.center().x - content / 2.0).round();
     icons::paint(p, Rect::from_min_size(pos2(x, (rect.center().y - icon / 2.0).round()), Vec2::splat(icon)), Icon::Import, glyph);
     p.galley(pos2(x + icon + GAP, (rect.center().y - galley.size().y / 2.0).round()), galley, text);
-    widgets::register(ui.ctx(), IMPORT_ID, Role::Button, label, Target::Widget(&r), false);
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
-    let tip = "Get photos from a camera, card or folder";
-    if enabled { r.on_hover_text(tip) } else { disabled_tooltip(r, t, tip) }
+    widgets::register(ui.ctx(), IMPORT_ID, Role::Button, &label, Target::Widget(&r), false);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
+    let tip = tl!("Get photos from a camera, card or folder");
+    if enabled { r.on_hover_text(tip) } else { disabled_tooltip(r, t, &tip) }
 }
 
 /// The ▾ button and its popup of [`VIEW_OPTIONS_ROWS`], bounded by the window like every menu. The
@@ -541,7 +578,7 @@ fn import_button(ui: &mut Ui, t: &Tokens) -> Response {
 fn view_options(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
     let popup_id = widgets::dropdown_popup_id(VIEW_OPTIONS_ID);
     let open = Popup::is_id_open(ui.ctx(), popup_id);
-    let toggled = single(ui, t, rect, true, VIEW_OPTIONS_ID, Icon::ChevronDown, "View options", open);
+    let toggled = single(ui, t, rect, true, VIEW_OPTIONS_ID, Icon::ChevronDown, &tl!("View options"), open);
     let Some(button) = ui.ctx().read_response(Id::new(VIEW_OPTIONS_ID)) else { return };
     // Whether each row's command is registered, and whether the view state checks it.
     let live: Vec<(bool, bool)> = VIEW_OPTIONS_ROWS
@@ -566,7 +603,8 @@ fn view_options(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
                     ui.separator();
                     continue;
                 };
-                let r = ui.add_enabled(live, egui::Button::new(label));
+                let label = view_option_label(label);
+                let r = ui.add_enabled(live, egui::Button::new(&label));
                 if checked {
                     let color = if live { t.text } else { t.text_disabled };
                     let c = pos2(r.rect.left() + 12.0, r.rect.center().y);
@@ -574,7 +612,7 @@ fn view_options(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
                     ui.painter().add(egui::Shape::line(pts, Stroke::new(1.6, color)));
                 }
                 if let Some(id) = o.widget_id() {
-                    widgets::register(ui.ctx(), &id, Role::MenuItem, label, Target::Widget(&r), checked);
+                    widgets::register(ui.ctx(), &id, Role::MenuItem, &label, Target::Widget(&r), checked);
                 }
                 if r.clicked() {
                     clicked = Some((command, serde_json::from_str(params).unwrap_or_else(|_| json!({}))));
@@ -600,7 +638,7 @@ fn activity(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
         app.state_mut().activity = open;
     }
     let open = app.state().activity;
-    let label = if busy { "Working in the background" } else { "No background work" };
+    let label = if busy { tl!("Working in the background") } else { tl!("No background work") };
     if open {
         ui.painter().rect_filled(rect, CornerRadius::same(t.radius), t.pressed);
     } else if r.hovered() {
@@ -617,8 +655,8 @@ fn activity(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
         let wait = (step - time.rem_euclid(step)).clamp(0.001, step);
         ui.ctx().request_repaint_after(Duration::from_secs_f64(wait));
     }
-    widgets::register(ui.ctx(), ACTIVITY_ID, Role::Toggle, label, Target::Widget(&r), open);
-    widgets::tooltip(r, t, label, None);
+    widgets::register(ui.ctx(), ACTIVITY_ID, Role::Toggle, &label, Target::Widget(&r), open);
+    widgets::tooltip(r, t, &label, None);
     super::activity::show(app, ui, rect);
 }
 
@@ -683,6 +721,33 @@ mod tests {
                 assert!(rect.is_finite() && rect.width() >= 0.0 && rect.height() >= 0.0, "{r:?}: {rect:?}");
             }
         }
+    }
+
+    #[test]
+    fn the_age_caption_says_in_english_what_the_slider_says() {
+        crate::i18n::with_language(&crate::i18n::ENGLISH, || {
+            for days in [
+                None,
+                Some(0),
+                Some(1),
+                Some(2),
+                Some(6),
+                Some(7),
+                Some(29),
+                Some(30),
+                Some(334),
+                Some(350),
+                Some(351),
+                Some(365),
+                Some(800),
+                Some(u32::MAX),
+            ] {
+                assert_eq!(age_caption(days), widgets::age_label(days), "{days:?}");
+            }
+            for days in 0..=widgets::AGE_MAX_DAYS + 1 {
+                assert_eq!(age_caption(Some(days)), widgets::age_label(Some(days)), "{days}");
+            }
+        });
     }
 
     #[test]

@@ -13,6 +13,7 @@ use egui::{Context, Event, FocusDirection, Id, Key, Modifiers, Ui};
 
 use super::Panels;
 use crate::app::App;
+use crate::tl;
 use dalica_ui_kit::registry::{self, Role};
 
 pub const HEIGHT: f32 = crate::titlebar::HEIGHT;
@@ -23,6 +24,29 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let bar = ui.clip_rect();
     let section = app.state().folder.and_then(|f| p.sections.list.iter().find(|s| s.folder == Some(f))).map(|s| s.title.clone());
     crate::titlebar::show(ui, app, bar, section.as_deref());
+}
+
+/// The title a menu of the bar shows, from its English title (`menus::title`), in the language in
+/// effect: the in-window bar and the macOS menu both draw it.
+pub fn menu_title(english: &str) -> String {
+    match english {
+        "File" => tl!(ctx = "menu", "File"),
+        "Edit" => tl!(ctx = "menu", "Edit"),
+        "View" => tl!(ctx = "menu", "View"),
+        "Folder" => tl!(ctx = "menu", "Folder"),
+        "Album" => tl!(ctx = "menu", "Album"),
+        "Picture" => tl!(ctx = "menu", "Picture"),
+        "Create" => tl!(ctx = "menu", "Create"),
+        "Tools" => tl!(ctx = "menu", "Tools"),
+        "Help" => tl!(ctx = "menu", "Help"),
+        "Dalica" => tl!(ctx = "menu", "Dalica"),
+        other => crate::i18n::tr_ctx("menu", other),
+    }
+}
+
+/// The label a submenu's row shows, from its English label (the menu catalog's).
+pub fn submenu_label(english: &str) -> String {
+    crate::i18n::tr(english)
 }
 
 fn alt_key() -> Id {

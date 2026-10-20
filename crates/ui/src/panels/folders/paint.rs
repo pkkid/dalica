@@ -26,7 +26,7 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{FontId, Id, Painter, Rect, Response, Sense, Ui, pos2, vec2};
 
-use super::model::{OFFLINE, Row};
+use super::model::{Row, offline};
 use crate::state::AlbumSection;
 
 /// Where a row's disclosure triangle is centred and where its icon starts, before the indent.
@@ -136,7 +136,7 @@ pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tre
     // elided in the middle.
     let mut right = rect.max.x - RIGHT;
     if row.offline {
-        let marker = painter.layout_no_wrap(OFFLINE.to_owned(), fonts::regular(t.small), t.caution);
+        let marker = painter.layout_no_wrap(offline(), fonts::regular(t.small), t.caution);
         right -= marker.size().x;
         let pos = pos2(right, rect.center().y - marker.size().y / 2.0).round();
         right -= MARKER_GAP;

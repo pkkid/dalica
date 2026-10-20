@@ -42,6 +42,7 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::commands::map::asks;
+use crate::tl;
 
 /// The question's card and its buttons.
 pub const QUESTION_ID: &str = "map:places/question";
@@ -113,12 +114,12 @@ pub fn provider(template: &str) -> String {
     let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
     let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
     let host = host.split(':').next().unwrap_or_default();
-    if host.is_empty() { "the tile server".into() } else { host.to_string() }
+    if host.is_empty() { tl!("the tile server") } else { host.to_string() }
 }
 
 /// The question for tile server `template`.
 pub fn question(template: &str) -> String {
-    format!("Show map tiles from {}? {DETAIL}", provider(template))
+    tl!("Show map tiles from {provider}? Dalica fetches map pictures from the internet while this pane is open.", provider = provider(template))
 }
 
 /// `image` as a texture, `None` when its size and its pixels disagree.
@@ -253,10 +254,10 @@ fn card(ui: &mut Ui, t: &Tokens, area: Rect, text: &str, answer: &mut Option<boo
     child.set_clip_rect(area.intersect(ui.clip_rect()));
     child.spacing_mut().item_spacing = vec2(CARD_GAP, 0.0);
     // Right to left: [Allow] [Not Now] reads Allow first, Not Now at the right edge.
-    if text_button(&mut child, t, NOT_NOW_ID, NOT_NOW, false).clicked() {
+    if text_button(&mut child, t, NOT_NOW_ID, &tl!("Not Now"), false).clicked() {
         *answer = Some(false);
     }
-    if primary_button(&mut child, t, ALLOW_ID, ALLOW).clicked() {
+    if primary_button(&mut child, t, ALLOW_ID, &tl!("Allow")).clicked() {
         *answer = Some(true);
     }
     widgets::register(ui.ctx(), QUESTION_ID, Role::Other, text, Target::Widget(&r), false);

@@ -59,13 +59,14 @@ use serde_json::{Value, json};
 
 use crate::app::App;
 use crate::state::Section;
+use crate::{tl, tln};
 
 /// The most toasts kept at once; a new one beyond it drops the oldest.
 pub const MAX_TOASTS: usize = 8;
 /// The longest toast text kept, in characters.
 pub const MAX_TEXT: usize = 300;
 
-/// The Show Folder button's automation id and label.
+/// The Show Folder button's automation id and label (English; drawn through the catalogs).
 pub const SHOW_FOLDER_ID: &str = "button:toast.showFolder";
 pub const SHOW_FOLDER: &str = "Show Folder";
 /// How long a toast with an action shows at least, in seconds.
@@ -84,9 +85,10 @@ pub const OK: &str = "OK";
 /// The notice of the previous organizer's data found in `folders` folders (`organizing.md` §1
 /// item 4): "… in 1 folder", "… in 12 folders".
 pub fn legacy_text(folders: usize) -> String {
-    let counted = if folders == 1 { "1 folder".to_string() } else { format!("{folders} folders") };
-    format!(
-        "Found photo data from your previous photo program in {counted}. Dalica shows it and saves any changes in its own files; the old files are never changed."
+    tln!(
+        folders,
+        "Found photo data from your previous photo program in {n} folder. Dalica shows it and saves any changes in its own files; the old files are never changed.",
+        "Found photo data from your previous photo program in {n} folders. Dalica shows it and saves any changes in its own files; the old files are never changed."
     )
 }
 
@@ -102,10 +104,10 @@ pub enum Action {
 
 impl Action {
     /// The button's automation id and label.
-    fn button(&self) -> (&'static str, &'static str) {
+    fn button(&self) -> (&'static str, String) {
         match self {
-            Action::ShowFolder(_) => (SHOW_FOLDER_ID, SHOW_FOLDER),
-            Action::LegacyOk => (OK_ID, OK),
+            Action::ShowFolder(_) => (SHOW_FOLDER_ID, tl!("Show Folder")),
+            Action::LegacyOk => (OK_ID, tl!("OK")),
         }
     }
 }
@@ -271,7 +273,8 @@ impl Notices {
         let fresh: Vec<(u64, String, String)> = session
             .metadata_events()
             .filter(|e| e.seq > self.seen)
-            .map(|e| (e.seq, e.message(), e.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
+            // The engine's sentence, looked up whole (it carries values, so it stays English).
+            .map(|e| (e.seq, crate::i18n::tr(&e.message()), e.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
             .collect();
         for (seq, text, file) in fresh {
             self.seen = self.seen.max(seq);
@@ -328,7 +331,8 @@ impl Notices {
     pub fn show(&mut self, ui: &Ui, t: &Tokens, area: Rect, now: f64) {
         let Some(toast) = self.showing(now).last() else { return };
         let text = ToastText::new(&toast.text, toast.keep);
-        let button = toast.action.as_ref().map(Action::button);
+        let label = toast.action.as_ref().map(Action::button);
+        let button = label.as_ref().map(|(id, l)| (*id, l.as_str()));
         let pressed =
             widgets::toast(ui, t, &format!("toast:{}", toast.n), area, text, toast.kind, toast.fade_age(now), button).is_some_and(|r| r.clicked());
         if pressed {
@@ -408,25 +412,31 @@ pub fn bare_text(e: &FileJobEvent, tried: Option<&Path>) -> String {
 /// [`tried_toast`], the first failure's reason told when `reasons`.
 fn worded(e: &FileJobEvent, tried: Option<&Path>, reasons: bool) -> JobToast {
     let action = e.folder.clone().map(Action::ShowFolder);
+    // The job's message is the engine's, looked up whole (it carries counts, so it stays English).
+    let message = crate::i18n::tr(&e.message);
     let Some(first) = e.failures.first() else {
-        return JobToast { text: e.message.clone(), whole: String::new(), kind: ToastKind::Info, action };
-    };
-    let verb = match e.kind {
-        JobKind::Export => "export",
-        JobKind::Import => "import",
-        _ => "save",
+        return JobToast { text: message, whole: String::new(), kind: ToastKind::Info, action };
     };
     let file = tried.unwrap_or(&first.file);
     let name = file.file_name().map_or_else(|| file.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
-    let mut detail =
-        if reasons { format!("Could not {verb} {name}: {}", first.reason.trim_end_matches('.')) } else { format!("Could not {verb} {name}") };
-    let more = e.failures.len().saturating_sub(1);
-    if more > 0 {
-        detail.push_str(&format!(", and {more} more"));
-    }
+    // The reason is the file system's or the decoder's, as reported.
+    let reason = first.reason.trim_end_matches('.');
+    let detail = match (e.kind, reasons) {
+        (JobKind::Export, true) => tl!("Could not export {name}: {reason}", name = name, reason = reason),
+        (JobKind::Export, false) => tl!("Could not export {name}", name = name),
+        (JobKind::Import, true) => tl!("Could not import {name}: {reason}", name = name, reason = reason),
+        (JobKind::Import, false) => tl!("Could not import {name}", name = name),
+        (_, true) => tl!("Could not save {name}: {reason}", name = name, reason = reason),
+        (_, false) => tl!("Could not save {name}", name = name),
+    };
+    let detail = and_more(detail, e.failures.len().saturating_sub(1));
     // A Save that did nothing says only what failed; an export (or a Save that did some) keeps
     // its counts in front.
-    let text = if e.done == 0 && e.kind != JobKind::Export { detail } else { format!("{}. {detail}", e.message.trim_end_matches('.')) };
+    let text = if e.done == 0 && e.kind != JobKind::Export {
+        detail
+    } else {
+        tl!("{done}. {failed}", done = message.trim_end_matches('.'), failed = detail)
+    };
     JobToast { text, whole: name, kind: ToastKind::Caution, action }
 }
 
@@ -440,17 +450,83 @@ fn on_folders(kind: FileOpKind) -> bool {
     matches!(kind, FileOpKind::MoveFolder | FileOpKind::RenameFolder | FileOpKind::TrashFolder)
 }
 
-/// "1 photo", "3 photos", "the folder", "2 folders"; an undone copy's are "copies".
-fn counted(kind: FileOpKind, dir: Direction, n: usize) -> String {
-    let (one, many) = match (kind, dir) {
-        (FileOpKind::Copy, Direction::Undo) => ("copy", "copies"),
-        _ if on_folders(kind) => ("folder", "folders"),
-        _ => ("photo", "photos"),
-    };
-    match n {
-        1 if on_folders(kind) => "the folder".into(),
-        1 => format!("1 {one}"),
-        n => format!("{n} {many}"),
+/// `detail` followed by ", and 2 more" when `more` other files failed.
+fn and_more(detail: String, more: usize) -> String {
+    if more == 0 { detail } else { tln!(more, "{detail}, and {n} more", "{detail}, and {n} more", detail = detail) }
+}
+
+/// What a file operation did, as its toast words it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Done {
+    MovedBack,
+    CopiesTrashed,
+    RenamedBack,
+    Restored,
+    Moved,
+    Copied,
+    Renamed,
+    Trashed,
+}
+
+/// The sentence of what was done: `n` photos (folders when `folders`; one folder is "the folder"),
+/// to `dest` where the operation names one ("Moved 3 photos to Lisbon", "Moved the folder back").
+fn done_text(done: Done, folders: bool, n: usize, dest: Option<&str>) -> String {
+    let one = folders && n == 1;
+    match (done, folders, dest) {
+        (Done::MovedBack, false, _) => tln!(n, "Moved {n} photo back", "Moved {n} photos back"),
+        (Done::MovedBack, true, _) if one => tl!("Moved the folder back"),
+        (Done::MovedBack, true, _) => tln!(n, "Moved {n} folder back", "Moved {n} folders back"),
+        (Done::CopiesTrashed, ..) => tln!(n, "Moved {n} copy to the Trash", "Moved {n} copies to the Trash"),
+        (Done::RenamedBack, false, _) => tln!(n, "Renamed {n} photo back", "Renamed {n} photos back"),
+        (Done::RenamedBack, true, _) if one => tl!("Renamed the folder back"),
+        (Done::RenamedBack, true, _) => tln!(n, "Renamed {n} folder back", "Renamed {n} folders back"),
+        (Done::Restored, false, _) => tln!(n, "Restored {n} photo from the Trash", "Restored {n} photos from the Trash"),
+        (Done::Restored, true, _) if one => tl!("Restored the folder from the Trash"),
+        (Done::Restored, true, _) => tln!(n, "Restored {n} folder from the Trash", "Restored {n} folders from the Trash"),
+        (Done::Moved, false, Some(d)) => tln!(n, "Moved {n} photo to {folder}", "Moved {n} photos to {folder}", folder = d),
+        (Done::Moved, false, None) => tln!(n, "Moved {n} photo", "Moved {n} photos"),
+        (Done::Moved, true, Some(d)) if one => tl!("Moved the folder to {folder}", folder = d),
+        (Done::Moved, true, None) if one => tl!("Moved the folder"),
+        (Done::Moved, true, Some(d)) => tln!(n, "Moved {n} folder to {folder}", "Moved {n} folders to {folder}", folder = d),
+        (Done::Moved, true, None) => tln!(n, "Moved {n} folder", "Moved {n} folders"),
+        (Done::Copied, _, Some(d)) => tln!(n, "Copied {n} photo to {folder}", "Copied {n} photos to {folder}", folder = d),
+        (Done::Copied, _, None) => tln!(n, "Copied {n} photo", "Copied {n} photos"),
+        (Done::Renamed, false, _) => tln!(n, "Renamed {n} photo", "Renamed {n} photos"),
+        (Done::Renamed, true, Some(d)) if one => tl!("Renamed the folder to {name}", name = d),
+        (Done::Renamed, true, None) if one => tl!("Renamed the folder"),
+        (Done::Renamed, true, Some(d)) => tln!(n, "Renamed {n} folder to {name}", "Renamed {n} folders to {name}", name = d),
+        (Done::Renamed, true, None) => tln!(n, "Renamed {n} folder", "Renamed {n} folders"),
+        (Done::Trashed, false, _) => tln!(n, "Moved {n} photo to the Trash", "Moved {n} photos to the Trash"),
+        (Done::Trashed, true, _) if one => tl!("Moved the folder to the Trash"),
+        (Done::Trashed, true, _) => tln!(n, "Moved {n} folder to the Trash", "Moved {n} folders to the Trash"),
+    }
+}
+
+/// "Nothing moved: 1 duplicate skipped": an operation that did nothing but skip.
+fn nothing_text(done: Done, skipped: String) -> String {
+    match done {
+        Done::MovedBack => tl!("Nothing moved back: {skipped}", skipped = skipped),
+        Done::CopiesTrashed => tl!("Nothing removed: {skipped}", skipped = skipped),
+        Done::RenamedBack => tl!("Nothing renamed back: {skipped}", skipped = skipped),
+        Done::Restored => tl!("Nothing restored: {skipped}", skipped = skipped),
+        Done::Moved => tl!("Nothing moved: {skipped}", skipped = skipped),
+        Done::Copied => tl!("Nothing copied: {skipped}", skipped = skipped),
+        Done::Renamed => tl!("Nothing renamed: {skipped}", skipped = skipped),
+        Done::Trashed => tl!("Nothing moved to the Trash: {skipped}", skipped = skipped),
+    }
+}
+
+/// "Could not move IMG_0041.jpg back: the file is in use": the first file that failed and why.
+fn failed_text(done: Done, name: &str, reason: &str) -> String {
+    match done {
+        Done::MovedBack => tl!("Could not move {name} back: {reason}", name = name, reason = reason),
+        Done::CopiesTrashed => tl!("Could not remove the copy {name}: {reason}", name = name, reason = reason),
+        Done::RenamedBack => tl!("Could not rename {name} back: {reason}", name = name, reason = reason),
+        Done::Restored => tl!("Could not restore {name}: {reason}", name = name, reason = reason),
+        Done::Moved => tl!("Could not move {name}: {reason}", name = name, reason = reason),
+        Done::Copied => tl!("Could not copy {name}: {reason}", name = name, reason = reason),
+        Done::Renamed => tl!("Could not rename {name}: {reason}", name = name, reason = reason),
+        Done::Trashed => tl!("Could not move {name} to the Trash: {reason}", name = name, reason = reason),
     }
 }
 
@@ -461,45 +537,41 @@ pub fn op_toast(e: &FileOpEvent) -> JobToast {
     // Move to New Folder's first item makes the folder (its undo's last one removes it).
     let made = usize::from(e.label == dalica_engine::cmd::files::NEW_FOLDER_LABEL);
     let done = e.done.saturating_sub(made);
-    let what = counted(e.kind, e.direction, done);
     let dest = e.destination.as_deref().map(name_of);
-    let to = dest.as_ref().map_or_else(String::new, |d| format!(" to {d}"));
-    let (head, past, verb, after) = match (e.kind, e.direction) {
-        (FileOpKind::Move | FileOpKind::MoveFolder, Direction::Undo) => (format!("Moved {what} back"), "moved back", "move", " back"),
-        (FileOpKind::Copy, Direction::Undo) => (format!("Moved {what} to the Trash"), "removed", "remove the copy", ""),
-        (FileOpKind::Rename | FileOpKind::RenameFolder, Direction::Undo) => (format!("Renamed {what} back"), "renamed back", "rename", " back"),
-        (FileOpKind::Trash | FileOpKind::TrashFolder, Direction::Undo) => (format!("Restored {what} from the Trash"), "restored", "restore", ""),
-        (FileOpKind::Move | FileOpKind::MoveFolder, _) => (format!("Moved {what}{to}"), "moved", "move", ""),
-        (FileOpKind::Copy, _) => (format!("Copied {what}{to}"), "copied", "copy", ""),
-        (FileOpKind::Rename, _) => (format!("Renamed {what}"), "renamed", "rename", ""),
-        (FileOpKind::RenameFolder, _) => (format!("Renamed {what}{to}"), "renamed", "rename", ""),
-        (FileOpKind::Trash | FileOpKind::TrashFolder, _) => (format!("Moved {what} to the Trash"), "moved to the Trash", "move", " to the Trash"),
+    let what = match (e.kind, e.direction) {
+        (FileOpKind::Move | FileOpKind::MoveFolder, Direction::Undo) => Done::MovedBack,
+        (FileOpKind::Copy, Direction::Undo) => Done::CopiesTrashed,
+        (FileOpKind::Rename | FileOpKind::RenameFolder, Direction::Undo) => Done::RenamedBack,
+        (FileOpKind::Trash | FileOpKind::TrashFolder, Direction::Undo) => Done::Restored,
+        (FileOpKind::Move | FileOpKind::MoveFolder, _) => Done::Moved,
+        (FileOpKind::Copy, _) => Done::Copied,
+        (FileOpKind::Rename | FileOpKind::RenameFolder, _) => Done::Renamed,
+        (FileOpKind::Trash | FileOpKind::TrashFolder, _) => Done::Trashed,
     };
+    // A photo rename names no destination; a folder's rename names its new name.
+    let dest = if e.kind == FileOpKind::Rename { None } else { dest };
+    let head = done_text(what, on_folders(e.kind), done, dest.as_deref());
     let skipped = e.skipped.len();
-    let duplicates = if matches!(e.kind, FileOpKind::Move | FileOpKind::Copy) { "duplicate" } else { "item" };
-    let skip_text = match skipped {
-        0 => String::new(),
-        1 => format!("1 {duplicates} skipped"),
-        n => format!("{n} {duplicates}s skipped"),
+    let skip_text = if matches!(e.kind, FileOpKind::Move | FileOpKind::Copy) {
+        tln!(skipped, "{n} duplicate skipped", "{n} duplicates skipped")
+    } else {
+        tln!(skipped, "{n} item skipped", "{n} items skipped")
     };
-    let mut text = if done == 0 && skipped > 0 { format!("Nothing {past}: {skip_text}") } else { head };
+    let mut text = if done == 0 && skipped > 0 { nothing_text(what, skip_text.clone()) } else { head };
     if done > 0 && skipped > 0 {
-        text.push_str(&format!("; {skip_text}"));
+        text = tl!("{done}; {skipped}", done = text, skipped = skip_text);
     }
     if e.cancelled {
-        text.push_str("; the rest was cancelled");
+        text = tl!("{done}; the rest was cancelled", done = text);
     }
     let Some(first) = e.failures.first() else {
         return JobToast { text, whole: String::new(), kind: ToastKind::Info, action: None };
     };
     let name = name_of(&first.file);
-    let mut detail = format!("Could not {verb} {name}{after}: {}", first.reason.trim_end_matches('.'));
-    let more = e.failures.len().saturating_sub(1);
-    if more > 0 {
-        detail.push_str(&format!(", and {more} more"));
-    }
+    // The reason is the file system's, as reported.
+    let detail = and_more(failed_text(what, &name, first.reason.trim_end_matches('.')), e.failures.len().saturating_sub(1));
     // An operation that did nothing says only what failed.
-    let text = if done == 0 && skipped == 0 && !e.cancelled { detail } else { format!("{text}. {detail}") };
+    let text = if done == 0 && skipped == 0 && !e.cancelled { detail } else { tl!("{done}. {failed}", done = text, failed = detail) };
     JobToast { text, whole: name, kind: ToastKind::Caution, action: None }
 }
 
@@ -537,7 +609,7 @@ pub fn act(app: &mut App) {
     if scanning || frames > 0 {
         app.notices_mut().want = Some((path, if scanning { frames } else { frames.saturating_sub(1) }));
     } else {
-        app.toast(NOT_IN_LIBRARY, ToastKind::Caution);
+        app.toast(&tl!("The folder is not in the library."), ToastKind::Caution);
     }
 }
 

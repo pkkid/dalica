@@ -57,6 +57,8 @@ struct Built {
     sections: u64,
     /// The Collage room's selection while it is in front.
     collage: Option<Vec<PhotoId>>,
+    /// The language the line is written in.
+    language: &'static str,
     line: Line,
 }
 
@@ -77,6 +79,7 @@ fn cached_line(p: &Panels, app: &App, ctx: &egui::Context, collage: Option<Vec<P
     let revision = session.library().revision();
     let photo = edit_view::open_photo(app);
     let sections = p.sections.generation();
+    let language = crate::i18n::current().code;
     ctx.data_mut(|d| {
         let b = d.get_temp_mut_or_default::<Built>(Id::new("status:line"));
         if b.revision != Some(revision)
@@ -85,7 +88,9 @@ fn cached_line(p: &Panels, app: &App, ctx: &egui::Context, collage: Option<Vec<P
             || b.photo != photo
             || b.sections != sections
             || b.collage != collage
+            || b.language != language
         {
+            b.language = language;
             b.revision = Some(revision);
             b.selection.clone_from(&state.selection.ids);
             b.held.clone_from(&state.tray.held);
@@ -196,7 +201,8 @@ pub fn show(p: &Panels, app: &mut App, ui: &mut Ui) {
             });
             status_text::with_activity(cached_line(p, app, &ctx, collage).unwrap_or_default(), activity)
         }
-        message => Line::plain(message),
+        // A message is looked up whole by its English text (one carrying values stays English).
+        message => Line::plain(crate::i18n::tr(message)),
     };
     let font = fonts::regular(t.small);
     let painter = ui.painter();

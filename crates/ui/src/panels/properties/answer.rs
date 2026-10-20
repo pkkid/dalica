@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 
 use crate::app::App;
 use crate::panels::light_table::long_date;
+use crate::tl;
 
 /// How often a frame is asked for while the file is being read.
 pub const POLL: Duration = Duration::from_millis(50);
@@ -68,13 +69,34 @@ pub struct Answer {
 
 /// `June 4, 2026 7:42:10 PM`: a date and time in full, with its seconds.
 pub fn date_time(d: DateTime) -> String {
-    let (hour, half) = match d.hour() {
-        0 => (12, "AM"),
-        h @ 1..=11 => (h, "AM"),
-        12 => (12, "PM"),
-        h => (h.saturating_sub(12), "PM"),
-    };
-    format!("{} {hour}:{:02}:{:02} {half}", long_date(d.date()), d.minute(), d.second())
+    tl!(ctx = "date", "{date} {time}", date = long_date(d.date()), time = crate::status_text::clock(d, true))
+}
+
+/// The label of the engine's row `key` in the language in effect; a row this version does not know
+/// keeps the engine's English `label`, looked up whole.
+pub fn label(key: &str, label: &str) -> String {
+    match key {
+        "path" => tl!(ctx = "property", "Path"),
+        "fileSize" => tl!(ctx = "property", "File size"),
+        "dimensions" => tl!(ctx = "property", "Dimensions"),
+        "dateTaken" => tl!(ctx = "property", "Date taken"),
+        "dateDigitized" => tl!(ctx = "property", "Date digitized"),
+        "fileModified" => tl!(ctx = "property", "File modified"),
+        "camera" => tl!(ctx = "property", "Camera"),
+        "lens" => tl!(ctx = "property", "Lens"),
+        "exposure" => tl!(ctx = "property", "Exposure"),
+        "aperture" => tl!(ctx = "property", "Aperture"),
+        "iso" => tl!(ctx = "property", "ISO"),
+        "focalLength" => tl!(ctx = "property", "Focal length"),
+        "flash" => tl!(ctx = "property", "Flash"),
+        "orientation" => tl!(ctx = "property", "Orientation"),
+        "colorSpace" => tl!(ctx = "property", "Color space"),
+        "gps" => tl!(ctx = "property", "GPS"),
+        "caption" => tl!(ctx = "property", "Caption"),
+        "tags" => tl!(ctx = "property", "Tags"),
+        "rating" => tl!(ctx = "property", "Rating"),
+        _ => crate::i18n::tr(label),
+    }
 }
 
 /// `text` on one line (control characters as spaces), at most [`MAX_VALUE`] characters ("…" at
@@ -117,9 +139,14 @@ pub fn read(reply: &Value, file: Option<(u32, u32)>) -> Answer {
                     let raw = r.get("value")?.as_str()?;
                     let value = match key.as_str() {
                         "dateTaken" | "dateDigitized" | "fileModified" => DateTime::from_str(raw).map_or_else(|_| one_line(raw), date_time),
+                        // A word the metadata reader chose ("Fired", "Horizontal (normal)"),
+                        // looked up whole.
+                        "flash" | "orientation" | "colorSpace" => crate::i18n::tr(&one_line(raw)),
                         _ => one_line(raw),
                     };
-                    Some(Row { key, label: text(r, "label")?, value, note: text(r, "note") })
+                    let shown = label(&key, &text(r, "label")?);
+                    // The engine's note ("date from file"), looked up whole.
+                    Some(Row { key, label: shown, value, note: text(r, "note").map(|n| crate::i18n::tr(&n)) })
                 })
                 .collect()
         })
@@ -129,12 +156,12 @@ pub fn read(reply: &Value, file: Option<(u32, u32)>) -> Answer {
     {
         let stored = format!("{w} × {h}");
         if dims.value != stored {
-            dims.note = Some(format!("{stored} in the file"));
+            dims.note = Some(tl!("{size} in the file", size = stored));
         }
     }
     let mut note = None;
     if let Some(changed) = reply.get("changedElsewhere") {
-        let said = text(changed, "note").unwrap_or_else(|| CHANGED_ELSEWHERE.to_owned());
+        let said = text(changed, "note").map_or_else(|| tl!("Changed in another application; Dalica's value kept"), |n| crate::i18n::tr(&n));
         let fields: Vec<&str> =
             changed.get("fields").and_then(Value::as_array).map(|f| f.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
         let mut on_a_row = false;
@@ -176,6 +203,8 @@ struct Asked {
     id: Option<PhotoId>,
     all: bool,
     revision: u64,
+    /// The language the rows were read in.
+    language: &'static str,
     at: f64,
     answer: Arc<Answer>,
 }
@@ -193,16 +222,25 @@ pub fn answer(app: &mut App, ctx: &egui::Context, id: PhotoId, all: bool) -> Arc
         && k.id == Some(id)
         && k.all == all
         && k.revision == revision
+        && k.language == crate::i18n::current().code
         && !k.answer.pending
         && (k.at..k.at + REASK).contains(&now)
     {
         return Arc::clone(&k.answer);
     }
     let file = session.library().photo(id).map(|p| (p.width, p.height));
-    let answer = match session.execute("photo.metadata", &json!({ "id": id, "all": all })) {
+    let bytes = session.library().photo(id).map(|p| p.size);
+    let mut answer = match session.execute("photo.metadata", &json!({ "id": id, "all": all })) {
         Ok(reply) => read(&reply, file),
-        Err(e) => Answer { error: Some(one_line(&e.to_string())), ..Answer::default() },
+        // The engine's reason, looked up whole.
+        Err(e) => Answer { error: Some(crate::i18n::tr(&one_line(&e.to_string()))), ..Answer::default() },
     };
+    // The file's size as the language writes it (the engine's row is English).
+    if let Some(bytes) = bytes
+        && let Some(size) = answer.rows.iter_mut().find(|r| r.key == "fileSize")
+    {
+        size.value = crate::status_text::size(bytes);
+    }
     if answer.pending {
         ctx.request_repaint_after(POLL);
     }
@@ -212,7 +250,8 @@ pub fn answer(app: &mut App, ctx: &egui::Context, id: PhotoId, all: bool) -> Arc
         Some(k) if k.answer == answer => k.answer,
         _ => answer,
     };
-    ctx.data_mut(|d| d.insert_temp(key, Asked { id: Some(id), all, revision, at: now, answer: Arc::clone(&answer) }));
+    let language = crate::i18n::current().code;
+    ctx.data_mut(|d| d.insert_temp(key, Asked { id: Some(id), all, revision, language, at: now, answer: Arc::clone(&answer) }));
     answer
 }
 
