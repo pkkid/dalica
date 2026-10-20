@@ -17,4 +17,5 @@ mod save_faults;
 mod save_legacy;
 mod save_lossless;
 mod slideshow;
+mod video_output;
 mod watermark;

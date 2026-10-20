@@ -9,9 +9,9 @@
 //! - every other operation ([`Adjust`]): prepared once per render (with the analysis proxy when it
 //!   asks for one), then run over row bands of the picture in working precision ([`Band`]).
 //!
-//! [`Typed`] is the closed set of operations that have a module; [`crate::Op`] dispatches to it
-//! ([`crate::Op::typed`]). An operation of §3.1 without a module yet (`trim`, M15) is known and
-//! kept, has a label, and renders nothing.
+//! [`Typed`] is the closed set of operations that render; [`crate::Op`] dispatches to it
+//! ([`crate::Op::typed`]). A video's `trim` ([`video`]) reads and prints its own parameters but
+//! renders nothing, so it stays outside [`Typed`]: it is known and kept, and has a label.
 //!
 //! The 27 effects of `editing.md` §8 (M12.1) have one module per family, so each renderer task
 //! owns one file: [`colour`] (Sepia, B&W, Warmify, Tint, Saturation, Filtered B&W), [`detail`]
@@ -48,6 +48,7 @@ pub mod soften;
 pub mod straighten;
 pub mod stylize;
 pub mod tone;
+pub mod video;
 
 /// Why an operation's parameter text was refused by its module.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -949,8 +950,8 @@ impl From<mats::MuseumMatte> for Typed {
 pub fn label(name: &str) -> Option<&'static str> {
     match by_name!(name, T => T::LABEL) {
         Some(label) => Some(label),
-        // Video trimming has no module yet (M15).
-        None if name == "trim" => Some("Trim"),
+        // A video's trim renders nothing, so it stays out of `Typed` (`video.rs`).
+        None if name == video::Trim::NAME => Some(video::Trim::LABEL),
         None => None,
     }
 }

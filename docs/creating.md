@@ -208,3 +208,27 @@ room's thumbnail and an MCP reply:
   clips, paths up to 32 KiB, every number finite and in range); a recipe past any of them, of another
   shape or of a newer version is refused without a panic. A path in a recipe is only matched among
   the photos already indexed, never opened (`security.md` §5.5).
+
+## 4. A video's outputs (M15.25)
+
+The edit view's video tab makes two new files from a clip (`editing.md` §11). Neither changes the
+clip; each runs as an export job and never replaces a file.
+
+- **Save Frame as Picture** (`video.saveFrame`) writes the frame the player shows at the clip's full
+  size, upright, with the video's own rotations, as a JPEG at quality 92 with an EXIF thumbnail,
+  through the one output pipeline. It goes into `Pictures/Dalica/Video Frames`, made when missing
+  and marked as the **Video Frames** project, so it is listed under Projects. The name is
+  `<clip> <hh-mm-ss>.jpg` (made safe for every system), with `-001`, … when taken. The picture's
+  date taken is the clip's date plus the frame's time. A clip Dalica cannot play has no frame to
+  save, so the command is refused with the reason.
+- **Export Clip** (`video.exportClip {path?}`) copies the trimmed part (the whole clip without a
+  trim) into a new file of the same container. It never re-encodes: the coded pictures and sound
+  are copied as they are, so it works on any clip whose container Dalica reads (MP4, M4V,
+  QuickTime and Matroska), played or not. A decoder can only start at a key frame, so the copy
+  starts at the last key frame at or before the trim's start and ends with the last frame shown
+  before its end; the job's result and its message give the real cut ("Exported IMG_0042
+  trimmed.mov (0:00.4 to 0:01.5)"). The window asks where with the save picker; without a path the
+  copy goes beside the clip as `<clip> trimmed.<ext>`. Over automation the path must lie inside the
+  write roots. The movie's place and date boxes are copied; tables Dalica does not rewrite are left
+  out rather than copied wrong. A fragmented movie, a clip larger than 1 GB once trimmed, and a
+  damaged file are refused with the reason.

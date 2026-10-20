@@ -1048,6 +1048,123 @@ fn the_collage_rooms_writes_keep_to_the_write_roots_on_every_route() {
     assert!(written(), "the JPEG and its recipe: {}", t.d.state().status);
 }
 
+/// An MP4 of the facts only (`ms` of 640 × 360 AVC, no frames in its `mdat`): a video to the
+/// library, which no write here ever reaches.
+fn facts_only_clip(ms: u32) -> Vec<u8> {
+    let bx = |kind: &[u8; 4], payload: &[u8]| {
+        let mut v = u32::try_from(payload.len() + 8).unwrap().to_be_bytes().to_vec();
+        v.extend_from_slice(kind);
+        v.extend_from_slice(payload);
+        v
+    };
+    let times = |timescale: u32, duration: u32| [0u32, 0, 0, timescale, duration].iter().flat_map(|v| v.to_be_bytes()).collect::<Vec<u8>>();
+    let matrix: Vec<u8> = [0x1_0000i32, 0, 0, 0, 0x1_0000, 0, 0, 0, 0x4000_0000].iter().flat_map(|v| v.to_be_bytes()).collect();
+    let mut mvhd = times(1000, ms);
+    mvhd.extend(0x1_0000u32.to_be_bytes());
+    mvhd.extend(0x100u16.to_be_bytes());
+    mvhd.extend([0; 10]);
+    mvhd.extend(&matrix);
+    mvhd.extend([0; 24]);
+    mvhd.extend(2u32.to_be_bytes());
+    let mut tkhd = vec![0, 0, 0, 7];
+    tkhd.extend([0; 8]);
+    tkhd.extend(1u32.to_be_bytes());
+    tkhd.extend([0; 24]);
+    tkhd.extend(&matrix);
+    tkhd.extend((640u32 << 16).to_be_bytes());
+    tkhd.extend((360u32 << 16).to_be_bytes());
+    let mut entry = vec![0; 6];
+    entry.extend(1u16.to_be_bytes());
+    entry.extend([0; 16]);
+    entry.extend(640u16.to_be_bytes());
+    entry.extend(360u16.to_be_bytes());
+    entry.extend([0; 50]);
+    let mut stsd = vec![0, 0, 0, 0, 0, 0, 0, 1];
+    stsd.extend(bx(b"avc1", &entry));
+    let mut stsz = vec![0; 4];
+    stsz.extend(1000u32.to_be_bytes());
+    stsz.extend((ms / 1000 * 30).to_be_bytes());
+    let stbl = bx(b"stbl", &[bx(b"stsd", &stsd), bx(b"stsz", &stsz)].concat());
+    let mut mdhd = times(30_000, ms * 30);
+    mdhd.extend([0; 4]);
+    let mut hdlr = vec![0; 8];
+    hdlr.extend(b"vide");
+    hdlr.extend([0; 13]);
+    let mdia = bx(b"mdia", &[bx(b"mdhd", &mdhd), bx(b"hdlr", &hdlr), bx(b"minf", &stbl)].concat());
+    let moov = bx(b"moov", &[bx(b"mvhd", &mvhd), bx(b"trak", &[bx(b"tkhd", &tkhd), mdia].concat())].concat());
+    let mut ftyp = b"mp42".to_vec();
+    ftyp.extend(0x200u32.to_be_bytes());
+    ftyp.extend(b"mp42isom");
+    [bx(b"ftyp", &ftyp), bx(b"mdat", &[0x5a; 256]), moov].concat()
+}
+
+/// A video's writes keep to automation's write roots on every route (`control-protocol.md` §5.7),
+/// as a collage's do: with `<Pictures>/Dalica/Video Frames` outside them, Save Frame is refused
+/// over `engine.execute` (the engine's `video.saveFrame` and the window's `player.saveFrame`), an
+/// Export Clip `path` outside them too (`video.exportClip`, `player.exportClip`), nothing made; a
+/// click or a key played while the edit view shows a video has that folder checked off the UI
+/// thread first, its verdict kept for the window's Save Frame; inside a write root the check lets
+/// the commands through to their own answers.
+#[test]
+fn a_videos_writes_keep_to_the_write_roots_on_every_route() {
+    let mut t = setup_with(1, |dir| Config { write_roots: vec![dir.join("allowed")], ..Config::default() });
+    let (pictures, outside, allowed) = (t.dir.path().join("Pictures"), t.dir.path().join("outside"), t.dir.path().join("allowed"));
+    dalica_fs::create_dir_all(&outside).unwrap();
+    let clips = t.dir.path().join("photos").join("Clips");
+    dalica_fs::create_dir_all(&clips).unwrap();
+    write(clips.join("clip.mp4"), facts_only_clip(4_000));
+    let s = t.d.app_mut().session_mut().unwrap();
+    s.set_pictures_dir(Some(pictures.clone()));
+    s.execute("folders.add", &json!({ "path": clips })).unwrap();
+    s.wait_idle();
+    let clip = s.library().photos().find(|p| p.name == "clip.mp4").unwrap().id;
+    let frames = pictures.join("Dalica").join("Video Frames");
+    let nothing_made = || {
+        assert!(!pictures.exists(), "no Video Frames folder");
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0, "no clip outside the roots");
+    };
+
+    for command in ["video.saveFrame", "player.saveFrame"] {
+        assert_eq!(code(&mut t, "engine.execute", json!({ "command": command })), "path_denied", "{command}");
+    }
+    let to = outside.join("part.mp4");
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "video.exportClip", "params": { "id": clip, "path": to } })), "path_denied");
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "player.exportClip", "params": { "path": to } })), "path_denied");
+    nothing_made();
+
+    // A click and a key while the edit view shows the clip: the folder was checked first.
+    t.d.run("select.set", &json!({ "ids": [clip] })).unwrap();
+    t.d.settle(600).unwrap();
+    t.d.key("Enter").unwrap();
+    t.d.settle(600).unwrap();
+    assert_eq!(crate::commands::video::shown(t.d.app()), Some(clip), "the edit view shows the clip");
+    let roots = t.d.app().session().unwrap().roots().to_vec();
+    // Until the window's player (M15.26) the tab's Save Frame is greyed: a click presses nothing.
+    assert_eq!(code(&mut t, "ui.clickWidget", json!({ "id": "button:video.saveFrame" })), "disabled");
+    ok(&mut t, "ui.key", json!({ "combo": "Space" }));
+    let verdict = super::vet::verdict(&frames, &roots);
+    assert!(matches!(&verdict, Some(Err(why)) if why.contains("outside every automation write root")), "{verdict:?}");
+    super::vet::forget();
+    let rotate = json!({ "id": crate::panels::edit::video::tab::ROTATE_CW_ID });
+    ok(&mut t, "ui.clickWidget", rotate);
+    assert!(matches!(super::vet::verdict(&frames, &roots), Some(Err(_))), "a click is checked the same way");
+    ok(&mut t, "ui.settle", json!({}));
+    nothing_made();
+
+    // Inside a write root the commands reach their own answers.
+    dalica_fs::create_dir_all(&allowed).unwrap();
+    t.d.app_mut().session_mut().unwrap().set_pictures_dir(Some(allowed.clone()));
+    assert_eq!(
+        code(&mut t, "engine.execute", json!({ "command": "video.saveFrame" })),
+        "disabled",
+        "no video in the player: the command's own refusal"
+    );
+    let still = t.ids[0];
+    let inside = json!({ "command": "video.exportClip", "params": { "id": still, "path": allowed.join("part.mp4") } });
+    assert_eq!(code(&mut t, "engine.execute", inside), "disabled", "a still: the command's own refusal");
+    nothing_made();
+}
+
 /// No import ran, and nothing was made in `outside`.
 fn nothing_imported(t: &mut T, outside: &Path) {
     assert_eq!(t.d.app_mut().session_mut().unwrap().execute("import.status", &json!({})).unwrap()["state"], Value::Null, "no import ran");

@@ -4,7 +4,8 @@
 //! A click, a key or a pointer event sent over the control channel can press Import All or Enter
 //! in the Import room, which runs `import.run` into the destination strip's folder, or Create
 //! Collage, Save Draft or the close question's Save Draft in the Collage room, which write into
-//! `Session::collage_destination`. The app asks [`super::refuse_folder`] first, on the UI thread,
+//! `Session::collage_destination`, or Save Frame as Picture in the edit view's video tab, which
+//! writes into `Session::video_frames_dir`. The app asks [`super::refuse_folder`] first, on the UI thread,
 //! where nothing may touch the disk: the folder can only be compared as written there. So before a
 //! request (or a batch step) plays input while a room could write, [`before_input`] resolves its
 //! folder through its links on a worker, as `engine.execute` resolves a command's path, and keeps
@@ -91,13 +92,24 @@ fn collage_destination(host: &dyn Host) -> Option<(PathBuf, Vec<PathBuf>)> {
     Some((dest, s.roots().to_vec()))
 }
 
-/// `outcome`, with the folders the Import and Collage rooms would write into checked on a worker
-/// first when it plays input and a room could write; any other outcome as it is.
+/// The folder Save Frame as Picture would write into now (`Session::video_frames_dir`), and the
+/// watched folders, while the edit view shows a video (its video tab's Save Frame can be pressed).
+fn video_frames_destination(host: &dyn Host) -> Option<(PathBuf, Vec<PathBuf>)> {
+    let app = host.app();
+    crate::commands::video::shown(app)?;
+    let s = app.session()?;
+    let dest = s.video_frames_dir()?;
+    paths::lexical(&dest, "path").ok()?;
+    Some((dest, s.roots().to_vec()))
+}
+
+/// `outcome`, with the folders the Import and Collage rooms and the video tab would write into
+/// checked on a worker first when it plays input and one could write; any other outcome as it is.
 pub(super) fn before_input(host: &dyn Host, config: &Config, outcome: Outcome) -> Outcome {
     if !matches!(outcome, Outcome::Play(..)) {
         return outcome;
     }
-    let folders: Vec<_> = draft_destination(host).into_iter().chain(collage_destination(host)).collect();
+    let folders: Vec<_> = draft_destination(host).into_iter().chain(collage_destination(host)).chain(video_frames_destination(host)).collect();
     if folders.is_empty() {
         return outcome;
     }

@@ -432,6 +432,13 @@ impl Headless {
                     Err(_) => Ok(()),
                 }
             }
+            "video.exportClip" => path("path")?.map_or(Ok(()), |p| self.roots.check_output(&p, "path", &watched, Output::File).map(|_| ())),
+            // A video's frame is saved into `<Pictures>/Dalica/Video Frames`: checked as a
+            // collage's folder is.
+            "video.saveFrame" => match self.session.video_frames_dir() {
+                Some(folder) => self.roots.check_output(&folder, "path", &watched, Output::Folder).map(|_| ()),
+                None => Ok(()),
+            },
             "folders.add" | "faces.models.inspect" | "faces.models.install" => {
                 path("path")?.map_or(Ok(()), |p| self.roots.check_read(&p, "path", &watched).map(|_| ()))
             }
@@ -791,6 +798,28 @@ mod tests {
         let done = run(&mut h, "collage.create", json!({ "path": allowed.join("Collages") })).unwrap();
         assert_eq!(done["state"], "done", "{done}");
         assert_eq!(std::fs::read_dir(allowed.join("Collages")).unwrap().count(), 2, "the JPEG and its recipe: {done}");
+    }
+
+    /// A video's outputs over MCP keep to the write roots and the watched folders
+    /// (`control-protocol.md` §5.7), as a collage does: Save Frame with `<Pictures>/Dalica/Video
+    /// Frames` outside them and an Export Clip `path` outside them are refused before the command
+    /// runs, nothing made; inside a write root the commands reach their own answers.
+    #[test]
+    fn a_videos_outputs_are_written_only_inside_the_write_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let allowed = dir.path().join("allowed");
+        std::fs::create_dir_all(&allowed).unwrap();
+        let mut h = Headless::open_with(Source::Demo, &[], Policy::with_roots(&[], std::slice::from_ref(&allowed)), false).unwrap();
+        h.session_mut().set_pictures_dir(Some(dir.path().join("Pictures")));
+        assert_eq!(code(run(&mut h, "video.saveFrame", json!({}))), "path_denied", "Pictures is no write root");
+        let outside = dir.path().join("part.mp4");
+        assert_eq!(code(run(&mut h, "video.exportClip", json!({ "id": 1, "path": outside }))), "path_denied");
+        assert_eq!(code(run(&mut h, "video.exportClip", json!({ "id": 1, "path": 3 }))), "bad_params");
+        assert!(!dir.path().join("Pictures").exists() && !outside.exists(), "nothing was made");
+        h.session_mut().set_pictures_dir(Some(allowed.clone()));
+        assert_eq!(code(run(&mut h, "video.saveFrame", json!({}))), "disabled", "no video open: the command's own refusal");
+        assert_eq!(code(run(&mut h, "video.exportClip", json!({ "id": 1, "path": allowed.join("part.mp4") }))), "disabled", "a still");
+        assert_eq!(std::fs::read_dir(&allowed).unwrap().count(), 0);
     }
 
     /// A headless session looks for face models where the app and the CLI do.

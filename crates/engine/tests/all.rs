@@ -89,6 +89,7 @@ mod tuning_commands;
 mod two_volumes;
 mod undo_emptied_folder;
 mod variant;
+mod video_play;
 mod video_posters;
 mod videos;
 mod viewer;

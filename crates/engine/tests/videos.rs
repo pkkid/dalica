@@ -167,8 +167,8 @@ fn video_inspect_reports_the_facts_and_that_dalica_cannot_play_it_yet() {
     assert_eq!(v["displayed"], json!({ "width": 640, "height": 360 }));
     assert_eq!((v["videoCodec"].clone(), v["soundCodec"].clone(), v["sound"].clone()), (json!("apcn"), json!("mp4a"), json!(true)));
     assert_eq!(v["frameRateMilli"], 30_000);
-    assert_eq!(v["playable"], false, "no decoder yet: decision-neutral");
-    assert_eq!(v["reason"], "This video can't be played");
+    assert_eq!(v["playable"], false, "ProRes: no build decodes it");
+    assert_eq!((v["reason"].clone(), v["soundPlays"].clone()), (json!("This video can't be played (ProRes)"), json!("plays")));
     assert_eq!(v["trim"], Value::Null, "no trim in its recipe");
     assert_eq!(v["path"], json!(lib.trip().join("clip.mp4")));
 

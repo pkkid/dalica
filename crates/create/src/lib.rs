@@ -4,7 +4,8 @@
 //! Copy, Save As and Export share (M8.10); [`watermark`] is the export watermark it calls;
 //! [`save`] is Save in place, Undo Save and Revert (M8.12); [`slideshow`] is the slideshow's
 //! sequencing and transition geometry (M11.4); [`collage`] is the collage document, its page,
-//! layouts, recipe and render (M14).
+//! layouts, recipe and render (M14); [`video`] is a video's Export Clip and Save Frame as Picture
+//! (M15.25).
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -14,4 +15,5 @@ pub mod export;
 pub mod output;
 pub mod save;
 pub mod slideshow;
+pub mod video;
 pub mod watermark;

@@ -62,6 +62,8 @@ const WRITE_PATHS: &[(&str, &str, paths::Output)] = &[
     ("export.run", "dir", paths::Output::Folder),
     ("photo.saveTo", "path", paths::Output::File),
     ("import.run", "destination", paths::Output::Folder),
+    ("video.exportClip", "path", paths::Output::File),
+    ("player.exportClip", "path", paths::Output::File),
 ];
 
 #[derive(Deserialize)]
@@ -182,6 +184,25 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
             })));
         }
     }
+    // Save Frame as Picture writes into `<Pictures>/Dalica/Video Frames` (`Session::video_frames_dir`):
+    // that folder is checked as an export's `dir` is, and the verdict kept for the window's own
+    // command (`player.saveFrame`, which asks `super::refuse_folder`).
+    if VIDEO_FRAME_WRITES.contains(&id.as_str())
+        && let Some(session) = call.host.app().session()
+        && let Some(folder) = session.video_frames_dir()
+    {
+        paths::lexical(&folder, "path")?;
+        let watched = session.roots().to_vec();
+        return Ok(Outcome::Work(Box::new(move || {
+            match paths::check_output(&folder, &config.effective_write_roots(), &watched, paths::Output::Folder) {
+                Err(e) => Next::Reply(Err(e)),
+                Ok(_) => Next::Resume(Box::new(move |host| {
+                    super::vet::record(folder, watched, Ok(()));
+                    checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from)
+                })),
+            }
+        })));
+    }
     // The Collage room's Create Collage and Save Draft write where `collage.create` would without
     // a `path`: that folder is checked first, and the verdict kept for the room's command.
     if COLLAGE_UI_WRITES.contains(&id.as_str()) {
@@ -213,6 +234,9 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
 
 /// The commands that write a collage (§5.7): their folder is `Session::collage_destination`.
 const COLLAGE_WRITES: &[&str] = &["collage.create", "collage.saveDraft"];
+
+/// The commands that save a video's frame (§5.7): their folder is `Session::video_frames_dir`.
+const VIDEO_FRAME_WRITES: &[&str] = &["video.saveFrame", "player.saveFrame"];
 
 /// The Collage room's commands that run them (`crate::commands::collage`).
 const COLLAGE_UI_WRITES: &[&str] = &["collage.createCollage", "collage.saveAsDraft"];

@@ -10348,7 +10348,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `crates/ui/tests/default_viewer.rs` (headless, by id): the tab shows the fake's handlers, Select
     All then OK records every type, and the question after the first run appears once; the desktop
     entry validates and the packaging lint's WiX and plist checks pass.
-- ⬜ **M15.25 `edit` + `engine` + `create` (reserved decision 2): playback, trim, Save Frame as Picture and Export Clip**
+- ✅ **M15.25 `edit` + `engine` + `create` (reserved decision 2): playback, trim, Save Frame as Picture and Export Clip**
   - after: M15.15, M15.16, M8.10, M15.46
   - files: `crates/edit/src/ops/video.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/video_ops.rs`, `crates/engine/src/video.rs`, `crates/engine/src/cmd/video.rs`, `crates/engine/src/video_output.rs`, `crates/engine/src/cmd/video_output.rs`, `crates/engine/tests/video_play.rs`, `crates/create/src/video.rs`, `crates/create/tests/video_output.rs`, `docs/editing.md`, `docs/creating.md`
   - scope: reserved decision 2 as answered, for the codecs M15.46's record passes: `trim(start,end)` in the recipe

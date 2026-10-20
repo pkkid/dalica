@@ -444,9 +444,38 @@ skipped, and Save and Batch Edit treat it as not yet available.
 - A video opens in the same view; under it a control bar: play/pause, scrubber with time readout,
   volume, a **trim ruler** with start/end handles, **Set Start**, **Set End**, **Full Screen**.
 - The edit panel shows a video tab instead of tabs 1–5: **Save Frame as Picture** (writes a JPEG
-  into `Pictures/Dalica/Video Frames`), **Export Clip** (trimmed copy), rotate buttons.
+  into `Pictures/Dalica/Video Frames`), **Export Clip** (trimmed copy), rotate buttons
+  (`creating.md` §4).
 - Keys: **/** or Space play/pause, **,** / **.** frame step.
 - Trim and rotation are recipe entries (`trim(start,end)`); there is no colour editing of video.
+
+### 11.1 The player (M15.25)
+
+- **What plays** is decided from the facts the scan read, never by opening the file: the pictures
+  when their codec is one Dalica decodes (H.264; HEVC in builds that include it;
+  `video-decoders.md`), the sound when it is AAC. A clip of another codec opens with "This video
+  can't be played (ProRes)": play, the frame steps, seeking and Save Frame refuse with that reason,
+  while the trim and Export Clip, which work on the container, still work. A clip whose sound
+  Dalica cannot decode plays muted, and the volume is refused with the reason ("This clip plays
+  without sound (AC-3 sound can't be played)").
+- **The sound's clock drives playback.** Play opens the sound output at the clip's format and keeps
+  half a second of its sound queued ahead of what has been heard; a clip without sound queues
+  silence, so its clock runs the same way. The position is where play started plus what the
+  clock says has been heard, so the pictures follow the sound and wait for it when it stalls. With
+  no sound output on the system the session's clock is used instead.
+- **Frames are decoded ahead** on a worker of the player's own (at most 8 frames, at most 1920
+  pixels on the long side), never on the window's thread. The frame shown is the last one due;
+  when decoding falls behind, a frame whose successor is already due is dropped, never shown late.
+- **The trim** is `trim(start,end)` in whole milliseconds from the clip's start, the start before
+  the end (`trim(500,1500)`); a recipe's last readable trim counts. Play starts at the trim's start
+  when the position is outside it and stops, paused, at its end. **Set Start** and **Set End** set
+  one end at the position (or at a time given), keeping the other (the clip's start or end when
+  there was no trim), and replace the trim entry in place: one step of the video's own history
+  ("Undo Trim"). A start at or after the end is refused ("Set End: the start must come before the
+  end").
+- **Seek** shows the frame at a time (the last one at or before it) and **step** moves a number of
+  frames from the one shown, pausing; both answer at once and the frame follows from the worker.
+- **The volume** (0–100) is kept in the `video.volume` setting.
 
 ## 12. Keyboard summary (edit view)
 
