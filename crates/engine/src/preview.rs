@@ -29,6 +29,8 @@
 //!   blocking).
 //! - **The neighbours** ([`Session::prefetch_previews`]): their sources are read and their previews
 //!   rendered at the prefetch priority, so the next or previous photo opens without a decode.
+//! - **A video** (M15.20) shows its poster frame as its source (`jobs.rs`); one this build cannot
+//!   play answers its reason ("This video can't be played (…)") without being read.
 //! - **Histograms**: each preview shown carries the 256-bin RGB [`Histogram`] of its pixels.
 //! - Every request takes a new **generation**; a result of an older one is dropped (and its job
 //!   cancelled when it has not started). Closing a pane cancels everything it asked for (what the
@@ -54,7 +56,7 @@ use dalica_thumbs::{Pool, Priority, Submitted};
 
 pub use self::histogram::{BINS, Histogram};
 pub use self::jobs::halve;
-use self::jobs::{Ask, Ladder, Origin, Rendered, Screen};
+use self::jobs::{Ask, Kind, Ladder, Origin, Rendered, Screen};
 use crate::session::Session;
 
 /// The preview's worker threads (renders run their bands in parallel on top of these).
@@ -433,6 +435,20 @@ fn file_of(session: &Session, id: PhotoId) -> Option<Source> {
     let photo = session.library.photo(id)?;
     let folder = session.library.folder(photo.folder)?;
     Some(Source { path: folder.path.join(&photo.name), file_size: photo.size, mtime_ms: photo.mtime.as_millis() })
+}
+
+/// What photo `id`'s file is to the preview: a still, a video with a poster frame, or a video
+/// this build cannot play (with why).
+fn kind_of(session: &Session, id: PhotoId) -> Kind {
+    let library = &session.library;
+    if !crate::video::is_video(library, id) {
+        return Kind::Still;
+    }
+    if crate::thumbs::has_poster(library, id) {
+        return Kind::Poster;
+    }
+    let why = library.video_facts(id).and_then(|f| dalica_thumbs::video::why_not(&f.video_codec));
+    Kind::Unplayable(why.unwrap_or_else(|| crate::video::CANNOT_PLAY.to_string()))
 }
 
 fn parse(texts: &[String]) -> Recipe {
@@ -969,10 +985,11 @@ impl Session {
         let have = self.preview.source_of(&file, ladder.render);
         self.preview.loading.insert(id, priority);
         let render = ladder.render;
+        let kind = kind_of(self, id);
         self.preview.submit(Key::Load(id), priority, move |_| {
             let result = match have {
                 Some(screen) => Ok((screen, Origin::Memory)),
-                None => jobs::read(&file, &ladder, MAX_FULL_BYTES).map(|(image, origin)| (Arc::new(Screen::new(Arc::new(image))), origin)),
+                None => jobs::read(&file, &kind, &ladder, MAX_FULL_BYTES).map(|(image, origin)| (Arc::new(Screen::new(Arc::new(image))), origin)),
             };
             let frame = match (&result, ask) {
                 (Ok((screen, _)), Some(ask)) => Some(jobs::render(screen, &ask)),
@@ -1021,8 +1038,9 @@ impl Session {
             }
             None => {
                 if !self.preview.outstanding.contains(&Key::Full(photo)) {
+                    let kind = kind_of(self, photo);
                     self.preview.submit(Key::Full(photo), priority, move |_| Done::Full {
-                        result: jobs::full(&file, &ladder, MAX_FULL_BYTES).map(Arc::new),
+                        result: jobs::full(&file, &kind, &ladder, MAX_FULL_BYTES).map(Arc::new),
                         file,
                     });
                 }

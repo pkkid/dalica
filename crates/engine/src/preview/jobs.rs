@@ -23,6 +23,11 @@
 //!   took 19–25 ms through the resample). The box is still covered by the grown size;
 //! - a recipe with no operations is its base, with no render at all.
 //!
+//! **A video** (M15.20) is its poster frame (`dalica_thumbs::video::poster`): its source is the
+//! ladder's screen entry of the poster when the cache has it, else the poster decoded at the
+//! screen size (stored as that entry, as a photo's decode is); zoomed past it, the poster at the
+//! clip's own size. A video this build cannot play is never opened: its reason, at once.
+//!
 //! The `effects` bench (`crates/edit/benches/effects.rs`, `Screen::render`) keeps a copy of this
 //! rule so it measures what the preview does: a change here changes it there, in the same commit.
 
@@ -63,6 +68,16 @@ impl Ladder {
     fn screen(&self) -> u32 {
         ladder::pixels(Size::Screen, self.screen)
     }
+}
+
+/// What a preview's file is, as the session knows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Kind {
+    Still,
+    /// A video whose poster frame this build decodes.
+    Poster,
+    /// A video it does not: why ("This video can't be played (…)").
+    Unplayable(String),
 }
 
 /// Where a source came from.
@@ -147,12 +162,19 @@ impl Screen {
 /// `file` upright at between one and two screen sizes (smaller photos whole): the ladder's screen
 /// entry when the cache has it, else the photo decoded and halved (a photo whose whole decode would
 /// pass `max_full` bytes is decoded to the screen size by the decoder).
-pub(crate) fn read(file: &Source, ladder: &Ladder, max_full: u64) -> Result<(Rgba8, Origin), String> {
+pub(crate) fn read(file: &Source, kind: &Kind, ladder: &Ladder, max_full: u64) -> Result<(Rgba8, Origin), String> {
+    if let Kind::Unplayable(why) = kind {
+        return Err(why.clone());
+    }
     if let Some(cache) = &ladder.cache
         && let Ok(Some(bytes)) = cache.get(Size::Screen, ladder.key(file))
         && let Ok(image) = ladder::decode_entry(&bytes, &ladder.limits)
     {
         return Ok((image, Origin::Cache));
+    }
+    if *kind == Kind::Poster {
+        let image = dalica_thumbs::video::poster(&file.path, Some(ladder.screen()), &ladder.limits).map_err(|e| poster_reason(&e))?;
+        return Ok((image, Origin::Decoded));
     }
     let bytes = read_file(file)?;
     let options = ladder.render.decode_options();
@@ -189,14 +211,34 @@ fn full_bytes(width: u32, height: u32) -> u64 {
     u64::from(width).saturating_mul(u64::from(height)).saturating_mul(4)
 }
 
-/// The whole photo, upright, when its pixels fit in `max_bytes` of RGBA.
-pub(crate) fn full(file: &Source, ladder: &Ladder, max_bytes: u64) -> Result<Rgba8, String> {
+/// The whole photo, upright, when its pixels fit in `max_bytes` of RGBA (a video's poster frame at
+/// the clip's own size).
+pub(crate) fn full(file: &Source, kind: &Kind, ladder: &Ladder, max_bytes: u64) -> Result<Rgba8, String> {
+    match kind {
+        Kind::Unplayable(why) => return Err(why.clone()),
+        Kind::Poster => {
+            let image = dalica_thumbs::video::poster(&file.path, None, &ladder.limits).map_err(|e| poster_reason(&e))?;
+            if full_bytes(image.width, image.height) > max_bytes {
+                return Err(format!("{} × {} is more than the preview keeps in memory", image.width, image.height));
+            }
+            return Ok(image);
+        }
+        Kind::Still => {}
+    }
     let bytes = read_file(file)?;
     let header = dalica_image::read_header(&bytes, &ladder.limits).map_err(|e| e.reason())?;
     if full_bytes(header.width, header.height) > max_bytes {
         return Err(format!("{} × {} is more than the preview keeps in memory", header.width, header.height));
     }
     dalica_image::decode_with(&bytes, &ladder.render.decode_options(), &ladder.limits).map_err(|e| e.reason())
+}
+
+/// The text a preview shows for a poster that could not be made.
+fn poster_reason(e: &ladder::Error) -> String {
+    match e {
+        ladder::Error::Photo(dalica_thumbs::Error::Image(i)) => i.reason(),
+        other => other.to_string(),
+    }
 }
 
 fn read_file(file: &Source) -> Result<Vec<u8>, String> {

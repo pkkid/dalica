@@ -14,6 +14,7 @@ pub mod pack;
 pub mod pool;
 pub mod sketch;
 pub mod upkeep;
+pub mod video;
 
 use std::io::Read as _;
 use std::path::Path;
