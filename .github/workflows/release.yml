@@ -18,8 +18,8 @@
 # Adapted from LightCraft .github/workflows/release.yml @ 25ef65c8 (MIT OR Apache-2.0): the version
 # job, the per-OS jobs and the create-or-update draft step. Changed for Dalica: build and signing
 # are separate jobs (so a dry run builds macOS and Windows too), dry runs on pull requests, a
-# checksum job and a verify job on three OSes, an early refusal of a published version, and the
-# pinned toolchain of ci.yml.
+# checksum job and a verify job on three OSes, an early refusal of a published version, the
+# pinned toolchain of ci.yml, and the SBOMs with the advisory check (M15.40).
 name: Release
 
 on:
@@ -398,12 +398,68 @@ jobs:
           overwrite: true
           retention-days: 14
 
+  # The SBOMs and the advisory check (docs/security.md §8.4–§8.5, M15.40): `cargo xtask sbom` writes
+  # one CycloneDX document per release package from the product graph of the package's targets
+  # (cargo metadata and cargo tree resolve every target from this one Linux runner; nothing is
+  # built), uploaded with the release assets, so the checksum job lists them in SHA256SUMS.txt and
+  # the draft attaches them. Then `cargo xtask advisories --fetch` checks the shipped crates against
+  # the RustSec advisory database, fetched now: the one input left unpinned, on purpose, so an
+  # advisory published yesterday stops today's release. An unrecorded vulnerability fails the run,
+  # dry runs included, before any checksum is written.
+  sbom:
+    name: SBOMs and advisories
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DALICA_VERSION: ${{ needs.version.outputs.version }}
+      DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: "1.98"
+      - name: Apply the version input
+        if: inputs.version != ''
+        run: |
+          cargo fetch --locked
+          cargo xtask version set "$DALICA_VERSION"
+      - name: Write the SBOMs
+        run: |
+          cargo fetch --locked
+          cargo xtask sbom --out dist/release
+          ls -l dist/release
+          {
+            echo "#### SBOMs (CycloneDX 1.5)"
+            echo
+            for f in dist/release/*.cdx.json; do
+              echo "- \`${f##*/}\`: $(jq '.components | length' "$f") components"
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: RustSec advisories
+        run: |
+          set -o pipefail
+          cargo xtask advisories --fetch 2>&1 | tee advisories.log
+          {
+            echo "#### RustSec advisories"
+            echo
+            sed 's/^/    /' advisories.log
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-sbom
+          path: dist/release/*.cdx.json
+          if-no-files-found: error
+          retention-days: 14
+
   # SHA256SUMS.txt over the complete artifact set, written after signing: the signed set on the
   # release branch; in a dry run the Windows and macOS sets signed with the throwaway identities and
-  # the Linux build outputs as built.
+  # the Linux build outputs as built; with the SBOMs of the `sbom` job in every run.
   checksums:
     name: checksums
-    needs: [version, linux, windows, macos, sign-windows, sign-macos]
+    needs: [version, linux, windows, macos, sign-windows, sign-macos, sbom]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

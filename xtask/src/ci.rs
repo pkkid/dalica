@@ -17,7 +17,9 @@
 //! - **`cargo xtask ci --full`** (the review gate, `M<n>.R`): every test of every package at full
 //!   strength (`DALICA_FULL_TESTS=1`), the heif decoder's tests and the engine's HEIC Save, the
 //!   parity check against the registered commands (and the `KEY-*` rows against the keymap), and
-//!   the acceptance test of every finished milestone. With `--platform` (the Windows and macOS runs of the review) it
+//!   the acceptance test of every finished milestone, and the RustSec advisory check
+//!   (`crate::advisories`, which fetches the advisory database unless `DALICA_ADVISORY_DB` names a
+//!   checkout). With `--platform` (the Windows and macOS runs of the review) it
 //!   leaves out what is the same on every system: the format and static checks, the heif tests and
 //!   the packages in [`PURE`].
 //!
@@ -534,6 +536,12 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     if !platform && part.tests() {
         steps.push(("layers".into(), Box::new(|| crate::layers::run(root))));
         steps.push(("deps".into(), Box::new(|| crate::deps::run(root))));
+        // The RustSec advisories against the shipped crates (`security.md` §8.4): once per review,
+        // in the Linux run only; it fetches the advisory database unless `DALICA_ADVISORY_DB`
+        // names a checkout.
+        if full {
+            steps.push(("advisories".into(), Box::new(|| crate::advisories::gate(root))));
+        }
         steps.push(("assets".into(), Box::new(|| crate::assets::run(root))));
         steps.push(("names".into(), Box::new(|| crate::names::run(root))));
         steps.push(("test-layout".into(), Box::new(|| crate::test_layout::run(root))));

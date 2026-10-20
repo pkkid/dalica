@@ -6,8 +6,10 @@
 # which leaves out what gives the same answer on every system (format and static checks, the heif
 # tests, the pure crates), so no test runs twice. Each system's gate runs as two jobs side by side,
 # its tests (`--tests-only`) and its acceptance steps (`--accept-only`), so each half finishes within
-# the job's time limit (the whole took 65 minutes on Windows at M13.R). Actions are pinned to full
-# commit hashes (docs/security.md §8.5).
+# the job's time limit (the whole took 65 minutes on Windows at M13.R). The RustSec advisory check
+# (`cargo xtask advisories`, docs/security.md §8.4–§8.5) is one step of the Linux tests half, with
+# the static checks: it fetches the advisory database there, the only network it uses, and runs
+# once per review, not once per OS. Actions are pinned to full commit hashes (docs/security.md §8.5).
 name: CI
 
 on:
