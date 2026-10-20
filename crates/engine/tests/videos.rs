@@ -52,8 +52,8 @@ fn hdlr(handler: &[u8; 4]) -> Vec<u8> {
     bx(b"hdlr", &p)
 }
 
-/// 2.5 s of 640 × 360 AVC at 30 frames a second, with an AAC sound track: the facts only (the
-/// `mdat` holds no frames).
+/// 2.5 s of 640 × 360 ProRes (a codec no build decodes, so the clip stays a tile under M15.20) at
+/// 30 frames a second, with an AAC sound track: the facts only (the `mdat` holds no frames).
 fn clip() -> Vec<u8> {
     let mut mvhd = times(1000, 2_500);
     mvhd.extend(0x1_0000u32.to_be_bytes());
@@ -90,7 +90,7 @@ fn clip() -> Vec<u8> {
     };
     let moov = bx(
         b"moov",
-        &[bx(b"mvhd", &mvhd), track(1, b"vide", b"avc1", (640, 360), 30_000, 75_000, 75), track(2, b"soun", b"mp4a", (0, 0), 48_000, 120_000, 118)]
+        &[bx(b"mvhd", &mvhd), track(1, b"vide", b"apcn", (640, 360), 30_000, 75_000, 75), track(2, b"soun", b"mp4a", (0, 0), 48_000, 120_000, 118)]
             .concat(),
     );
     let mut ftyp = b"mp42".to_vec();
@@ -165,7 +165,7 @@ fn video_inspect_reports_the_facts_and_that_dalica_cannot_play_it_yet() {
     assert_eq!(v["durationMs"], 2_500);
     assert_eq!((v["width"].clone(), v["height"].clone(), v["rotation"].clone()), (json!(640), json!(360), json!(0)));
     assert_eq!(v["displayed"], json!({ "width": 640, "height": 360 }));
-    assert_eq!((v["videoCodec"].clone(), v["soundCodec"].clone(), v["sound"].clone()), (json!("avc1"), json!("mp4a"), json!(true)));
+    assert_eq!((v["videoCodec"].clone(), v["soundCodec"].clone(), v["sound"].clone()), (json!("apcn"), json!("mp4a"), json!(true)));
     assert_eq!(v["frameRateMilli"], 30_000);
     assert_eq!(v["playable"], false, "no decoder yet: decision-neutral");
     assert_eq!(v["reason"], "This video can't be played");
