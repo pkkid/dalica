@@ -184,10 +184,12 @@ pub fn register(ctx: &Context, id: &str, role: Role, label: &str, target: Target
             if r.gained_focus() {
                 r.scroll_to_me(None);
             }
+            // Named even when scrolled out of sight: egui still gives the widget a node (a list's
+            // row just past its edge), and a screen reader must not meet it unnamed.
+            fill_access(r, id, role, label, active);
             if !r.interact_rect.is_positive() {
                 return;
             }
-            fill_access(r, id, role, label, active);
             let enabled = r.enabled() && (r.sense.interactive() || r.sense.is_focusable());
             WidgetInfo::new(id, role, label, r.interact_rect, enabled, active).with_egui_id(r.id)
         }
