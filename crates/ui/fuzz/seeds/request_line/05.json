@@ -1,0 +1,1 @@
+{"id": 5, "method": "ui.clickWidget", "params": {"id": "menu.file", "count": 2, "button": "primary", "fx": 0.5, "fy": 0.5, "ctrl": true}}

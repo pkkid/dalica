@@ -1,0 +1,47 @@
+# The fuzz targets of `dalica-store` (`docs/security.md` §7.1): the index journal and snapshot
+# readers and `people.json`. A separate cargo-fuzz workspace, outside the product graph and
+# excluded from the root workspace, because cargo-fuzz needs nightly Rust and sanitizer
+# instrumentation. Run: `cargo +nightly fuzz run <target> corpus/<target> seeds/<target>` from this
+# directory (`seeds/` holds a few starting inputs per target).
+[package]
+name = "dalica-store-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+dalica-library = { path = "../../library" }
+dalica-store = { path = ".." }
+libfuzzer-sys = "0.4"
+
+# Its own workspace, so the root manifest's members and lockfile are untouched.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "journal"
+path = "fuzz_targets/journal.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "snapshot"
+path = "fuzz_targets/snapshot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "people"
+path = "fuzz_targets/people.rs"
+test = false
+doc = false
+bench = false

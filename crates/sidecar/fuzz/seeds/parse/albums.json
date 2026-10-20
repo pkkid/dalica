@@ -1,0 +1,12 @@
+{
+  "dalica": {"version": 1, "writer": "a future Dalica"},
+  "albums": {
+    "a91c0e": {"name": "Best of 2026", "description": "d", "date": "2026-06-04", "useNewest": true, "place": "Lisbon",
+               "cover": "/p/IMG_0002.jpg", "order": [["/p/IMG_0002.jpg", "a0"], ["/q/x.jpg", "a1"], ["/q/bad.jpg", "!"], 5],
+               "legacy": "f07f69266e7760526d5b1553c7f451fa", "x-colour": "red"},
+    "a77d02": {"name": "Trams", "date": "June", "useNewest": "yes", "place": 7},
+    "B4D": {"name": "upper case id"},
+    "a5678": "Trams"
+  },
+  "planted": [1, 2]
+}

@@ -1,0 +1,1 @@
+{"id": 23, "method": "batch", "params": {"steps": [{"method": "ui.state"}, {"method": "ui.wait", "params": {"ms": 16}}]}}

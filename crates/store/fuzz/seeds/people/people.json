@@ -1,0 +1,21 @@
+{
+  "dalica": { "version": 1, "writer": "a future Dalica" },
+  "people": {
+    "p7f3a2c": {
+      "name": "Ana Costa",
+      "nickname": "Aninhas",
+      "legacy": "632e71e2ffd6c6d",
+      "thumbnail": { "photo": "/home/ana/Pictures/Lisbon/IMG_0001.jpg", "rect": [0.41, 0.22, 0.52, 0.38] },
+      "x-colour": "red"
+    },
+    "p0b1c2d": { "name": "  Rui   Costa ", "nickname": 7, "thumbnail": "none", "legacy": "bad id!" },
+    "nope": { "name": "Not an id" },
+    "p1111111": { "nickname": "no name" }
+  },
+  "rejected": [
+    { "person": "p7f3a2c", "photo": "/home/ana/Pictures/Porto/IMG_0107.jpg", "rect": [0.1, 0.2, 0.3, 0.4], "x": 1 },
+    { "person": "p7f3a2c", "photo": "", "rect": [0.1, 0.2, 0.3, 0.4] },
+    { "person": "p0b1c2d", "photo": "/a.jpg", "rect": [0.5, 0.2, 0.3, 0.4] }
+  ],
+  "planted": { "by": "another app" }
+}

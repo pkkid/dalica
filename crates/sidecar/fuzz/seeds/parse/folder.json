@@ -1,0 +1,26 @@
+{
+  "dalica": { "version": 1, "writer": "a future Dalica" },
+  "folder": { "description": "Weekend in Lisbon", "date": "2026-06-04", "place": "Lisbon", "hidden": true, "project": "exported", "sort": "manual", "reverse": true, "order": ["IMG_0003.jpg", "IMG_0001.jpg"] },
+  "photos": {
+    "IMG_0001.jpg": {
+      "star": true,
+      "caption": "Tram 28 at sunset",
+      "tags": ["lisbon", "tram"],
+      "hidden": false,
+      "edits": ["rotate(90)", "crop(0.08,0.10,0.92,0.86)", "frobnicate(7)", "sepia()"],
+      "redo": ["glow(0.4,3.0)"],
+      "date": "2026-06-04T19:42:10",
+      "changed": "2026-10-15T09:41:07.250Z",
+      "savedAs": { "name": "IMG_0001-edited.jpg", "recipe": ["rotate(90)", "tuning(0.1,0,0,0,0)"], "x": 1 },
+      "faces": [{ "rect": [0.41, 0.22, 0.52, 0.38], "person": "p7f3a2c" }, { "rect": [0.1, 0.1, 0.2, 0.2], "person": "ignored" }, { "rect": [0.5, 0.5, 0.4, 0.6] }],
+      "albums": { "a91c0e": "V", "B4D": "a0" },
+      "geo": [38.7116, -9.1389],
+      "x-unknown": { "nested": [1, 2.5, null, "s"] }
+    },
+    "IMG_0002.jpg": { "star": "yes", "date": "2026:06:04 19:42:10", "geo": null },
+    "../x": 5
+  },
+  "albums": { "a91c0e": { "name": "Best of 2026", "colour": "red" }, "nope": { "name": "x" } },
+  "people": { "p7f3a2c": { "name": "Ana Costa", "nickname": "Aninhas" }, "bad": { "name": "" } },
+  "planted": { "by": "another app", "list": [true, false] }
+}
