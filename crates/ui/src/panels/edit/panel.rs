@@ -26,9 +26,16 @@
 //! **A│A's right side** (the variant, `commands::compare::on_variant`): the panel is drawn as on
 //! any photo, and every part of it acts on the variant (`commands::tools::recipe`): the tools,
 //! the Fill Light row, the Tuning tab, the one-click fixes, Undo and Redo.
+//!
+//! **A video** (`editing.md` §11, while `crate::commands::video::shown`): the strip leads with the
+//! video tab (`tab:edit.video`, shown) and its content is the video tab's page
+//! ([`super::video::tab`]: Save Frame as Picture, Export Clip, the rotate buttons) in place of tabs
+//! 1–5's; tabs 1–5 stay in the strip greyed, their tooltip saying why ("A video takes no photo
+//! edits.", the engine's refusal of every tool and effect on a video), and Show original is not
+//! drawn. Undo / Redo (a video's rotations and trims are its history) and the box stay.
 
 use dalica_ui_kit::Tokens;
-use dalica_ui_kit::icons::{EditIcon, paint_edit};
+use dalica_ui_kit::icons::{EditIcon, Glyph, VideoIcon, paint_glyph};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Tab, Target};
 use egui::{CornerRadius, Id, Rect, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
@@ -54,6 +61,10 @@ pub const TAB_ITEMS: [(EditTab, &str, EditIcon, &str); 5] = [
     (EditTab::Effects2, "tab:edit.effects2", EditIcon::MoreEffects, "More effects"),
     (EditTab::Effects3, "tab:edit.effects3", EditIcon::EvenMoreEffects, "Even more effects"),
 ];
+
+/// The video tab (`editing.md` §11): its automation id and glyph (its tooltip is "Video").
+pub const VIDEO_TAB_ID: &str = "tab:edit.video";
+pub const VIDEO_TAB_GLYPH: Glyph = Glyph::Video(VideoIcon::VideoFrames);
 
 /// Show original: its automation id, label, tooltip and width.
 pub const ORIGINAL_ID: &str = "button:edit.showOriginal";
@@ -161,6 +172,10 @@ pub fn needed_height(t: &Tokens, tab: EditTab) -> f32 {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
+    if crate::commands::video::shown(app).is_some() {
+        video_panel(app, ui);
+        return;
+    }
     let need = needed_height(app.tokens(), app.state().edit.tab);
     // The line counting the previous organizer's edits sits on top of Undo / Redo.
     let p = parts_with_line(ui.max_rect(), need, history::line_height(app));
@@ -189,6 +204,42 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     part(ui, "histogram", p.histogram, true, |ui| histogram::show(app, ui));
 }
 
+/// The panel of a video (see the module's doc): the strip with the video tab shown and tabs 1–5
+/// greyed, the video tab's page, Undo / Redo and the box.
+fn video_panel(app: &mut App, ui: &mut Ui) {
+    let p = parts_with_line(ui.max_rect(), super::video::tab::needed_height(), history::line_height(app));
+    // No effect grid is drawn: its tiles' work stops.
+    if let Some(s) = app.session_mut().filter(|s| s.effect_tiles_pending() > 0) {
+        s.close_effect_tiles();
+    }
+    part(ui, "tabs", p.tabs, true, |ui| video_tabs(app, ui));
+    part(ui, "content", p.content, true, |ui| super::video::tab::show(app, ui));
+    part(ui, "history", p.history, true, |ui| history::show(app, ui));
+    part(ui, "histogram", p.histogram, true, |ui| histogram::show(app, ui));
+}
+
+/// A video's tab strip: `canvas` behind, the video tab shown, then tabs 1–5 greyed with why.
+fn video_tabs(app: &App, ui: &mut Ui) {
+    let t = *app.tokens();
+    let strip = ui.max_rect();
+    ui.painter().rect_filled(strip, 0, t.canvas);
+    let slot =
+        |i: usize| Rect::from_min_size(pos2(strip.min.x + t.metrics.edit_tab.x * i as f32, strip.min.y), vec2(t.metrics.edit_tab.x, strip.height()));
+    let video_tip = crate::tl!("Video");
+    one_tab(ui, &t, VIDEO_TAB_ID, VIDEO_TAB_GLYPH, &video_tip, None, slot(0), true);
+    let why = crate::i18n::tr(dalica_engine::video::EDITS_REFUSED);
+    ui.scope(|ui| {
+        ui.disable();
+        for (i, (_, id, icon, tip)) in TAB_ITEMS.iter().enumerate() {
+            let rect = slot(i + 1);
+            if rect.max.x > strip.max.x + 0.5 {
+                break;
+            }
+            one_tab(ui, &t, id, Glyph::Edit(*icon), tip, Some(&why), rect, false);
+        }
+    });
+}
+
 /// The content of `tab`.
 fn content(app: &mut App, ui: &mut Ui, tab: EditTab) {
     match tab {
@@ -211,7 +262,7 @@ fn tabs(app: &mut App, ui: &mut Ui) {
         if rect.max.x > strip.max.x + 0.5 {
             break;
         }
-        if one_tab(ui, &t, id, *icon, tip, rect, *tab == shown) {
+        if one_tab(ui, &t, id, Glyph::Edit(*icon), tip, None, rect, *tab == shown) {
             clicked = Some(*tab);
         }
     }
@@ -259,9 +310,11 @@ fn show_original(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
     widgets::tooltip(r, t, ORIGINAL_TIP, None);
 }
 
-/// One tab at `rect`, drawn as `widgets::tabs` draws its tabs but with an edit glyph; registered as
-/// `id` (role `tab`, active when shown). Returns whether it was clicked.
-fn one_tab(ui: &mut Ui, t: &Tokens, id: &str, icon: EditIcon, tip: &str, rect: Rect, on: bool) -> bool {
+/// One tab at `rect`, drawn as `widgets::tabs` draws its tabs but with an edit-view glyph;
+/// registered as `id` (role `tab`, active when shown); its tooltip `tip`, with `why` under it (a
+/// greyed tab's reason). Returns whether it was clicked.
+#[allow(clippy::too_many_arguments)] // the tab's parts
+fn one_tab(ui: &mut Ui, t: &Tokens, id: &str, icon: Glyph, tip: &str, why: Option<&str>, rect: Rect, on: bool) -> bool {
     let enabled = ui.is_enabled();
     let r = Tab::new(Id::new(id), tip, on).focus_stroke(Stroke::new(t.focus_width, t.accent)).show_at(ui, rect, |ui, r| {
         let p = ui.painter();
@@ -281,10 +334,10 @@ fn one_tab(ui: &mut Ui, t: &Tokens, id: &str, icon: EditIcon, tip: &str, rect: R
         } else {
             t.icon
         };
-        paint_edit(p, Rect::from_center_size(rect.center(), Vec2::splat(t.metrics.icon_toolbar)), icon, glyph);
+        paint_glyph(p, Rect::from_center_size(rect.center(), Vec2::splat(t.metrics.icon_toolbar)), icon, glyph);
     });
     widgets::register(ui.ctx(), id, Role::Tab, tip, Target::Widget(&r), on);
-    widgets::tooltip(r, t, tip, None).clicked()
+    widgets::tooltip(r, t, tip, why).clicked()
 }
 
 #[cfg(test)]

@@ -17,8 +17,10 @@
 //! **Pixels.** Each thumbnail draws what the session has in memory, the same frame and never
 //! waiting (`Session::thumbnail`, which queues what is missing): the ladder image, turned by the
 //! photo's recipe and cropped to its centre square; else the mean colour of its sketch; else the
-//! placeholder grey. The strip keeps its own textures, at most [`MAX_TEXTURES`], uploaded again when
-//! the session hands a new image (a covering size, or an edit's new thumbnail).
+//! placeholder grey. A video carries its sprocket edge, over the video tile while it has no picture
+//! (`cell::video_tile`; the square is too small for its duration pill). The strip keeps its own
+//! textures, at most [`MAX_TEXTURES`], uploaded again when the session hands a new image (a
+//! covering size, or an edit's new thumbnail).
 //!
 //! **Cost.** The section's photos are looked up once per library revision, tree options and photo
 //! shown, not per frame; a frame touches only the strip's few cells.
@@ -34,7 +36,7 @@ use dalica_thumbs::Rgba8;
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::icons::EditIcon;
 use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, Target};
+use dalica_ui_kit::widgets::{self, Badges, Target};
 use egui::epaint::Vertex;
 use egui::{Color32, Id, Mesh, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TextureHandle, Ui, pos2, vec2};
 use serde_json::json;
@@ -42,7 +44,7 @@ use serde_json::json;
 use super::top_bar;
 use crate::app::App;
 use crate::commands::edit_view::{self, Place};
-use crate::panels::light_table::tree_options;
+use crate::panels::light_table::{cell, tree_options};
 use crate::panels::thumbnails::{recipe_orientation, turn_point};
 use crate::selection::Table;
 
@@ -184,6 +186,7 @@ fn thumbnail(strip: &mut Strip, app: &mut App, ui: &Ui, t: &Tokens, id: PhotoId,
     let painter = ui.painter();
     let Some(session) = app.session_mut() else { return };
     let turn = recipe_orientation(&session.library().info(id).edits);
+    let video = cell::video_of(session.library(), id);
     // A square cut from a 3:2 photo: ask for the long side that covers the short one.
     let need = (THUMB * ppp * 1.5).ceil().clamp(1.0, 4096.0) as u32;
     match session.thumbnail(id, need) {
@@ -213,9 +216,15 @@ fn thumbnail(strip: &mut Strip, app: &mut App, ui: &Ui, t: &Tokens, id: PhotoId,
             };
             painter.rect_filled(square, 0, mean.unwrap_or(t.placeholder));
         }
+        // A video with no picture yet (its poster frame arrives with M15.20): the video tile.
+        Thumb::NotScanned if video.is_some() => cell::video_tile(painter, t, square),
         Thumb::NotScanned => {
             painter.rect_filled(square, 0, t.placeholder);
         }
+    }
+    // A video's sprocket edge (the square is too small for its duration pill).
+    if video.is_some() {
+        widgets::badges(painter, t, square, &Badges { video, ..Badges::default() });
     }
 }
 
