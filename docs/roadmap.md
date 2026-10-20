@@ -9988,7 +9988,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     review's run) signs both programs and the MSI with the throwaway certificate and
     `test-sign.ps1` passes; with signing off it names each unsigned file; `actionlint` and the
     packaging lint pass; the real certificate is checked at M15.R.
-- ⬜ **M15.46 Spike (reserved decision 2): pure-Rust H.264 and HEVC decoders on real phone files**
+- ✅ **M15.46 Spike (reserved decision 2): pure-Rust H.264 and HEVC decoders on real phone files**
   - after: M14.R
   - files: `docs/video-decoders.md`
   - scope: the maintainer's answer at M14.R (2026-10-19): try the candidate decoders (`rust_h264`,
