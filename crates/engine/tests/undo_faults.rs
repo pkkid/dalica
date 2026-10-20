@@ -443,6 +443,12 @@ fn child() {
     step(&mut s, case.way);
     let _ = s.flush_metadata(PATIENCE);
     let _ = s.flush();
+    // An item that failed (the parent shows this when the library lost something).
+    for e in s.file_op_events() {
+        for f in e.failures.iter().chain(&e.skipped) {
+            eprintln!("{:?} {:?}: {} failed: {}", e.direction, e.kind, f.file.display(), f.reason);
+        }
+    }
     drop(s);
     let reached = match (case.on, case.crash) {
         // A Crash that fired never gets here.
@@ -693,7 +699,8 @@ fn sweep(op: Operation, way: Way) {
             *fired.entry(o.case.point.clone()).or_default() += 1;
         }
         if let Err(e) = &o.verified {
-            failures.push(format!("{}: {e}", o.case.name()));
+            // What the child said tells a fault that fired from a run that failed before it.
+            failures.push(format!("{}: {e}\n  (the child exited with {}:\n{})", o.case.name(), o.code, o.printed));
         }
     }
     // Every job-thread point of the run was reached, as an Error and as a Crash, and every atomic
