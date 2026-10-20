@@ -30,6 +30,7 @@ use egui::{Align2, CornerRadius, Id, Rect, Response, Sense, Stroke, StrokeKind, 
 use serde_json::json;
 
 use crate::app::App;
+use crate::{tl, tln};
 
 pub const UNDO_ID: &str = "button:edit.undo";
 /// Undo's label for a saved photo without newer edits.
@@ -47,10 +48,33 @@ pub const LEGACY_TIP: &str = "Kept in the photo's edits in their place, but Dali
 
 /// The line for `n` edits kept from the previous program; `None` when there are none.
 pub fn legacy_text(n: usize) -> Option<String> {
-    match n {
-        0 => None,
-        1 => Some("1 edit from the previous program (not supported)".into()),
-        n => Some(format!("{n} edits from the previous program (not supported)")),
+    (n > 0).then(|| tln!(n, "{n} edit from the previous program (not supported)", "{n} edits from the previous program (not supported)"))
+}
+
+/// A button's label from the history (`Undo`, `Undo Save`, `Undo Auto Fix`, `Redo Tuning`) in the
+/// language in effect: the step's name is the catalogue's label ([`super::words::op_label`]).
+pub fn said(label: &str) -> String {
+    match label {
+        "Undo" => tl!("Undo"),
+        "Redo" => tl!("Redo"),
+        "Undo Save" => tl!("Undo Save"),
+        _ => match (label.strip_prefix("Undo "), label.strip_prefix("Redo ")) {
+            (Some(step), _) => tl!("Undo {action}", action = super::words::op_label(step)),
+            (_, Some(step)) => tl!("Redo {action}", action = super::words::op_label(step)),
+            _ => crate::i18n::tr(label),
+        },
+    }
+}
+
+/// A tooltip of the pair or of the line in the language in effect.
+fn tip(english: &str) -> String {
+    match english {
+        "Remove the latest edit" => tl!("Remove the latest edit"),
+        "Put back the edit removed last" => tl!("Put back the edit removed last"),
+        "Kept in the photo's edits in their place, but Dalica cannot show them" => {
+            tl!("Kept in the photo's edits in their place, but Dalica cannot show them")
+        }
+        other => crate::i18n::tr(other),
     }
 }
 
@@ -135,8 +159,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let redo_rect = Rect::from_min_max(pos2(rect.max.x - half, rect.min.y), rect.max);
     let photo = crate::commands::edit_view::open_photo(app);
     let p = if crate::commands::compare::on_variant(app) { variant_pair(app, ui.ctx()) } else { pair(app, photo) };
-    let undo = button(ui, &t, UNDO_ID, &p.undo.0, undo_rect, p.undo.1, UNDO_TIP).clicked();
-    let redo = button(ui, &t, REDO_ID, &p.redo.0, redo_rect, p.redo.1, REDO_TIP).clicked();
+    let undo = button(ui, &t, UNDO_ID, &said(&p.undo.0), undo_rect, p.undo.1, &tip(UNDO_TIP)).clicked();
+    let redo = button(ui, &t, REDO_ID, &said(&p.redo.0), redo_rect, p.redo.1, &tip(REDO_TIP)).clicked();
     let run = match (undo, redo, photo) {
         (true, _, Some(photo)) if p.undo_save => app.run("photo.undoSave", &json!({ "ids": [photo] })),
         (true, _, _) => app.run("edit.history.undo", &json!({})),
@@ -144,7 +168,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         _ => return,
     };
     if let Err(e) = run {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 
@@ -158,7 +182,7 @@ fn legacy_line(ui: &mut Ui, t: &Tokens, rect: Rect, text: &str) {
     let at = pos2(rect.min.x, rect.center().y - galley.size().y / 2.0).round();
     ui.painter().galley(at, galley, t.text_dim);
     widgets::register(ui.ctx(), LEGACY_ID, Role::Other, text, Target::Widget(&r), false);
-    widgets::tooltip(r, t, LEGACY_TIP, None);
+    widgets::tooltip(r, t, &tip(LEGACY_TIP), None);
 }
 
 /// A button filling `rect` with a centred label, as `widgets::text_button` draws it: SemiBold

@@ -35,6 +35,7 @@ use crate::app::App;
 use crate::commands::compare as cmd;
 use crate::commands::edit_view;
 use crate::state::{Compare, CompareLayout, Side};
+use crate::tl;
 
 /// The pill's automation id and text.
 pub const PILL_ID: &str = "label:compare.selected";
@@ -49,6 +50,17 @@ pub const SWITCH_FOCUS_ID: &str = "button:compare.switchFocus";
 pub const SWITCH_FOCUS: &str = "Switch focus to the other side";
 pub const SWITCH_LAYOUT_ID: &str = "button:compare.switchLayout";
 pub const SWITCH_LAYOUT: &str = "Show side by side, or one above the other";
+
+/// The pill's text or a switch's tooltip in the language in effect (the constants keep the English,
+/// which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Selected" => tl!(ctx = "compare", "Selected"),
+        "Switch focus to the other side" => tl!("Switch focus to the other side"),
+        "Show side by side, or one above the other" => tl!("Show side by side, or one above the other"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// One side of the photo area: where it is, the photo and the preview pane it shows, what that
 /// pane shows of it, whether it has the focus, its key (0 the left or only side, 1 the right) and
@@ -158,7 +170,7 @@ fn release_original(app: &mut App, ctx: &egui::Context) {
 /// Where the pill goes on the focused `side`: in its margin ([`canvas::PADDING`]) at the end next
 /// to the divider.
 fn pill_rect(ui: &Ui, side: Rect, layout: CompareLayout, focus: Side) -> Rect {
-    let w = ui.painter().layout_no_wrap(PILL.into(), fonts::semibold(PILL_TEXT), Color32::WHITE).size().x + 2.0 * PILL_PAD;
+    let w = ui.painter().layout_no_wrap(text(PILL), fonts::semibold(PILL_TEXT), Color32::WHITE).size().x + 2.0 * PILL_PAD;
     let size = vec2(w.round(), PILL_H);
     let y_top = side.min.y + (canvas::PADDING - PILL_H) / 2.0;
     let min = match (layout, focus) {
@@ -172,9 +184,10 @@ fn pill_rect(ui: &Ui, side: Rect, layout: CompareLayout, focus: Side) -> Rect {
 
 fn pill(ui: &Ui, t: &Tokens, rect: Rect) {
     let p = ui.painter();
+    let label = text(PILL);
     p.rect_filled(rect, CornerRadius::same((PILL_H / 2.0) as u8), t.tool_active);
-    p.text(rect.center(), Align2::CENTER_CENTER, PILL, fonts::semibold(PILL_TEXT), t.overlay_text);
-    widgets::register(ui.ctx(), PILL_ID, Role::Other, PILL, Target::Painted { rect, clip: ui.clip_rect() }, true);
+    p.text(rect.center(), Align2::CENTER_CENTER, &label, fonts::semibold(PILL_TEXT), t.overlay_text);
+    widgets::register(ui.ctx(), PILL_ID, Role::Other, &label, Target::Painted { rect, clip: ui.clip_rect() }, true);
 }
 
 /// Switch Focus and Switch Layout at the top bar's right end.
@@ -189,10 +202,10 @@ fn switches(app: &mut App, ui: &mut Ui, t: &Tokens) {
     let layout = Rect::from_center_size(pos2(right - side * 0.5, cy), vec2(side, side));
     let mut over = ui.new_child(UiBuilder::new().max_rect(bar));
     over.set_clip_rect(bar);
-    if switch(&mut over, t, SWITCH_FOCUS_ID, SWITCH_FOCUS, focus, false) {
+    if switch(&mut over, t, SWITCH_FOCUS_ID, &text(SWITCH_FOCUS), focus, false) {
         let _ = app.run("edit.switchFocus", &json!({}));
     }
-    if switch(&mut over, t, SWITCH_LAYOUT_ID, SWITCH_LAYOUT, layout, true) {
+    if switch(&mut over, t, SWITCH_LAYOUT_ID, &text(SWITCH_LAYOUT), layout, true) {
         let _ = app.run("edit.switchLayout", &json!({}));
     }
 }

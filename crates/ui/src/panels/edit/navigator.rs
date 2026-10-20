@@ -11,6 +11,7 @@ use egui::{Color32, Id, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TextureId,
 
 use super::canvas::View;
 use super::zoom;
+use crate::tl;
 
 pub const ID: &str = "navigator:edit";
 /// The thumbnail's longer side, in points.
@@ -75,7 +76,7 @@ pub fn show(ui: &mut Ui, t: &Tokens, v: &View, tex: Option<TextureId>) -> Option
     }
     painter.rect_stroke(shown, 0, Stroke::new(1.5, t.photo_focus), StrokeKind::Inside);
     let r = ui.interact(thumb, Id::new(ID), Sense::click_and_drag());
-    widgets::register(ui.ctx(), ID, Role::Other, "Navigator", Target::Widget(&r), false);
+    widgets::register(ui.ctx(), ID, Role::Other, &tl!("Navigator"), Target::Widget(&r), false);
     if r.clicked() || r.dragged() {
         let p = r.interact_pointer_pos()?;
         return Some(pos2(((p.x - thumb.min.x) / thumb.width()).clamp(0.0, 1.0), ((p.y - thumb.min.y) / thumb.height()).clamp(0.0, 1.0)));

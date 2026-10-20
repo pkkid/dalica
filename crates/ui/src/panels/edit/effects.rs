@@ -30,6 +30,7 @@ use dalica_ui_kit::widgets::{EffectTile, ToastKind, effect_grid, effect_grid_siz
 use egui::{Context, Id, Rect, TextureHandle, Ui, UiBuilder, Vec2, pos2};
 use serde_json::json;
 
+use super::words;
 use crate::app::App;
 use crate::commands::edit_view::open_photo;
 use crate::state::EditTab;
@@ -111,12 +112,14 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: EditTab) {
         }
     }
     let rows = tiles_of(n);
+    let texts: Vec<(String, String)> = rows.iter().map(|(op, e)| (words::op_label(op.label), words::tooltip(e.tooltip))).collect();
     let tiles: Vec<EffectTile<'_>> = rows
         .iter()
-        .map(|(op, e)| EffectTile {
+        .zip(&texts)
+        .map(|((op, e), (label, tooltip))| EffectTile {
             name: op.name,
-            label: op.label,
-            tooltip: e.tooltip,
+            label,
+            tooltip,
             preview: grids.textures.get(&(n, e.place)).filter(|tex| tex.size == size).map(|tex| tex.handle.id()),
             one_click: e.one_click,
             enabled: photo.is_some(),
@@ -134,7 +137,7 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: EditTab) {
             app.run("edit.tool.open", &json!({ "tool": "effect", "name": op.name }))
         };
         if let Err(err) = done {
-            app.toast(&err.to_string(), ToastKind::Caution);
+            app.toast(&crate::i18n::tr(&err.to_string()), ToastKind::Caution);
         }
     }
 }

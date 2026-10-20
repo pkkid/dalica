@@ -56,6 +56,27 @@ pub const PLAY_OUTSIDE: &str = "Plays the photos of folders in your library.";
 /// The close button's label.
 pub const CLOSE: &str = "close";
 
+/// A label or tooltip of the bar in the language in effect (the constants keep the English, which
+/// the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Zoom in" => tl!("Zoom in"),
+        "Zoom out" => tl!("Zoom out"),
+        "Actual size" => tl!("Actual size"),
+        "Open in Dalica" => tl!("Open in Dalica"),
+        "Rotate left" => tl!("Rotate left"),
+        "Rotate right" => tl!("Rotate right"),
+        "Star" => tl!(ctx = "verb", "Star"),
+        "More" => tl!("More"),
+        "Plays the photos of folders in your library." => tl!("Plays the photos of folders in your library."),
+        "Play a slideshow of the folder" => tl!("Play a slideshow of the folder"),
+        "close" => tl!(ctx = "viewer", "close"),
+        "Close" => tl!("Close"),
+        "Close (Esc)" => tl!("Close (Esc)"),
+        other => crate::i18n::tr(other),
+    }
+}
+
 /// The popup of the More menu.
 pub fn more_popup() -> Id {
     Id::new(MORE_ID).with("popup")
@@ -92,35 +113,34 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect, opacity: f32, photo: &Photo,
         let inner = rect.shrink2(OVERLAY_PAD);
         let row = |x: f32, w: f32| Rect::from_min_size(pos2(x, inner.min.y), vec2(w, inner.height()));
         group(ui, row(inner.min.x, left_w), |ui| {
-            if button(ui, &t, "button:viewer.zoomIn", Icon::Plus.into(), None, false, Ok(()), "Zoom in").clicked() {
+            if button(ui, &t, "button:viewer.zoomIn", Icon::Plus.into(), None, false, Ok(()), &text("Zoom in")).clicked() {
                 run = Some(("viewer.zoomIn", json!({})));
             }
-            if minus_button(ui, &t, "button:viewer.zoomOut", "Zoom out").clicked() {
+            if minus_button(ui, &t, "button:viewer.zoomOut", &text("Zoom out")).clicked() {
                 run = Some(("viewer.zoomOut", json!({})));
             }
             let actual = zoom == Zoom::Scale(1.0);
-            if button(ui, &t, "button:viewer.actualSize", ViewingIcon::ActualSize.into(), None, actual, Ok(()), "Actual size").clicked() {
+            if button(ui, &t, "button:viewer.actualSize", ViewingIcon::ActualSize.into(), None, actual, Ok(()), &text("Actual size")).clicked() {
                 run = Some(("viewer.actualSize", json!({})));
             }
-            let label = Some("Open in Dalica");
-            if button(ui, &t, "button:viewer.openInDalica", ViewingIcon::OpenInDalica.into(), label, false, open.clone(), "Open in Dalica").clicked()
-            {
+            let label = text("Open in Dalica");
+            if button(ui, &t, "button:viewer.openInDalica", ViewingIcon::OpenInDalica.into(), Some(&label), false, open.clone(), &label).clicked() {
                 run = Some(("viewer.openInDalica", json!({})));
             }
         });
         group(ui, row(inner.max.x - right_w, right_w), |ui| {
-            if button(ui, &t, "button:viewer.rotateLeft", Icon::RotateCcw.into(), None, false, change.clone(), "Rotate left").clicked() {
+            if button(ui, &t, "button:viewer.rotateLeft", Icon::RotateCcw.into(), None, false, change.clone(), &text("Rotate left")).clicked() {
                 run = Some(("viewer.rotateLeft", json!({})));
             }
-            if button(ui, &t, "button:viewer.rotateRight", Icon::RotateCw.into(), None, false, change.clone(), "Rotate right").clicked() {
+            if button(ui, &t, "button:viewer.rotateRight", Icon::RotateCw.into(), None, false, change.clone(), &text("Rotate right")).clicked() {
                 run = Some(("viewer.rotateRight", json!({})));
             }
             let glyph = if photo.star { Icon::Star } else { Icon::StarOutline };
-            if button(ui, &t, "button:viewer.star", glyph.into(), None, photo.star, change.clone(), "Star").clicked() {
+            if button(ui, &t, "button:viewer.star", glyph.into(), None, photo.star, change.clone(), &text("Star")).clicked() {
                 run = Some(("viewer.toggleStar", json!({})));
             }
             let more_open = Popup::is_id_open(ui.ctx(), more_popup());
-            let r = button(ui, &t, MORE_ID, Icon::More.into(), None, more_open, Ok(()), "More");
+            let r = button(ui, &t, MORE_ID, Icon::More.into(), None, more_open, Ok(()), &text("More"));
             Popup::menu(&r).id(more_popup()).show(|ui| more = more_menu(ui, &t, &open_rows, &reveal));
         });
         if play_button(ui, &t, rect.center(), &play).clicked() {
@@ -153,7 +173,7 @@ struct More {
 
 /// The width of the Open in Dalica button (its glyph and label).
 fn open_width(ui: &Ui, t: &Tokens) -> f32 {
-    let g = ui.painter().layout_no_wrap("Open in Dalica".to_owned(), fonts::regular(t.body), t.overlay_text);
+    let g = ui.painter().layout_no_wrap(text("Open in Dalica"), fonts::regular(t.body), t.overlay_text);
     (10.0 + widgets::OVERLAY_GLYPH + 6.0 + g.size().x + 12.0).ceil()
 }
 
@@ -171,7 +191,7 @@ fn group(ui: &mut Ui, rect: Rect, add: impl FnOnce(&mut Ui)) {
 fn button(ui: &mut Ui, t: &Tokens, id: &str, glyph: Glyph, label: Option<&str>, active: bool, ready: Result<(), String>, tip: &str) -> Response {
     match ready {
         Ok(()) => overlay_button(ui, t, id, glyph, label, active, true, tip),
-        Err(why) => overlay_button(ui, t, id, glyph, label, false, false, &why),
+        Err(why) => overlay_button(ui, t, id, glyph, label, false, false, &crate::i18n::tr(&why)),
     }
 }
 
@@ -214,11 +234,11 @@ fn play_button(ui: &mut Ui, t: &Tokens, centre: egui::Pos2, ready: &Result<(), S
     let tri = vec![pos2(centre.x - s * 0.7, centre.y - s), pos2(centre.x + s, centre.y), pos2(centre.x - s * 0.7, centre.y + s)];
     p.add(Shape::convex_polygon(tri, ring, Stroke::NONE));
     let tip = match ready {
-        Ok(()) => "Play a slideshow of the folder",
-        Err(why) => why.as_str(),
+        Ok(()) => text("Play a slideshow of the folder"),
+        Err(why) => text(why),
     };
-    widgets::register(ui.ctx(), PLAY_ID, Role::IconButton, tip, Target::Widget(&r), false);
-    widgets::tooltip(r, t, tip, None)
+    widgets::register(ui.ctx(), PLAY_ID, Role::IconButton, &tip, Target::Widget(&r), false);
+    widgets::tooltip(r, t, &tip, None)
 }
 
 /// The More menu's rows: Open With ▸ with `open_rows`, Show in File Manager (`reveal`: whether it
@@ -236,7 +256,7 @@ fn more_menu(ui: &mut Ui, t: &Tokens, open_rows: &[Node], reveal: &Result<(), St
     widgets::register(ui.ctx(), "menuitem:viewer.showInFileManager", Role::MenuItem, &tl!("Show in File Manager"), Target::Widget(&r), false);
     let r = match reveal {
         Ok(()) => r,
-        Err(why) => widgets::tooltip(r, t, why, None),
+        Err(why) => widgets::tooltip(r, t, &crate::i18n::tr(why), None),
     };
     if r.clicked() {
         more.command = Some("viewer.showInFileManager");
@@ -258,7 +278,7 @@ pub fn close_button(ui: &mut Ui, t: &Tokens, area: Rect, opacity: f32) -> bool {
         return false;
     }
     let font = fonts::regular(t.body);
-    let g = ui.painter().layout_no_wrap(CLOSE.to_owned(), font, t.overlay_text);
+    let g = ui.painter().layout_no_wrap(text(CLOSE), font, t.overlay_text);
     let w = (10.0 + g.size().x + 6.0 + widgets::OVERLAY_GLYPH + 10.0).ceil();
     let rect = Rect::from_min_size(pos2(area.max.x - w - 12.0, area.min.y + 12.0), vec2(w, OVERLAY_BUTTON));
     let r = ui.interact(rect, Id::new(CLOSE_ID), Sense::click());
@@ -268,6 +288,6 @@ pub fn close_button(ui: &mut Ui, t: &Tokens, area: Rect, opacity: f32) -> bool {
     p.galley(pos2(rect.min.x + 10.0, rect.center().y - g.size().y / 2.0).round(), g, color);
     let glyph = Rect::from_center_size(pos2(rect.max.x - 10.0 - widgets::OVERLAY_GLYPH / 2.0, rect.center().y), Vec2::splat(widgets::OVERLAY_GLYPH));
     icons::paint_glyph(&p, glyph, Icon::Close.into(), color);
-    widgets::register(ui.ctx(), CLOSE_ID, Role::Button, "Close", Target::Widget(&r), false);
-    widgets::tooltip(r, t, "Close (Esc)", None).clicked()
+    widgets::register(ui.ctx(), CLOSE_ID, Role::Button, &text("Close"), Target::Widget(&r), false);
+    widgets::tooltip(r, t, &text("Close (Esc)"), None).clicked()
 }

@@ -88,9 +88,14 @@ pub fn clock_text(ms: u64) -> String {
 /// The readout: "00:00:09 / 00:00:41", and " (trimmed to 00:00:21)" with the length kept when the
 /// trim cuts anything away.
 pub fn scrubber_readout(s: &Scrubber) -> String {
+    readout_in(&text::Texts::english(), s)
+}
+
+/// [`scrubber_readout`] in the texts of `texts` ([`Text::Trimmed`]).
+pub fn readout_in(texts: &text::Texts, s: &Scrubber) -> String {
     let s = s.normalized();
     let base = format!("{} / {}", clock_text(s.position_ms), clock_text(s.duration_ms));
-    if s.trimmed() { format!("{base} (trimmed to {})", clock_text(s.end_ms - s.start_ms)) } else { base }
+    if s.trimmed() { text::fill(texts.get(Text::Trimmed), &[("time", &base), ("length", &clock_text(s.end_ms - s.start_ms))]) } else { base }
 }
 
 /// Where the trim's start goes when asked for `want`: inside the clip, at least a step before the
@@ -212,7 +217,8 @@ fn grip_color(t: &Tokens, r: &Response, enabled: bool) -> Color32 {
 pub fn scrubber(ui: &mut Ui, t: &Tokens, id: &str, clip: &Scrubber, width: f32) -> ScrubberOut {
     let s = clip.normalized();
     let enabled = ui.is_enabled();
-    let first_readout = scrubber_readout(&s);
+    let texts = text::texts(ui.ctx());
+    let first_readout = readout_in(&texts, &s);
     let galley = ui.painter().layout_no_wrap(first_readout.clone(), fonts::regular(t.detail), if enabled { t.text_label } else { t.text_disabled });
     let min_w = SCRUB_MIN_W + 2.0 * (PLAYHEAD_R + 1.0);
     let width = if width.is_finite() { width.max(min_w) } else { min_w };
@@ -280,7 +286,7 @@ pub fn scrubber(ui: &mut Ui, t: &Tokens, id: &str, clip: &Scrubber, width: f32) 
         r.mark_changed();
     }
     if out.position.is_some() || out.start.is_some() || out.end.is_some() {
-        out.readout = scrubber_readout(&now);
+        out.readout = readout_in(&texts, &now);
     }
 
     let p = ui.painter();

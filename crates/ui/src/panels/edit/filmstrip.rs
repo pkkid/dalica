@@ -47,6 +47,7 @@ use crate::commands::edit_view::{self, Place};
 use crate::panels::light_table::{cell, tree_options};
 use crate::panels::thumbnails::{recipe_orientation, turn_point};
 use crate::selection::Table;
+use crate::tl;
 
 /// The distance between two cells' centres, and the thumbnail square in each.
 pub const CELL: f32 = 56.0;
@@ -140,10 +141,12 @@ fn paint(strip: &mut Strip, app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect, 
     let arrow = |x: f32| Rect::from_center_size(pos2(x, y), vec2(ARROW_W, THUMB));
     let at_first = place.index == 0;
     let at_last = place.index.saturating_add(1) >= len;
-    if top_bar::glyph_button(ui, t, PREVIOUS_ID, EditIcon::FilmstripPrevious, arrow(left - ARROW_W / 2.0), !at_first, PREVIOUS).clicked() {
+    if top_bar::glyph_button(ui, t, PREVIOUS_ID, EditIcon::FilmstripPrevious, arrow(left - ARROW_W / 2.0), !at_first, &tl!("Previous photo"))
+        .clicked()
+    {
         let _ = app.run("edit.previous", &json!({}));
     }
-    if top_bar::glyph_button(ui, t, NEXT_ID, EditIcon::FilmstripNext, arrow(left + row + ARROW_W / 2.0), !at_last, NEXT).clicked() {
+    if top_bar::glyph_button(ui, t, NEXT_ID, EditIcon::FilmstripNext, arrow(left + row + ARROW_W / 2.0), !at_last, &tl!("Next photo")).clicked() {
         let _ = app.run("edit.next", &json!({}));
     }
     let slots = window(&place.photos, place.index, n);

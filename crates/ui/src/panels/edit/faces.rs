@@ -30,13 +30,14 @@ use crate::app::App;
 use crate::commands::{edit_view, people_pane, tools};
 use crate::panels::people_pane as pane;
 use crate::state::{Compare, FaceRef, Pane, is_unit_rect};
+use crate::tl;
 
 /// Add a Person Manually's box and its plate's controls.
 pub const MANUAL_ID: &str = "facebox:manual";
 pub const NAME_ID: &str = "field:faces.manual";
 pub const ADD_ID: &str = "button:faces.manual.add";
 pub const CANCEL_ID: &str = "button:faces.manual.cancel";
-/// What the plate says.
+/// What the plate says (English; drawn through the catalogs).
 pub const INSTRUCTION: &str = "Drag the box to fit the face, then type a name.";
 /// The name field's hint.
 pub const NAME_HINT: &str = "Type a name";
@@ -175,19 +176,20 @@ fn plate(app: &mut App, ui: &mut Ui, boxed: Rect, area: Rect) {
     let r = plate_rect(boxed, area, height);
     ui.painter().rect_filled(r, CornerRadius::same(t.radius), t.caption_plate);
     let mut col = ui.new_child(UiBuilder::new().id_salt("faces.manual.plate").max_rect(r.shrink(PLATE_PAD)).layout(Layout::top_down(Align::Min)));
-    col.label(RichText::new(INSTRUCTION).font(fonts::regular(t.count)).color(t.overlay_text));
+    col.label(RichText::new(tl!("Drag the box to fit the face, then type a name.")).font(fonts::regular(t.count)).color(t.overlay_text));
     col.add_space(6.0);
     let mut text = app.state().people_pane.manual.as_ref().map(|m| m.name.clone()).unwrap_or_default();
     let options = pane::people_names(app, &ctx);
+    let (hint, add_label, cancel_label) = (tl!("Type a name"), tl!("Add"), tl!("Cancel"));
     let (out, add, cancel) = col
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             // Room for Add and Cancel at their own widths.
             let width = (ui.available_width() - 110.0).max(40.0);
             let out =
-                widgets::autocomplete(ui, &t, NAME_ID, &mut text, &options, |ui, text| widgets::text_field(ui, &t, NAME_ID, text, NAME_HINT, width));
-            let add = ui.add_enabled_ui(!text.trim().is_empty(), |ui| widgets::primary_button(ui, &t, ADD_ID, "Add")).inner;
-            let cancel = widgets::text_button(ui, &t, CANCEL_ID, "Cancel", false);
+                widgets::autocomplete(ui, &t, NAME_ID, &mut text, &options, |ui, text| widgets::text_field(ui, &t, NAME_ID, text, &hint, width));
+            let add = ui.add_enabled_ui(!text.trim().is_empty(), |ui| widgets::primary_button(ui, &t, ADD_ID, &add_label)).inner;
+            let cancel = widgets::text_button(ui, &t, CANCEL_ID, &cancel_label, false);
             (out, add, cancel)
         })
         .inner;
@@ -206,7 +208,7 @@ fn plate(app: &mut App, ui: &mut Ui, boxed: Rect, area: Rect) {
         && !text.trim().is_empty()
         && let Err(e) = people_pane::store_manual(app, &text)
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 

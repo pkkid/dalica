@@ -68,6 +68,7 @@ use crate::app::App;
 use crate::commands::parse;
 use crate::commands::tools::{self, Tool};
 use crate::state::{BRUSH_DEFAULT, BRUSH_MAX, BRUSH_MIN, EditState, MAX_PATCHES, Patch, RetouchDraft, ToolKind};
+use crate::tl;
 
 pub const TITLE: &str = "Retouch";
 pub const INSTRUCTION: &str = "Click a blemish, then click a clean area to copy from.";
@@ -81,6 +82,32 @@ pub const CANCEL_ID: &str = "button:panel.cancel";
 /// The tooltips of Undo Patch and Redo Patch.
 pub const UNDO_TIP: &str = "Remove the last patch";
 pub const REDO_TIP: &str = "Put back the patch removed last";
+/// A label or tooltip of the panel in the language in effect (the constants keep the English, which
+/// the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Retouch" => tl!("Retouch"),
+        "Click a blemish, then click a clean area to copy from." => tl!("Click a blemish, then click a clean area to copy from."),
+        "Brush size" => tl!("Brush size"),
+        "Undo Patch" => tl!("Undo Patch"),
+        "Remove the last patch" => tl!("Remove the last patch"),
+        "Redo Patch" => tl!("Redo Patch"),
+        "Put back the patch removed last" => tl!("Put back the patch removed last"),
+        "Reset" => tl!("Reset"),
+        "Remove every patch" => tl!("Remove every patch"),
+        "Apply" => tl!("Apply"),
+        "Keep the patches" => tl!("Keep the patches"),
+        "Cancel" => tl!("Cancel"),
+        "Close without the patches" => tl!("Close without the patches"),
+        other => crate::i18n::tr(other),
+    }
+}
+
+/// A brush's size unit after its number (`29 px`), in the language in effect.
+pub fn px_unit() -> String {
+    format!(" {}", tl!(ctx = "unit", "px"))
+}
+
 /// How much one + or − press scales the brush.
 pub const BRUSH_STEP: f32 = 1.2;
 /// The most + / − presses one `brush {step}` action takes.
@@ -519,13 +546,13 @@ fn panel(app: &mut App, ui: &mut Ui, photo: PhotoId, d: &RetouchDraft) {
     let t = *app.tokens();
     let rect = ui.max_rect();
     let p = ui.painter().clone();
-    let job = egui::text::LayoutJob::simple(INSTRUCTION.to_owned(), fonts::regular(t.detail), t.text_label, rect.width().max(1.0));
+    let job = egui::text::LayoutJob::simple(text(INSTRUCTION), fonts::regular(t.detail), t.text_label, rect.width().max(1.0));
     let galley = p.layout_job(job);
     let l = layout(&t, rect, galley.size().y);
     // The title: the Retouch glyph and the name; the instruction under it, wrapped.
     let glyph = Rect::from_min_size(pos2(l.title.min.x, l.title.center().y - t.metrics.icon_tool / 2.0), Vec2::splat(t.metrics.icon_tool));
     paint_edit(&p, glyph, EditIcon::Retouch, t.icon);
-    p.text(pos2(glyph.max.x + 8.0, l.title.center().y), Align2::LEFT_CENTER, TITLE, fonts::semibold(t.title), t.text);
+    p.text(pos2(glyph.max.x + 8.0, l.title.center().y), Align2::LEFT_CENTER, text(TITLE), fonts::semibold(t.title), t.text);
     p.galley(l.instruction, galley, t.text_label);
 
     // Brush size, in pixels of the photo across the brush.
@@ -533,34 +560,35 @@ fn panel(app: &mut App, ui: &mut Ui, photo: PhotoId, d: &RetouchDraft) {
     let (lo, hi) = brush_range(dims);
     let long = dims.map_or(1000.0, |(w, h)| w.max(h));
     let px = |r: f32| (2.0 * f64::from(r) * long).round();
+    let (label, unit) = (text(BRUSH_LABEL), px_unit());
     let spec = SliderSpec {
         id: BRUSH_ID,
-        label: BRUSH_LABEL,
+        label: &label,
         min: px(lo).max(1.0),
         max: px(hi).max(1.0),
         default: px(BRUSH_DEFAULT.clamp(lo, hi)).max(1.0),
         step: 1.0,
         decimals: 0,
-        unit: " px",
+        unit: &unit,
     };
     let mut child = ui.new_child(UiBuilder::new().id_salt("retouch.brush").max_rect(l.slider));
     let out = widgets::slider(&mut child, &t, &spec, px(d.brush));
 
     let mut clicked = None;
     let position = d.position.min(d.patches.len());
-    if button(ui, &t, UNDO_ID, "Undo Patch", l.undo, position > 0, false, UNDO_TIP).clicked() {
+    if button(ui, &t, UNDO_ID, &text("Undo Patch"), l.undo, position > 0, false, &text(UNDO_TIP)).clicked() {
         clicked = Some(Click::Undo);
     }
-    if button(ui, &t, REDO_ID, "Redo Patch", l.redo, position < d.patches.len(), false, REDO_TIP).clicked() {
+    if button(ui, &t, REDO_ID, &text("Redo Patch"), l.redo, position < d.patches.len(), false, &text(REDO_TIP)).clicked() {
         clicked = Some(Click::Redo);
     }
-    if button(ui, &t, RESET_ID, "Reset", l.reset, !d.patches.is_empty(), false, "Remove every patch").clicked() {
+    if button(ui, &t, RESET_ID, &text("Reset"), l.reset, !d.patches.is_empty(), false, &text("Remove every patch")).clicked() {
         clicked = Some(Click::Reset);
     }
-    if button(ui, &t, APPLY_ID, "Apply", l.apply, true, true, "Keep the patches").clicked() {
+    if button(ui, &t, APPLY_ID, &text("Apply"), l.apply, true, true, &text("Keep the patches")).clicked() {
         clicked = Some(Click::Apply);
     }
-    if button(ui, &t, CANCEL_ID, "Cancel", l.cancel, true, false, "Close without the patches").clicked() {
+    if button(ui, &t, CANCEL_ID, &text("Cancel"), l.cancel, true, false, &text("Close without the patches")).clicked() {
         clicked = Some(Click::Cancel);
     }
 
@@ -579,7 +607,7 @@ fn panel(app: &mut App, ui: &mut Ui, photo: PhotoId, d: &RetouchDraft) {
         }
     };
     if let Err(e) = done {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 
@@ -662,7 +690,7 @@ fn overlay(app: &mut App, ui: &Ui) {
         {
             let done = if pending(photo).is_some() { pick_source(app, at) } else { pick_target(app, at) };
             if let Err(e) = done {
-                app.toast(&e.to_string(), ToastKind::Caution);
+                app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
             }
         }
     }

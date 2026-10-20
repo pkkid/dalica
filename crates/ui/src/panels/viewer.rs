@@ -47,6 +47,7 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::state::Backdrop;
+use crate::tl;
 
 /// The viewer's automation id.
 pub const CANVAS_ID: &str = "canvas:viewer";
@@ -109,7 +110,7 @@ impl Default for Keep {
 
 /// "filename (W × H)".
 pub fn caption(name: &str, (w, h): (f32, f32)) -> String {
-    format!("{name} ({} × {})", w.round() as u64, h.round() as u64)
+    tl!("{name} ({w} × {h})", name = name, w = w.round() as u64, h = h.round() as u64)
 }
 
 /// Draws the viewer over `ui`'s whole rect.
@@ -176,9 +177,9 @@ fn frame(app: &mut App, ui: &mut Ui, ctx: &egui::Context, t: &Tokens, rect: Rect
     };
     let (Ok(Some(listing)), Some((index, photo))) = (listed.clone(), shown_photo) else {
         let text = match listed {
-            Err(why) => why,
-            Ok(Some(_)) => listing::EMPTY.to_owned(),
-            Ok(None) => READING.to_owned(),
+            Err(why) => crate::i18n::tr(&why),
+            Ok(Some(_)) => tl!("The folder holds no photo Dalica can show."),
+            Ok(None) => tl!("Reading the folder…"),
         };
         widgets::label_in(ui.painter(), layout.photo, Align2::CENTER_CENTER, &text, fonts::regular(t.body), t.overlay_icon);
         widgets::register(ctx, CANVAS_ID, Role::Other, &text, Target::Widget(&canvas), false);

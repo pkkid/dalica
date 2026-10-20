@@ -13,18 +13,19 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::state::Room;
+use crate::tl;
 
 /// The strip's automation id: its tabs are `tab:room/<room>`.
 pub const STRIP: &str = "tab:room";
 /// The space before the first tab (points).
 pub const INSET: f32 = 8.0;
 
-/// A room's tab label.
-pub fn label(room: Room) -> &'static str {
+/// A room's tab label, in the language in effect.
+pub fn label(room: Room) -> String {
     match room {
-        Room::Library => "Library",
-        Room::Import => "Import",
-        Room::Collage => "Collage",
+        Room::Library => tl!(ctx = "room", "Library"),
+        Room::Import => tl!(ctx = "room", "Import"),
+        Room::Collage => tl!(ctx = "room", "Collage"),
     }
 }
 
@@ -46,8 +47,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let mut row = ui.new_child(UiBuilder::new().id_salt("roomTabs").max_rect(rect).layout(Layout::left_to_right(egui::Align::Min)));
     row.spacing_mut().item_spacing = vec2(0.0, 0.0);
     let (rooms, front) = (app.state().rooms.clone(), app.state().room);
+    let labels: Vec<String> = rooms.iter().map(|&r| label(r)).collect();
     let items: Vec<RoomTab<'_>> =
-        rooms.iter().map(|&r| RoomTab { name: r.name(), icon: glyph(r), label: label(r), closable: r != Room::Library }).collect();
+        rooms.iter().zip(&labels).map(|(&r, label)| RoomTab { name: r.name(), icon: glyph(r), label, closable: r != Room::Library }).collect();
     let active = rooms.iter().position(|&r| r == front).unwrap_or(0);
     let out = widgets::room_tabs(&mut row, &t, STRIP, &items, active);
     let chosen = if let Some(room) = out.closed.and_then(|i| rooms.get(i)) {
@@ -58,6 +60,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some((id, room)) = chosen
         && let Err(e) = app.run(id, &json!({ "room": room.name() }))
     {
-        app.toast(&e.to_string(), widgets::ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), widgets::ToastKind::Caution);
     }
 }

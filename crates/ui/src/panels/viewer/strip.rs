@@ -30,6 +30,7 @@ use super::listing::{Listing, Photo};
 use crate::app::App;
 use crate::panels::edit::filmstrip::centre_square;
 use crate::panels::thumbnails::{recipe_orientation, turn_point};
+use crate::tl;
 
 /// The distance between two cells' centres, and the thumbnail square in each (points).
 pub const CELL: f32 = 56.0;
@@ -90,7 +91,7 @@ pub fn show(app: &mut App, ui: &mut Ui, band: Rect, listing: &Listing, index: us
     let mut strip = ctx.data_mut(|d| d.remove_temp::<Strip>(id)).unwrap_or_default();
     // The band takes the clicks between the cells, so they never reach the photo behind it.
     let band_r = ui.interact(band, id, Sense::click());
-    widgets::register(&ctx, STRIP_ID, Role::Other, "Filmstrip", Target::Widget(&band_r), false);
+    widgets::register(&ctx, STRIP_ID, Role::Other, &tl!("Filmstrip"), Target::Widget(&band_r), false);
     let painter = ui.painter().with_clip_rect(band);
     painter.rect_filled(band, 0, t.overlay_bar.gamma_multiply(opacity));
     let n = cells_for(band.width());

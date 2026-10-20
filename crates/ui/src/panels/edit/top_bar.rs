@@ -27,6 +27,7 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::state::Compare;
+use crate::tl;
 
 /// Back to Library.
 pub const BACK_ID: &str = "button:edit.back";
@@ -48,6 +49,25 @@ pub const EDIT_COLLAGE_ID: &str = "button:edit.editCollage";
 pub const EDIT_COLLAGE: &str = "Edit Collage";
 pub const EDIT_COLLAGE_TIP: &str = "Change this collage in the Collage room";
 pub const EDIT_COLLAGE_W: f32 = 120.0;
+
+/// A label or tooltip of the bar above in the language in effect (the constants keep the English,
+/// which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Back to Library" => tl!("Back to Library"),
+        "Play" => tl!(ctx = "slideshow", "Play"),
+        "Play a slideshow from this photo" => tl!("Play a slideshow from this photo"),
+        "A" => tl!(ctx = "compare", "A"),
+        "A|B" => tl!(ctx = "compare", "A|B"),
+        "A|A" => tl!(ctx = "compare", "A|A"),
+        "Show one photo" => tl!("Show one photo"),
+        "Compare two photos" => tl!("Compare two photos"),
+        "Compare two versions of this photo" => tl!("Compare two versions of this photo"),
+        "Edit Collage" => tl!("Edit Collage"),
+        "Change this collage in the Collage room" => tl!("Change this collage in the Collage room"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// Whether Edit Collage shows for the photo in the edit view: for a collage the engine's
 /// `collage.canEdit` can reopen (a readable recipe beside it). No while the engine still looks,
@@ -78,13 +98,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let h = t.metrics.button_h;
     let y = (bar.center().y - h / 2.0).round();
     let back = Rect::from_min_size(pos2(bar.min.x + GAP, y), vec2(BACK_W, h));
-    if labelled_button(ui, &t, BACK_ID, EditIcon::BackToLibrary, BACK, back, true, BACK).clicked() {
+    let back_label = text(BACK);
+    if labelled_button(ui, &t, BACK_ID, EditIcon::BackToLibrary, &back_label, back, true, &back_label).clicked() {
         let _ = app.run("view.library", &json!({}));
     }
     let play = Rect::from_min_size(pos2(back.max.x + GAP, y), vec2(PLAY_W, h));
     // A slideshow from this photo, live as `view.slideshow` is.
     let can_play = crate::commands::enabled(app, "view.slideshow", &json!({})).is_ok();
-    if labelled_button(ui, &t, PLAY_ID, EditIcon::Play, PLAY, play, can_play, PLAY_TIP).clicked() {
+    if labelled_button(ui, &t, PLAY_ID, EditIcon::Play, &text(PLAY), play, can_play, &text(PLAY_TIP)).clicked() {
         let _ = app.run("view.slideshow", &json!({}));
     }
 
@@ -103,7 +124,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         && let Some(photo) = app.state().edit.photo
     {
         let mut c = child(ui, edit_collage, true);
-        if widgets::text_button(&mut c, &t, EDIT_COLLAGE_ID, EDIT_COLLAGE, false).on_hover_text(EDIT_COLLAGE_TIP).clicked() {
+        if widgets::text_button(&mut c, &t, EDIT_COLLAGE_ID, &text(EDIT_COLLAGE), false).on_hover_text(text(EDIT_COLLAGE_TIP)).clicked() {
             let _ = app.run("collage.edit", &json!({ "id": photo }));
         }
     }
@@ -184,6 +205,7 @@ fn compare_toggle(ui: &mut Ui, t: &Tokens, rect: Rect, current: Compare, live: [
     for (i, (id, label, tip, mode)) in COMPARE.iter().enumerate() {
         let seg = Rect::from_min_size(pos2(rect.min.x + w * i as f32, rect.min.y), vec2(w, rect.height()));
         let enabled = live.get(i).copied().unwrap_or(false);
+        let (label, tip) = (text(label), text(tip));
         let c = child(ui, seg, enabled);
         let r = c.interact(seg, Id::new(*id), Sense::click());
         let on = current == *mode;
@@ -203,14 +225,14 @@ fn compare_toggle(ui: &mut Ui, t: &Tokens, rect: Rect, current: Compare, live: [
         } else {
             t.text
         };
-        widgets::label_in(p, seg, Align2::CENTER_CENTER, label, font.clone(), color);
+        widgets::label_in(p, seg, Align2::CENTER_CENTER, &label, font.clone(), color);
         if i > 0 {
             p.vline(seg.min.x, seg.y_range().shrink(1.0), Stroke::new(1.0, t.button_border));
         }
         focus_ring(p, t, &r, seg, t.radius);
-        widgets::register(c.ctx(), id, Role::Toggle, tip, Target::Widget(&r), on);
-        r.widget_info(|| egui::WidgetInfo::selected(WidgetType::RadioButton, enabled, on, *tip));
-        let r = if enabled { r.on_hover_text(*tip) } else { r.on_disabled_hover_text(*tip) };
+        widgets::register(c.ctx(), id, Role::Toggle, &tip, Target::Widget(&r), on);
+        r.widget_info(|| egui::WidgetInfo::selected(WidgetType::RadioButton, enabled, on, &tip));
+        let r = if enabled { r.on_hover_text(&tip) } else { r.on_disabled_hover_text(&tip) };
         if r.clicked() {
             clicked = Some(*mode);
         }

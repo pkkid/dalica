@@ -35,6 +35,7 @@ use egui::{Color32, Context, Galley, Id, Mesh, Painter, Pos2, Rect, Shape, Textu
 use serde_json::{Value, json};
 
 use crate::app::App;
+use crate::{tl, tln};
 
 /// The height of the "Import from:" bar.
 pub const TOP_BAR: f32 = 44.0;
@@ -171,15 +172,9 @@ impl Snapshot {
     }
 }
 
-/// `9:12 AM`.
+/// `9:12 AM`, in the language in effect (the status line's clock).
 pub fn clock(d: DateTime) -> String {
-    let (hour, half) = match d.hour() {
-        0 => (12, "AM"),
-        h @ 1..=11 => (h, "AM"),
-        12 => (12, "PM"),
-        h => (h.saturating_sub(12), "PM"),
-    };
-    format!("{hour}:{:02} {half}", d.minute())
+    crate::status_text::clock(d, false)
 }
 
 /// A group header's title: `June 4, 2026 8:00 AM – 9:12 AM`, the whole second date when the
@@ -189,15 +184,15 @@ pub fn group_title(first: DateTime, last: DateTime) -> String {
     if first == last {
         start
     } else if first.date() == last.date() {
-        format!("{start} \u{2013} {}", clock(last))
+        tl!(ctx = "date", "{start} \u{2013} {end}", start = start, end = clock(last))
     } else {
-        format!("{start} \u{2013} {}", crate::status_text::date_time(last))
+        tl!(ctx = "date", "{start} \u{2013} {end}", start = start, end = crate::status_text::date_time(last))
     }
 }
 
 /// `12 pictures`.
 pub fn pictures(n: usize) -> String {
-    if n == 1 { "1 picture".into() } else { format!("{n} pictures") }
+    tln!(n, "{n} picture", "{n} pictures")
 }
 
 /// `text` on one line, cut with "…" to `width`.
@@ -371,7 +366,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if snap.source.is_none() {
         let body = rects.tray.union(rects.preview);
         in_rect(ui, body, |ui| {
-            if widgets::empty_state(ui, &t, "empty:import", EMPTY_TITLE, EMPTY_BODY, Some(EMPTY_ACTION)).is_some_and(|r| r.clicked()) {
+            let (title, body) = (
+                tl!("Nothing to import yet"),
+                tl!("Insert a camera's card or a removable drive, or choose a folder from \u{201c}Import from:\u{201d}."),
+            );
+            let action = tl!("Choose a Folder\u{2026}");
+            if widgets::empty_state(ui, &t, "empty:import", &title, &body, Some((EMPTY_ACTION.0, &action))).is_some_and(|r| r.clicked()) {
                 actions.push(("import.chooseFolder", json!({})));
             }
         });

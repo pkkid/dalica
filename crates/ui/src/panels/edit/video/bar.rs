@@ -94,7 +94,8 @@ pub fn show(app: &mut App, ui: &mut Ui, player: Option<&Player>, why: Option<&st
     let empty = Player::default();
     let p = player.unwrap_or(&empty);
     // Why play, the steps and seeking are greyed: the clip's reason, or that it is still opening.
-    let pictures_why = why.map(str::to_string).or_else(|| p.pictures_refused());
+    let reason = crate::panels::edit::canvas::reason;
+    let pictures_why = why.or(p.reason.as_deref()).map(reason).or_else(|| p.pictures_refused());
     let pictures = pictures_why.is_none() && player.is_some();
     let video = app.state().video;
     let mut run: Vec<(&'static str, Value)> = Vec::new();
@@ -185,7 +186,7 @@ pub fn show(app: &mut App, ui: &mut Ui, player: Option<&Player>, why: Option<&st
     ctx.data_mut(|d| d.insert_temp(pending_id(), pending));
     for (id, params) in run {
         if let Err(e) = app.run(id, &params) {
-            app.toast(&e.to_string(), ToastKind::Caution);
+            app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
         }
     }
 }
@@ -204,8 +205,9 @@ fn volume(app: &App, ui: &mut Ui, t: &Tokens, p: &Player, open: bool, run: &mut 
     let enabled = open && p.muted.is_none();
     let out = ui.add_enabled_ui(enabled, |ui| widgets::volume(ui, t, VOLUME_ID, level, now == 0)).inner;
     if let Some(why) = p.muted.as_deref().filter(|_| open) {
-        widgets::tooltip(out.toggle.clone(), t, why, None);
-        widgets::tooltip(out.slider.clone(), t, why, None);
+        let why = crate::panels::edit::canvas::reason(why);
+        widgets::tooltip(out.toggle.clone(), t, &why, None);
+        widgets::tooltip(out.slider.clone(), t, &why, None);
     }
     if out.level.is_some() || out.muted.is_some() {
         let muted = out.muted.unwrap_or(now == 0);

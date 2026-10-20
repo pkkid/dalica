@@ -21,6 +21,7 @@ use serde_json::json;
 
 use crate::app::App;
 use crate::state::CollageTab;
+use crate::tl;
 
 /// The room's content, for `ui.screenshot {region: "collage"}` and `ui.widgets {region}`.
 pub const REGION_ID: &str = "region:collage";
@@ -37,7 +38,7 @@ pub const TABS: [(CollageTab, &str, &str); 2] = [(CollageTab::Settings, "setting
 
 /// The Clips tab's label: "Clips (N)".
 pub fn clips_label(n: usize) -> String {
-    format!("Clips ({n})")
+    tl!("Clips ({n})", n = n)
 }
 
 /// The display's size in pixels: the monitor's when the window knows it, else the window's.
@@ -54,7 +55,7 @@ fn display_size(ctx: &egui::Context) -> [u32; 2] {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let rect = ui.max_rect();
-    widgets::register(ui.ctx(), REGION_ID, Role::Other, "Collage", Target::Painted { rect, clip: rect }, false);
+    widgets::register(ui.ctx(), REGION_ID, Role::Other, &tl!(ctx = "room", "Collage"), Target::Painted { rect, clip: rect }, false);
     crate::commands::collage::set_display(app, display_size(ui.ctx()));
     let split = (rect.min.x + PANEL_W).min(rect.max.x);
     let left = Rect::from_min_max(rect.min, pos2(split, rect.max.y));
@@ -63,7 +64,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     let mut panel = ui.new_child(UiBuilder::new().id_salt("collagePanel").max_rect(left));
     let clips = clips_label(app.session().and_then(|s| s.collage().document()).map_or(0, |d| d.clips.len()));
-    let labels = [TABS[0].2, clips.as_str()];
+    let settings_label = tl!(ctx = "collage", "Settings");
+    let labels = [settings_label.as_str(), clips.as_str()];
     let items: Vec<TextTab<'_>> = TABS.iter().zip(labels).map(|((_, name, _), label)| TextTab { name, label }).collect();
     let current = app.state().collage.tab;
     let active = TABS.iter().position(|(tab, ..)| *tab == current).unwrap_or(0);
@@ -82,7 +84,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some((tab, ..)) = out.clicked.and_then(|i| TABS.get(i)).filter(|(tab, ..)| *tab != current)
         && let Err(e) = app.run("collage.tab", &json!({ "tab": tab }))
     {
-        app.toast(&e.to_string(), widgets::ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), widgets::ToastKind::Caution);
     }
 }
 
@@ -96,7 +98,7 @@ fn eyedropper(app: &mut App, ui: &mut Ui, area: Rect) {
     let page = registry::find(&ctx, canvas::CANVAS_ID).map(|w| Rect::from_min_size(pos2(w.rect[0], w.rect[1]), vec2(w.rect[2], w.rect[3])));
     let Some(page) = page.map(|p| p.intersect(area)).filter(|p| p.is_positive()) else { return };
     let r = ui.interact(page, Id::new(EYEDROPPER_ID), Sense::click());
-    widgets::register(&ctx, EYEDROPPER_ID, Role::Other, "Pick the background colour", Target::Widget(&r), true);
+    widgets::register(&ctx, EYEDROPPER_ID, Role::Other, &tl!("Pick the background colour"), Target::Widget(&r), true);
     if r.hovered() {
         ctx.set_cursor_icon(CursorIcon::Crosshair);
     }

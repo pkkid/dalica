@@ -75,6 +75,7 @@ use crate::commands::edit_view;
 use crate::commands::tools::{self, Tool};
 use crate::commands::{no_params, parse};
 use crate::state::{EditState, EditTab, ToolKind, TuningDraft};
+use crate::tl;
 
 /// The four sliders' controls (`control-protocol.md` §7).
 pub const FILL: SliderSpec<'static> =
@@ -96,6 +97,24 @@ pub const AUTO_COLOR_TIP: &str = "Auto color";
 pub const RESET_ID: &str = "button:tuning.reset";
 pub const RESET_LABEL: &str = "Reset";
 pub const RESET_TIP: &str = "Put every Tuning control back to its default";
+
+/// A label or tooltip of the tab's controls above in the language in effect (the constants keep the
+/// English, which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Fill Light" => tl!("Fill Light"),
+        "Highlights" => tl!("Highlights"),
+        "Shadows" => tl!("Shadows"),
+        "Color Temperature" => tl!("Color Temperature"),
+        "Neutral Color Picker" => tl!("Neutral Color Picker"),
+        "Pick a grey or white area of the photo to remove a color cast" => tl!("Pick a grey or white area of the photo to remove a color cast"),
+        "Auto lighting" => tl!("Auto lighting"),
+        "Auto color" => tl!("Auto color"),
+        "Reset" => tl!("Reset"),
+        "Put every Tuning control back to its default" => tl!("Put every Tuning control back to its default"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// The wand column's width (and the wands' edge), the gap left of it, the bracket's room.
 pub const WAND: f32 = 28.0;
@@ -354,7 +373,7 @@ fn commit_tuning(app: &mut App, photo: PhotoId, t: &tone::Tuning) -> Result<Valu
 /// toast.
 fn change(app: &mut App, photo: PhotoId, d: &TuningDraft) {
     if let Err(e) = commit(app, photo, d) {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 
@@ -457,7 +476,7 @@ pub fn poll(app: &mut App, ctx: &egui::Context) {
         match (entry.state, entry.result) {
             (JobState::Done, Some(result)) => answer(app, p, &result),
             (JobState::Failed, _) => {
-                let why = entry.error.unwrap_or_else(|| "Could not analyse the photo.".into());
+                let why = entry.error.map_or_else(|| tl!("Could not analyse the photo."), |e| crate::i18n::tr(&e));
                 app.toast(&why, ToastKind::Caution);
             }
             _ => {}
@@ -483,7 +502,7 @@ fn answer(app: &mut App, p: &Pending, result: &Value) {
         Wand::Color | Wand::Pick => t.neutral = rgb(result.get("rgb")).map(bytes),
     }
     if let Err(e) = commit_tuning(app, p.photo, &t) {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 
@@ -753,6 +772,8 @@ pub(crate) type Setter = fn(&mut TuningDraft, f32);
 /// applies it when let go; a one-shot change (a click, a nudge, a double-click reset) is applied
 /// at once.
 pub(crate) fn slider(app: &mut App, ui: &mut Ui, t: &Tokens, photo: PhotoId, spec: &SliderSpec<'_>, value: f32, set: Setter) -> SliderOut {
+    let label = text(spec.label);
+    let spec = &SliderSpec { label: &label, ..*spec };
     let out = widgets::tuning_slider(ui, t, spec, f64::from(value));
     let one_shot = out.drag_started && out.drag_stopped;
     let open = |app: &App| app.state().edit.tool == Some(ToolKind::Tuning);
@@ -761,7 +782,7 @@ pub(crate) fn slider(app: &mut App, ui: &mut Ui, t: &Tokens, photo: PhotoId, spe
         && !open(app)
         && let Err(e) = app.run("edit.tool.open", &json!({ "tool": "tuning" }))
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
     if let Some(v) = out.value {
         let mut d = shown(app, photo);
@@ -778,7 +799,7 @@ pub(crate) fn slider(app: &mut App, ui: &mut Ui, t: &Tokens, photo: PhotoId, spe
         && open(app)
         && let Err(e) = app.run("edit.tool.apply", &json!({}))
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
     out
 }
@@ -818,30 +839,30 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     painter.line_segment([b.right_top(), b.right_bottom()], line);
     painter.line_segment([b.left_bottom(), b.right_bottom()], line);
     painter.line_segment([pos2(b.max.x, p.auto_lighting.center().y), pos2(p.auto_lighting.min.x, p.auto_lighting.center().y)], line);
-    if glyph(ui, &t, AUTO_LIGHTING_ID, EditIcon::MagicWand, p.auto_lighting, waiting(photo, Wand::Lighting), AUTO_LIGHTING_TIP).clicked()
+    if glyph(ui, &t, AUTO_LIGHTING_ID, EditIcon::MagicWand, p.auto_lighting, waiting(photo, Wand::Lighting), &text(AUTO_LIGHTING_TIP)).clicked()
         && let Err(e) = start_wand(app, photo, true)
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 
     // The Neutral Color Picker: the swatch, the eyedropper, its label, the wand.
-    let text = if ui.is_enabled() { t.text_label } else { t.text_disabled };
-    let mut job = egui::text::LayoutJob::simple_singleline(PICKER_LABEL.to_owned(), fonts::regular(t.detail), text);
+    let ink = if ui.is_enabled() { t.text_label } else { t.text_disabled };
+    let mut job = egui::text::LayoutJob::simple_singleline(text(PICKER_LABEL), fonts::regular(t.detail), ink);
     job.wrap = egui::text::TextWrapping::truncate_at_width(p.picker_label.width().max(1.0));
     let galley = ui.painter().layout_job(job);
     let at = pos2(p.picker_label.min.x, p.picker_label.center().y - galley.size().y / 2.0);
-    ui.painter().galley(at.round(), galley, text);
+    ui.painter().galley(at.round(), galley, ink);
     swatch(ui, &t, p.swatch, values.neutral);
     let armed = picking(photo);
-    if glyph(ui, &t, PICKER_ID, EditIcon::Eyedropper, p.eyedropper, armed || waiting(photo, Wand::Pick), PICKER_TIP).clicked()
+    if glyph(ui, &t, PICKER_ID, EditIcon::Eyedropper, p.eyedropper, armed || waiting(photo, Wand::Pick), &text(PICKER_TIP)).clicked()
         && let Err(e) = arm(app, !armed)
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
-    if glyph(ui, &t, AUTO_COLOR_ID, EditIcon::MagicWand, p.auto_color, waiting(photo, Wand::Color), AUTO_COLOR_TIP).clicked()
+    if glyph(ui, &t, AUTO_COLOR_ID, EditIcon::MagicWand, p.auto_color, waiting(photo, Wand::Color), &text(AUTO_COLOR_TIP)).clicked()
         && let Err(e) = start_wand(app, photo, false)
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 
     // Reset: every control back to its default, as one change; drawn only where it fits.
@@ -850,8 +871,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if same(&values, &DEFAULTS) {
             child.disable();
         }
-        let r = widgets::text_button(&mut child, &t, RESET_ID, RESET_LABEL, false);
-        if widgets::tooltip(r, &t, RESET_TIP, None).clicked() {
+        let r = widgets::text_button(&mut child, &t, RESET_ID, &text(RESET_LABEL), false);
+        if widgets::tooltip(r, &t, &text(RESET_TIP), None).clicked() {
             change(app, photo, &DEFAULTS);
         }
     }
@@ -881,7 +902,7 @@ fn pick_on_photo(app: &mut App, ctx: &egui::Context, photo: PhotoId) {
     let started = start_pick(app, photo, x, y);
     let disarmed = arm(app, false);
     if let Err(e) = started.and(disarmed) {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 

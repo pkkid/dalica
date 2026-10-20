@@ -73,7 +73,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let player = crate::commands::video::player(app);
     // Why the frame cannot be saved: the clip's reason, or that it is still opening.
     let refused = match &player {
-        Some(p) => p.pictures_refused(),
+        Some(p) => p.reason.as_deref().map(crate::panels::edit::canvas::reason).or_else(|| p.pictures_refused()),
         None => Some(crate::i18n::tr(dalica_engine::video::OPENING)),
     };
     let mut clicked = None;
@@ -89,7 +89,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let Some(command) = clicked else { return };
     let params = if command.starts_with("photo.") { json!({ "ids": [photo] }) } else { json!({}) };
     if let Err(e) = app.run(command, &params) {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 

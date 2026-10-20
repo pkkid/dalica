@@ -32,17 +32,18 @@ pub mod controls;
 pub mod layout;
 
 use dalica_core::color::{hex_u8, parse_hex_u8};
-use dalica_ui_kit::widgets::{self, ToastKind};
+use dalica_ui_kit::widgets::{self, SliderSpec, ToastKind};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align, Align2, CursorIcon, Id, Layout, Response, ScrollArea, Ui, UiBuilder, vec2};
 use serde_json::{Map, Value, json};
 
 use self::controls::{Control, ROW_GAP};
-use super::{canvas, soften_brush};
+use super::{canvas, soften_brush, words};
 use crate::app::App;
 use crate::commands::edit_view;
 use crate::commands::effect_session::{self, set_eyedropper, set_picker};
 use crate::state::{EffectDraft, EffectValue, effect_row};
+use crate::tl;
 
 /// The panel's buttons.
 pub const APPLY_ID: &str = "button:panel.apply";
@@ -81,7 +82,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let extra = extra_rows(row.name);
     let need = controls::rows_height(&t, &list) + extra.map_or(0.0, |(height, _)| ROW_GAP + height(&t));
     let l = layout::compute(ui.max_rect(), t.metrics.button_h, need);
-    ui.painter().text(l.title.left_center(), Align2::LEFT_CENTER, row.label, fonts::semibold(t.title), t.text);
+    ui.painter().text(l.title.left_center(), Align2::LEFT_CENTER, words::op_label(row.label), fonts::semibold(t.title), t.text);
 
     let mut changes = Vec::new();
     if l.controls.height() > 0.0 {
@@ -104,14 +105,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     let mut clicked = None;
     let mut buttons = ui.new_child(UiBuilder::new().id_salt("effect.buttons").max_rect(l.buttons).layout(Layout::right_to_left(Align::Center)));
-    if widgets::text_button(&mut buttons, &t, CANCEL_ID, "Cancel", false).clicked() {
+    if widgets::text_button(&mut buttons, &t, CANCEL_ID, &tl!("Cancel"), false).clicked() {
         clicked = Some(("edit.tool.cancel", json!({})));
     }
-    if widgets::primary_button(&mut buttons, &t, APPLY_ID, "Apply").clicked() {
+    if widgets::primary_button(&mut buttons, &t, APPLY_ID, &tl!("Apply")).clicked() {
         clicked = Some(("edit.tool.apply", json!({})));
     }
     let mut left = ui.new_child(UiBuilder::new().id_salt("effect.reset").max_rect(l.buttons).layout(Layout::left_to_right(Align::Center)));
-    if widgets::text_button(&mut left, &t, RESET_ID, "Reset", false).clicked() {
+    if widgets::text_button(&mut left, &t, RESET_ID, &tl!("Reset"), false).clicked() {
         clicked = Some(("edit.tool.action", json!({ "name": "reset" })));
     }
 
@@ -121,7 +122,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some((id, params)) = clicked
         && let Err(e) = app.run(id, &params)
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 
@@ -130,9 +131,10 @@ fn control(ui: &mut Ui, t: &Tokens, d: &EffectDraft, c: &Control, changes: &mut 
     let id = c.id();
     let p = c.param();
     let value = effect_session::value(d, p.name);
+    let label = words::param_label(p.label);
     match *c {
         Control::Slider(p, min, max) => {
-            let spec = controls::slider_spec(&id, p, min, max);
+            let spec = SliderSpec { label: &label, ..controls::slider_spec(&id, p, min, max) };
             let v = match value {
                 Some(EffectValue::Number(n)) => n,
                 _ => spec.default,
@@ -145,7 +147,7 @@ fn control(ui: &mut Ui, t: &Tokens, d: &EffectDraft, c: &Control, changes: &mut 
         Control::Check(p) => {
             let mut on = matches!(value, Some(EffectValue::Flag(true)));
             row(ui, c.height(t), |ui| {
-                if widgets::checkbox(ui, t, &id, p.label, &mut on).changed() {
+                if widgets::checkbox(ui, t, &id, &label, &mut on).changed() {
                     changes.push(Change::Set(p.name.into(), json!(on)));
                 }
             });
@@ -157,9 +159,9 @@ fn control(ui: &mut Ui, t: &Tokens, d: &EffectDraft, c: &Control, changes: &mut 
             };
             let r = row(ui, c.height(t), |ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    widgets::dropdown(ui, t, &id, &controls::choice_label(&now), |ui| {
+                    widgets::dropdown(ui, t, &id, &words::choice_word(&now), |ui| {
                         for w in words {
-                            if widgets::dropdown_item(ui, t, &format!("{id}/{w}"), &controls::choice_label(w), "", *w == now).clicked() {
+                            if widgets::dropdown_item(ui, t, &format!("{id}/{w}"), &words::choice_word(w), "", *w == now).clicked() {
                                 changes.push(Change::Set(p.name.into(), json!(w)));
                             }
                         }
@@ -167,7 +169,7 @@ fn control(ui: &mut Ui, t: &Tokens, d: &EffectDraft, c: &Control, changes: &mut 
                 });
             });
             let color = if ui.is_enabled() { t.text_label } else { t.text_disabled };
-            ui.painter().text(r.left_center(), Align2::LEFT_CENTER, p.label, fonts::regular(t.body), color);
+            ui.painter().text(r.left_center(), Align2::LEFT_CENTER, &label, fonts::regular(t.body), color);
         }
         Control::Swatch(p) => {
             let rgb = match &value {
@@ -186,13 +188,13 @@ fn control(ui: &mut Ui, t: &Tokens, d: &EffectDraft, c: &Control, changes: &mut 
             let mut out = None;
             let r = row(ui, c.height(t), |ui| {
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    out = Some(widgets::swatch(ui, t, &id, p.label, rgb, armed));
+                    out = Some(widgets::swatch(ui, t, &id, &label, rgb, armed));
                 });
             });
             let Some(out) = out else { return };
             let x = out.response.rect.max.x + 8.0;
             let color = if ui.is_enabled() { t.text_label } else { t.text_disabled };
-            ui.painter().text(egui::pos2(x, r.center().y), Align2::LEFT_CENTER, p.label, fonts::regular(t.body), color);
+            ui.painter().text(egui::pos2(x, r.center().y), Align2::LEFT_CENTER, &label, fonts::regular(t.body), color);
             if let Some(c) = out.color {
                 changes.push(Change::Set(p.name.into(), json!(hex_u8(c))));
             }
@@ -228,7 +230,7 @@ fn apply_changes(app: &mut App, changes: Vec<Change>) {
     if !values.is_empty()
         && let Err(e) = effect_session::set_values(app, &values)
     {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
     for c in changes {
         let d = app.state().edit.effect.clone();
@@ -268,6 +270,6 @@ fn pick_on_photo(app: &mut App, ctx: &egui::Context) {
     let shown = [((at.x - view.image.min.x) / w).clamp(0.0, 1.0), ((at.y - view.image.min.y) / h).clamp(0.0, 1.0)];
     let Some([x, y]) = effect_session::stored_point(app, photo, shown) else { return };
     if let Err(e) = effect_session::start_pick(app, Some(&param), x, y) {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }

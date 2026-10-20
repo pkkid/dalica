@@ -45,6 +45,22 @@ use super::{basic, crop, effect_panel, effects, histogram, history, retouch, tun
 use crate::app::App;
 use crate::commands::tools;
 use crate::state::{EditTab, ToolKind};
+use crate::tl;
+
+/// A tab's tooltip, Show original's label or its tooltip in the language in effect (the tables
+/// keep the English, which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Basic fixes" => tl!("Basic fixes"),
+        "Lighting and color tuning" => tl!("Lighting and color tuning"),
+        "Effects" => tl!("Effects"),
+        "More effects" => tl!("More effects"),
+        "Even more effects" => tl!("Even more effects"),
+        "Original" => tl!("Original"),
+        "Press and hold to show the original (or hold \\)" => tl!("Press and hold to show the original (or hold \\)"),
+        other => crate::i18n::tr(other),
+    }
+}
 
 /// The tab row's height; the Undo / Redo row's height; the histogram box's height; the margin
 /// between the parts and around them.
@@ -225,7 +241,7 @@ fn video_tabs(app: &App, ui: &mut Ui) {
     ui.painter().rect_filled(strip, 0, t.canvas);
     let slot =
         |i: usize| Rect::from_min_size(pos2(strip.min.x + t.metrics.edit_tab.x * i as f32, strip.min.y), vec2(t.metrics.edit_tab.x, strip.height()));
-    let video_tip = crate::tl!("Video");
+    let video_tip = tl!("Video");
     one_tab(ui, &t, VIDEO_TAB_ID, VIDEO_TAB_GLYPH, &video_tip, None, slot(0), true);
     let why = crate::i18n::tr(dalica_engine::video::EDITS_REFUSED);
     ui.scope(|ui| {
@@ -235,7 +251,7 @@ fn video_tabs(app: &App, ui: &mut Ui) {
             if rect.max.x > strip.max.x + 0.5 {
                 break;
             }
-            one_tab(ui, &t, id, Glyph::Edit(*icon), tip, Some(&why), rect, false);
+            one_tab(ui, &t, id, Glyph::Edit(*icon), &text(tip), Some(&why), rect, false);
         }
     });
 }
@@ -262,7 +278,7 @@ fn tabs(app: &mut App, ui: &mut Ui) {
         if rect.max.x > strip.max.x + 0.5 {
             break;
         }
-        if one_tab(ui, &t, id, Glyph::Edit(*icon), tip, None, rect, *tab == shown) {
+        if one_tab(ui, &t, id, Glyph::Edit(*icon), &text(tip), None, rect, *tab == shown) {
             clicked = Some(*tab);
         }
     }
@@ -270,7 +286,7 @@ fn tabs(app: &mut App, ui: &mut Ui) {
         && tab != shown
         && let Err(e) = app.run("edit.tab", &json!({ "tab": tab }))
     {
-        app.toast(&e.to_string(), widgets::ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), widgets::ToastKind::Caution);
     }
     let h = (strip.height() - 8.0).max(0.0);
     let rect = Rect::from_min_size(pos2(strip.max.x - MARGIN - ORIGINAL_W, strip.center().y - h / 2.0), vec2(ORIGINAL_W, h));
@@ -295,9 +311,10 @@ fn show_original(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
     };
     p.rect(rect, CornerRadius::same(t.radius), fill, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
     let color = if enabled { t.text } else { t.text_disabled };
-    p.text(rect.center(), egui::Align2::CENTER_CENTER, ORIGINAL, dalica_ui_kit::fonts::semibold(t.button_label), color);
-    widgets::register(ui.ctx(), ORIGINAL_ID, Role::Button, ORIGINAL, Target::Widget(&r), on);
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, ORIGINAL));
+    let label = text(ORIGINAL);
+    p.text(rect.center(), egui::Align2::CENTER_CENTER, &label, dalica_ui_kit::fonts::semibold(t.button_label), color);
+    widgets::register(ui.ctx(), ORIGINAL_ID, Role::Button, &label, Target::Widget(&r), on);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
     let held_id = Id::new(ORIGINAL_ID).with("held");
     let held = ui.ctx().data(|d| d.get_temp::<bool>(held_id)).unwrap_or(false);
     if down && !held {
@@ -307,7 +324,7 @@ fn show_original(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
         ui.ctx().data_mut(|d| d.insert_temp(held_id, false));
         let _ = app.run("edit.showOriginal", &json!({ "on": false }));
     }
-    widgets::tooltip(r, t, ORIGINAL_TIP, None);
+    widgets::tooltip(r, t, &text(ORIGINAL_TIP), None);
 }
 
 /// One tab at `rect`, drawn as `widgets::tabs` draws its tabs but with an edit-view glyph;

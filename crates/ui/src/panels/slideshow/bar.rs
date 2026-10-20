@@ -43,6 +43,7 @@ use super::zoom;
 use crate::app::App;
 use crate::commands::slideshow as cmd;
 use crate::state::SLIDE_ZOOM_MAX;
+use crate::{tl, tln};
 
 /// The bar's automation id.
 pub const BAR_ID: &str = "controls:slideshow";
@@ -91,7 +92,43 @@ pub fn transition_item_id(t: Transition) -> String {
 
 /// The stepper's text for `secs`.
 pub fn seconds_text(secs: i32) -> String {
-    if secs == 1 { "1 second".into() } else { format!("{secs} seconds") }
+    tln!(secs, "{n} second", "{n} seconds")
+}
+
+/// A transition's name in the language in effect.
+pub fn transition_label(tr: Transition) -> String {
+    match tr {
+        Transition::Cut => tl!(ctx = "transition", "Cut"),
+        Transition::PanAndZoom => tl!(ctx = "transition", "Pan and Zoom"),
+        Transition::Dissolve => tl!(ctx = "transition", "Dissolve"),
+        Transition::Wipe => tl!(ctx = "transition", "Wipe"),
+        Transition::Circle => tl!(ctx = "transition", "Circle"),
+        Transition::Push => tl!(ctx = "transition", "Push"),
+        Transition::Rectangle => tl!(ctx = "transition", "Rectangle"),
+    }
+}
+
+/// A label or tooltip of the bar in the language in effect (the constants keep the English, which
+/// the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Exit" => tl!(ctx = "slideshow", "Exit"),
+        "Exit the slideshow (Esc)" => tl!("Exit the slideshow (Esc)"),
+        "Zoom (pauses the slideshow)" => tl!("Zoom (pauses the slideshow)"),
+        "Zoom" => tl!("Zoom"),
+        "Rotate counterclockwise" => tl!("Rotate counterclockwise"),
+        "Rotate clockwise" => tl!("Rotate clockwise"),
+        "Previous photo" => tl!("Previous photo"),
+        "This is the first photo (turn on Loop slideshow to go round)." => tl!("This is the first photo (turn on Loop slideshow to go round)."),
+        "Pause" => tl!("Pause"),
+        "Play" => tl!(ctx = "slideshow", "Play"),
+        "Next photo" => tl!("Next photo"),
+        "Star" => tl!(ctx = "verb", "Star"),
+        "Transition" => tl!("Transition"),
+        "Show captions" => tl!("Show captions"),
+        "Display time" => tl!("Display time"),
+        other => crate::i18n::tr(other),
+    }
 }
 
 /// What [`show`] drew.
@@ -132,20 +169,28 @@ fn text_w(ui: &Ui, t: &Tokens, text: &str) -> f32 {
 
 /// The widest Transition button (its label the longest name).
 fn transition_w(ui: &Ui, t: &Tokens) -> f32 {
-    Transition::ALL.iter().map(|tr| labelled_w(ui, t, tr.label())).fold(0.0, f32::max)
+    Transition::ALL.iter().map(|tr| labelled_w(ui, t, &transition_label(*tr))).fold(0.0, f32::max)
 }
 
 /// The display time's column: its label over its stepper.
 fn display_w(ui: &Ui, t: &Tokens) -> f32 {
     let widest = text_w(ui, t, &seconds_text(DISPLAY_MAX as i32)).max(text_w(ui, t, &seconds_text(DISPLAY_MIN as i32)));
     let stepper = 2.0 * STEPPER_BUTTON + widest.ceil() + 2.0 * STEPPER_GAP + 2.0 * SPACING;
-    stepper.max(text_w(ui, t, DISPLAY_TIME)).ceil()
+    stepper.max(text_w(ui, t, &text(DISPLAY_TIME))).ceil()
 }
 
 /// The bar's width: every control, the spacing between them and the padding.
 pub fn bar_width(ui: &Ui, t: &Tokens) -> f32 {
+    width(ui, t, false)
+}
+
+/// The bar's width, `compact`: Exit and the Transition button without their words (a longer
+/// language in a narrow window), their tooltips still saying them.
+fn width(ui: &Ui, t: &Tokens, compact: bool) -> f32 {
+    let (exit, transition) =
+        if compact { (OVERLAY_BUTTON, OVERLAY_BUTTON + CHEVRON_W) } else { (labelled_w(ui, t, &text("Exit")), transition_w(ui, t) + CHEVRON_W) };
     let items = [
-        labelled_w(ui, t, "Exit"),
+        exit,
         OVERLAY_BUTTON,
         SLIDER_W,
         OVERLAY_BUTTON,
@@ -154,7 +199,7 @@ pub fn bar_width(ui: &Ui, t: &Tokens) -> f32 {
         OVERLAY_BUTTON,
         OVERLAY_BUTTON,
         OVERLAY_BUTTON,
-        transition_w(ui, t) + CHEVRON_W,
+        transition,
         CAPTIONS_W,
         display_w(ui, t),
     ];
@@ -188,8 +233,11 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, frame: &Frame) -> BarOut {
         display: i32::try_from(settings.display_time).unwrap_or(DISPLAY_MAX as i32),
     };
 
-    // Kept up while the pointer rests on it or the drop-up is open.
-    let rect = widgets::overlay_bar_rect(area, vec2(bar_width(ui, &t).min(area.width() - 16.0), BAR_H));
+    // Kept up while the pointer rests on it or the drop-up is open. Too wide for the window (a
+    // longer language), Exit and Transition keep only their glyphs.
+    let room = area.width() - 16.0;
+    let compact = bar_width(ui, &t) > room;
+    let rect = widgets::overlay_bar_rect(area, vec2(width(ui, &t, compact).min(room), BAR_H));
     let over = ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p));
     let menu_open = Popup::is_id_open(&ctx, transition_popup());
     let mut fade = ctx.data(|d| d.get_temp::<OverlayFade>(fade_id())).unwrap_or_else(|| OverlayFade::new(v.bar));
@@ -202,7 +250,7 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, frame: &Frame) -> BarOut {
     ctx.data_mut(|d| d.insert_temp(fade_id(), fade));
 
     let mut act = None;
-    let drawn = widgets::overlay_bar(ui, &t, BAR_ID, rect, opacity, |ui| controls(ui, &t, &shown, &mut act));
+    let drawn = widgets::overlay_bar(ui, &t, BAR_ID, rect, opacity, |ui| controls(ui, &t, &shown, compact, &mut act));
     match act {
         Some(Act::Run(id, params)) => {
             let _ = app.run(id, &params);
@@ -216,45 +264,47 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, frame: &Frame) -> BarOut {
 }
 
 /// The bar's controls, left to right.
-fn controls(ui: &mut Ui, t: &Tokens, s: &Shown, act: &mut Option<Act>) {
+fn controls(ui: &mut Ui, t: &Tokens, s: &Shown, compact: bool, act: &mut Option<Act>) {
     let run = |act: &mut Option<Act>, id: &'static str, params: Value| *act = Some(Act::Run(id, params));
-    if widgets::overlay_button(ui, t, EXIT_ID, ViewingIcon::Exit.into(), Some("Exit"), false, true, "Exit the slideshow (Esc)").clicked() {
+    let exit = text("Exit");
+    let label = (!compact).then_some(exit.as_str());
+    if widgets::overlay_button(ui, t, EXIT_ID, ViewingIcon::Exit.into(), label, false, true, &text("Exit the slideshow (Esc)")).clicked() {
         run(act, "slideshow.exit", json!({}));
     }
     ui.add_space(GROUP_GAP);
     let zoomed = s.zoom > 1.0;
-    if widgets::overlay_button(ui, t, ZOOM_ID, Icon::Search.into(), None, zoomed, true, "Zoom (pauses the slideshow)").clicked() {
+    if widgets::overlay_button(ui, t, ZOOM_ID, Icon::Search.into(), None, zoomed, true, &text("Zoom (pauses the slideshow)")).clicked() {
         *act = Some(Act::Zoom(if zoomed { 1.0 } else { zoom::MAGNIFIER_ZOOM }));
     }
     if let Some(z) = zoom_slider(ui, t, s.zoom) {
         *act = Some(Act::Zoom(z));
     }
     ui.add_space(GROUP_GAP);
-    if widgets::overlay_button(ui, t, ROTATE_LEFT_ID, Icon::RotateCcw.into(), None, false, true, "Rotate counterclockwise").clicked() {
+    if widgets::overlay_button(ui, t, ROTATE_LEFT_ID, Icon::RotateCcw.into(), None, false, true, &text("Rotate counterclockwise")).clicked() {
         run(act, "slideshow.rotateLeft", json!({}));
     }
-    if widgets::overlay_button(ui, t, ROTATE_RIGHT_ID, Icon::RotateCw.into(), None, false, true, "Rotate clockwise").clicked() {
+    if widgets::overlay_button(ui, t, ROTATE_RIGHT_ID, Icon::RotateCw.into(), None, false, true, &text("Rotate clockwise")).clicked() {
         run(act, "slideshow.rotateRight", json!({}));
     }
     ui.add_space(GROUP_GAP);
-    let tip = if s.can_previous { "Previous photo" } else { FIRST_PHOTO };
-    if widgets::overlay_button(ui, t, PREVIOUS_ID, ViewingIcon::Previous.into(), None, false, s.can_previous, tip).clicked() {
+    let tip = text(if s.can_previous { "Previous photo" } else { FIRST_PHOTO });
+    if widgets::overlay_button(ui, t, PREVIOUS_ID, ViewingIcon::Previous.into(), None, false, s.can_previous, &tip).clicked() {
         run(act, "slideshow.previous", json!({}));
     }
     let (glyph, tip): (Glyph, &str) = if s.playing { (ViewingIcon::Pause.into(), "Pause") } else { (EditIcon::Play.into(), "Play") };
-    if widgets::overlay_button(ui, t, PLAY_ID, glyph, None, false, true, tip).clicked() {
+    if widgets::overlay_button(ui, t, PLAY_ID, glyph, None, false, true, &text(tip)).clicked() {
         run(act, "slideshow.pause", json!({}));
     }
-    if widgets::overlay_button(ui, t, NEXT_ID, ViewingIcon::Next.into(), None, false, true, "Next photo").clicked() {
+    if widgets::overlay_button(ui, t, NEXT_ID, ViewingIcon::Next.into(), None, false, true, &text("Next photo")).clicked() {
         run(act, "slideshow.next", json!({}));
     }
     ui.add_space(GROUP_GAP);
     let star: Glyph = if s.starred { Icon::Star.into() } else { Icon::StarOutline.into() };
-    if widgets::overlay_button(ui, t, STAR_ID, star, None, s.starred, true, "Star").clicked() {
+    if widgets::overlay_button(ui, t, STAR_ID, star, None, s.starred, true, &text("Star")).clicked() {
         run(act, "slideshow.star", json!({}));
     }
     ui.add_space(GROUP_GAP);
-    if let Some(tr) = transition(ui, t, s.transition) {
+    if let Some(tr) = transition(ui, t, s.transition, compact) {
         run(act, "slideshow.transition", json!({ "transition": tr.id() }));
     }
     ui.add_space(GROUP_GAP);
@@ -283,9 +333,10 @@ fn zoom_slider(ui: &mut Ui, t: &Tokens, zoom: f32) -> Option<f32> {
     let knob = if r.hovered() || r.dragged() { t.overlay_text } else { t.overlay_icon };
     p.circle_filled(pos2(knob_x, y), 6.0, knob);
     widgets::focus_ring(p, t, &r, rect, t.radius);
-    r.widget_info(|| egui::WidgetInfo::slider(true, f64::from(zoom), "Zoom"));
+    let name = text("Zoom");
+    r.widget_info(|| egui::WidgetInfo::slider(true, f64::from(zoom), &name));
     widgets::access_range(&r, f64::from(zoom), 1.0, f64::from(SLIDE_ZOOM_MAX), 0.1, &format!("{:.0} %", zoom * 100.0));
-    widgets::register(ui.ctx(), ZOOM_SLIDER_ID, Role::Other, "Zoom", Target::Widget(&r), r.dragged());
+    widgets::register(ui.ctx(), ZOOM_SLIDER_ID, Role::Other, &name, Target::Widget(&r), r.dragged());
     let pointer = r.interact_pointer_pos().filter(|_| r.dragged() || r.clicked())?;
     let f = if track.width() > 0.0 { ((pointer.x - track.min.x) / track.width()).clamp(0.0, 1.0) } else { 0.0 };
     let z = 1.0 + f * span;
@@ -294,9 +345,10 @@ fn zoom_slider(ui: &mut Ui, t: &Tokens, zoom: f32) -> Option<f32> {
 
 /// The Transition button (its glyph, the transition's name and the drop-up's chevron, as wide as
 /// the widest name, so the bar never moves) and its drop-up of the seven; answers the one picked.
-fn transition(ui: &mut Ui, t: &Tokens, current: Transition) -> Option<Transition> {
+fn transition(ui: &mut Ui, t: &Tokens, current: Transition, compact: bool) -> Option<Transition> {
     let open = Popup::is_id_open(ui.ctx(), transition_popup());
-    let (_, rect) = ui.allocate_space(vec2(transition_w(ui, t) + CHEVRON_W, OVERLAY_BUTTON));
+    let w = if compact { OVERLAY_BUTTON } else { transition_w(ui, t) };
+    let (_, rect) = ui.allocate_space(vec2(w + CHEVRON_W, OVERLAY_BUTTON));
     let r = ui.interact(rect, Id::new(TRANSITION_ID), Sense::click());
     let p = ui.painter();
     if open || r.is_pointer_button_down_on() {
@@ -306,20 +358,24 @@ fn transition(ui: &mut Ui, t: &Tokens, current: Transition) -> Option<Transition
     }
     widgets::focus_ring(p, t, &r, rect, t.radius);
     let color = if open || r.hovered() { t.overlay_text } else { t.overlay_icon };
-    let glyph = Rect::from_center_size(pos2(rect.min.x + 10.0 + OVERLAY_GLYPH / 2.0, rect.center().y), Vec2::splat(OVERLAY_GLYPH));
+    let x = if compact { rect.min.x + OVERLAY_BUTTON / 2.0 } else { rect.min.x + 10.0 + OVERLAY_GLYPH / 2.0 };
+    let glyph = Rect::from_center_size(pos2(x, rect.center().y), Vec2::splat(OVERLAY_GLYPH));
     icons::paint_glyph(p, glyph, ViewingIcon::Transition.into(), color);
-    let g = p.layout_no_wrap(current.label().to_owned(), fonts::regular(t.body), t.overlay_text);
-    p.galley(pos2(glyph.max.x + 6.0, rect.center().y - g.size().y / 2.0).round(), g, t.overlay_text);
+    let label = transition_label(current);
+    if !compact {
+        let g = p.layout_no_wrap(label.clone(), fonts::regular(t.body), t.overlay_text);
+        p.galley(pos2(glyph.max.x + 6.0, rect.center().y - g.size().y / 2.0).round(), g, t.overlay_text);
+    }
     let mark = Rect::from_center_size(pos2(rect.max.x - 12.0, rect.center().y), Vec2::splat(10.0));
     icons::paint(p, mark, Icon::ChevronUp, color);
-    let tip = "Transition";
-    widgets::register(ui.ctx(), TRANSITION_ID, Role::Button, tip, Target::Widget(&r), open);
-    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::ComboBox, true, current.label()));
-    let r = widgets::tooltip(r, t, tip, None);
+    let tip = text("Transition");
+    widgets::register(ui.ctx(), TRANSITION_ID, Role::Button, &tip, Target::Widget(&r), open);
+    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::ComboBox, true, &label));
+    let r = widgets::tooltip(r, t, &tip, None);
     let mut picked = None;
     Popup::menu(&r).id(transition_popup()).align(RectAlign::TOP_START).align_alternatives(&[RectAlign::BOTTOM_START]).show(|ui| {
         for tr in Transition::ALL {
-            if widgets::dropdown_item(ui, t, &transition_item_id(tr), tr.label(), "", tr == current).clicked() {
+            if widgets::dropdown_item(ui, t, &transition_item_id(tr), &transition_label(tr), "", tr == current).clicked() {
                 picked = Some(tr);
             }
         }
@@ -349,10 +405,10 @@ fn captions(ui: &mut Ui, t: &Tokens, on: bool) -> Response {
         p.line_segment([a, b], Stroke::new(1.6, color));
         p.line_segment([b, c], Stroke::new(1.6, color));
     }
-    let tip = "Show captions";
-    widgets::register(ui.ctx(), CAPTIONS_ID, Role::Toggle, tip, Target::Widget(&r), on);
-    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Checkbox, true, on, tip));
-    widgets::tooltip(r, t, tip, None)
+    let tip = text("Show captions");
+    widgets::register(ui.ctx(), CAPTIONS_ID, Role::Toggle, &tip, Target::Widget(&r), on);
+    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Checkbox, true, on, &tip));
+    widgets::tooltip(r, t, &tip, None)
 }
 
 /// Display time: its label over `[−] 3 seconds [+]`; answers the new value a click asked for.
@@ -362,7 +418,7 @@ fn display_time(ui: &mut Ui, t: &Tokens, secs: i32) -> Option<i32> {
     let mut out = None;
     ui.allocate_ui_with_layout(vec2(w, h), Layout::top_down(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
-        let g = ui.painter().layout_no_wrap(DISPLAY_TIME.to_owned(), fonts::regular(t.small), t.overlay_icon);
+        let g = ui.painter().layout_no_wrap(text(DISPLAY_TIME), fonts::regular(t.small), t.overlay_icon);
         let (_, label) = ui.allocate_space(vec2(w, g.size().y));
         ui.painter().galley(pos2(label.center().x - g.size().x / 2.0, label.min.y).round(), g, t.overlay_icon);
         ui.horizontal(|ui| {

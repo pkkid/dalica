@@ -35,6 +35,7 @@ use super::progress::{self, Shown};
 use super::{Action, Snapshot};
 use crate::app::App;
 use crate::state::{AfterCopy, FolderName};
+use crate::tl;
 
 /// The strip's automation id (its whole rect).
 pub const ID: &str = "importDestination";
@@ -83,6 +84,35 @@ pub const CANCEL_ID: &str = "button:import.cancel";
 pub const IMPORT_ALL: &str = "Import All";
 pub const CANCEL: &str = "Cancel";
 
+/// A label, choice, hint or button of the strip in the language in effect (the constants keep the
+/// English, which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Destination" => tl!("Destination"),
+        "Import to:" => tl!("Import to:"),
+        "Folder name:" => tl!("Folder name:"),
+        "Folder name" => tl!("Folder name"),
+        "After copying:" => tl!("After copying:"),
+        "Leave files on the card" => tl!("Leave files on the card"),
+        "Delete copied files from the card" => tl!("Delete copied files from the card"),
+        "Date taken (YYYY-MM-DD)" => tl!("Date taken (YYYY-MM-DD)"),
+        "Today's date" => tl!("Today's date"),
+        "One folder for each capture date" => tl!("One folder for each capture date"),
+        "One folder named with today's date" => tl!("One folder named with today's date"),
+        "Recent folder name" => tl!("Recent folder name"),
+        "Choose\u{2026}" => tl!("Choose\u{2026}"),
+        "Choose another folder" => tl!("Choose another folder"),
+        "Choose a folder" => tl!("Choose a folder"),
+        "Import All" => tl!("Import All"),
+        "Cancel" => tl!("Cancel"),
+        "Choose a folder name to continue" => tl!("Choose a folder name to continue"),
+        "Click Import All or Import Selected" => tl!("Click Import All or Import Selected"),
+        "Each capture date gets its own folder" => tl!("Each capture date gets its own folder"),
+        "Pictures will go into a folder named with today's date" => tl!("Pictures will go into a folder named with today's date"),
+        other => crate::i18n::tr(other),
+    }
+}
+
 /// The strip's height with `lines` failed files listed.
 pub fn height(lines: usize) -> f32 {
     2.0 * ROW_H + lines as f32 * LINE_H
@@ -110,7 +140,16 @@ pub fn name_text(name: Option<&FolderName>) -> &str {
 
 /// "Import Selected (3)".
 pub fn import_selected(n: usize) -> String {
-    format!("Import Selected ({n})")
+    tl!("Import Selected ({n})", n = n)
+}
+
+/// What the folder name field shows for `name` in the language in effect: a name typed is the
+/// user's own.
+fn name_shown(name: Option<&FolderName>) -> String {
+    match name {
+        Some(FolderName::Text(t)) => t.clone(),
+        other => text(name_text(other)),
+    }
 }
 
 /// A folder's name as the dropdown shows it (the whole path when it has none).
@@ -132,7 +171,7 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
     let p = ui.painter().clone();
     p.rect_filled(rect, 0, t.chrome);
     p.hline(rect.x_range(), rect.min.y + 0.5, Stroke::new(1.0, t.divider));
-    widgets::register(ui.ctx(), ID, Role::Other, "Destination", Target::Painted { rect, clip: ui.clip_rect() }, false);
+    widgets::register(ui.ctx(), ID, Role::Other, &text("Destination"), Target::Painted { rect, clip: ui.clip_rect() }, false);
     let row1 = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + ROW_H));
     let row2 = Rect::from_min_max(pos2(rect.min.x, rect.max.y - ROW_H), rect.max);
     let draft = &app.state().import.destination;
@@ -142,13 +181,15 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
 
     // "Import to:".
     let mut x = rect.min.x + PAD;
-    x = widgets::label_in(&p, Rect::from_min_max(pos2(x, row1.min.y), row1.max), Align2::LEFT_CENTER, PLACE_LABEL, font.clone(), t.text_label).max.x
+    x = widgets::label_in(&p, Rect::from_min_max(pos2(x, row1.min.y), row1.max), Align2::LEFT_CENTER, &text(PLACE_LABEL), font.clone(), t.text_label)
+        .max
+        .x
         + LABEL_GAP;
     let default = session.import_folder();
     let place = draft.place.as_ref().map(PathBuf::from).or_else(|| default.clone());
-    let text = place.as_deref().map_or_else(|| NO_PLACE.to_string(), shown_name);
+    let place_text = place.as_deref().map_or_else(|| text(NO_PLACE), shown_name);
     let r = slot(ui, x, row1, !copying, |ui| {
-        widgets::dropdown(ui, t, PLACE_ID, &text, |ui| {
+        widgets::dropdown(ui, t, PLACE_ID, &place_text, |ui| {
             if let Some(d) = &default
                 && widgets::dropdown_item(ui, t, &format!("{PLACE_ID}/default"), &shown_name(d), &d.display().to_string(), draft.place.is_none())
                     .clicked()
@@ -162,7 +203,7 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
                 }
             }
             ui.separator();
-            if widgets::dropdown_item(ui, t, &format!("{PLACE_ID}/choose"), CHOOSE, "Choose another folder", false).clicked() {
+            if widgets::dropdown_item(ui, t, &format!("{PLACE_ID}/choose"), &text(CHOOSE), &text("Choose another folder"), false).clicked() {
                 actions.push(("import.chooseDestination", json!({})));
             }
         })
@@ -170,18 +211,20 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
     x = r.rect.max.x + GROUP_GAP;
 
     // "Folder name:": the field and its choices.
-    x = widgets::label_in(&p, Rect::from_min_max(pos2(x, row1.min.y), row1.max), Align2::LEFT_CENTER, NAME_LABEL, font.clone(), t.text_label).max.x
+    x = widgets::label_in(&p, Rect::from_min_max(pos2(x, row1.min.y), row1.max), Align2::LEFT_CENTER, &text(NAME_LABEL), font.clone(), t.text_label)
+        .max
+        .x
         + LABEL_GAP;
     let ctx = ui.ctx().clone();
     let key = Id::new("import.folderName.field");
     let mut field: NameField = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
-    let drafted = name_text(draft.folder_name.as_ref()).to_string();
+    let drafted = name_shown(draft.folder_name.as_ref());
     if field.drafted != drafted {
         field.text = drafted.clone();
         field.drafted = drafted;
     }
     let before = field.text.clone();
-    let r = slot(ui, x, row1, !copying, |ui| widgets::text_field(ui, t, NAME_FIELD_ID, &mut field.text, NAME_HINT, NAME_W).response);
+    let r = slot(ui, x, row1, !copying, |ui| widgets::text_field(ui, t, NAME_FIELD_ID, &mut field.text, &text(NAME_HINT), NAME_W).response);
     if field.text != before {
         let name = if field.text.trim().is_empty() { Value::Null } else { Value::String(field.text.clone()) };
         field.drafted = if name.is_null() { String::new() } else { field.text.clone() };
@@ -195,8 +238,8 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
                 ui,
                 t,
                 &format!("{NAME_ID}/dateTaken"),
-                DATE_TAKEN,
-                "One folder for each capture date",
+                &text(DATE_TAKEN),
+                &text("One folder for each capture date"),
                 name == Some(&FolderName::DateTaken),
             )
             .clicked()
@@ -207,8 +250,8 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
                 ui,
                 t,
                 &format!("{NAME_ID}/today"),
-                TODAY,
-                "One folder named with today's date",
+                &text(TODAY),
+                &text("One folder named with today's date"),
                 name == Some(&FolderName::Today),
             )
             .clicked()
@@ -220,7 +263,7 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
             }
             for (n, recent) in settings.recent_folder_names.iter().enumerate() {
                 let checked = matches!(name, Some(FolderName::Text(t)) if t == recent);
-                if widgets::dropdown_item(ui, t, &format!("{NAME_ID}/{n}"), recent, "Recent folder name", checked).clicked() {
+                if widgets::dropdown_item(ui, t, &format!("{NAME_ID}/{n}"), recent, &text("Recent folder name"), checked).clicked() {
                     actions.push(("import.destination", json!({ "folderName": recent })));
                 }
             }
@@ -230,18 +273,21 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
 
     // "After copying:", for a card or a drive.
     if snap.source.as_ref().is_some_and(|s| s.kind != SourceKind::Folder) {
-        x = widgets::label_in(&p, Rect::from_min_max(pos2(x, row1.min.y), row1.max), Align2::LEFT_CENTER, AFTER_LABEL, font, t.text_label).max.x
+        x = widgets::label_in(&p, Rect::from_min_max(pos2(x, row1.min.y), row1.max), Align2::LEFT_CENTER, &text(AFTER_LABEL), font, t.text_label)
+            .max
+            .x
             + LABEL_GAP;
-        let text = match draft.after {
-            AfterCopy::Leave => LEAVE,
-            AfterCopy::Delete => DELETE,
+        let (leave, delete) = (text(LEAVE), text(DELETE));
+        let after = match draft.after {
+            AfterCopy::Leave => &leave,
+            AfterCopy::Delete => &delete,
         };
         slot(ui, x, row1, !copying, |ui| {
-            widgets::dropdown(ui, t, AFTER_ID, text, |ui| {
-                if widgets::dropdown_item(ui, t, &format!("{AFTER_ID}/leave"), LEAVE, "", draft.after == AfterCopy::Leave).clicked() {
+            widgets::dropdown(ui, t, AFTER_ID, after, |ui| {
+                if widgets::dropdown_item(ui, t, &format!("{AFTER_ID}/leave"), &leave, "", draft.after == AfterCopy::Leave).clicked() {
                     actions.push(("import.destination", json!({ "after": "leave" })));
                 }
-                if widgets::dropdown_item(ui, t, &format!("{AFTER_ID}/delete"), DELETE, "", draft.after == AfterCopy::Delete).clicked() {
+                if widgets::dropdown_item(ui, t, &format!("{AFTER_ID}/delete"), &delete, "", draft.after == AfterCopy::Delete).clicked() {
                     actions.push(("import.destination", json!({ "after": "delete" })));
                 }
             })
@@ -260,14 +306,14 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
     let left = ui
         .scope_builder(UiBuilder::new().max_rect(buttons).layout(Layout::right_to_left(Align::Center)), |ui| {
             ui.spacing_mut().item_spacing.x = BUTTON_GAP;
-            if widgets::text_button(ui, t, CANCEL_ID, CANCEL, false).clicked() {
+            if widgets::text_button(ui, t, CANCEL_ID, &text(CANCEL), false).clicked() {
                 actions.push(("import.cancel", json!({})));
             }
             let label = import_selected(selected);
             if ui.add_enabled_ui(can("import.importSelected"), |ui| widgets::text_button(ui, t, IMPORT_SELECTED_ID, &label, false)).inner.clicked() {
                 actions.push(("import.importSelected", json!({})));
             }
-            let all = ui.add_enabled_ui(can("import.importAll"), |ui| widgets::primary_button(ui, t, IMPORT_ALL_ID, IMPORT_ALL)).inner;
+            let all = ui.add_enabled_ui(can("import.importAll"), |ui| widgets::primary_button(ui, t, IMPORT_ALL_ID, &text(IMPORT_ALL))).inner;
             if all.clicked() {
                 actions.push(("import.importAll", json!({})));
             }
@@ -278,7 +324,7 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
     // The hint line, or the import's progress or result.
     let line = Rect::from_min_max(pos2(rect.min.x + PAD, row2.min.y), pos2((left - GROUP_GAP).max(rect.min.x + PAD), row2.max.y));
     match shown {
-        Shown::Idle => hint_line(ui, t, line, hint(draft.folder_name.as_ref())),
+        Shown::Idle => hint_line(ui, t, line, &text(hint(draft.folder_name.as_ref()))),
         _ => progress::show_line(ui, t, line, shown),
     }
 }

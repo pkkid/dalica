@@ -37,6 +37,7 @@ use serde_json::{Value, json};
 
 use crate::app::App;
 use crate::panels::thumbnails::{shape_of, turn_point};
+use crate::tl;
 
 pub const STYLE_ID: &str = "choice:collage.style";
 pub const BORDER_IDS: [&str; 3] = ["toggle:collage.border.none", "toggle:collage.border.white", "toggle:collage.border.instant"];
@@ -86,8 +87,47 @@ pub fn style_icon(s: Style) -> CollageIcon {
     }
 }
 
-fn row_of(s: Style) -> RichRow<'static> {
-    RichRow { glyph: Glyph::Collage(style_icon(s)), name: s.label(), description: s.description() }
+fn row_of(s: Style, (name, description): &(String, String)) -> RichRow<'_> {
+    RichRow { glyph: Glyph::Collage(style_icon(s)), name, description }
+}
+
+/// A style's name and the line under it in the language in effect.
+pub fn style_texts(s: Style) -> (String, String) {
+    match s {
+        Style::Pile => (tl!("Picture Pile"), tl!("Looks like a pile of scattered pictures")),
+        Style::Mosaic => (tl!("Mosaic"), tl!("Fits pictures into the page automatically")),
+        Style::FrameMosaic => (tl!("Frame Mosaic"), tl!("A mosaic around a large center picture")),
+        Style::Grid => (tl!(ctx = "collage style", "Grid"), tl!("Pictures in regular rows and columns")),
+        Style::ContactSheet => (tl!("Contact Sheet"), tl!("Small pictures with their names")),
+        Style::MultipleExposure => (tl!("Multiple Exposure"), tl!("Pictures blended on top of one another")),
+    }
+}
+
+/// A label or tooltip of the tab in the language in effect.
+pub fn text(english: &str) -> String {
+    match english {
+        "No collage is open. Choose photos and click Collage to make one." => tl!("No collage is open. Choose photos and click Collage to make one."),
+        "Picture borders" => tl!("Picture borders"),
+        "No border" => tl!("No border"),
+        "White border" => tl!("White border"),
+        "Instant photo border" => tl!("Instant photo border"),
+        "Grid spacing" => tl!("Grid spacing"),
+        "Background" => tl!(ctx = "collage", "Background"),
+        "Solid color" => tl!("Solid color"),
+        "Background color" => tl!("Background color"),
+        "Use picture" => tl!("Use picture"),
+        "Page format" => tl!("Page format"),
+        "Delete this page format" => tl!("Delete this page format"),
+        "Landscape" => tl!("Landscape"),
+        "Portrait" => tl!("Portrait"),
+        "Draw shadows" => tl!("Draw shadows"),
+        "Show captions" => tl!("Show captions"),
+        "Create Collage" => tl!("Create Collage"),
+        "Reset" => tl!("Reset"),
+        "Put the settings back to their defaults" => tl!("Put the settings back to their defaults"),
+        "Close" => tl!("Close"),
+        other => crate::i18n::tr(other),
+    }
 }
 
 /// What the tab shows of the open collage, read without copying its clips.
@@ -242,7 +282,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     match &shown {
         Some(v) => options(app, &mut col, &t, v, &mut actions),
         None => {
-            let galley = col.painter().layout(NO_COLLAGE.to_string(), fonts::regular(t.body), t.text_dim, body.width().max(1.0));
+            let galley = col.painter().layout(text(NO_COLLAGE), fonts::regular(t.body), t.text_dim, body.width().max(1.0));
             col.painter().galley(body.min, galley, t.text_dim);
         }
     }
@@ -253,7 +293,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             forget_formats(&ctx);
         }
         if let Err(e) = app.run(id, &params) {
-            app.toast(&e.to_string(), ToastKind::Caution);
+            app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
         }
     }
 }
@@ -263,9 +303,11 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
     let ctx = ui.ctx().clone();
     // The style.
     let mut picked = None;
-    widgets::rich_dropdown(ui, t, STYLE_ID, &row_of(v.style), ui.available_width(), |ui| {
+    let shown = style_texts(v.style);
+    widgets::rich_dropdown(ui, t, STYLE_ID, &row_of(v.style, &shown), ui.available_width(), |ui| {
         for s in Style::ALL {
-            if widgets::rich_item(ui, t, &format!("{STYLE_ID}/{}", s.id()), &row_of(s), s == v.style).clicked() {
+            let texts = style_texts(s);
+            if widgets::rich_item(ui, t, &format!("{STYLE_ID}/{}", s.id()), &row_of(s, &texts), s == v.style).clicked() {
                 picked = Some(s);
             }
         }
@@ -278,12 +320,13 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
     // Picture borders.
     let on = v.style.has_borders();
     row(ui, TOGGLE.y, |ui| {
-        label(ui, t, "Picture borders", on);
+        label(ui, t, &text("Picture borders"), on);
         ui.add_enabled_ui(on, |ui| {
+            let tips = [text("No border"), text("White border"), text("Instant photo border")];
             let toggles = [
-                ImageToggle { id: BORDER_IDS[0], glyph: Glyph::Collage(CollageIcon::NoBorder), tooltip: "No border" },
-                ImageToggle { id: BORDER_IDS[1], glyph: Glyph::Collage(CollageIcon::WhiteBorder), tooltip: "White border" },
-                ImageToggle { id: BORDER_IDS[2], glyph: Glyph::Collage(CollageIcon::InstantBorder), tooltip: "Instant photo border" },
+                ImageToggle { id: BORDER_IDS[0], glyph: Glyph::Collage(CollageIcon::NoBorder), tooltip: &tips[0] },
+                ImageToggle { id: BORDER_IDS[1], glyph: Glyph::Collage(CollageIcon::WhiteBorder), tooltip: &tips[1] },
+                ImageToggle { id: BORDER_IDS[2], glyph: Glyph::Collage(CollageIcon::InstantBorder), tooltip: &tips[2] },
             ];
             let chosen = match v.border {
                 Border::None => 0,
@@ -301,7 +344,8 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
 
     // Grid spacing: the value follows a drag, and the collage takes it when the drag ends.
     let on = v.style.has_spacing();
-    let spec = SliderSpec { id: SPACING_ID, label: "Grid spacing", min: 0.0, max: SPACING_MAX, default: 1.0, step: 0.1, decimals: 1, unit: "%" };
+    let spacing_label = text("Grid spacing");
+    let spec = SliderSpec { id: SPACING_ID, label: &spacing_label, min: 0.0, max: SPACING_MAX, default: 1.0, step: 0.1, decimals: 1, unit: "%" };
     let dragged: Option<f64> = ctx.data(|d| d.get_temp(spacing_id()));
     ui.add_enabled_ui(on, |ui| {
         let out = widgets::slider(ui, t, &spec, dragged.unwrap_or(v.spacing));
@@ -323,11 +367,11 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
     let on = v.style.has_background();
     ui.add_enabled_ui(on, |ui| {
         row(ui, TOGGLE.y, |ui| {
-            label(ui, t, "Background", on);
+            label(ui, t, &text("Background"), on);
             let armed = eyedropper_armed(&ctx);
-            let (r, out) = widgets::radio_row(ui, t, SOLID_ID, "Solid color", v.picture.is_none(), |ui| {
+            let (r, out) = widgets::radio_row(ui, t, SOLID_ID, &text("Solid color"), v.picture.is_none(), |ui| {
                 ui.add_space(8.0);
-                widgets::swatch(ui, t, SWATCH_ID, "Background color", v.colour, armed)
+                widgets::swatch(ui, t, SWATCH_ID, &text("Background color"), v.colour, armed)
             });
             if r.clicked() && v.picture.is_some() {
                 actions.push(("collage.settings", json!({ "usePicture": false })));
@@ -341,7 +385,7 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
         });
         row(ui, TOGGLE.y, |ui| {
             label(ui, t, "", true);
-            if widgets::radio(ui, t, PICTURE_ID, "Use picture", v.picture.is_some()).clicked() && v.picture.is_none() {
+            if widgets::radio(ui, t, PICTURE_ID, &text("Use picture"), v.picture.is_some()).clicked() && v.picture.is_none() {
                 actions.push(("collage.settings", json!({ "usePicture": true })));
             }
         });
@@ -355,11 +399,13 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
     let rows = formats(app, &ctx, &v.format);
     let custom = rows.iter().any(|r| r.name == v.format && r.custom);
     row(ui, TOGGLE.y, |ui| {
-        label(ui, t, "Page format", true);
+        label(ui, t, &text("Page format"), true);
         let mut picked = None;
-        widgets::dropdown(ui, t, FORMAT_ID, &v.format, |ui| {
+        let name_of = |f: &FormatRow| if f.custom { f.name.clone() } else { crate::panels::edit::crop::ratio_name(&f.name) };
+        let current = rows.iter().find(|f| f.name == v.format).map_or_else(|| crate::panels::edit::crop::ratio_name(&v.format), name_of);
+        widgets::dropdown(ui, t, FORMAT_ID, &current, |ui| {
             for (i, f) in rows.iter().enumerate() {
-                if widgets::dropdown_item(ui, t, &format!("{FORMAT_ID}/{i}"), &f.name, "", f.name == v.format).clicked() {
+                if widgets::dropdown_item(ui, t, &format!("{FORMAT_ID}/{i}"), &name_of(f), "", f.name == v.format).clicked() {
                     picked = Some(f.name.clone());
                 }
             }
@@ -369,7 +415,7 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.add_enabled_ui(custom, |ui| {
-                let r = glyph_button(ui, t, DELETE_FORMAT_ID, Glyph::Edit(EditIcon::Trash), "Delete this page format");
+                let r = glyph_button(ui, t, DELETE_FORMAT_ID, Glyph::Edit(EditIcon::Trash), &text("Delete this page format"));
                 if r.clicked() {
                     actions.push(("collage.formats.remove", json!({ "name": v.format })));
                 }
@@ -379,9 +425,10 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
     ui.add_space(4.0);
     row(ui, TOGGLE.y, |ui| {
         label(ui, t, "", true);
+        let tips = [text("Landscape"), text("Portrait")];
         let toggles = [
-            ImageToggle { id: ORIENTATION_IDS[0], glyph: Glyph::Collage(CollageIcon::Landscape), tooltip: "Landscape" },
-            ImageToggle { id: ORIENTATION_IDS[1], glyph: Glyph::Collage(CollageIcon::Portrait), tooltip: "Portrait" },
+            ImageToggle { id: ORIENTATION_IDS[0], glyph: Glyph::Collage(CollageIcon::Landscape), tooltip: &tips[0] },
+            ImageToggle { id: ORIENTATION_IDS[1], glyph: Glyph::Collage(CollageIcon::Portrait), tooltip: &tips[1] },
         ];
         let chosen = usize::from(v.orientation == Orientation::Portrait);
         let out = widgets::toggle_group(ui, t, &toggles, chosen, TOGGLE);
@@ -391,19 +438,38 @@ fn options(app: &mut App, ui: &mut Ui, t: &Tokens, v: &Shown, actions: &mut Vec<
     });
     ui.add_space(ROW_GAP);
 
-    // Draw shadows, Show captions.
+    // Draw shadows, Show captions: on one row, or Show captions on the next where a longer
+    // language leaves no room for both.
+    let (shadows_label, captions_label) = (text("Draw shadows"), text("Show captions"));
+    let captions_w = ui.painter().layout_no_wrap(captions_label.clone(), fonts::regular(t.body), t.text).size().x;
+    let mut room = 0.0;
     row(ui, TOGGLE.y, |ui| {
         let mut shadows = v.shadows;
-        if widgets::checkbox(ui, t, SHADOWS_ID, "Draw shadows", &mut shadows).changed() {
+        let r = widgets::checkbox(ui, t, SHADOWS_ID, &shadows_label, &mut shadows);
+        if r.changed() {
             actions.push(("collage.settings", json!({ "shadows": shadows })));
         }
-        ui.add_space(16.0);
-        ui.add_enabled_ui(v.style.has_captions(), |ui| {
-            let mut captions = v.captions;
-            if widgets::checkbox(ui, t, CAPTIONS_ID, "Show captions", &mut captions).changed() {
-                actions.push(("collage.settings", json!({ "captions": captions })));
-            }
-        });
+        // The box and its gap: what the first checkbox takes beyond its label.
+        let label_w = ui.painter().layout_no_wrap(shadows_label.clone(), fonts::regular(t.body), t.text).size().x;
+        room = ui.available_width() - 16.0 - (captions_w + (r.rect.width() - label_w).max(0.0));
+        if room >= 0.0 {
+            ui.add_space(16.0);
+            captions_check(ui, t, v, &captions_label, actions);
+        }
+    });
+    if room < 0.0 {
+        ui.add_space(4.0);
+        row(ui, TOGGLE.y, |ui| captions_check(ui, t, v, &captions_label, actions));
+    }
+}
+
+/// Show captions, live for a style that draws captions.
+fn captions_check(ui: &mut Ui, t: &Tokens, v: &Shown, label: &str, actions: &mut Vec<Action>) {
+    ui.add_enabled_ui(v.style.has_captions(), |ui| {
+        let mut captions = v.captions;
+        if widgets::checkbox(ui, t, CAPTIONS_ID, label, &mut captions).changed() {
+            actions.push(("collage.settings", json!({ "captions": captions })));
+        }
     });
 }
 
@@ -416,20 +482,28 @@ fn footer(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect, actions: &mut Vec<
     row(&mut foot, 24.0, |ui| match &running {
         Some(job) => {
             let fraction = (job.progress.total > 0).then(|| (job.progress.done as f64 / job.progress.total as f64) as f32);
-            let out = widgets::progress_row(ui, t, PROGRESS_ID, &job.label, fraction, job.cancellable.then_some(CANCEL_ID), ui.available_width());
+            let out = widgets::progress_row(
+                ui,
+                t,
+                PROGRESS_ID,
+                &crate::i18n::tr(&job.label),
+                fraction,
+                job.cancellable.then_some(CANCEL_ID),
+                ui.available_width(),
+            );
             if out.cancel
                 && let Some(s) = app.session_mut()
                 && let Err(e) = s.cancel_jobs(Some(job.job))
             {
-                app.toast(&e.to_string(), ToastKind::Caution);
+                app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
             }
         }
         None => {
             let ready = enabled(app, "collage.createCollage");
             ui.add_enabled_ui(ready.is_ok(), |ui| {
-                let r = widgets::primary_button(ui, t, CREATE_ID, "Create Collage");
+                let r = widgets::primary_button(ui, t, CREATE_ID, &text("Create Collage"));
                 let r = match &ready {
-                    Err(why) => r.on_disabled_hover_text(why.as_str()),
+                    Err(why) => r.on_disabled_hover_text(crate::i18n::tr(why)),
                     Ok(()) => r,
                 };
                 if r.clicked() {
@@ -442,12 +516,12 @@ fn footer(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect, actions: &mut Vec<
     row(&mut foot, 24.0, |ui| {
         let ready = enabled(app, "collage.resetSettings");
         ui.add_enabled_ui(ready.is_ok(), |ui| {
-            if widgets::text_button(ui, t, RESET_ID, "Reset", false).on_hover_text("Put the settings back to their defaults").clicked() {
+            if widgets::text_button(ui, t, RESET_ID, &text("Reset"), false).on_hover_text(text("Put the settings back to their defaults")).clicked() {
                 actions.push(("collage.resetSettings", json!({})));
             }
         });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if widgets::text_button(ui, t, CLOSE_ID, "Close", false).clicked() {
+            if widgets::text_button(ui, t, CLOSE_ID, &text("Close"), false).clicked() {
                 actions.push(("collage.closeRoom", json!({})));
             }
         });
@@ -461,7 +535,7 @@ pub fn pick(app: &mut App, ctx: &Context, at: [f64; 2]) {
     set_eyedropper(ctx, false);
     let Some(colour) = app.session_mut().and_then(|s| colour_at(s, at)) else { return };
     if let Err(e) = app.run("collage.settings", &json!({ "background": hex_u8(colour) })) {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
 }
 

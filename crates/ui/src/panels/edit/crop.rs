@@ -64,6 +64,7 @@ use crate::app::App;
 use crate::commands::tools::{self, Tool};
 use crate::dialogs::{self, custom_ratio};
 use crate::state::{CropDraft, EditState, ToolKind, is_ratio};
+use crate::tl;
 
 pub struct Crop;
 
@@ -72,6 +73,50 @@ pub static CROP: Crop = Crop;
 /// The panel's title and instruction (`editing.md` §6.1).
 pub const TITLE: &str = "Crop Photo";
 pub const INSTRUCTION: &str = "Choose a size below, then drag on the photo to select the part you want to keep.";
+/// The name of one of the engine's photo sizes or fixed ratios (`crop.ratios.list`; the Collage
+/// room's page formats share them, with Current Display) in the language in effect; a custom ratio's name is the user's.
+pub fn ratio_name(english: &str) -> String {
+    match english {
+        "4 × 6" => tl!(ctx = "photo size", "4 × 6"),
+        "5 × 7" => tl!(ctx = "photo size", "5 × 7"),
+        "8 × 10" => tl!(ctx = "photo size", "8 × 10"),
+        "8.5 × 11 (Letter)" => tl!(ctx = "photo size", "8.5 × 11 (Letter)"),
+        "10 × 15" => tl!(ctx = "photo size", "10 × 15"),
+        "13 × 18" => tl!(ctx = "photo size", "13 × 18"),
+        "20 × 25" => tl!(ctx = "photo size", "20 × 25"),
+        "A4" => tl!(ctx = "photo size", "A4"),
+        "Square (1:1)" => tl!("Square (1:1)"),
+        "4:3 (Standard screen)" => tl!("4:3 (Standard screen)"),
+        "16:10 (Widescreen)" => tl!("16:10 (Widescreen)"),
+        "16:9 (HD video)" => tl!("16:9 (HD video)"),
+        "5:3 (Photo frame)" => tl!("5:3 (Photo frame)"),
+        "Current Display" => tl!("Current Display"),
+        other => crate::i18n::tr(other),
+    }
+}
+
+/// A label or tooltip of the panel in the language in effect (the constants keep the English,
+/// which the catalogs key on).
+pub fn text(english: &str) -> String {
+    match english {
+        "Crop Photo" => tl!("Crop Photo"),
+        "Choose a size below, then drag on the photo to select the part you want to keep." => {
+            tl!("Choose a size below, then drag on the photo to select the part you want to keep.")
+        }
+        "Rotate" => tl!(ctx = "crop", "Rotate"),
+        "Turn the rectangle between portrait and landscape" => tl!("Turn the rectangle between portrait and landscape"),
+        "Preview" => tl!(ctx = "crop", "Preview"),
+        "Show the cropped photo (hold to look while pressed)" => tl!("Show the cropped photo (hold to look while pressed)"),
+        "Reset" => tl!("Reset"),
+        "Start again from the crop in effect" => tl!("Start again from the crop in effect"),
+        "Apply" => tl!("Apply"),
+        "Apply the crop (Enter)" => tl!("Apply the crop (Enter)"),
+        "Cancel" => tl!("Cancel"),
+        "Close without cropping (Esc)" => tl!("Close without cropping (Esc)"),
+        other => crate::i18n::tr(other),
+    }
+}
+
 /// The automation ids.
 pub const RATIO_ID: &str = "choice:crop.ratio";
 pub const REMOVE_ID: &str = "button:crop.removeRatio";
@@ -124,8 +169,9 @@ pub fn rows_of(list: &Value) -> Vec<Row> {
         for r in list.get(key).and_then(Value::as_array).into_iter().flatten() {
             let (Some(name), Some(ratio)) = (r.get("name").and_then(Value::as_str), r.get("ratio").and_then(Value::as_str)) else { continue };
             let label = match (custom, r.get("width").and_then(Value::as_f64), r.get("height").and_then(Value::as_f64)) {
-                (true, Some(w), Some(h)) => format!("{name} ({w} × {h})"),
-                _ => name.to_string(),
+                (true, Some(w), Some(h)) => tl!("{name} ({w} × {h})", name = name, w = w, h = h),
+                (true, ..) => name.to_string(),
+                _ => ratio_name(name),
             };
             rows.push(Row { name: name.to_string(), ratio: ratio.to_string(), custom, label });
         }
@@ -857,11 +903,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     let content = ui.max_rect();
     let p = ui.painter().clone();
-    let instruction = p.layout(INSTRUCTION.to_string(), fonts::regular(t.small), t.text_label, content.width());
+    let instruction = p.layout(text(INSTRUCTION), fonts::regular(t.small), t.text_label, content.width());
     let l = layout(content, instruction.size().y, t.metrics.interact_h, t.metrics.button_h);
     // The title with its glyph, and the instruction.
     paint_edit(&p, Rect::from_min_size(pos2(l.title.min.x, l.title.center().y - 10.0), Vec2::splat(20.0)), EditIcon::Crop, t.icon);
-    p.text(pos2(l.title.min.x + 28.0, l.title.center().y), Align2::LEFT_CENTER, TITLE, fonts::semibold(t.title), t.text);
+    p.text(pos2(l.title.min.x + 28.0, l.title.center().y), Align2::LEFT_CENTER, text(TITLE), fonts::semibold(t.title), t.text);
     if let Some(r) = l.instruction {
         p.galley(r.min, instruction, t.text_label);
     }
@@ -872,9 +918,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let label = match draft.ratio.as_str() {
         "manual" => {
             let (w, h) = shown.pixels(display_rect(app, &shown).unwrap_or(NRect::new(0.0, 0.0, 1.0, 1.0)));
-            format!("Manual: {w} × {h}")
+            tl!("Manual: {w} × {h}", w = w, h = h)
         }
-        "current" => "Current ratio".to_string(),
+        "current" => tl!("Current ratio"),
         other => current.as_ref().map_or_else(|| other.replace(':', " × "), |r| r.label.clone()),
     };
     if let Some(a) = dropdown(ui, &t, l.dropdown, &label, &draft.ratio, current.as_ref(), &rows) {
@@ -894,20 +940,38 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 
     // Rotate | Preview; Reset; Apply | Cancel.
-    if button(ui, &t, ROTATE_ID, "Rotate", l.rotate, draft.rect.is_some(), Look::Plain, "Turn the rectangle between portrait and landscape").clicked()
+    if button(
+        ui,
+        &t,
+        ROTATE_ID,
+        &text("Rotate"),
+        l.rotate,
+        draft.rect.is_some(),
+        Look::Plain,
+        &text("Turn the rectangle between portrait and landscape"),
+    )
+    .clicked()
     {
         asked = Some(Ask::Rotate);
     }
-    let pr =
-        button(ui, &t, PREVIEW_ID, "Preview", l.preview, true, Look::Toggle(previewing()), "Show the cropped photo (hold to look while pressed)");
+    let pr = button(
+        ui,
+        &t,
+        PREVIEW_ID,
+        &text("Preview"),
+        l.preview,
+        true,
+        Look::Toggle(previewing()),
+        &text("Show the cropped photo (hold to look while pressed)"),
+    );
     preview_press(&pr, now, &mut asked);
-    if button(ui, &t, RESET_ID, "Reset", l.reset, true, Look::Plain, "Start again from the crop in effect").clicked() {
+    if button(ui, &t, RESET_ID, &text("Reset"), l.reset, true, Look::Plain, &text("Start again from the crop in effect")).clicked() {
         asked = Some(Ask::Reset);
     }
-    if button(ui, &t, APPLY_ID, "Apply", l.apply, true, Look::Primary, "Apply the crop (Enter)").clicked() {
+    if button(ui, &t, APPLY_ID, &text("Apply"), l.apply, true, Look::Primary, &text("Apply the crop (Enter)")).clicked() {
         asked = Some(Ask::Apply);
     }
-    if button(ui, &t, CANCEL_ID, "Cancel", l.cancel, true, Look::Plain, "Close without cropping (Esc)").clicked() {
+    if button(ui, &t, CANCEL_ID, &text("Cancel"), l.cancel, true, Look::Plain, &text("Close without cropping (Esc)")).clicked() {
         asked = Some(Ask::Cancel);
     }
 
@@ -927,7 +991,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         Ask::Cancel => cancel(app),
     };
     if let Err(e) = result {
-        app.toast(&e.to_string(), ToastKind::Caution);
+        app.toast(&crate::i18n::tr(&e.to_string()), ToastKind::Caution);
     }
     ctx.request_repaint();
 }
@@ -1010,9 +1074,9 @@ fn dropdown(ui: &mut Ui, t: &Tokens, rect: Rect, label: &str, ratio: &str, curre
                 ui.close();
             }
         };
-        let manual = if ratio == "manual" { label } else { "Manual" };
-        row(ui, &format!("{RATIO_ID}/manual"), manual, ratio == "manual", Ask::Ratio("manual".into(), None));
-        row(ui, &format!("{RATIO_ID}/current"), "Current ratio", ratio == "current", Ask::Ratio("current".into(), None));
+        let manual = if ratio == "manual" { label.to_owned() } else { tl!(ctx = "crop", "Manual") };
+        row(ui, &format!("{RATIO_ID}/manual"), &manual, ratio == "manual", Ask::Ratio("manual".into(), None));
+        row(ui, &format!("{RATIO_ID}/current"), &tl!("Current ratio"), ratio == "current", Ask::Ratio("current".into(), None));
         let mut header = false;
         for r in rows {
             if r.custom && !header {
@@ -1025,7 +1089,7 @@ fn dropdown(ui: &mut Ui, t: &Tokens, rect: Rect, label: &str, ratio: &str, curre
         if !header {
             custom_header(ui, t);
         }
-        row(ui, &format!("{RATIO_ID}/add"), "Add Custom Ratio…", false, Ask::Add);
+        row(ui, &format!("{RATIO_ID}/add"), &tl!("Add Custom Ratio…"), false, Ask::Add);
     });
     asked
 }
@@ -1033,7 +1097,7 @@ fn dropdown(ui: &mut Ui, t: &Tokens, rect: Rect, label: &str, ratio: &str, curre
 /// The "Custom ratios" section header of the dropdown.
 fn custom_header(ui: &mut Ui, t: &Tokens) {
     ui.separator();
-    ui.label(egui::RichText::new("Custom ratios").font(fonts::semibold(t.small)).color(t.text_dim));
+    ui.label(egui::RichText::new(tl!("Custom ratios")).font(fonts::semibold(t.small)).color(t.text_dim));
 }
 
 /// The trash beside the dropdown: deletes the custom ratio chosen (greyed for any other row).
@@ -1055,10 +1119,10 @@ fn trash_button(ui: &mut Ui, t: &Tokens, rect: Rect, enabled: bool) -> Response 
     };
     paint_edit(p, rect.shrink(3.0), EditIcon::Trash, color);
     widgets::focus_ring(p, t, &r, rect, t.radius);
-    let tip = "Delete this custom ratio";
-    widgets::register(ui.ctx(), REMOVE_ID, Role::IconButton, tip, Target::Widget(&r), false);
-    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, tip));
-    widgets::tooltip(r, t, tip, None)
+    let tip = tl!("Delete this custom ratio");
+    widgets::register(ui.ctx(), REMOVE_ID, Role::IconButton, &tip, Target::Widget(&r), false);
+    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, &tip));
+    widgets::tooltip(r, t, &tip, None)
 }
 
 /// Suggestion `i` in `rect`: its part of the whole photo fitted on an `inset` plate (an empty plate
@@ -1084,9 +1148,9 @@ fn suggestion(ui: &mut Ui, t: &Tokens, i: usize, rect: Rect, s: Option<&Suggesti
     }
     widgets::focus_ring(p, t, &r, rect, t.radius);
     let label = match s {
-        Some(s) if !s.reason.is_empty() => format!("Suggested crop {} ({})", i + 1, s.reason),
-        Some(_) => format!("Suggested crop {}", i + 1),
-        None => format!("Suggested crop {} (on its way)", i + 1),
+        Some(s) if !s.reason.is_empty() => tl!("Suggested crop {n} ({reason})", n = i + 1, reason = crate::i18n::tr(&s.reason)),
+        Some(_) => tl!("Suggested crop {n}", n = i + 1),
+        None => tl!("Suggested crop {n} (on its way)", n = i + 1),
     };
     widgets::register(ui.ctx(), &id, Role::Button, &label, Target::Widget(&r), false);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, &label));
@@ -1187,7 +1251,14 @@ fn overlay(app: &mut App, ctx: &egui::Context, t: &Tokens, id: PhotoId, shown: &
             painter.rect_filled(Rect::from_center_size(c, Vec2::splat(HANDLE)), 0, Color32::WHITE);
         }
         let (w, h) = display_rect(app, shown).map_or((0, 0), |d| shown.pixels(d));
-        widgets::register(ctx, RECT_ID, Role::Other, &format!("Crop rectangle {w} × {h}"), Target::Painted { rect: r, clip: view.area }, dragging);
+        widgets::register(
+            ctx,
+            RECT_ID,
+            Role::Other,
+            &tl!("Crop rectangle {w} × {h}", w = w, h = h),
+            Target::Painted { rect: r, clip: view.area },
+            dragging,
+        );
     }
     if with(|x| x.drag.is_some()) {
         ctx.request_repaint();
