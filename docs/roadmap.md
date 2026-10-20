@@ -10576,7 +10576,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     English and Thai keeps the open view, the selection and the undo history; a fingerprint of the
     library in Thai at 1400 × 900. If the spike failed: `LANGUAGES` lists English only, the
     pseudo-locale sweep still passes, and the PR names `SYS-I18N`'s Thai as leaving for M15.R.
-- ⬜ **M15.41 `create` + `edit` + `engine`: M14's loose ends: two READMEs and one ratio table**
+- ✅ **M15.41 `create` + `edit` + `engine`: M14's loose ends: two READMEs and one ratio table**
   - after: M14.R
   - files: `crates/create/README.md`, `crates/edit/README.md`, `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`
   - scope: what M14's tasks left outside their files (M14.24 gathered them from their PRs): (1)
