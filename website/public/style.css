@@ -61,7 +61,7 @@ h1 em { font-style: normal; color: var(--accent); }
 .platforms { margin-top: 18px; }
 
 .shot-hero { position: relative; margin: 64px auto 0; max-width: 1080px; }
-.shot-hero::before { content: ""; position: absolute; inset: 8% 6% -4%; background: url(/img/library.jpg) center/cover; filter: blur(60px) saturate(1.6); opacity: .45; z-index: 0; }
+.shot-hero::before { content: ""; position: absolute; inset: 8% 6% -4%; background: url(/img/library-1.0.jpg) center/cover; filter: blur(60px) saturate(1.6); opacity: .45; z-index: 0; }
 .frame { position: relative; z-index: 1; border-radius: 3px; overflow: hidden; border: 1px solid #3a3a3a; box-shadow: 0 40px 120px rgba(0,0,0,.6); }
 .caption { display: flex; justify-content: space-between; gap: 16px; margin: 14px auto 0; max-width: 1080px; }
 
@@ -79,7 +79,7 @@ h2 { font-weight: 800; font-size: clamp(32px, 4.4vw, 54px); letter-spacing: -.03
 /* Eighteen feature cards, each with a screenshot: three across, two on tablets, one on phones. */
 .feat .frame { margin-bottom: 22px; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
 .feat .frame img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; }
-.eighteen .feat { display: flex; flex-direction: column; }
+.twentyone .feat { display: flex; flex-direction: column; }
 .next { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 26px; }
 .chip { font: 500 13px/1 var(--mono); padding: 9px 12px; border: 1px dashed #4a4a4a; border-radius: 999px; color: var(--dim); }
 
@@ -276,3 +276,4 @@ footer { padding-block: 72px 64px; color: var(--dim); font-size: 14px; }
 .legal { margin-top: 36px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; }
 @media (max-width: 860px) { .foot { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { .os { padding: 18px; } .get { padding: 14px; gap: 10px; } .os-icon { width: 42px; height: 42px; } }
+.releases .after { grid-column: 1 / -1; }

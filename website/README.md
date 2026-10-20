@@ -53,7 +53,8 @@ download links point at GitHub Releases, which keep the files and their checksum
   when those change.
 - The road to 1.0 lists every release with the roadmap's own words (`docs/roadmap.md` →
   Overview). When a release ships, move its card from "Next" to "Shipped" (`class="done"`) and
-  mark the following one `class="soon"`.
+  mark the following one `class="soon"`. A release after 1.0 also has `class="after"`, which
+  spans the whole row below the ten cards up to 1.0.
 - The Linux, Apple and Windows logos are Simple Icons path data (CC0), inlined as `<symbol>`s at
   the top of `index.html`; the download arrow and the note icons are drawn for this page.
 
@@ -63,7 +64,7 @@ Every milestone ends in a release (`docs/roadmap.md` → How milestones work), a
 exactly one. The version lives in one place, `RELEASE` at the top of the download code in
 `public/main.js`; the links and labels in the HTML hold no copy of it. Each download link names its file with `{v}` for the
 version (`data-file="dalica-{v}-windows-x64.msi"`), and the script fills in the address, the file
-name, the size and every "Preview 0.x" label. Without JavaScript, the links open the latest
+name, the size and every version label ("Dalíca 1.0"). Without JavaScript, the links open the latest
 release's page on GitHub instead.
 
 1. Once the release is published on GitHub, print its sizes (for 0.3.0):
@@ -88,10 +89,8 @@ Screenshots are real captures of Dalica, taken headlessly with `dalica-cli snaps
 from copies of corpus photos in four folders (`folders.add`, `folder.info.set`,
 `photo.tags.add`, `photo.star.set`, a crop, a straighten, a tuning and Auto Fix), then shown with
 script steps such as `{"command": "view.edit", "params": {"id": 3}}` and
-`{"command": "edit.tool.open", "params": {"tool": "crop"}}`. The hero shot, `library.jpg`, is a library of
-25 corpus photos in four folders (Highlands, Spring, Old towns, By train), made with `folders.add`
-and `folder.info.set` (a date and a description per folder) and snapshotted with no script, so no
-dialog or notice is open; it is resized to 2000 × 1286. The 0.3 shots (`crop-save.jpg`,
+`{"command": "edit.tool.open", "params": {"tool": "crop"}}`. The hero shot, `library-1.0.jpg`, is
+the 1.0 library described below, snapshotted at `--size 2800x1800 --scale 2` and resized to 2000 × 1286. The 0.3 shots (`crop-save.jpg`,
 `crop-export.jpg`, `crop-projects.jpg`) use the generated demo library
 (`dalica-cli snapshot --demo-fresh`): a crop on two photos of the Hills folder, then steps such as
 `{"command": "photo.save", "params": {"ids": [25, 27]}}` (which opens the Save dialog),
@@ -105,7 +104,7 @@ photos in Highlands, Spring, Old towns and By train) with tags, stars, two capti
 is 3:2) with steps such as `{"command": "search.set", "params": {"text": "mountains", "filters":
 {"starred": true}}}`, `edit.autoFix`, `scroll.nextSection` and `output.export` with
 `output.export.location` and clicks on `check:dialog.numbers` and `check:dialog.watermark`.
-The four 0.6 shots (`feat-import.jpg`, `feat-compare.jpg`, `feat-slideshow.jpg`, `feat-viewer.jpg`,
+The four 0.6 shots (`feat-import.jpg`, `feat-compare.jpg`, `feat-slideshow.jpg`, and `feat-viewer.jpg`, since replaced,
 1500 × 1000) were taken from the running app, not `dalica-cli snapshot`: `dalica --headless --control`
 (and `dalica --view FILE --headless` for the viewer) with `interface.uiScale` at 200 and `ui.resize`
 to 1350 × 900 points, so `ui.screenshot` writes 2700 × 1800, then resized. The library is the 25 corpus
@@ -139,7 +138,21 @@ folders in a scratch folder), then resized. The Collage room is `create.collage 
 `4 × 6` page with `#efe9dc`). Edit Collage: the pile is written first with `dalica-cli run`
 (`create.collage`, `collage.set`, `collage.create`; a snapshot's `settle` does not wait for the collage
 job), then the snapshot is `view.edit` on the new collage (id 15).
-The photos inside the 0.2, 0.5, 0.6, 0.8 and 0.9 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
+The 1.0 shots (`library-1.0.jpg`, and `feat-videos.jpg`, `feat-trim.jpg`, `feat-thai.jpg`, `feat-keyboard.jpg` and
+`feat-default-viewer.jpg` at 1500 × 1000) use one library: four folders added with `folders.add` (Summer clips,
+Out and about, Spring, Travels) with a date and a description each, 31 corpus photos, and four clips of the corpus's
+`video` set (release `video-v1`; only CC0 and public-domain ones, none showing people up close):
+`20260418_0635.MOV`, `BTS_iPhone12mini_4K60.MOV` and `IMG_6851.MOV` (H.264) and `M-6_Fun_Fact.MOV` (HEVC, so it
+shows the plain video tile). The app is built with `CRAFT_FONTS_DIR` set to a `storytold/craft-fonts` checkout at
+the pin in `.github/workflows/ci.yml`, or Thai shows boxes. Each is `dalica-cli snapshot --library … --size
+2400x1600 --scale 2` (the hero `2800x1800`), with `HOME` and the `XDG_*` folders in a scratch folder, every script
+starting with `{"command": "view.groupCollapse", "params": {"group": "albums", "collapsed": true}}` so the
+Albums sections stay out: the player is `view.edit` on the mantis clip, `video.setStart`, `video.setEnd` and
+`video.seek`; Thai is `options.set {"values": {"interface.language": "th"}}` (in a run before the snapshot) and
+`app.preferences`; the keyboard shot is `interface.fontSize` `large`, `app.preferences` and three `{"key":
+"Tab"}` steps; the viewer shot is `app.preferences {"tab": "viewer"}`. A snapshot keeps what its script
+changed (a trim, an option), so set it back after.
+The photos inside the 0.2, 0.5, 0.6, 0.8, 0.9 and 1.0 shots, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.
