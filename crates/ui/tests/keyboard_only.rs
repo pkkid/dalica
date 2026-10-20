@@ -9,14 +9,13 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::accessibility::frame;
 use crate::common::{FRAMES, LARGE, demo_open, new_driver, widget};
 use dalica_ui::a11y::keyboard::reading_order;
 use dalica_ui::menus::{self, Node, Platform};
 use dalica_ui::state::{Dialog, DialogKind, View};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::registry::Role;
-use egui::{Event, Id, Modifiers, Rect};
+use egui::{Id, Rect};
 use serde_json::json;
 
 fn demo(dir: &Path) -> Driver {
@@ -84,6 +83,8 @@ fn f10_opens_the_menu_bar_and_the_arrows_walk_it() {
 #[cfg(not(target_os = "macos"))]
 #[test]
 fn alt_alone_opens_the_menu_bar_and_alt_with_a_key_does_not() {
+    use crate::accessibility::frame;
+    use egui::{Event, Modifiers};
     let dir = tempfile::tempdir().unwrap();
     let mut d = demo(dir.path());
     let alt = Modifiers::ALT;

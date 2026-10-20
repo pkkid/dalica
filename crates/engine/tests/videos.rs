@@ -278,6 +278,9 @@ fn batch_edit_an_effect_crop_and_save_refuse_the_clip_and_nothing_is_written() {
     assert_eq!(save, "This video can't be played, so Dalica cannot save its edits");
     lib.s.wait_idle();
     assert!(!lib.s.file_jobs_running());
+    // Every sidecar write landed (wait_idle does not wait for the writer), so none is caught
+    // halfway as its temporary file.
+    lib.s.flush().unwrap();
     assert_eq!(read(&path), bytes, "the clip is untouched");
     let mut names = crate::common::names(&lib.trip());
     names.retain(|n| n != ".dalica.json");

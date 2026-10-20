@@ -230,7 +230,10 @@ fn a_photo_outside_the_library_is_decoded_by_path_off_the_owner_thread() {
     assert_eq!(s.viewer_image(&a), Pixels::Pending);
     s.prefetch_viewer_images(std::slice::from_ref(&b));
     assert_eq!(s.viewer_thumbnail(&a), Pixels::Pending);
-    assert_eq!(s.viewer_images_pending(), 3);
+    // Three asked; a decode a worker already finished is taken in by the next call, so under
+    // load fewer than three may still be on their way (never none: the last ask just went out).
+    let pending = s.viewer_images_pending();
+    assert!((1..=3).contains(&pending), "{pending} decodes on their way");
     assert!(s.wait_viewer_images(Duration::from_secs(60)), "the decodes arrive");
     let got = s.viewer_image(&a);
     let Pixels::Ready(shown) = got else { panic!("a.jpg not decoded: {got:?}") };

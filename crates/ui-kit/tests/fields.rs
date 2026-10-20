@@ -68,6 +68,9 @@ impl Rig {
     fn with(kind: Kind, text: &str, size: (u32, u32), at: Pos2) -> Self {
         let t = Tokens::default();
         let ctx = Context::default();
+        // One OS for every host: the text menu writes its shortcuts as the OS does (`Cmd+X` on
+        // macOS, `Ctrl+X` elsewhere), and the fingerprints are of the `Ctrl` form.
+        ctx.set_os(egui::os::OperatingSystem::Nix);
         t.apply(&ctx);
         let mut rig = Rig {
             ctx,

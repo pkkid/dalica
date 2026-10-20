@@ -92,6 +92,16 @@ jobs:
           CRAFT_FONTS_DIR: ${{ runner.temp }}/craft-fonts
           CRAFT_FONTS_REQUIRED: "1"
         run: cargo xtask ci --full --platform --${{ matrix.part }}-only
+      # A failed run keeps its renders (the screenshots and fingerprint renders under
+      # target/test-output), so a fingerprint that moves on one OS can be looked at, not guessed.
+      - name: renders of a failed run
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-output-${{ matrix.os }}-${{ matrix.part }}
+          path: target/test-output
+          retention-days: 7
+          if-no-files-found: ignore
 
   # The test corpora (docs/development.md §11): every published set fetched from its pin and
   # sha256-verified, then the corpus tests with their committed floors. `corpus/` is cached under a

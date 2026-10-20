@@ -341,6 +341,32 @@ fn no_interactive_node_is_without_a_name_and_every_slider_has_its_value_and_rang
     assert!(problems.is_empty(), "{} accessibility problems:\n{}", problems.len(), problems.join("\n"));
 }
 
+/// A widget drawn just outside its clip (the row a scrolled list lays out past its edge) still
+/// has a node, and the node has its name, though the widget is not registered (not on screen).
+#[test]
+fn a_widget_scrolled_out_of_sight_keeps_its_name() {
+    let t = Tokens::default();
+    let ctx = Context::default();
+    t.apply(&ctx);
+    ctx.enable_accesskit();
+    let mut tree = None;
+    for _ in 0..2 {
+        let mut out = ctx.run_ui(dalica_ui_kit::raw_input(400, 300, 1.0), |ui| {
+            ui.set_clip_rect(Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 100.0)));
+            let rect = Rect::from_min_size(pos2(10.0, 150.0), vec2(200.0, 24.0));
+            let r = ui.interact(rect, egui::Id::new("row:a11y.hidden"), egui::Sense::click());
+            register(ui.ctx(), "row:a11y.hidden", dalica_ui_kit::Role::TreeRow, "Hidden folder", Target::Widget(&r), false);
+        });
+        out.textures_delta.clear();
+        tree = out.platform_output.accesskit_update;
+    }
+    let tree = tree.expect("AccessKit is on");
+    let key = egui::Id::new("row:a11y.hidden").accesskit_id();
+    let node = tree.nodes.iter().find(|(n, _)| *n == key).map(|(_, n)| n).expect("the clipped row has a node");
+    assert_eq!(node.label(), Some("Hidden folder"));
+    assert!(registry::find(&ctx, "row:a11y.hidden").is_none(), "not registered: not on screen");
+}
+
 #[test]
 fn widgets_say_their_state() {
     let rig = Rig::new(None);

@@ -756,9 +756,11 @@ mod tests {
         let made = s.library().folder_by_path(&folder).expect("the scan brought the folder in");
         assert_eq!(s.person_export_folders(), [made]);
 
-        let shown = folder.to_string_lossy().into_owned();
+        // As the folder appears inside a job's JSON text (a Windows path's backslashes escaped).
+        let shown = Value::from(folder.to_string_lossy()).to_string();
+        let shown = shown.trim_matches('"');
         let named =
-            |s: &Session, allow: bool| s.jobs().iter().map(|e| s.job_for_automation(e, allow).to_string()).filter(|t| t.contains(&shown)).count();
+            |s: &Session, allow: bool| s.jobs().iter().map(|e| s.job_for_automation(e, allow).to_string()).filter(|t| t.contains(shown)).count();
         assert!(named(&s, true) >= 2, "with the permission the export and its scan name the folder");
         assert_eq!(named(&s, false), 0, "without it no job does");
         let entry = s.job_for_automation(&s.job(job).unwrap(), false);

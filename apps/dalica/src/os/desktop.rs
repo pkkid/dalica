@@ -79,8 +79,13 @@ impl Dirs {
         let home = var("HOME").map(PathBuf::from);
         // Relative entries are ignored, as the specification says.
         let absolute = |p: PathBuf| p.is_absolute() || p.starts_with("/");
-        let list = |v: Option<String>, default: &str| -> Vec<PathBuf> {
-            v.unwrap_or_else(|| default.to_string()).split(':').take(64).map(PathBuf::from).filter(|p| absolute(p.clone())).collect()
+        // A list of folders in the host's own form (`:`-separated on freedesktop systems, as the
+        // specification says), so a `C:\…` folder stays one entry where the host is Windows.
+        let list = |v: Option<String>, default: &[&str]| -> Vec<PathBuf> {
+            match v {
+                Some(v) => std::env::split_paths(&v).take(64).filter(|p| absolute(p.clone())).collect(),
+                None => default.iter().map(PathBuf::from).collect(),
+            }
         };
         let mut data: Vec<PathBuf> = var("XDG_DATA_HOME")
             .map(PathBuf::from)
@@ -88,14 +93,14 @@ impl Dirs {
             .or_else(|| home.as_ref().map(|h| h.join(".local/share")))
             .into_iter()
             .collect();
-        data.extend(list(var("XDG_DATA_DIRS"), "/usr/local/share:/usr/share"));
+        data.extend(list(var("XDG_DATA_DIRS"), &["/usr/local/share", "/usr/share"]));
         let mut config: Vec<PathBuf> = var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .filter(|p| absolute(p.clone()))
             .or_else(|| home.as_ref().map(|h| h.join(".config")))
             .into_iter()
             .collect();
-        config.extend(list(var("XDG_CONFIG_DIRS"), "/etc/xdg"));
+        config.extend(list(var("XDG_CONFIG_DIRS"), &["/etc/xdg"]));
         let desktops = var("XDG_CURRENT_DESKTOP")
             .map(|d| d.split(':').take(8).filter(|s| !s.is_empty()).map(str::to_ascii_lowercase).collect())
             .unwrap_or_default();
