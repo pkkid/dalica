@@ -167,7 +167,7 @@
 // The release on offer. Bump these two at each release (website/README.md → Releasing): the
 // version, and the file sizes in bytes, which the jq one-liner there prints from GitHub.
 var RELEASE = {
-  version: "0.9.0",
+  version: "1.0.0",
   sizes: {"SHA256SUMS.txt":1605,"dalica-cli-{v}-macos-universal.zip":29363518,"dalica-{v}-linux-aarch64.AppImage":28707336,"dalica-{v}-linux-aarch64.AppImage.zsync":98367,"dalica-{v}-linux-aarch64.deb":32227358,"dalica-{v}-linux-aarch64.flatpak":18958264,"dalica-{v}-linux-aarch64.rpm":31897069,"dalica-{v}-linux-aarch64.tar.gz":30722554,"dalica-{v}-linux-x86_64.AppImage":31832568,"dalica-{v}-linux-x86_64.AppImage.zsync":109047,"dalica-{v}-linux-x86_64.deb":34886926,"dalica-{v}-linux-x86_64.flatpak":22195624,"dalica-{v}-linux-x86_64.rpm":34657891,"dalica-{v}-linux-x86_64.tar.gz":34064754,"dalica-{v}-macos-universal.dmg":36627552,"dalica-{v}-windows-x64-portable.zip":33224187,"dalica-{v}-windows-x64.msi":25546752}
 };
 
