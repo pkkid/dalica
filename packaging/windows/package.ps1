@@ -11,8 +11,16 @@
   The binaries link the C runtime statically (+crt-static), so neither package needs the Visual
   C++ redistributable. apps/dalica/build.rs embeds the icon and VERSIONINFO into dalica.exe and
   makes the release build a GUI program; this script checks both, and that dalica-cli.exe stays a
-  console program. sign.ps1 signs both programs and the MSI when signing secrets are set and warns
-  otherwise (docs/releasing.md -> Windows).
+  console program. sign.ps1 signs both programs, the MSI is built around the signed programs and
+  signed in turn, and test-sign.ps1 checks every signature (and the programs inside the MSI); without
+  signing secrets sign.ps1 and test-sign.ps1 name each file left unsigned (docs/releasing.md ->
+  Windows). -NoSign leaves signing out (the release workflow's build job, which has no secrets).
+
+  -FromStage <dir> packages an already-built stage instead of building: <dir>\bin holds dalica.exe
+  and dalica-cli.exe, <dir>\doc the licence files (the stage a -NoSign run leaves in
+  <target>\windows-package\<arch>, copied elsewhere). The release workflow's `sign Windows x64` job
+  runs it that way with the signing secrets, so the signed MSI and zip hold exactly the programs
+  the build job built and tested; the checks of the programs run again on them.
 
   Tests (in CI, or with -Test; they install into Program Files): test-build-rs.ps1 (build.rs with
   and without a resource compiler), test-portable.ps1 (the zip keeps its data beside the exe) and
@@ -26,7 +34,7 @@
   Apache-2.0): the version and provenance lookup, Invoke-Native, the target-scoped static CRT
   flag, the PE header checks, the installer art and the WiX build. Changed for Dalica: the
   --version and version-resource checks, the licence files in both packages, WiX installed by
-  the script, the tests, and a job summary.
+  the script, the tests, a job summary, -NoSign and -FromStage.
 
   Environment (all optional): DALICA_VERSION (default: [workspace.package] version of
   Cargo.toml), DALICA_BUILD_SHA (default: git HEAD), DALICA_BUILD_DATE (default: today, UTC),
@@ -36,6 +44,7 @@
 .EXAMPLE
   pwsh packaging/windows/package.ps1 -Arch x64
   pwsh packaging/windows/package.ps1 -Arch x64 -SkipBuild -Test
+  pwsh packaging/windows/package.ps1 -Arch x64 -FromStage stage -NoTest
 #>
 param(
   [ValidateSet('x64')] [string] $Arch = 'x64',
@@ -45,7 +54,12 @@ param(
   # Never run them, even in CI.
   [switch] $NoTest,
   # Install WiX when it is missing (default: in CI only).
-  [switch] $InstallTools
+  [switch] $InstallTools,
+  # Leave the programs and the MSI unsigned and skip test-sign.ps1 (the build job).
+  [switch] $NoSign,
+  # Package this stage (bin\ and doc\) instead of building; implies -SkipBuild. Must lie outside
+  # <target>\windows-package, which the script rebuilds.
+  [string] $FromStage
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -97,14 +111,20 @@ $TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Pa
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 Write-Output "Dalica $Version for Windows $Arch ($Target, $ShortSha, $env:DALICA_BUILD_DATE); MSI version $MsiVersion"
 
-if (-not $SkipBuild) {
+if ($FromStage) {
+  $FromStage = (Resolve-Path $FromStage).Path
+  foreach ($need in 'bin\dalica.exe', 'bin\dalica-cli.exe', 'doc\LICENSE-MIT') {
+    if (-not (Test-Path (Join-Path $FromStage $need))) { throw "-FromStage $FromStage has no $need" }
+  }
+}
+if (-not $SkipBuild -and -not $FromStage) {
   # Static CRT: no VC++ redistributable needed. Scoped to the target so host build scripts and
   # proc-macros are unaffected.
   $flagVar = 'CARGO_TARGET_' + ($Target.ToUpper() -replace '-', '_') + '_RUSTFLAGS'
   [Environment]::SetEnvironmentVariable($flagVar, '-C target-feature=+crt-static')
   Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p dalica -p dalica-cli --target $Target }
 }
-$Bin = Join-Path $TargetDir "$Target\release"
+$Bin = if ($FromStage) { Join-Path $FromStage 'bin' } else { Join-Path $TargetDir "$Target\release" }
 
 # ---- check the programs --------------------------------------------------------------------------
 # Machine must match -Arch; dalica.exe is a GUI program (no console window opens with it) and
@@ -136,20 +156,31 @@ Write-Output "ok dalica.exe version resource: $($info.ProductName) $($info.Produ
 $Stage = Join-Path $TargetDir "windows-package\$Arch"
 $StageBin = Join-Path $Stage 'bin'
 $StageDoc = Join-Path $Stage 'doc'
+if ($FromStage -and ([IO.Path]::GetFullPath($FromStage).TrimEnd('\') + '\').StartsWith([IO.Path]::GetFullPath($Stage).TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+  throw "-FromStage $FromStage lies inside $Stage, which this script rebuilds"
+}
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $StageBin, $StageDoc | Out-Null
 Copy-Item (Join-Path $Bin 'dalica.exe'), (Join-Path $Bin 'dalica-cli.exe') $StageBin
-# Every package ships the licences, the notice, the asset attributions and the fonts' licences.
-foreach ($f in @('LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'ATTRIBUTION.md', 'README.md')) {
-  Copy-Item (Join-Path $Root $f) $StageDoc
-}
-Copy-Item (Join-Path $Root 'assets\fonts\OFL-Inter.txt') $StageDoc
-if ($env:CRAFT_FONTS_DIR) {
-  foreach ($lic in Get-ChildItem -Path (Join-Path $env:CRAFT_FONTS_DIR 'fonts\*\OFL.txt') -ErrorAction SilentlyContinue) {
-    Copy-Item $lic.FullName (Join-Path $StageDoc "OFL-$($lic.Directory.Name).txt")
+if ($FromStage) {
+  # The build job's licence files, exactly as it staged them.
+  Copy-Item (Join-Path $FromStage 'doc\*') $StageDoc
+} else {
+  # Every package ships the licences, the notice, the asset attributions and the fonts' licences.
+  foreach ($f in @('LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'ATTRIBUTION.md', 'README.md')) {
+    Copy-Item (Join-Path $Root $f) $StageDoc
+  }
+  Copy-Item (Join-Path $Root 'assets\fonts\OFL-Inter.txt') $StageDoc
+  if ($env:CRAFT_FONTS_DIR) {
+    foreach ($lic in Get-ChildItem -Path (Join-Path $env:CRAFT_FONTS_DIR 'fonts\*\OFL.txt') -ErrorAction SilentlyContinue) {
+      Copy-Item $lic.FullName (Join-Path $StageDoc "OFL-$($lic.Directory.Name).txt")
+    }
   }
 }
-& (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $StageBin 'dalica.exe') (Join-Path $StageBin 'dalica-cli.exe')
+# The programs are signed before the MSI and the zip are made from them.
+if (-not $NoSign) {
+  & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $StageBin 'dalica.exe') (Join-Path $StageBin 'dalica-cli.exe')
+}
 
 # ---- MSI -----------------------------------------------------------------------------------------
 # WiX v5 as a .NET tool, with the two extensions dalica.wxs uses. Returns whether it is usable.
@@ -236,7 +267,7 @@ if ($HaveMsi) {
   Invoke-Native 'MSI shortcut icon validation (ICE50)' {
     wix msi validate $Msi -ice ICE50 -intermediateFolder (Join-Path $Stage 'msi-validation')
   }
-  & (Join-Path $PSScriptRoot 'sign.ps1') $Msi
+  if (-not $NoSign) { & (Join-Path $PSScriptRoot 'sign.ps1') $Msi }
   # A second build of the same version has another product code: the same-version upgrade test.
   if ($RunTests) { Build-Msi $UpgradeMsi }
   Write-Output "wrote $Msi"
@@ -261,6 +292,15 @@ Write-Output "wrote $Zip"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::OpenRead($Zip)
 try { $archive.Entries | ForEach-Object { Write-Output "  $($_.FullName) ($($_.Length) bytes)" } } finally { $archive.Dispose() }
+
+# ---- signatures ----------------------------------------------------------------------------------
+# Every signature (the programs as staged and as zipped, the MSI and the programs inside it), or,
+# without signing secrets, each unsigned file named.
+if (-not $NoSign) {
+  $signed = @(Get-Item (Join-Path $StageBin '*.exe')) + @(Get-Item (Join-Path $Portable '*.exe')) + @(if ($HaveMsi) { Get-Item $Msi })
+  $signedPaths = @($signed | ForEach-Object { $_.FullName })
+  & (Join-Path $PSScriptRoot 'test-sign.ps1') @signedPaths
+}
 
 # ---- tests ---------------------------------------------------------------------------------------
 $artifacts = @(Get-Item $Zip) + @(if ($HaveMsi) { Get-Item $Msi })

@@ -9972,7 +9972,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     the handle asked; proptest: random containers never panic; `ptp` builds and runs 3 minutes
     with no finding (on stable with cargo-fuzz's coverage flags; the review's Fuzz run lists its
     job).
-- ⬜ **M15.10 Windows packages signed**
+- ✅ **M15.10 Windows packages signed**
   - after: M6.22, M14.R
   - files: `packaging/windows/sign.ps1`, `packaging/windows/package.ps1`, `packaging/windows/test-sign.ps1`, `.github/workflows/release.yml`, `packaging/README.md`
   - scope: `releasing.md` → Windows and Secrets: the `sign Windows x64` job signs `dalica.exe` and
