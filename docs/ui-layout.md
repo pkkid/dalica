@@ -480,7 +480,7 @@ names them `editTopBar`, `filmstrip`, `editPanel`, `canvas` and `captionBar`
 (`control-protocol.md` §6.6).
 
 **A video in the edit view** (`editing.md` §11, M15.21): the photo area (`region:video`) holds the
-video above its 40 pt control bar: its poster frame, else the video tile (`picture:video`) with its
+video above its 60 pt control bar: its poster frame, else the video tile (`picture:video`) with its
 sprocket edge, fitted inside the 24 pt padding at the shape the video shows at (16:9 while unknown;
 a tile has no pixels, so it may grow past its size). One Dalica cannot play says **"This video can't
 be played"** under the Play triangle (`text:video.cannotPlay`, semibold body) with **Open With ▸**

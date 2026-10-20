@@ -18,9 +18,9 @@
 //! M14's surfaces, stubs until the tasks that draw them: the Collage room ([`collage`]: its Settings
 //! and Clips tabs, M14.18, and its canvas, M14.19) under the tab strip while it is in front.
 //!
-//! M15's surface, a stub until the tasks that draw it: a video in the edit view
-//! (`edit::video`: the video over the photo area with its control bar, and the video tab over the
-//! edit panel; M15.21, M15.26), drawn over the edit view while its photo is a video.
+//! M15's surface: a video in the edit view (`edit::video`: the video over the photo area with its
+//! control bar, and the video tab over the edit panel; M15.21, M15.26), drawn over the edit view
+//! while its photo is a video.
 
 pub mod activity;
 pub mod bottom;

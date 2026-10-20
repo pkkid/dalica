@@ -11,8 +11,8 @@
 //! - **Whether Dalica plays it** ([`playback`]): from the facts the scan read, never the file: the
 //!   video by its codec (H.264 always, HEVC with the `hevc` build feature; `docs/video-decoders.md`),
 //!   else "This video can't be played (ProRes)"; the sound when it is AAC, else the clip plays
-//!   muted with the reason. [`playable`] is the edit view's own question until its player arrives
-//!   (M15.26): every clip still shows as its tile there.
+//!   muted with the reason. The edit view's player (M15.26) asks [`playback`]; [`playable`] is
+//!   no longer asked.
 //! - **The still-only paths** ask [`edit_refusal`] and [`CROP_REFUSED`]: a video takes only its
 //!   own edits (a rotation and the trim, `editing.md` §11), never an effect, a tuning, a crop or a
 //!   pasted recipe; Save refuses it by its extension (`cmd/save.rs`), Export and the slideshow
@@ -144,9 +144,8 @@ pub fn add_listed_kind(out: &mut Value, facts: Option<&VideoFacts>) {
     }
 }
 
-/// Whether the edit view shows a video of `facts` as a player: `Err` with the reason when not.
-/// The edit view's player arrives with M15.26, so every video still answers [`CANNOT_PLAY`] here;
-/// what Dalica itself plays is [`playback`].
+/// The edit view's question before its player (M15.26), which now asks [`playback`]: every video
+/// answers [`CANNOT_PLAY`] here. Nothing calls it any more.
 pub fn playable(_facts: &VideoFacts) -> Result<(), &'static str> {
     Err(CANNOT_PLAY)
 }

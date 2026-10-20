@@ -10378,7 +10378,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     commands refuse with the reason and write nothing; the owner thread made no `fs` call;
     `panic_hunt` green. If the record passes no video codec, the playback tests are replaced by the
     refusals and the PR names `EDIT-VIDEO`'s Save Frame and `VIEW-VIDEO` as leaving for M15.R.
-- ⬜ **M15.26 `ui` (reserved decision 2): the video player in the edit view**
+- ✅ **M15.26 `ui` (reserved decision 2): the video player in the edit view**
   - after: M15.21, M15.25, M15.46
   - files: `crates/ui/src/panels/edit/video.rs`, `crates/ui/src/panels/edit/video/**`, `crates/ui/src/commands/video.rs`, `crates/ui/tests/video_player.rs`, `crates/ui/tests/fingerprints/video-player-*.json`
   - scope: `editing.md` §11 and `viewing.md` §4, for the codecs M15.46's record passes: the control bar under the

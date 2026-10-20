@@ -4,8 +4,8 @@
 //! clip's cell is the video tile with its sprocket edge and its duration "1:23", the photos' are
 //! not; the Videos filter leaves only the clip; Enter opens it in the edit view, where the photo
 //! area shows the tile fitted with "This video can't be played" and Open With ▸, the panel the
-//! video tab (rotate live, Save Frame and Export Clip waiting) with tabs 1–5 greyed and why, and
-//! Save greyed with the reason; at 900 × 600 the tab and the area fit. Fingerprints at 1400 × 900:
+//! video tab (rotate and Export Clip live, Save Frame greyed: its frames do not decode) with tabs
+//! 1–5 greyed and why, and Save greyed with the reason; at 900 × 600 the tab and the area fit. Fingerprints at 1400 × 900:
 //! the clip's cell (`video-cell-1400x900`) and the edit view on it (`video-edit-1400x900`, the
 //! panel and the photo area). Renders go to `target/test-output/ui/`; `DALICA_BLESS=1` stores new
 //! fingerprints.
@@ -222,7 +222,8 @@ fn enter_opens_the_clip_with_the_video_tab_and_the_tools_greyed() {
     for id in ["tool:crop", "tool:straighten", "tool:retouch", "tool:autofix", "button:edit.showOriginal"] {
         assert!(try_widget(&w.d, id).is_none(), "{id} is not drawn on a video");
     }
-    assert!(!w.enabled(tab::SAVE_FRAME_ID) && !w.enabled(tab::EXPORT_CLIP_ID), "they wait for the player");
+    assert!(!w.enabled(tab::SAVE_FRAME_ID), "no frame to save: the clip does not decode");
+    assert!(w.enabled(tab::EXPORT_CLIP_ID), "Export Clip works on the container");
     assert!(w.enabled(tab::ROTATE_CW_ID) && w.enabled(tab::ROTATE_CCW_ID));
     let save = w.save();
     assert!(!save.enabled, "nothing to save: {save:?}");

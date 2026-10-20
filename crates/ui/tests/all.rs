@@ -117,6 +117,7 @@ mod tuning_tab;
 mod ui_glyphs;
 mod ui_scale;
 mod unnamed_faces;
+mod video_player;
 mod video_tiles;
 mod view_state;
 mod viewer;

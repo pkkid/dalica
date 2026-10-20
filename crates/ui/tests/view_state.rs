@@ -37,8 +37,8 @@
 //! M15's view state (M15.5): the player while the edit view shows a video, the Open With ▸
 //! submenu, a drag out of the window, the default-viewer question and the language in effect
 //! round-trip the same way; the video keys act only on a video (in the library and on a still
-//! photo they do nothing to the player, and Space still stars); the stub video, its bar and its
-//! tab are drawn with their ids; the OS integration's menu rows are greyed with what they wait for;
+//! photo they do nothing to the player, and Space still stars); the video, its bar and its tab
+//! are drawn with their ids; the OS integration's menu rows are greyed with what they wait for;
 //! the default-viewer question is drawn with its ids.
 
 use std::path::Path;
@@ -1631,16 +1631,10 @@ fn every_m15_field_round_trips_through_ui_set_and_ui_state() {
     t.ok("ui.set", json!({ "dragOut": { "ids": [v, v, still] }, "defaultViewer": { "types": ["png", "png"] } }));
     let s = t.state();
     assert_eq!((&s["dragOut"]["ids"], &s["defaultViewer"]["types"]), (&json!([v, still]), &json!(["png"])));
-    // The player, with the video in the edit view.
+    // The player, with the video in the edit view. Playing and the playhead follow the engine's
+    // player (M15.26), which cannot play this video: they do not round-trip here.
     t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": v } }));
-    for change in [
-        json!({ "playing": true }),
-        json!({ "position": 9000 }),
-        json!({ "trim": "start" }),
-        json!({ "trim": "end", "position": 86_400_000 }),
-        json!({ "volume": 0 }),
-        json!({ "volume": 35, "fullScreen": true }),
-    ] {
+    for change in [json!({ "trim": "start" }), json!({ "trim": "end" }), json!({ "volume": 0 }), json!({ "volume": 35, "fullScreen": true })] {
         let reply = t.ok("ui.set", json!({ "video": change.clone() }));
         let now = t.state();
         for (k, value) in change.as_object().unwrap() {
@@ -1700,11 +1694,12 @@ fn bad_m15_values_are_refused_and_change_nothing() {
 }
 
 /// The video keys act only on a video: in the library and on a still photo `/`, `,` and `.` do
-/// nothing to the player and Space still stars the photo; on the video Space and `/` play and
-/// pause, `.` steps (waiting for the player), and the edit view's star is left alone.
+/// nothing to the player and Space still stars the photo; on the video (one Dalica cannot play)
+/// Space, `/` and `.` reach the player, which refuses with the reason, and the edit view's star is
+/// left alone.
 #[test]
 fn a_video_key_does_nothing_in_the_library_or_on_a_still_photo() {
-    use dalica_ui::commands::video;
+    use dalica_engine::video::CANNOT_PLAY;
     let mut t = V::new();
     let (v, still) = (t.video(), t.ids[0]);
     let idle = t.state()["video"].clone();
@@ -1713,14 +1708,14 @@ fn a_video_key_does_nothing_in_the_library_or_on_a_still_photo() {
     for key in ["/", ",", ".", "Space"] {
         t.ok("ui.key", json!({ "combo": key }));
         assert_eq!(t.state()["video"], idle, "{key} in the library");
-        assert_ne!(t.d.app().state().status, video::LATER, "{key} in the library");
+        assert!(!t.d.app().state().status.starts_with(CANNOT_PLAY), "{key} in the library");
     }
     t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": still } }));
     let starred = star(&t, still);
     for key in ["/", ",", "."] {
         t.ok("ui.key", json!({ "combo": key }));
         assert_eq!(t.state()["video"], idle, "{key} on a still photo");
-        assert_ne!(t.d.app().state().status, video::LATER, "{key} on a still photo");
+        assert!(!t.d.app().state().status.starts_with(CANNOT_PLAY), "{key} on a still photo");
     }
     t.ok("ui.key", json!({ "combo": "Space" }));
     assert_eq!(star(&t, still), !starred, "Space stars a still photo");
@@ -1728,19 +1723,19 @@ fn a_video_key_does_nothing_in_the_library_or_on_a_still_photo() {
 
     t.ok("engine.execute", json!({ "command": "view.edit", "params": { "id": v } }));
     let starred = star(&t, v);
-    t.ok("ui.key", json!({ "combo": "Space" }));
-    assert_eq!(t.state()["video"]["playing"], true, "Space plays the video");
-    t.ok("ui.key", json!({ "combo": "/" }));
-    assert_eq!(t.state()["video"]["playing"], false, "/ pauses it");
+    for key in ["Space", "/", "."] {
+        t.ok("ui.key", json!({ "combo": key }));
+        assert_eq!(t.state()["video"]["playing"], false, "{key} on a video Dalica cannot play");
+        assert!(t.d.app().state().status.starts_with(CANNOT_PLAY), "{key}: the reason: {}", t.d.app().state().status);
+    }
     assert_eq!(star(&t, v), starred, "Space did not star the video");
-    t.ok("ui.key", json!({ "combo": "." }));
-    assert_eq!(t.d.app().state().status, video::LATER, ". steps a frame once the player arrives");
 }
 
-/// The stub video is drawn over the photo area with its bar and its tab, by id; the bar's Play
-/// plays and the trim buttons wait; a still photo draws none of it.
+/// The video is drawn over the photo area with its bar and its tab, by id; on a video Dalica cannot
+/// play, Play and Save Frame are greyed while the trim, Export Clip and Full Screen work; a still
+/// photo draws none of it.
 #[test]
-fn the_stub_video_is_drawn_with_its_ids() {
+fn the_video_is_drawn_with_its_ids() {
     use dalica_ui::panels::edit::video::{bar, tab};
     let mut t = V::new();
     let (v, still) = (t.video(), t.ids[0]);
@@ -1766,11 +1761,10 @@ fn the_stub_video_is_drawn_with_its_ids() {
         tab::EXPORT_CLIP_ID,
     ] {
         let w = widgets.iter().find(|w| w.id == id).unwrap_or_else(|| panic!("{id} drawn"));
-        let waits = [bar::SET_START_ID, bar::SET_END_ID, tab::SAVE_FRAME_ID, tab::EXPORT_CLIP_ID].contains(&id);
-        assert_eq!(w.enabled, !waits, "{id}");
+        // Play and Save Frame need the pictures; the scrubber needs the clip's length, unknown here.
+        let greyed = [bar::TOGGLE_ID, tab::SAVE_FRAME_ID, bar::POSITION_ID].contains(&id);
+        assert_eq!(w.enabled, !greyed, "{id}");
     }
-    t.ok("ui.clickWidget", json!({ "id": bar::TOGGLE_ID }));
-    assert_eq!(t.state()["video"]["playing"], true);
     t.ok("ui.clickWidget", json!({ "id": bar::FULL_SCREEN_ID }));
     assert_eq!(t.state()["video"]["fullScreen"], true);
 }
