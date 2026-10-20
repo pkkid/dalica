@@ -56,6 +56,8 @@ rusty_aac.workspace = true
 # Slideshow music (formats/audio.rs, M15.27; docs/video-decoders.md §7.3): MP3, Ogg Vorbis, FLAC, WAV.
 nanomp3.workspace = true
 lewton.workspace = true
+# The Vorbis headers read as `lewton` reads them, their sizes checked first (formats/audio/vorbis.rs).
+ogg.workspace = true
 claxon.workspace = true
 hound.workspace = true
 # GIF (first frame) and BMP through its decoders (`formats.md` §1); already in the product graph via `thumbs`.

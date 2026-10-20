@@ -107,6 +107,9 @@ rusty_aac = { version = "=1.1.1", default-features = false }
 # `hound` (both Apache-2.0).
 nanomp3 = { version = "=0.2.0", default-features = false, features = ["std"] }
 lewton = { version = "=0.10.2", default-features = false, features = ["ogg"] }
+# `lewton`'s own Ogg reader (BSD-3-Clause, `forbid(unsafe_code)`), used directly to check the
+# Vorbis headers' declared sizes before `lewton` reserves memory for them (formats/audio/vorbis.rs).
+ogg = "=0.8.0"
 claxon = "=0.4.3"
 hound = "=3.5.1"
 # Ogg Vorbis files made by the music tests (dev-dependency only): the pure-Rust encoder, without its

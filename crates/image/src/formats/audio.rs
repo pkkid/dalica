@@ -11,13 +11,17 @@
 //! Every count is hostile (`security.md` §4.2): a file larger than [`MAX_MUSIC_BYTES`] is refused
 //! before it is read; at most [`MAX_CHANNELS`] channels, a rate in [`RATES`], and at most
 //! [`MAX_CHUNK_FRAMES`] frames in one block; the decoders read the file as a stream (never the
-//! whole file into memory), and a panic in one is caught and answered as a damaged file. A
+//! whole file into memory), and a panic in one is caught and answered as a damaged file. An Ogg
+//! Vorbis stream's header sizes are checked before `lewton` reserves memory for them
+//! (`audio/vorbis.rs`). A
 //! decoder that failed once is not asked again: the file ends there.
 
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
+
+mod vorbis;
 
 /// What every refusal starts with (`viewing.md` §1.5).
 pub const CANNOT_PLAY: &str = "This music file can't be played";
@@ -181,6 +185,8 @@ impl Music {
                 (Decoder::Mp3(Box::new(r)), rate, channels, frames)
             }
             MusicKind::Vorbis => {
+                // The sizes its headers declare first: `lewton` reserves memory for them unchecked.
+                let source = guard(|| vorbis::check(source)).ok_or_else(damaged)?.map_err(MusicError::because)?;
                 let r = guard(|| lewton::inside_ogg::OggStreamReader::new(source))
                     .ok_or_else(damaged)?
                     .map_err(|_| MusicError::because("not an Ogg Vorbis stream, or a damaged one"))?;
@@ -260,6 +266,10 @@ impl Music {
                     samples.truncate(samples.len() / channels * channels);
                     if samples.is_empty() {
                         continue;
+                    }
+                    // A damaged stream can decode to samples past full scale, or not numbers at all.
+                    for s in &mut samples {
+                        *s = if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 };
                     }
                     return Ok(Some(samples));
                 }
