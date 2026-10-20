@@ -10812,7 +10812,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     locally with no finding (a finding is fixed with a regression test in its crate; the numbers
     on the PR); the existing transport tests in `apps/dalica` pass unchanged; the review's Fuzz run
     lists the two new jobs.
-- ⬜ **M15.40 `xtask`: an SBOM for every release package and an advisory check**
+- ✅ **M15.40 `xtask`: an SBOM for every release package and an advisory check**
   - after: M14.R
   - files: `xtask/src/sbom.rs`, `xtask/src/advisories.rs`, `xtask/src/main.rs`, `xtask/src/ci.rs`, `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `docs/security.md`, `docs/releasing.md`
   - scope: by the maintainer's answer at M13.R (2026-10-18): (1) `cargo xtask sbom` writes a

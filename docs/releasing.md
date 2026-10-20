@@ -4,7 +4,8 @@ Adapted from LightCraft `docs/releasing.md` (revision 88ea1a8) and PhotoCraft `d
 and `docs/release-playbook.md` (revision 59684266); MIT OR Apache-2.0.
 
 > Status: **The pipeline runs (M6.13), builds every package (M6.21–M6.23) and signs the Windows
-> (M15.10) and macOS (M15.13) packages.** `.github/workflows/release.yml` and `packaging-lint.yml`
+> (M15.10) and macOS (M15.13) packages, with an SBOM per package and the RustSec advisory check
+> (M15.40).** `.github/workflows/release.yml` and `packaging-lint.yml`
 > run as described under *What runs now*, and `packaging/` builds the installers of *What gets
 > built*, copied in shape from the Craft apps' release pipeline ([`process.md`](process.md) §7).
 > Every dry run signs both platforms with throwaway identities; the real certificates, Apple's
@@ -42,11 +43,12 @@ steps 1's version and notes; after the maintainer merges it and signs off, the l
    new section of [`whats-new.md`](whats-new.md).
 2. **Merge `main` into `release`** (or fast-forward it) and push. The workflow starts by itself.
 3. **Wait for the draft.** The Releases page gets a draft `Dalica v0.2.0`, tagged `v0.2.0` on the
-   pushed commit, with every artifact and `SHA256SUMS.txt`. The notes are generated from the merged
-   PRs.
+   pushed commit, with every artifact, the four SBOMs (`*.cdx.json`) and `SHA256SUMS.txt`. The
+   notes are generated from the merged PRs.
 4. **Check it.** Download an installer or two, install them, open the procedural demo library,
    and read the job summaries. Any `::warning::` there means a signing secret was missing and that
-   artifact is unsigned.
+   artifact is unsigned. The `SBOMs and advisories` summary lists the recorded advisories and the
+   informational ones (unmaintained crates) to review.
 5. **Add the honest deltas** to the draft's notes: what moved in [`parity.md`](parity.md) and the
    workflow-acceptance pass rate since the previous release, and any budget in
    [`development.md`](development.md) §8 newly met or missed (with the machine and date of the
@@ -82,7 +84,8 @@ action to a full commit hash, builds with the pinned toolchain (`1.98`, as `ci.y
 | `build macOS universal` | macos-latest | `packaging/macos/package.sh` (both architectures, `lipo`) | runs |
 | `sign Windows x64` (M15.10) | windows-latest, **`release` environment** | `package.ps1 -FromStage`: signs both programs from the build job's stage, builds the MSI around them and signs it, zips the portable set again, checks every signature (`test-sign.ps1`); the `.pfx` or Azure Trusted Signing, a `::warning::` naming each unsigned file without either | runs without the environment; signs with a throwaway certificate (`sign.ps1 -Throwaway`) |
 | `sign macOS universal` (M15.13) | macos-latest, **`release` environment** | `import-cert.sh` imports the Developer ID certificate into a temporary keychain; `package.sh --from-stage` assembles and signs `Dalica.app`, the DMG and the CLI zip from the build job's stage, notarizes all three (`notarize.sh`), staples the app and the DMG, and runs `verify.sh`; a `::warning::` and ad hoc signatures without the certificate, a warning and no notarization without all three Apple secrets; the keychain is deleted at the end whatever happened | runs without the environment; signs with a throwaway identity (`import-cert.sh --throwaway`); notarization, stapling and Gatekeeper's checks skipped and named |
-| `checksums` | ubuntu-latest | downloads the whole set and writes `SHA256SUMS.txt` (`packaging/checksums.sh create`) | runs over the throwaway-signed set |
+| `SBOMs and advisories` (M15.40) | ubuntu-latest | `cargo xtask sbom --out dist/release`: one CycloneDX 1.5 SBOM per release package, `dalica-<v>-<package>.cdx.json` for `linux-x86_64`, `linux-aarch64`, `windows-x64` and `macos-universal`, each listing every crate the package's targets compile with its licence, purl, `.crate` SHA-256 and edges (nothing is built: `cargo metadata` and `cargo tree` resolve each target); then `cargo xtask advisories --fetch` checks those crates against the RustSec database fetched now, and an advisory `security.md` §8.4 does not record fails the run before any checksum is written; both results go to the job summary | runs, the same |
+| `checksums` | ubuntu-latest | downloads the whole set (the SBOMs included) and writes `SHA256SUMS.txt` (`packaging/checksums.sh create`) | runs over the throwaway-signed set |
 | `verify checksums` | ubuntu, Windows and macOS | on a fresh runner each: re-downloads the set and `SHA256SUMS.txt`, runs the script's planted-mismatch test (`checksums.sh self-test`) and `checksums.sh verify` | runs |
 | `draft GitHub Release` | ubuntu-latest, **`contents: write`** | verifies the set once more, refuses a published version, then creates the draft `Dalica v<version>` tagged `v<version>` on the pushed commit with generated notes (or replaces an existing draft's assets), every artifact and `SHA256SUMS.txt` | skipped |
 

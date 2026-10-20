@@ -1054,11 +1054,14 @@ exceptions (`LICENCE_EXCEPTIONS` in `xtask/src/deps.rs`, each the maintainer's):
 
 ### 8.4 Advisories, sources and duplicates
 
-- RustSec advisories fail the check. An exception needs an owner, a rationale, a compensating
-  control and a review date. Unmaintained-crate warnings are reviewed, not ignored.
-- Known advisories in the graph. `cargo xtask deps` is offline and reads no advisory database, and
-  the `cargo deny` job of §8.5 has not landed, so each known advisory is recorded here until it
-  does (and becomes an allow entry with the same justification there):
+- RustSec advisories against the crates the release packages ship (the product graph of every
+  release target, as the SBOM of §8.5 lists it) fail `cargo xtask advisories`. An exception is
+  recorded below, one bullet per advisory id, with an owner, a rationale, a compensating control
+  and a review date (`*Review:*` with a `YYYY-MM-DD` date); the check reads these bullets, and an
+  entry missing a field fails it. A recorded advisory whose review date has passed, and a record
+  no shipped crate matches any more, are warnings. Informational advisories (unmaintained,
+  unsound, notices) are printed as warnings and reviewed at each milestone review, not ignored.
+- Recorded advisories:
   - **RUSTSEC-2023-0071, `rsa` 0.9** (the Marvin attack: a timing side channel in RSA
     *decryption* that can leak the private key to someone who measures many decryptions). Brought
     in by `rustls-rustcrypto` (§8.2). *Rationale:* Dalica is only ever a TLS client and never holds
@@ -1066,8 +1069,20 @@ exceptions (`LICENCE_EXCEPTIONS` in `xtask/src/deps.rs`, each the maintainer's):
     public-key operations with no secret to leak (rustls has no RSA key exchange at all, and Dalica
     sends no client certificate). *Compensating control:*
     downloads are pinned to a SHA-256 in the source, so a broken channel cannot change a model.
-    *Owner:* the lead. *Review:* at every milestone review, and when `rsa` 0.10 (constant-time)
-    reaches `rustls-rustcrypto`.
+    *Owner:* the lead. *Review:* by 2027-01-31, at every milestone review, and when `rsa` 0.10
+    (constant-time) reaches `rustls-rustcrypto`.
+  - **RUSTSEC-2026-0049, RUSTSEC-2026-0098, RUSTSEC-2026-0099, RUSTSEC-2026-0104,
+    `rustls-webpki` 0.102** (in certificate path validation: CRL distribution points not matched,
+    a reachable panic in CRL parsing, and two name-constraint checks that accepted what they should
+    refuse). Brought in by `rustls-rustcrypto` 0.0.2-alpha (§8.2), which uses its 0.102 copy only
+    for the `alg_id` constants of its signature algorithms (`src/verify/{rsa,ecdsa,eddsa}.rs`).
+    *Rationale:* no code of the 0.102 copy validates a certificate or parses a CRL: chains are
+    validated by rustls's own `rustls-webpki` 0.103 (0.103.15 at M15.40, which has all four
+    fixes, and `cargo xtask advisories` keeps checking it), and Dalica configures no CRLs.
+    *Compensating control:* downloads are pinned to a SHA-256 in the source, so a broken channel
+    cannot change a model. *Owner:* the lead. *Review:* by 2027-01-31, at every milestone review,
+    and when `rustls-rustcrypto` moves to `rustls-webpki` 0.103. Recorded at M15.40 (2026-10-20)
+    when the check first ran; the maintainer confirms it at M15.R.
 - Sources: crates.io, plus git dependencies on the LightCraft and PhotoCraft repositories pinned to
   a full commit hash (never a branch). Other git sources are refused.
 - Duplicate versions warn; duplicates of parser crates are reviewed.
@@ -1075,14 +1090,42 @@ exceptions (`LICENCE_EXCEPTIONS` in `xtask/src/deps.rs`, each the maintainer's):
 ### 8.5 Checks
 
 ```sh
-cargo deny check            # licences, bans, advisories, sources (deny.toml)
-cargo xtask deps            # offline: banned crates and the *-sys allow-list on the product graph
+cargo xtask deps                  # offline: licences, banned and *-sys crates, C builds, sources
+cargo xtask advisories [--fetch]  # RustSec advisories against the shipped crates (§8.4)
+cargo xtask sbom [--out <dir>]    # a CycloneDX SBOM per release package
 ```
 
-`deny.toml` and `cargo xtask deps` land with the workspace. **Planned (M0).** `xtask deps` runs
-inside `cargo xtask ci`; `cargo deny check` needs the advisory database from the network, so it
-runs as its own CI job. CI tools and GitHub Actions are dependencies too: actions are pinned to a
-full commit hash and reviewed.
+`xtask deps` runs inside every `cargo xtask ci`. **Implemented (M15.40):** `xtask advisories` and
+`xtask sbom`, both in `xtask` itself (pure Rust, no new dependency, no C), never linked into the
+product:
+
+- **Advisories.** The check matches the RustSec advisory database (a checkout of
+  `github.com/rustsec/advisory-db`: `--db <dir>`, `DALICA_ADVISORY_DB`, or `target/advisory-db`)
+  against the crates the release packages ship, with Cargo's semver rules for the `patched` and
+  `unaffected` ranges and each advisory's `os`/`arch`; withdrawn advisories are skipped. It reads
+  the database from disk and is offline; only `--fetch` uses the network, to clone or update the
+  checkout. It runs once per milestone review, as a step of `cargo xtask ci --full` (with the
+  static checks, so only the Linux run of the review has it, never once per OS; it fetches unless
+  `DALICA_ADVISORY_DB` names a checkout), and in every run of the release workflow, dry runs
+  included, before the checksums: an unrecorded vulnerability stops the release. Its tests run
+  offline on a fixture database. `cargo deny` and `cargo audit` were weighed and not used: either
+  is one more tool to install and pin in CI, neither reads its exceptions from this document, and
+  the matching is small; `deny.toml` does not exist.
+- **SBOM.** One CycloneDX 1.5 JSON document per release package (`dalica-<v>-linux-x86_64`,
+  `linux-aarch64`, `windows-x64`, `macos-universal`, each `.cdx.json`), attached to the GitHub
+  release next to `SHA256SUMS.txt` and listed in it. Its components are the product graph of
+  `xtask deps` for each target the package is built for (the macOS package is the union of its two
+  targets, and each component names its targets), kept to what `cargo tree` says the release build
+  (`-p dalica -p dalica-cli`, default features) compiles, since `cargo metadata` unifies features
+  across the workspace; a target-gated crate (`nusb`, Linux and Windows) is listed only where it
+  builds, and an off-by-default feature (`hevc`, `heif`) adds nothing. Each component carries its
+  licence expression, its purl, the SHA-256 of its `.crate` from `Cargo.lock` and its dependency
+  edges. The output is sorted and has no random serial number; its timestamp is the release's build
+  date. `--list` prints every crate with its licence per target.
+
+CI tools and GitHub Actions are dependencies too: actions are pinned to a full commit hash and
+reviewed. The advisory database is the one input fetched unpinned, on purpose: an advisory published
+yesterday must fail today's release; the run prints the database's revision.
 
 ### 8.6 Adding a dependency
 
@@ -1150,8 +1193,10 @@ notarization M15.** [`releasing.md`](releasing.md) describes every job.
   Packaging tools downloaded in CI (nfpm, appimagetool, its runtime, actionlint) are pinned by
   SHA-256; WiX is pinned by version (5.0.2).
 
-Future hardening: a machine-readable SBOM per release (for example with `cargo auditable` /
-`cargo cyclonedx`), provenance attestations tied to the source commit and workflow, explicit
+- Every release carries a CycloneDX SBOM per package, and its crates are checked against the
+  RustSec advisories before the checksums are written (§8.5). **Implemented (M15.40).**
+
+Future hardening: provenance attestations tied to the source commit and workflow, explicit
 signature state in release metadata, checksum and signature verification before publication,
 documented key rotation and compromise response.
 

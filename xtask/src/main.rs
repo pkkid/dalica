@@ -4,6 +4,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod accept;
+mod advisories;
 mod assets;
 mod bench;
 mod ci;
@@ -18,6 +19,7 @@ mod layers;
 mod metadata;
 mod names;
 mod parity;
+mod sbom;
 mod stats;
 mod tasks;
 mod test_layout;
@@ -33,6 +35,8 @@ commands:
             packages' tests, quick); --merge: no tests (tasks merge); --full: the review gate (every test at full strength, every
             finished milestone's acceptance; --platform: the Windows and macOS part)
   clean     cargo xtask clean [--dry-run] [--keep <name>]… [--only <name>]… [--older-than <days>]: remove the build dirs (target/*, stray */target); skips dirs in use
+  advisories  cargo xtask advisories [--db <dir>] [--fetch]: the RustSec advisories against the shipped crates; an unrecorded
+            vulnerability fails (security.md §8.4); offline unless --fetch clones or updates the database
   accept    cargo xtask accept M<n> [--headless]: a milestone's acceptance test and its manual checks
   corpus    cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]: the test corpora, fetched and sha256-verified;
             cargo xtask corpus make heif-wide: make that set locally with libheif's heif-enc
@@ -48,6 +52,7 @@ commands:
   layers    check crate dependencies against the layer table (docs/architecture.md §2)
   names     the reference product's name appears in no file but AGENTS.md
   parity    docs/parity.md is well formed and its evidence exists; --write regenerates the KEY rows and the summary; --p0: the P0 rows not ✅
+  sbom      cargo xtask sbom [--out <dir>] [--list]: a CycloneDX SBOM per release package (default target/sbom; security.md §8.5)
   stats     cargo xtask stats [--check]: the workflow tests' pass rate (passing / total, the ignored ones and why); --check holds the floor
   test-layout  one test binary per crate, no per-milestone test files, no literal proptest counts over 32, no small-size baselines
   tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands
@@ -57,6 +62,7 @@ commands:
 pub const COMMANDS: &[&str] = &[
     "ci",
     "accept",
+    "advisories",
     "clean",
     "assets",
     "bench",
@@ -70,6 +76,7 @@ pub const COMMANDS: &[&str] = &[
     "layers",
     "names",
     "parity",
+    "sbom",
     "stats",
     "tasks",
     "test-layout",
@@ -101,6 +108,7 @@ fn main() -> ExitCode {
     let root = workspace_root();
     let result = match args.first().map(String::as_str) {
         Some("accept") => accept::run(&root, args.get(1..).unwrap_or(&[])),
+        Some("advisories") => advisories::run(&root, args.get(1..).unwrap_or(&[])),
         Some("assets") => assets::run(&root),
         Some("bench") => bench::run(&root, args.get(1..).unwrap_or(&[])),
         Some("budgets") => accept::budgets(&root, args.get(1..).unwrap_or(&[])),
@@ -110,6 +118,7 @@ fn main() -> ExitCode {
         Some("corpus") => corpus::run(&root, args.get(1..).unwrap_or(&[])),
         Some("test-corpus") => corpus::test(&root, args.get(1..).unwrap_or(&[])),
         Some("parity") => parity::main(&root, args.get(1..).unwrap_or(&[])),
+        Some("sbom") => sbom::run(&root, args.get(1..).unwrap_or(&[])),
         Some("stats") => stats::run(&root, args.get(1..).unwrap_or(&[])),
         Some("deps") => deps::run(&root),
         Some("docs") => docs::run(&root),
