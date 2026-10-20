@@ -282,77 +282,20 @@ pub fn read_line(r: &mut BufReader<TcpStream>, max: usize, idle: Duration, deadl
         if buf.is_empty() {
             return Ok((!line.is_empty()).then_some(line));
         }
-        let (take, done) = frame(line.len(), buf, max)?;
+        let (take, done) = match buf.iter().position(|&b| b == b'\n') {
+            Some(i) => (i + 1, true),
+            None => (buf.len(), false),
+        };
+        // Without its newline yet, a line already at the limit can only grow past it.
+        if line.len().saturating_add(take) > max || (!done && line.len().saturating_add(take) >= max) {
+            return Err(LineError::TooLong);
+        }
         line.extend_from_slice(buf.get(..take).unwrap_or_default());
         r.consume(take);
         if done {
             return Ok(Some(line));
         }
     }
-}
-
-/// How much of `buf` (what one read handed out) the line being read takes, `line_len` bytes of it
-/// read already: up to and including its newline, or all of `buf`; and whether the newline ended
-/// the line. [`LineError::TooLong`] when the line would pass `max` bytes, newline included.
-pub fn frame(line_len: usize, buf: &[u8], max: usize) -> Result<(usize, bool), LineError> {
-    let (take, done) = match buf.iter().position(|&b| b == b'\n') {
-        Some(i) => (i + 1, true),
-        None => (buf.len(), false),
-    };
-    let len = line_len.saturating_add(take);
-    // Without its newline yet, a line already at the limit can only grow past it.
-    if len > max || (!done && len >= max) {
-        return Err(LineError::TooLong);
-    }
-    Ok((take, done))
-}
-
-/// The answer to a line over the limit, after which the connection closes (it is not read on).
-pub fn too_long() -> Error {
-    Error::new(Code::Parse, format!("not a request: the line is over {MAX_REQUEST_LINE} bytes; closing the connection"))
-}
-
-/// What a connection does with one line it read.
-#[derive(Debug)]
-pub enum Step {
-    /// A blank line: read the next.
-    Skip,
-    /// Answered here, never by the UI: write `reply` with `id`, then close the connection when
-    /// `close`.
-    Answer { id: Value, reply: Reply, close: bool },
-    /// An authenticated request, for the UI thread.
-    Forward(Request),
-}
-
-/// What a connection does with `line` (`security.md` §6.5), `authed` saying whether it has
-/// authenticated: a line that is not a request is answered `parse` and closes it; until a
-/// successful `auth`, anything but `auth` is answered `unauthorized` and closes it; `auth` (at any
-/// time) is answered here, comparing the token in constant time, and a wrong or missing token
-/// closes it, while the right one sets `authed`. Only an authenticated request other than `auth`
-/// goes on to the UI. A pure function of the line, the token and the state, so the fuzz target
-/// `auth` (`apps/dalica/fuzz`) reaches exactly what a connection does.
-pub fn step(token: &Token, authed: &mut bool, line: &[u8]) -> Step {
-    let req = match Request::parse(line) {
-        Ok(None) => return Step::Skip,
-        Ok(Some(req)) => req,
-        Err(mut e) => {
-            e.message.push_str("; closing the connection");
-            return Step::Answer { id: Value::Null, reply: Err(e), close: true };
-        }
-    };
-    if *authed && req.method != "auth" {
-        return Step::Forward(req);
-    }
-    let reply = if req.method == "auth" {
-        check_auth(token, &req)
-    } else {
-        Err(Error::new(Code::Unauthorized, "the first request must be auth (control-protocol.md §2.2); closing the connection"))
-    };
-    let close = reply.is_err();
-    if !close {
-        *authed = true;
-    }
-    Step::Answer { id: req.id, reply, close }
 }
 
 fn app_info() -> Value {
@@ -397,20 +340,33 @@ fn connection(stream: TcpStream, id: u64, shared: &Shared) {
             // Idle: the client reconnects (§4).
             Err(LineError::Timeout) => return,
             Err(LineError::TooLong) => {
-                write(&mut out, &Value::Null, &Err(too_long()));
+                let e = Error::new(Code::Parse, format!("not a request: the line is over {MAX_REQUEST_LINE} bytes; closing the connection"));
+                write(&mut out, &Value::Null, &Err(e));
                 return;
             }
         };
-        let req = match step(&shared.token, &mut authed, &line) {
-            Step::Skip => continue,
-            Step::Answer { id, reply, close } => {
-                if !write(&mut out, &id, &reply) || close {
-                    return;
-                }
-                continue;
+        let req = match Request::parse(&line) {
+            Ok(None) => continue,
+            Ok(Some(req)) => req,
+            Err(mut e) => {
+                e.message.push_str("; closing the connection");
+                write(&mut out, &Value::Null, &Err(e));
+                return;
             }
-            Step::Forward(req) => req,
         };
+        if !authed || req.method == "auth" {
+            let reply = if req.method == "auth" {
+                check_auth(&shared.token, &req)
+            } else {
+                Err(Error::new(Code::Unauthorized, "the first request must be auth (control-protocol.md §2.2); closing the connection"))
+            };
+            let ok = reply.is_ok();
+            if !write(&mut out, &req.id, &reply) || !ok {
+                return;
+            }
+            authed = true;
+            continue;
+        }
         let quit = req.method == QUIT;
         let rid = req.id.clone();
         let (reply, answered) = ask_ui(shared, id, req);

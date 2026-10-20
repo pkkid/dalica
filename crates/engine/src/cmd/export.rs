@@ -12,20 +12,27 @@
 //!   name (the section's name: the folder's, the album's, "Starred Photos", the search's text; the
 //!   folder's when every photo named lies in one; else "Export 2026-06-04"), the size, the
 //!   quality, numbers, the watermark, Remove location, how many pictures there are and whether
-//!   videos are among them.
+//!   videos are among them (the dialog's "Export videos as" row is live only then).
 //! - `export.run {ids | section | album, dir, folderName, numbers?, size?, quality?, watermark?,
-//!   removeLocation?}` checks everything on the owner thread without touching the disk (the
+//!   removeLocation?, videos?}` checks everything on the owner thread without touching the disk (the
 //!   options, the photos, each photo's current recipe, so unsaved edits are exported, and its
 //!   owned fields), remembers the options used (missing ones come from the settings), and starts
 //!   an `export` file job ("Exporting 12 of 48"; Cancel finishes the photos being written and
-//!   starts no other). Its reply is `{job, pending: true, total, videos}`.
+//!   starts no other). Its reply is `{job, pending: true, total, videos}` (`videos`: the clips
+//!   left out before the job, those without a first frame).
+//! - **Videos** (M15.28, `creating.md` §2): `videos` is `"firstFrame"` (the default) or
+//!   `"fullVideo"`. As a first frame, a clip whose codec this build decodes (from its scan's facts,
+//!   `video::playback`) is exported as its poster frame through the one output pipeline, like a
+//!   photo; a clip whose codec failed (or whose facts are not read yet) has no poster and is
+//!   skipped and counted with the reason ("This video can't be played (ProRes)"). As a full video
+//!   every clip is copied as it is, never resized, under the export's name with its own extension.
 //! - **The job.** The first item to run makes the export folder through `create::export::plan`
 //!   (the location made when missing, a free name: `Lisbon`, else `Lisbon-001`) and marks it
 //!   Exported in its new folder sidecar (`"project": "exported"`, written by the store's sidecar
 //!   writer), so the scan that brings the folder in gives it the mark and a rebuild keeps it. Each
 //!   item renders its photo through `create::export::export_one` (the one output pipeline) and
-//!   writes it under a name that is never taken. Videos are skipped and counted (until M15
-//!   decodes them); a file that cannot be read as a picture is skipped with its reason. When the
+//!   writes it under a name that is never taken, or copies a clip as it is; a file that cannot be
+//!   read as a picture is skipped with its reason. When the
 //!   job ends the runner scans the export folder, adding it as Scan Always when no watched folder
 //!   covers it (M5.12's rules), so its photos appear; a folder the library already holds gets
 //!   `Op::SetProjects` here instead. No undo step: an export is not undone.
@@ -40,7 +47,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
-use dalica_create::export::{self, Destination, ExportOptions, Kind, Planned, QualityPreset, Size};
+use dalica_create::export::{self, Destination, ExportOptions, Kind, Planned, QualityPreset, Size, VideoAs};
 use dalica_edit::Recipe;
 use dalica_library::{AlbumRef, FolderInfo, Op, Project, Section};
 use dalica_meta::{Changes, DateTaken};
@@ -66,8 +73,8 @@ pub const WORKERS: usize = 2;
 pub const LABEL: &str = "Exporting";
 /// What the status line says when there is nothing to export.
 const NOTHING: &str = "Select some pictures to export first.";
-/// File name extensions of videos: skipped and counted until M15 decodes them.
-const VIDEO_EXTENSIONS: [&str; 4] = ["mp4", "mov", "m4v", "mkv"];
+/// Why an export of clips without a first frame, as first frames, does not start.
+const NO_FIRST_FRAMES: &str = "These videos can't be played, so they have no first frame to export: export them as full videos instead.";
 /// The name of the folder of kept originals: never an export location.
 const ORIGINALS_DIR: &str = ".dalica-originals";
 
@@ -89,7 +96,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Export",
             menu: "",
             keys: &[],
-            params: r#"{"ids"?:[PhotoId] (in tray order) | "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order; the search's matches) | "album"?:AlbumId|"starred"|"recent"|"search" (exactly one of the three), "dir":string (absolute; the folder the export folder is made in, made when missing), "folderName":string (sanitized; a taken name becomes "<name>-001"), "numbers"?:bool, "size"?:100…4000|"original", "quality"?:"automatic"|"normal"|"maximum"|"minimum"|"custom"|1…100, "watermark"?:string (its text) | true (the stored text) | false | null, "removeLocation"?:bool}: renders the photos with their current edits into a new folder as an export job (no undo step); options left out come from the settings and the ones used are remembered. Replies {job, pending:true, total, videos}; the job's result is {total, done, written:[path], skipped:[{file, reason}], failed:[{file, reason}], cancelled, folder, name}"#,
+            params: r#"{"ids"?:[PhotoId] (in tray order) | "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order; the search's matches) | "album"?:AlbumId|"starred"|"recent"|"search" (exactly one of the three), "dir":string (absolute; the folder the export folder is made in, made when missing), "folderName":string (sanitized; a taken name becomes "<name>-001"), "numbers"?:bool, "size"?:100…4000|"original", "quality"?:"automatic"|"normal"|"maximum"|"minimum"|"custom"|1…100, "watermark"?:string (its text) | true (the stored text) | false | null, "removeLocation"?:bool, "videos"?:"firstFrame"|"fullVideo" (default firstFrame: a clip's poster frame as a picture, a clip that can't be played skipped with the reason; fullVideo: every clip copied as it is)}: renders the photos with their current edits into a new folder as an export job (no undo step); options left out come from the settings and the ones used are remembered. Replies {job, pending:true, total, videos (the clips left out)}; the job's result is {total, done, written:[path], skipped:[{file, reason}], failed:[{file, reason}], cancelled, folder, name}"#,
             effect: Effect::Files,
             history: History::None,
             enabled: has_target,
@@ -204,10 +211,19 @@ fn target(s: &mut Session, ids: Option<Vec<PhotoId>>, section: Option<String>, a
     Ok(Target { photos, name })
 }
 
-/// Whether the photo's file is a video (by its extension, as the scan lists them).
-fn is_video(name: &str) -> bool {
-    let ext = Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
-    VIDEO_EXTENSIONS.contains(&ext.as_str())
+/// What photo `id` is to an export: a photo, a clip whose first frame this build decodes, or a
+/// clip without one and why ([`crate::video::playback`] on its scan's facts; a clip whose facts
+/// are not read yet has none).
+fn kind_of(s: &Session, id: PhotoId) -> (Kind, Option<String>) {
+    let lib = s.library();
+    if !crate::video::is_video(lib, id) {
+        return (Kind::Photo, None);
+    }
+    match lib.video_facts(id).map(|f| crate::video::playback(f).video) {
+        Some(Ok(())) => (Kind::PlayableVideo, None),
+        Some(Err(why)) => (Kind::Video, Some(why)),
+        None => (Kind::Video, Some(crate::video::CANNOT_PLAY.to_string())),
+    }
 }
 
 /// "Export 2026-06-04": the export folder's name when nothing names it (the date in UTC).
@@ -237,7 +253,7 @@ fn defaults(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let DefaultsParams { ids, section, album } = params(p)?;
     let target = target(s, ids, section, album)?;
     let fallback = fallback_name(s.clock.now());
-    let videos = target.photos.iter().filter_map(|id| s.library().photo(*id)).filter(|p| is_video(&p.name)).count();
+    let videos = target.photos.iter().filter(|id| crate::video::is_video(s.library(), **id)).count();
     let e = s.settings().export();
     Ok(json!({
         "location": s.export_location(),
@@ -274,6 +290,16 @@ struct RunParams {
     #[serde(default, deserialize_with = "present")]
     watermark: Option<Value>,
     remove_location: Option<bool>,
+    videos: Option<String>,
+}
+
+/// `videos`: `"firstFrame"` (the default) or `"fullVideo"`.
+fn videos_param(v: Option<&str>) -> Result<VideoAs, CmdError> {
+    match v {
+        None | Some("firstFrame") => Ok(VideoAs::FirstFrame),
+        Some("fullVideo") => Ok(VideoAs::FullVideo),
+        Some(_) => Err(CmdError::BadParams("videos: \"firstFrame\" or \"fullVideo\"".into())),
+    }
 }
 
 /// A key that is there, `null` included.
@@ -449,6 +475,8 @@ impl FileItem for Item {
 /// What became of one item.
 enum Made {
     Written(PathBuf),
+    /// A clip copied as it is.
+    Copied(PathBuf),
     Skipped(String),
 }
 
@@ -465,6 +493,10 @@ fn work(item: Item) -> Result<Done<Made>, String> {
             changes.push(FileChange::Created { path: w.path.clone() });
             Ok(Done { changes, value: Made::Written(w.path) })
         }
+        export::Outcome::Copied(c) => {
+            changes.push(FileChange::Created { path: c.path.clone() });
+            Ok(Done { changes, value: Made::Copied(c.path) })
+        }
         export::Outcome::Skipped(reason) => Ok(Done { changes, value: Made::Skipped(reason) }),
         export::Outcome::Failed(reason) => Err(reason),
         export::Outcome::Cancelled => Err("cancelled".into()),
@@ -474,16 +506,24 @@ fn work(item: Item) -> Result<Done<Made>, String> {
 /// What the items did, gathered on the owner thread as they are applied.
 #[derive(Default)]
 struct Report {
+    /// Every file written, the copied clips included, in the order they were applied.
     written: Vec<PathBuf>,
+    /// How many of them are clips copied as they are.
+    copied: usize,
     skipped: Vec<(PathBuf, String)>,
 }
 
-/// "Exported 48 pictures", "Exported 46 pictures; 2 skipped, 1 failed", "Export cancelled: 12 of
-/// 48 pictures exported".
-fn message(written: usize, total: usize, skipped: usize, failed: usize, cancelled: bool) -> String {
+/// "Exported 48 pictures", "Exported 2 pictures and 1 video", "Exported 46 pictures; 2 skipped,
+/// 1 failed", "Export cancelled: 12 of 48 pictures exported". `written` counts the copied clips.
+fn message(written: usize, copied: usize, total: usize, skipped: usize, failed: usize, cancelled: bool) -> String {
     let pictures = |n: usize| if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") };
-    let head =
-        if cancelled { format!("Export cancelled: {written} of {} exported", pictures(total)) } else { format!("Exported {}", pictures(written)) };
+    let videos = |n: usize| if n == 1 { "1 video".to_string() } else { format!("{n} videos") };
+    let made = match (written.saturating_sub(copied), copied) {
+        (p, 0) => pictures(p),
+        (0, v) => videos(v),
+        (p, v) => format!("{} and {}", pictures(p), videos(v)),
+    };
+    let head = if cancelled { format!("Export cancelled: {written} of {} exported", pictures(total)) } else { format!("Exported {made}") };
     let mut tail = Vec::new();
     if skipped > 0 {
         tail.push(format!("{skipped} skipped"));
@@ -501,6 +541,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         return Err(CmdError::Limit(format!("folderName: at most {MAX_FOLDER_NAME} bytes")));
     }
     let (options, remembered) = options(&p, &s.settings().export())?;
+    let video_as = videos_param(p.videos.as_deref())?;
     let RunParams { ids, section, album, dir, folder_name, .. } = p;
     // A person's section: its folder is named after them (`automation::PersonExports`).
     let person = section.as_deref().and_then(|t| parse_section(t).ok()).is_some_and(|s| matches!(s, Section::Person(_)));
@@ -511,12 +552,15 @@ fn run(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     // Every photo's file, kind, current recipe and owned fields, in tray order.
     let mut items = Vec::with_capacity(target.photos.len());
     let mut bad = Vec::with_capacity(target.photos.len());
+    let mut no_frame = Vec::with_capacity(target.photos.len());
     for &id in &target.photos {
         let lib = s.library();
         let Some((photo, folder)) = lib.photo(id).and_then(|p| Some((p, lib.folder(p.folder)?))) else {
             return Err(CmdError::NotFound(format!("no photo {id}")));
         };
-        let (path, kind) = (folder.path.join(&photo.name), if is_video(&photo.name) { Kind::Video } else { Kind::Photo });
+        let path = folder.path.join(&photo.name);
+        let (kind, why_no_frame) = kind_of(s, id);
+        let lib = s.library();
         let changes = owned_changes(s, id, photo.star);
         let (recipe, why) = match Recipe::parse(&lib.info(id).edits) {
             Ok(r) => (r, None),
@@ -524,10 +568,17 @@ fn run(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         };
         items.push(export::Item { path, kind, recipe, changes });
         bad.push(why);
+        no_frame.push(why_no_frame);
     }
-    let (planned, videos) = export::names(items, options.numbers);
+    let (planned, mut videos) = export::names_as(items, options.numbers, video_as);
+    // A clip left out says why it has no first frame (its codec, by name).
+    for v in &mut videos {
+        if let Some(Some(why)) = no_frame.get(v.index) {
+            v.reason.clone_from(why);
+        }
+    }
     if planned.is_empty() {
-        return Err(CmdError::Disabled("There are no pictures to export: videos are not exported yet.".into()));
+        return Err(CmdError::Disabled(NO_FIRST_FRAMES.into()));
     }
     let now = s.clock.now();
     // The options used are the next export's defaults; the default location stays unset.
@@ -553,6 +604,10 @@ fn run(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
             let mut r = applied_report.lock().unwrap_or_else(PoisonError::into_inner);
             match a.value {
                 Made::Written(path) => r.written.push(path),
+                Made::Copied(path) => {
+                    r.written.push(path);
+                    r.copied += 1;
+                }
                 Made::Skipped(reason) => r.skipped.push((a.file, reason)),
             }
             Ok(Vec::new())
@@ -581,7 +636,7 @@ fn finish(s: &mut Session, tally: &Tally, shared: &Shared, report: &Mutex<Report
         log::warn!("{}: not marked Exported: {e}", f.display());
     }
     let r = report.lock().unwrap_or_else(PoisonError::into_inner);
-    let text = message(r.written.len(), tally.total, r.skipped.len(), tally.failures.len(), tally.cancelled);
+    let text = message(r.written.len(), r.copied, tally.total, r.skipped.len(), tally.failures.len(), tally.cancelled);
     // The job ends here with the whole result; the runner's own end after this is then left out
     // (a job keeps its first end). Without an id (no worker thread could start, and the runner
     // ended the job before `run` had it) the runner's failure stands.
@@ -618,19 +673,24 @@ mod tests {
 
     #[test]
     fn messages_count_what_happened() {
-        assert_eq!(message(48, 48, 0, 0, false), "Exported 48 pictures");
-        assert_eq!(message(1, 1, 0, 0, false), "Exported 1 picture");
-        assert_eq!(message(46, 47, 2, 1, false), "Exported 46 pictures; 2 skipped, 1 failed");
-        assert_eq!(message(12, 48, 0, 0, true), "Export cancelled: 12 of 48 pictures exported");
+        assert_eq!(message(48, 0, 48, 0, 0, false), "Exported 48 pictures");
+        assert_eq!(message(1, 0, 1, 0, 0, false), "Exported 1 picture");
+        assert_eq!(message(3, 1, 3, 0, 0, false), "Exported 2 pictures and 1 video");
+        assert_eq!(message(2, 2, 2, 0, 0, false), "Exported 2 videos");
+        assert_eq!(message(46, 0, 47, 2, 1, false), "Exported 46 pictures; 2 skipped, 1 failed");
+        assert_eq!(message(12, 0, 48, 0, 0, true), "Export cancelled: 12 of 48 pictures exported");
     }
 
     #[test]
-    fn videos_are_named_by_their_extension() {
-        assert!(is_video("clip.MP4") && is_video("a.mov") && is_video("b.m4v") && is_video("c.mkv"));
-        assert!(!is_video("a.jpg") && !is_video("mp4") && !is_video(""));
+    fn the_videos_param_reads_its_two_words() {
+        assert_eq!(videos_param(None).unwrap(), VideoAs::FirstFrame);
+        assert_eq!(videos_param(Some("firstFrame")).unwrap(), VideoAs::FirstFrame);
+        assert_eq!(videos_param(Some("fullVideo")).unwrap(), VideoAs::FullVideo);
+        assert!(videos_param(Some("full")).is_err());
     }
 
-    /// Videos are skipped and counted; an export of videos alone is refused.
+    /// A clip whose facts are not read has no first frame: skipped and counted with the reason;
+    /// an export of such clips alone, as first frames, is refused.
     #[test]
     fn videos_are_skipped_and_counted() {
         let (dirs, mut s, ids) = library(2);
@@ -652,7 +712,7 @@ mod tests {
         s.apply(Op::AddPhotos { photos: vec![video] }).unwrap();
         let out = dirs.photos.path().join("Out");
         let only = s.execute("export.run", &json!({ "ids": [clip], "dir": out, "folderName": "Clips" }));
-        assert!(matches!(only, Err(CmdError::Disabled(_))), "{only:?}");
+        assert!(matches!(&only, Err(CmdError::Disabled(why)) if why == NO_FIRST_FRAMES), "{only:?}");
         assert!(!out.exists(), "nothing made");
         let d = s.execute("export.defaults", &json!({ "ids": [ids[0], clip] })).unwrap();
         assert_eq!((d["count"].clone(), d["videos"].clone(), d["folderName"].clone()), (json!(2), json!(true), json!("Lisbon")));
@@ -662,7 +722,7 @@ mod tests {
         let done = s.wait_job(job, PATIENCE).unwrap();
         let result = done.result.unwrap();
         assert_eq!(result["done"], 2);
-        assert_eq!(result["skipped"], json!([{ "file": lisbon.join("clip.mp4"), "reason": "videos are not exported yet" }]));
+        assert_eq!(result["skipped"], json!([{ "file": lisbon.join("clip.mp4"), "reason": "This video can't be played" }]));
         assert_eq!(done.label, "Exported 2 pictures; 1 skipped");
         let mut names: Vec<String> =
             std::fs::read_dir(out.join("Mixed")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();

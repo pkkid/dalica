@@ -57,8 +57,19 @@ Watermark:                [ ] Add watermark  [© Ana Costa 2026                 
   `002-`, … in front in tray order (four digits from 1,000 photos, so the names sort in tray
   order); a name that is taken in the export folder gets `-001`, `-002`, … as it is written,
   never replacing a file. The export folder's name is sanitized too (the fallback is
-  "Export 2026-06-04"); a taken name becomes `<name>-001`. Videos are skipped and counted until
-  they can be decoded (M15); a file that cannot be read as a picture is skipped with its reason.
+  "Export 2026-06-04"); a taken name becomes `<name>-001`. A file that cannot be read as a picture
+  is skipped with its reason.
+- **Videos** (M15.28): the "Export videos as" row is live only while a video is among what is
+  exported. **First frame** (the default) exports a clip's poster frame (the frame its thumbnail
+  shows: the first lit frame of its first ten seconds) as a picture, exactly as a photo is
+  exported: resized, at the quality chosen, watermarked, with the clip's caption, tags, star and
+  date, as `<clip>.jpg`. A clip whose codec Dalica cannot decode has no poster frame: it is skipped
+  and counted with the reason ("This video can't be played (ProRes)"); an export of such clips
+  alone does not start and says to export them as full videos. **Full video (no resizing)**
+  copies every clip as it is, played or not, never re-encoded, under the export's name with its own
+  extension (`003-IMG_0042.MOV`), never replacing a file (`-001` when taken); the copy is checked
+  byte for byte before it gets its name. The toast counts both: "Exported 2 pictures and 1
+  video".
 - Cancel stops before the next step of the photo being exported (reading, rendering, writing): a
   file is written whole to a temporary name and given its own in one step, so only complete files
   are ever left in the export folder.
@@ -67,7 +78,7 @@ Watermark:                [ ] Add watermark  [© Ana Costa 2026                 
 100–4000; the quality presets; numbers; watermark text; remove location) and the request it makes
 of the output pipeline (no EXIF thumbnail; every owned field written, stars as ratings too);
 `export::plan` (the location made when missing, the export folder under a free sanitized name,
-each photo's stem and number, videos skipped); `export::export_one` (read under 1 GiB, render
+each photo's stem and number; M15.28: each video as a first frame or a copy, `export::names_as`); `export::export_one` (read under 1 GiB, render
 through `output::render`, write through `fs::create::new_file`, cancel asked before each step) and
 `export::run` (the whole plan on one thread).
 
@@ -152,6 +163,12 @@ folder prefix, then the name's middle.
   Mosaic, Grid), Show captions (Pile), Background (all but Multiple Exposure).
 - **Page format**: the crop ratio list (`editing.md` §6.1) plus **Current Display**; orientation
   toggles; custom ratios deletable.
+- **Videos** (M15.28): a clip Dalica can play goes in a collage as any photo: the layouts use its
+  poster frame's ratio, Create Collage draws its poster frame at the size its place needs (turned
+  by the clip's own rotations), the Clips tab shows it with its sprocket edge and duration pill,
+  and the `.dalica-collage` recipe holds it as any clip, so Edit Collage reopens it. A clip whose
+  codec Dalica cannot decode has no poster frame: it is left out with the notice "1 video left out:
+  videos can't go in a collage yet."
 - **Clips tab** "Clips (N)": thumbnails of available pictures, [+] add selected to the collage, [−]
   remove, **Get More** (switches to the Library tab; the tray shows **Back to Collage**). Delete on a
   canvas picture returns it to Clips.

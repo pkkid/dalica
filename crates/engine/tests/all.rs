@@ -12,6 +12,7 @@ mod busy_writes;
 mod captions;
 mod collage;
 mod collage_output;
+mod collage_video;
 mod crop_commands;
 mod dates;
 mod dates_undo_written;
