@@ -815,10 +815,10 @@ M15's fields (they start fresh; none is persisted): the player while the edit vi
 the Open With ▸ submenu, a drag out of the window, the default-viewer question's draft and the
 language in effect. `ui.set` merges `video` field by field (each of its fields replaced whole); the
 others are replaced whole. Lists hold at most 1 000 000 photos (handlers 64, file types 64),
-repeated entries kept once; photos must exist (`not_found`). Until the tasks that draw them land
-(M15.21, M15.22, M15.24, M15.26), the video, its bar and its tab, the Open With ▸ rows and the
-question are stubs; their commands check their parameters, then are `disabled` with what they wait
-for ("Arrives with the video player.", "Arrives with OS integration.").
+repeated entries kept once; photos must exist (`not_found`). The video, its bar and its tab are
+the edit view's player (M15.21, M15.26); until the tasks that draw them land (M15.22, M15.24), the
+Open With ▸ rows and the question are stubs whose commands check their parameters, then are
+`disabled` with what they wait for ("Arrives with OS integration.").
 
 | Field | Values | Changed by |
 |---|---|---|
@@ -828,10 +828,14 @@ for ("Arrives with the video player.", "Arrives with OS integration.").
 | `defaultViewer` | `null`, or `{types}` while the default-viewer question is open (`dialog:defaultViewer`): the file types chosen for Dalica by the names `viewer.fileTypes` gives (`jpeg`, `png`; 1 … 16 lowercase letters and digits), none to start with | `defaultViewer.ask` (offered once after the first run, M15.24), its checkboxes; [Use Dalica] (enabled once a type is chosen) runs the engine's `viewer.setDefault {types}`, [Not Now] closes it |
 | `language` | the language the interface is drawn in, as a tag (`en`, `pt-BR`, `qps` the pseudo-locale; never `system`, which is resolved first): the setting `interface.language` mirrored for the next draw | M15.7 |
 
-The player's other commands check their parameters, then wait for M15.26: `player.step {frames}`
-(`,` and `.`, −1 and 1, while a video is shown), `player.setStart`, `player.setEnd`,
-`player.saveFrame` and `player.exportClip {path?}`. The ids are the UI's own: the engine's
-`video.*` (M15.25) stay the engine's, so `engine.execute` always reaches them. In the library and
+The player's other commands: `player.step {frames}` (`,` and `.`, −1 and 1, while a video is
+shown; held, rewind and fast-forward), `player.setStart {ms?}` and `player.setEnd {ms?}` (the trim
+at `ms`, else at the playhead; one step of the video's history), `player.saveFrame` (into Video
+Frames, kept to the write roots under automation, §5.7) and `player.exportClip {path?}` (the save
+picker without `path`). Play, the steps, seeking and Save Frame are refused with the reason on a
+clip Dalica cannot play; the trim and Export Clip work on any clip. Each drives the engine's
+player; the ids are the UI's own: the engine's `video.*` (M15.25) stay the engine's, so
+`engine.execute` always reaches them. In the library and
 on a still photo the video keys are what they were (Space stars the photo in the edit view).
 
 Locate on Disk, Open With, Open in External Editor, Copy Path and the system clipboard are the
