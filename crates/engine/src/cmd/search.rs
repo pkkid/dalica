@@ -14,8 +14,10 @@
 //!   on the worker; the reply is `library.inspect` → `search` at once (`pending` until the result
 //!   is applied by `poll`). A query asking for nothing leaves search mode.
 //! - `search.clear` leaves search mode (the × in the field, Esc, Show All).
-//! - `search.suggest {text, limit?}` (query): the autocomplete for the last word of `text`: tags,
-//!   folders and albums with counts (`tag:` gives tags only).
+//! - `search.suggest {text, limit?, withholdNames?}` (query): the autocomplete for the last word of
+//!   `text`: tags, folders and albums with counts (`tag:` gives tags only). With `withholdNames`
+//!   (sent by automation without the people permission, `automation::NAME_SEARCHES`) no folder a
+//!   person's export made is suggested (`automation::PersonExports`, `control-protocol.md` §6.13).
 //! - `search.saveAsAlbum {name}` (Tools ▸ Experimental ▸ Save Search Results…): a user album of the
 //!   matches in light-table order, one undo step.
 
@@ -59,7 +61,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Search Suggestions",
             menu: "",
             keys: &[],
-            params: r#"{"text":string (at most 16 KiB), "limit"?:int=100 (max 100)}: the autocomplete for the last word of text: {text, suggestions:[{kind:"tag"|"folder"|"album", text, count, section:null|"folder:<id>"|"album:<id>"}]}; tags, then folders, then albums, each by count then name; "tag:" gives tags only"#,
+            params: r#"{"text":string (at most 16 KiB), "limit"?:int=100 (max 100), "withholdNames"?:bool (default false: no folder a person's export made is suggested; automation without --automation-allow-people always sends true)}: the autocomplete for the last word of text: {text, suggestions:[{kind:"tag"|"folder"|"album", text, count, section:null|"folder:<id>"|"album:<id>"}]}; tags, then folders, then albums, each by count then name; "tag:" gives tags only"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -171,10 +173,12 @@ fn clear(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct SuggestParams {
     text: String,
     limit: Option<usize>,
+    #[serde(default)]
+    withhold_names: bool,
 }
 
 /// One suggestion as the commands give it: the section by its id (`folder:12`).
@@ -183,13 +187,13 @@ pub(crate) fn suggestion_json(s: &Suggestion) -> Value {
 }
 
 fn suggest(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let SuggestParams { text, limit } = params(p)?;
+    let SuggestParams { text, limit, withhold_names } = params(p)?;
     check_text(&text)?;
     let limit = limit.unwrap_or(dalica_library::search::MAX_SUGGESTIONS);
     if limit > dalica_library::search::MAX_SUGGESTIONS {
         return Err(CmdError::Limit(format!("limit is at most {}", dalica_library::search::MAX_SUGGESTIONS)));
     }
-    let list = s.search_suggestions(&text, limit)?;
+    let list = s.search_suggestions(&text, limit, withhold_names)?;
     Ok(json!({ "text": text, "suggestions": list.iter().map(suggestion_json).collect::<Vec<_>>() }))
 }
 

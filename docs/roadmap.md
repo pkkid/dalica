@@ -10696,7 +10696,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     was suspected and the PR shows why no other order exists; legacy files stay byte-identical;
     `cargo xtask accept M14` passes 50 runs in a row while the machine is loaded (eight
     `cargo build` or `stress-ng` workers, the PR giving the command and the count).
-- ⬜ **M15.51 `engine` + `ui` + `mcp`: the rest of a person's export folder name withheld from automation**
+- ✅ **M15.51 `engine` + `ui` + `mcp`: the rest of a person's export folder name withheld from automation**
   - after: M14.R, M15.42, M15.17
   - files: `crates/engine/src/search.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/automation.rs`, `crates/engine/tests/search.rs`, `crates/ui/src/control/people.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/tests.rs`, `crates/ui/src/notices.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/src/backend.rs`, `crates/mcp/tests/command_tools.rs`, `docs/control-protocol.md`, `docs/mcp.md`
   - scope: privacy, after M15.42 (PR #1057), which marks a person's export by its job and the

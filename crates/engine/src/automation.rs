@@ -46,8 +46,8 @@
 //!   `faces.list`, `faces.add`, `people.list`) reach automation with names and nicknames `null`
 //!   and face rectangles left out, ids and counts kept ([`Policy::people_reply`]); face
 //!   descriptors are never returned, whatever was granted. The commands themselves run as asked,
-//!   but for the searches ([`NAME_SEARCHES`]: `library.query`, `search.set`, `slideshow.list`'s
-//!   `search`), which run with
+//!   but for the searches ([`NAME_SEARCHES`]: `library.query`, `search.set`, `search.suggest`,
+//!   `slideshow.list`'s `search`), which run with
 //!   people's names left out of the match ([`Policy::people_params`]: `"withholdNames": true`), so
 //!   no reply tells a guessed name from an unknown one; nothing is refused, and the filter by
 //!   person id (`people`) still holds: ids are not names.
@@ -57,7 +57,8 @@
 //!   own show still moves toward the face.
 //! - **A person's export folder** (`control-protocol.md` §6.13): an export of a person's section
 //!   from the window makes its folder under the person's name; without `--automation-allow-people`
-//!   that job's entry reaches automation with its folder, name and written files `null`
+//!   that job's entry reaches automation with its folder, name and written files `null`, and the
+//!   reasons its photos failed or were skipped (which may name the folder's path) `null` too
 //!   ([`withhold_export_folder`]), the surface knowing the job by its id.
 
 use std::path::{Component, Path, PathBuf, Prefix};
@@ -96,9 +97,10 @@ pub const FACE_POINTS: &[&str] = &["slideshow.list"];
 /// The commands that search by text (`faces.md` §7, `control-protocol.md` §6.4): without
 /// `--automation-allow-people` an automation surface runs them with people's names and nicknames
 /// left out of the match ([`Policy::people_params`]): `person:` matches nothing and is listed
-/// `unavailable`, plain words skip names, everything else matches as before. A command that comes
-/// to search by text joins this list.
-pub const NAME_SEARCHES: &[&str] = &["library.query", "search.set", "slideshow.list"];
+/// `unavailable`, plain words skip names, everything else matches as before; `search.suggest`
+/// suggests no folder a person's export made ([`PersonExports`]). A command that comes to search
+/// by text joins this list.
+pub const NAME_SEARCHES: &[&str] = &["library.query", "search.set", "search.suggest", "slideshow.list"];
 
 /// The options whose change lets the app reach outside Dalica or decides where it connects
 /// (`menus-and-shortcuts.md` §5 Network, M13.28): turning Allow map tiles on, and the tile server,
@@ -507,11 +509,17 @@ fn centred(mut reply: Value) -> Value {
 /// and the files written into it.
 pub const EXPORT_FOLDER_KEYS: &[&str] = &["folder", "name", "written"];
 
-/// A job's entry (as `jobs.list` gives it) with [`EXPORT_FOLDER_KEYS`] of its `result` `null`, for
-/// an export whose folder was named from a person's name (a person's section exported from the
-/// window, its folder name suggested from theirs) and a client without the people permission
-/// (`control-protocol.md` §6.4, §6.13). Which jobs those are is the caller's to know, by the job;
-/// never by matching the folder's name against people's names (a guess-oracle). The counts stay.
+/// The lists of an export job's `result` whose entries (`{file, reason}`) give a reason that may
+/// name the export folder's path (a write into it that failed).
+pub const EXPORT_REASON_LISTS: &[&str] = &["failed", "skipped"];
+
+/// A job's entry (as `jobs.list` gives it) with [`EXPORT_FOLDER_KEYS`] of its `result` `null`, the
+/// `reason` of each entry of [`EXPORT_REASON_LISTS`] `null` (the files and counts kept) and the
+/// failed job's `error` `null`, for an export whose folder was named from a person's name (a
+/// person's section exported from the window, its folder name suggested from theirs) and a client
+/// without the people permission (`control-protocol.md` §6.4, §6.13). Which jobs those are is the
+/// caller's to know, by the job; never by matching the folder's name against people's names (a
+/// guess-oracle). The counts stay.
 pub fn withhold_export_folder(mut entry: Value) -> Value {
     if let Some(Value::Object(result)) = entry.get_mut("result") {
         for key in EXPORT_FOLDER_KEYS {
@@ -519,6 +527,16 @@ pub fn withhold_export_folder(mut entry: Value) -> Value {
                 *v = Value::Null;
             }
         }
+        for list in EXPORT_REASON_LISTS {
+            if let Some(Value::Array(items)) = result.get_mut(*list) {
+                for reason in items.iter_mut().filter_map(|i| i.get_mut("reason")) {
+                    *reason = Value::Null;
+                }
+            }
+        }
+    }
+    if let Some(error) = entry.get_mut("error").filter(|e| !e.is_null()) {
+        *error = Value::Null;
     }
     entry
 }
@@ -826,6 +844,24 @@ mod tests {
         assert!(never_automated_reason("folder.locate").contains("file manager"));
         assert!(!never_automated_reason("anything.else").contains("card"));
         assert!(never_automated("photo.star.set").is_ok());
+    }
+
+    /// A person's export withheld (`control-protocol.md` §6.13) has its folder, name and written
+    /// files `null`, and the reasons its photos failed or were skipped too (they may name the path
+    /// written to), files and counts kept; so is a failed job's error.
+    #[test]
+    fn a_persons_export_entry_withholds_the_reasons_that_may_name_her_folder() {
+        let entry = serde_json::json!({
+            "job": 3, "kind": "export", "state": "failed", "error": "cannot make /x/Ana",
+            "result": {
+                "total": 2, "done": 0, "folder": "/x/Ana", "name": "Ana", "written": [],
+                "failed": [{ "file": "/p/IMG_0001.jpg", "reason": "cannot write /x/Ana/IMG_0001.jpg" }],
+                "skipped": [{ "file": "/p/clip.mp4", "reason": "/x/Ana: videos are not exported yet" }],
+            },
+        });
+        let held = withhold_export_folder(entry).to_string();
+        assert!(!held.contains("Ana"), "{held}");
+        assert!(held.contains("/p/IMG_0001.jpg") && held.contains("\"total\":2"), "{held}");
     }
 }
 

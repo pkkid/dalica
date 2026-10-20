@@ -254,8 +254,7 @@ never asks in the engine: the UI asks "Copy %d files to %s?" (`dialog:copyFiles`
 ### 5.6 Effects outside Dalica are refused by default
 
 Automation must not reach beyond the app. Without `--automation-allow-external`, these refuse with
-`external_denied`: Locate on Disk (opens the file manager), Open in External Editor, Check for
-Updates, opening the help or release-notes web pages, and anything that would
+`external_denied`: Check for Updates, opening the help or release-notes web pages, and anything that would
 use the network (map tiles, geocoding, model downloads; `AGENTS.md` "Privacy"). That includes
 `options.set` changing an option that lets the app connect or decides where (turning
 `network.allowMapTiles` on, `network.tileServer`, `network.geocoder`, `network.proxy`,
@@ -263,6 +262,15 @@ use the network (map tiles, geocoding, model downloads; `AGENTS.md` "Privacy"). 
 and in the window the Places pane's Allow (`map.allowTiles {on: true}`), a place searched by name
 (`map.search`) and the same changes on Options ▸ Network, which refuse with the reason on the
 status line while a request drives them (M13.28).
+
+**Some effects are never automated, whatever was granted** (M15.17, `security.md` §5.11): Locate
+on Disk (`photo.locate`, `folder.locate`: opens the system's file manager), Open With
+(`photo.openWith`: starts another program) and Open in External Editor (`photo.openExternal`) are
+always refused over automation with `external_denied` (`engine.execute`, `batch`'s steps, MCP's
+tools), **even with `--automation-allow-external`**, as is Remove from Source
+(`import.removeFromSource`, which deletes files from a card); the message says why per command
+(`automation::NEVER_AUTOMATED`, `automation::never_automated`). Only the person at the computer
+runs them.
 
 **Native file pickers are never opened by automation.** `engine.execute` takes paths as params. A
 picker requested by synthetic input (a *Browse…* button clicked through `ui.clickWidget`) is
@@ -1095,13 +1103,26 @@ name suggested from theirs. The session marks the job, and when it ends the fold
 - every path into that folder is `null` wherever a job or a toast gives it: any job's entry (the
   scan that brings the folder into the library: `result.roots`, `result.walked`) and the toast's
   `action.folder` in `ui.inspect`'s `toasts` (`automation::withhold_export_paths`);
+- that job's failed and skipped photos keep their `file` but have their `reason` `null` (a reason
+  may name the path written to), and a failed job's `error` is `null`
+  (`automation::withhold_export_folder`);
 - `ui.widgets` and `ui.inspect` give the folder's tree row (`tree:folder:<id>`, its count kept) and
   its section's header, icon and title (`section:folder:<id>`, `/icon`, `/title`) the placeholder
   `Person`;
-- searches with `withholdNames` (§6.4) find no photo through the folder's name.
+- in the edit view on a photo of that folder, the status line's folder prefix reads `Person` in
+  `ui.state`'s and `ui.inspect`'s `status` and in `text:status` (`Person › IMG_0001.jpg …`; the
+  window draws the folder's name);
+- the toast of that job when photos failed (`ui.inspect`'s `toasts`, `toast:<n>` in `ui.widgets`)
+  leaves out the reasons: "Exported 0 pictures; 2 failed. Could not export IMG_0001.jpg, and 1
+  more" (the window shows them);
+- searches with `withholdNames` (§6.4) find no photo through the folder's name, and
+  `search.suggest` (sent with `withholdNames` too) suggests no such folder.
+
+Headless MCP gives its jobs the same way (`mcp.md` §5: `jobs.list`, `jobs.wait` and the final
+entry a tool that started a job answers).
 
 The job and the folder are known by the job and the path the export made, never by matching a
-folder's name against people's names. The marks last for the session.
+folder's name against people's names. The marks last for the session (M14.25, M15.42, M15.51).
 
 ## 7. Widget ids
 

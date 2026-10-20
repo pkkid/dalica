@@ -1467,6 +1467,104 @@ fn a_persons_export_folder_in_the_library_keeps_her_name_from_automation_without
     }
 }
 
+/// The rest of a person's export folder name kept from automation (§6.13, M15.51), for an export
+/// confirmed by a click or over automation: without `--automation-allow-people`, the edit view on a
+/// photo of the folder her export made gives the status line's folder prefix as `Person` in
+/// `ui.state`, `ui.inspect` and `ui.widgets` (the window draws her name), and the toast of her
+/// export's job when its photos failed (the end planted as the session reports it, the reason
+/// naming a path into her folder) leaves out the reason in `ui.inspect`'s `toasts` and
+/// `ui.widgets`; with it, both say all. Known by the photo's folder and the export's job, not by
+/// the text.
+#[test]
+fn a_persons_export_folder_stays_out_of_the_status_line_and_a_failed_exports_toast() {
+    for (allow, click) in [(false, false), (false, true), (true, false), (true, true)] {
+        let at = format!("allow_people {allow}, by a click {click}");
+        let mut t = setup_with(2, |_| Config { allow_people: allow, ..Config::default() });
+        let s = t.d.app_mut().session_mut().unwrap();
+        let face = s.execute("faces.add", &json!({ "id": t.ids[0], "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap()["face"].clone();
+        let ana = s.execute("faces.name", &json!({ "faces": [face], "name": "Ana", "create": true })).unwrap()["person"].clone();
+        t.d.settle(600).unwrap();
+        let section = format!("person:{}", ana.as_str().unwrap());
+        let export = |t: &mut T, location: &Path| {
+            let location = location.to_string_lossy().into_owned();
+            if click {
+                t.d.app_mut().run("output.export", &json!({ "section": section })).unwrap();
+                t.d.app_mut().state_mut().export.as_mut().unwrap().location = location;
+                t.d.settle(60).unwrap();
+                t.d.click("button:dialog.export").unwrap();
+            } else {
+                ok(t, "engine.execute", json!({ "command": "output.export", "params": { "section": section } }));
+                ok(t, "ui.set", json!({ "export": { "location": location } }));
+                ok(t, "ui.dialog.confirm", json!({}));
+            }
+            t.d.settle(600).unwrap();
+        };
+
+        // Into the watched folder: "Ana" joins the library; the edit view on its photo.
+        let watched = t.folder.clone();
+        export(&mut t, &watched);
+        // The export's job and the scan that brings its folder in, however long they take.
+        let made = t.folder.join("Ana");
+        let joined = |app: &App| app.session().is_some_and(|s| s.library().folder_by_path(&made).is_some());
+        for _ in 0..50 {
+            if joined(t.d.app()) {
+                break;
+            }
+            t.d.settle_for(600, true);
+        }
+        let session = t.d.app().session().unwrap();
+        let made = session.library().folder_by_path(&made).expect("the folder joined the library");
+        let photo = session.library().photos().find(|p| p.folder == made).expect("her photo in it").id;
+        t.d.run("view.edit", &json!({ "id": photo })).unwrap();
+        t.d.settle(60).unwrap();
+        assert!(t.d.state().status_line.starts_with("Ana › "), "{at}: the window names the folder: {}", t.d.state().status_line);
+        let status = ok(&mut t, "ui.state", json!({}))["status"].as_str().unwrap().to_string();
+        assert!(status.starts_with(if allow { "Ana › " } else { "Person › " }), "{at}: {status}");
+        let inspected = ok(&mut t, "ui.inspect", json!({}))["status"].clone();
+        assert_eq!(inspected, json!(status), "{at}");
+        let text = ok(&mut t, "ui.widgets", json!({ "filter": "text:status" })).to_string();
+        assert_eq!(text.contains("Ana"), allow, "{at}: {text}");
+        t.d.run("view.library", &json!({})).unwrap();
+        t.d.settle(60).unwrap();
+
+        // Her export failing: the end of its job as the session reports it (a planted fault: its
+        // photo could not be written, the reason naming the path into her folder) becomes the
+        // toast the window shows.
+        let session = t.d.app().session().unwrap();
+        let job = session.jobs().iter().find(|e| e.kind == dalica_engine::JobKind::Export).expect("her export's job").job;
+        assert!(session.person_exports().is_job(job), "{at}");
+        let into = t.folder.join("Ana").join("IMG_0000.jpg");
+        let ended = dalica_engine::FileJobEvent {
+            seq: 0,
+            job,
+            kind: dalica_engine::JobKind::Export,
+            message: "Exported 0 pictures; 1 failed".into(),
+            done: 0,
+            total: 1,
+            cancelled: false,
+            failures: vec![dalica_engine::ItemFailure {
+                file: t.folder.join("IMG_0000.jpg"),
+                reason: format!("cannot write {}: Permission denied", into.display()),
+            }],
+            folder: None,
+        };
+        let toast = crate::notices::job_toast(&ended, None).unwrap();
+        let bare = crate::notices::bare_text(&ended, None);
+        let now = t.d.ctx().input(|i| i.time);
+        t.d.app_mut().notices_mut().push_job(toast, job, &bare, now);
+        t.d.step();
+        t.d.step();
+        let shown = t.d.app().notices().inspect(t.d.ctx().input(|i| i.time)).to_string();
+        assert!(shown.contains("Could not export IMG_0000.jpg: cannot write"), "{at}: the window's toast gives the reason: {shown}");
+        let toasts = ok(&mut t, "ui.inspect", json!({}))["toasts"].to_string();
+        assert!(toasts.contains("Could not export IMG_0000.jpg"), "{at}: {toasts}");
+        assert_eq!(toasts.contains("cannot write"), allow, "{at}: {toasts}");
+        let widgets = ok(&mut t, "ui.widgets", json!({ "filter": "toast:" })).to_string();
+        assert!(widgets.contains("Could not export IMG_0000.jpg"), "{at}: {widgets}");
+        assert_eq!(widgets.contains("cannot write"), allow, "{at}: {widgets}");
+    }
+}
+
 /// `ui.clickWidget` on a widget an open dialog covers is `disabled`, naming the dialog by its id,
 /// and runs no frame (§6.8): the dialog's backdrop would take the click and nothing happen. The
 /// dialog's own buttons are clicked as before, and once it is closed the widget is too.

@@ -92,6 +92,7 @@ fn state_reply(call: &Call<'_>) -> Result<Value, Error> {
     let mut v = state_json(call)?;
     if people::withheld(call.control.config()) {
         people::state(&mut v);
+        people::status(call.host.app(), &mut v);
     }
     Ok(v)
 }
@@ -289,12 +290,16 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
 }
 
 /// The toasts' paths into a folder a person's export made (an export's Show Folder,
-/// `action.folder`) `null`: known by the folder the session marked, never by its name
-/// (`dalica_engine::automation::withhold_export_paths`).
+/// `action.folder`) `null`, and the toast of such an export without the reasons its files failed
+/// (they may name the folder's path, `crate::notices::Toast::bare`): known by the folder and the
+/// job the session marked, never by the text (`dalica_engine::automation::withhold_export_paths`).
 fn withhold_export_toasts(call: &Call<'_>, v: &mut Value) {
     let Some(session) = call.host.app().session() else { return };
-    if let Some(toasts) = v.get_mut("toasts") {
-        *toasts = dalica_engine::automation::withhold_export_paths(std::mem::take(toasts), session.person_exports());
+    let exports = session.person_exports();
+    let now = call.host.ctx().input(|i| i.time);
+    let toasts = call.host.app().notices().inspect_withholding(now, &|j| exports.is_job(j));
+    if let Some(slot) = v.get_mut("toasts") {
+        *slot = dalica_engine::automation::withhold_export_paths(toasts, exports);
     }
 }
 
