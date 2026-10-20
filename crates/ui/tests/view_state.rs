@@ -1786,7 +1786,7 @@ fn the_os_rows_wait_and_the_default_viewer_question_is_drawn() {
     ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [first] } }));
     for id in ["photo.locate", "photo.openExternal", "folder.locate"] {
         let r = row(&mut t, id, Value::Null);
-        assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(false), &json!(false), &json!(os::LATER)), "{r}");
+        assert_eq!(r["live"], json!(true), "live with the engine's command: {r}");
     }
     assert_eq!(ok(&mut t, "engine.execute", json!({ "command": "defaultViewer.ask" })), json!({ "dialog": "defaultViewer" }));
     ok(&mut t, "ui.wait", json!({ "ms": 50 }));

@@ -78,7 +78,7 @@ pub const MAX_ROOTS: usize = 256;
 /// Commands no automation surface runs, whatever it was granted (`security.md` §5.7): removing
 /// imported files from a card is the one permanent deletion in Dalica, and only the person at the
 /// computer answers its question.
-pub const NEVER_AUTOMATED: &[&str] = &["import.removeFromSource"];
+pub const NEVER_AUTOMATED: &[&str] = &["import.removeFromSource", "photo.locate", "folder.locate", "photo.openWith", "photo.openExternal"];
 
 /// The commands whose replies carry people data (`control-protocol.md` §6.4): names and nicknames
 /// (`name`, `nickname`) and face rectangles (`rect`, `displayed`). Without

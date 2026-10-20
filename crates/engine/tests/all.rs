@@ -56,6 +56,7 @@ mod new_folder;
 mod offline;
 mod options_catalogue;
 mod options_set;
+mod os;
 mod panic_hunt;
 mod pending_writes;
 mod people;

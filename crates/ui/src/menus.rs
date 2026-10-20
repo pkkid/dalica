@@ -996,10 +996,10 @@ mod tests {
             let want = crate::commands::os::awaited(i.id).unwrap_or("Not available yet.");
             assert!(!i.enabled && i.reason.as_deref() == Some(want), "{}", i.widget);
         }
-        // The OS integration's rows are wired to the engine's commands and greyed until it has them.
+        // The OS integration's rows are wired to the engine's commands, live since it has them.
         for id in ["photo.locate", "folder.locate", "photo.openExternal"] {
             let row = find(&menus, &Lookup::Id { id: id.into(), params: Value::Null }).unwrap();
-            assert_eq!((row.live, row.reason.as_deref()), (false, Some(crate::commands::os::LATER)), "{id}");
+            assert!(row.live, "{id}");
         }
         // Rebuild Library… is registered but asks first, and its dialog is not built yet.
         let rebuild = find(&menus, &Lookup::Id { id: "library.rebuild".into(), params: Value::Null }).unwrap();

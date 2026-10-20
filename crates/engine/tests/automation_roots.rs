@@ -130,10 +130,10 @@ fn client_roots_are_read_roots_only_and_a_new_list_replaces_the_old() {
 #[test]
 fn effects_outside_dalica_need_their_permission() {
     let mut p = Policy::default();
-    assert_eq!(p.check_effect(Effect::External, "photo.locate").unwrap_err().kind, Refusal::ExternalDenied);
+    assert_eq!(p.check_effect(Effect::External, "map.allow").unwrap_err().kind, Refusal::ExternalDenied);
     assert!(p.check_effect(Effect::Library, "photo.star.toggle").is_ok() && p.check_effect(Effect::Files, "export.run").is_ok());
     p.set_allow_external(true);
-    assert!(p.check_effect(Effect::External, "photo.locate").is_ok());
+    assert!(p.check_effect(Effect::External, "map.allow").is_ok());
     assert!(!p.allow_people());
     p.set_allow_people(true);
     assert!(p.allow_people());
@@ -181,7 +181,7 @@ fn options_that_reach_outside_need_the_external_permission() {
         p.check_command(Effect::Library, "photo.star.toggle", &set(serde_json::json!({ "network.allowMapTiles": true }))).is_ok(),
         "only options.set"
     );
-    assert_eq!(p.check_command(Effect::External, "photo.locate", &serde_json::Map::new()).unwrap_err().kind, Refusal::ExternalDenied);
+    assert_eq!(p.check_command(Effect::External, "map.allow", &serde_json::Map::new()).unwrap_err().kind, Refusal::ExternalDenied);
     p.set_allow_external(true);
     assert!(p.check_command(Effect::Library, "options.set", &set(serde_json::json!({ "network.allowMapTiles": true }))).is_ok());
 }

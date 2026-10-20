@@ -10,9 +10,14 @@
 //! [`OsError::Failed`]. Calls that can block (starting a program, a D-Bus call, the clipboard) are
 //! made off the UI thread by the commands that use them (M15.17).
 //!
+//! [`Os::available`] says, without blocking, whether a service can be used at all (the window greys
+//! its menu rows with the reason; the commands' `enabled` asks it).
+//!
 //! [`Recording`] is the fake that headless sessions, `dalica-cli`, MCP and tests use: it keeps each
 //! call in order and answers from what it was given. The desktop app plugs in the real service per
-//! OS (M15.12) with [`Session::set_os`]; a session starts with a [`Recording`].
+//! OS (M15.12) with [`Session::set_os`]; a session starts with [`Recording::new`], a headless one:
+//! there is no system clipboard without a window ([`NO_CLIPBOARD`]). Tests that stand for a window
+//! plug in [`Recording::windowed`].
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -41,6 +46,24 @@ impl std::fmt::Display for OsError {
 }
 
 impl std::error::Error for OsError {}
+
+/// Why a headless session (no window: `dalica-cli`, MCP, tests) cannot use the system clipboard.
+pub const NO_CLIPBOARD: &str = "There is no system clipboard without Dalica's window.";
+
+/// The services [`Os::available`] answers for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Service {
+    /// [`Os::reveal`]: Locate on Disk.
+    Reveal,
+    /// [`Os::handlers`] and [`Os::open_with`]: Open With.
+    OpenWith,
+    /// [`Os::open_in_editor`]: Open in External Editor.
+    Editor,
+    /// [`Os::put_on_clipboard`]: Copy Path, the files and the picture.
+    Clipboard,
+    /// [`Os::default_handler`] and [`Os::set_default_viewer`].
+    DefaultViewer,
+}
 
 /// An application that opens a file's type.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +97,14 @@ pub enum DefaultSet {
 
 /// The operating system's services. Every method may block; none may panic.
 pub trait Os: Send + Sync {
+    /// Whether `service` can be used here at all, answered at once from what the service knows
+    /// (never blocking: the window asks it for every menu it draws): `Err` with the reason the
+    /// greyed item shows. Every service is available unless the implementation says otherwise.
+    fn available(&self, service: Service) -> Result<(), OsError> {
+        let _ = service;
+        Ok(())
+    }
+
     /// Shows `path` in the system's file manager, selected (a folder: its parent opened on it).
     fn reveal(&self, path: &std::path::Path) -> Result<(), OsError>;
 
@@ -110,6 +141,19 @@ pub enum OsCall {
     SetDefaultViewer(Vec<FileType>),
 }
 
+impl OsCall {
+    /// The service the call uses.
+    pub fn service(&self) -> Service {
+        match self {
+            OsCall::Reveal(_) => Service::Reveal,
+            OsCall::Handlers(_) | OsCall::OpenWith { .. } => Service::OpenWith,
+            OsCall::OpenInEditor { .. } => Service::Editor,
+            OsCall::PutOnClipboard(_) => Service::Clipboard,
+            OsCall::DefaultHandler(_) | OsCall::SetDefaultViewer(_) => Service::DefaultViewer,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct Recorded {
     calls: Vec<OsCall>,
@@ -117,30 +161,53 @@ struct Recorded {
     handlers: BTreeMap<String, Vec<Handler>>,
     defaults: BTreeMap<FileType, Handler>,
     failure: Option<OsError>,
+    /// Services answered as unavailable, with the reason.
+    unavailable: BTreeMap<Service, String>,
 }
 
 /// The fake [`Os`]: keeps each call in order ([`Recording::calls`]) and answers from what it was
 /// given: no handlers and no defaults until [`Recording::set_handlers`] and
-/// [`Recording::set_default`], every call `Ok` until [`Recording::fail_with`]. A call that fails is
-/// still kept.
+/// [`Recording::set_default`], every call `Ok` until [`Recording::fail_with`], every service
+/// available until [`Recording::set_unavailable`] (a call to an unavailable service answers its
+/// reason). A call that fails is still kept.
 #[derive(Debug, Default)]
 pub struct Recording {
     inner: Mutex<Recorded>,
 }
 
 impl Recording {
+    /// A headless session's: the clipboard is unavailable ([`NO_CLIPBOARD`]), the rest available.
     pub fn new() -> Recording {
+        let r = Recording::default();
+        r.set_unavailable(Service::Clipboard, Some(NO_CLIPBOARD));
+        r
+    }
+
+    /// One standing for a window's system: every service available.
+    pub fn windowed() -> Recording {
         Recording::default()
+    }
+
+    /// Makes `service` unavailable with `reason` (`None`: available again).
+    pub fn set_unavailable(&self, service: Service, reason: Option<&str>) {
+        self.with(|r| match reason {
+            Some(why) => r.unavailable.insert(service, why.to_string()),
+            None => r.unavailable.remove(&service),
+        });
     }
 
     fn with<R>(&self, f: impl FnOnce(&mut Recorded) -> R) -> R {
         f(&mut self.inner.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
-    /// Keeps `call` and answers the failure set, if any.
+    /// Keeps `call` and answers its service's unavailability, else the failure set, if any.
     fn keep(&self, call: OsCall) -> Result<(), OsError> {
+        let service = call.service();
         self.with(|r| {
             r.calls.push(call);
+            if let Some(why) = r.unavailable.get(&service) {
+                return Err(OsError::Unavailable(why.clone()));
+            }
             r.failure.clone().map_or(Ok(()), Err)
         })
     }
@@ -172,6 +239,10 @@ impl Recording {
 }
 
 impl Os for Recording {
+    fn available(&self, service: Service) -> Result<(), OsError> {
+        self.with(|r| r.unavailable.get(&service).map_or(Ok(()), |why| Err(OsError::Unavailable(why.clone()))))
+    }
+
     fn reveal(&self, path: &std::path::Path) -> Result<(), OsError> {
         self.keep(OsCall::Reveal(path.to_path_buf()))
     }
@@ -224,7 +295,7 @@ mod tests {
     /// One test of the fake: every call kept in order, failures included, and its answers.
     #[test]
     fn the_recording_keeps_each_call_in_order() {
-        let os = Recording::new();
+        let os = Recording::windowed();
         let (a, b) = (PathBuf::from("/p/a.JPG"), PathBuf::from("/p/b.png"));
         let viewer = Handler { id: "org.example.Viewer.desktop".into(), name: "Image Viewer".into() };
         os.set_handlers("jpg", vec![viewer.clone()]);
@@ -255,5 +326,22 @@ mod tests {
         );
         os.clear();
         assert!(os.calls().is_empty());
+    }
+
+    /// A headless session's fake has no clipboard: asked, and called (the call kept), it answers
+    /// why; a service made unavailable answers its reason the same way, and available again after.
+    #[test]
+    fn a_headless_recording_has_no_clipboard() {
+        let os = Recording::new();
+        let unavailable = Err(OsError::Unavailable(NO_CLIPBOARD.into()));
+        assert_eq!(os.available(Service::Clipboard), unavailable);
+        assert_eq!(os.put_on_clipboard(&Clip::Text("a".into())), unavailable);
+        assert_eq!(os.available(Service::Reveal), Ok(()));
+        os.set_unavailable(Service::Reveal, Some("No file manager"));
+        assert_eq!(os.reveal(std::path::Path::new("/p/a.jpg")), Err(OsError::Unavailable("No file manager".into())));
+        os.set_unavailable(Service::Reveal, None);
+        assert_eq!(os.available(Service::Reveal), Ok(()));
+        assert_eq!(os.calls().len(), 2);
+        assert_eq!(Recording::windowed().available(Service::Clipboard), Ok(()));
     }
 }
