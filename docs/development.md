@@ -790,7 +790,9 @@ fetched from **pins** (a URL with its sha256, or a commit) and are checked again
 
 - **Our own corpus** is a separate repository, `pkkid/dalica-corpus`, holding only CC0 or
   public-domain photos (and files we generated ourselves from them with other applications, for
-  metadata interop, or with Dalica's own face pipeline, as references), each with its source.
+  metadata interop, or with Dalica's own face pipeline, as references), each with its source, and
+  the `video` set's openly licensed phone clips (CC BY-SA 4.0, CC0 and public domain; the
+  maintainer's answer at M15.R) as the assets of its `video-v1` release.
   Third-party files with their own terms (PngSuite, raw camera samples published as CC0, the face
   models) are fetched from their upstreams the same way and are never copied into `dalica-corpus`. Personal photos are never part
   of any corpus. The `SOURCES.tsv` of `dalica-corpus` lists every file with its source URL, page, author,
@@ -807,6 +809,7 @@ fetched from **pins** (a URL with its sha256, or a commit) and are checked again
 | `corpus/metadata/` | 53 generated files (1.0 MB): `dalica-scenes` photos (JPEG, PNG, WebP, TIFF and a DNG-like TIFF) after exiv2 0.28.9, ImageMagick 7.1.2-32 and Pillow 12.3.0 wrote captions, keywords, ratings, GPS, dates, MWG face regions and foreign metadata into them, and RAW `.xmp` sidecars | `metadata/` of `dalica-corpus` at commit `6239cad2`, by commit and sha256 (M6.34) | `dalica-meta` interop and round-trip tests ([`xmp-interop.md`](xmp-interop.md) §8; `crates/meta/tests/corpus.rs`) |
 | `corpus/public-faces/` | 45 public-domain portraits of 10 people, 3 to 6 each (17.2 MB): official portraits across the decades (one person from 1972 to 2021) and candid shots with other faces nearby, all US federal government works from Wikimedia Commons as its 1280-pixel renditions; `reference/` holds what Dalica's pipeline found in each (the detector's box and landmarks, each recogniser's vector) | `public-faces/` of `dalica-corpus` at commit `f3dd25cc`, by commit and sha256 (M13.17) | `dalica-faces` ([`faces.md`](faces.md) §10; `crates/faces/tests/corpus.rs`) |
 | `corpus/face-models/` | the built-in face models (reserved decision 5): YuNet 2023mar (detector, MIT), SFace 2021dec and AuraFace v1 (recognisers, Apache-2.0); 299.6 MB | each from its own repository (OpenCV Zoo on GitHub, fal.ai on Hugging Face) at the commit-pinned address `crates/faces/src/known.rs` records, by URL and sha256; never in `dalica-corpus` | `dalica-faces` |
+| `corpus/video/` | 12 phone clips (777.5 MB): H.264 and HEVC (Main, Main 10 HLG with Dolby Vision 8.4) from iPhones and Android phones, 1080p30 to 4K60, landscape and portrait, with AAC sound; unmodified Internet Archive downloads under CC BY-SA 4.0, CC0 or the public domain mark | the `video-v1` release assets of `dalica-corpus`, by URL and sha256 (each file's item, author and licence in that repository's `SOURCES.tsv` and `video/README.md`; published at M15.R at `4acca5cd`); release assets rather than a commit, as three clips are over GitHub's 100 MB file limit and the other sets are fetched as commit archives; `--local` does not apply | `dalica-image` ([`video-decoders.md`](video-decoders.md) §9; `crates/image/tests/video_frames.rs`) |
 
 ```sh
 cargo xtask corpus                  # each set: its directory, pin and state (present / missing / stale / not published yet); no network

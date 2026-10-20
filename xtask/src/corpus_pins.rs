@@ -7,8 +7,10 @@
 //!   our own corpus repository.
 //! - Our own sets (`photos`, `heif`, `metadata`, `public-faces`) come from <https://github.com/pkkid/dalica-corpus> (CC0 and
 //!   public-domain files only, each with its source) at the commit pinned in
-//!   [`DALICA_CORPUS_COMMIT`]; that repository's `SOURCES.tsv` gives every file's source, author,
-//!   licence, size, sha256 and the tool that derived it. `heif-wide` is made locally by
+//!   [`DALICA_CORPUS_COMMIT`]; the `video` set's phone clips (CC BY-SA 4.0, CC0 and public domain)
+//!   are assets of that repository's `video-v1` release, each pinned by URL and sha256. That
+//!   repository's `SOURCES.tsv` gives every file's source, author, licence, size, sha256 and the
+//!   tool that derived it. `heif-wide` is made locally by
 //!   `cargo xtask corpus make heif-wide` and stays "not published yet" until the maintainer
 //!   decides to publish it there.
 //!
@@ -355,81 +357,91 @@ pub const FACE_MODELS: Set = Set {
     source: Source::Files(FACE_MODEL_FILES),
 };
 
+/// The download URL of a phone clip: an asset of our corpus repository's `video-v1` release.
+macro_rules! corpus_video {
+    ($name:literal) => {
+        concat!("https://github.com/pkkid/dalica-corpus/releases/download/video-v1/", $name)
+    };
+}
+
 /// Phone clips for the video decoders (`docs/video-decoders.md` §9, M15.46's record; M15.15): H.264
-/// and HEVC (Main, Main 10 HLG with Dolby Vision) from iPhones and Android phones, with AAC sound,
-/// each from its Internet Archive item under the licence its uploader set. Fetched for the corpus
-/// job only and never copied into our own corpus repository (publishing them there is the record's
-/// question 4 for M15.R). Read by `crates/image/tests/video_frames.rs`.
+/// and HEVC (Main, Main 10 HLG with Dolby Vision) from iPhones and Android phones, with AAC sound.
+/// Each is an unmodified download from its Internet Archive item, under the licence its uploader
+/// set, published to our corpus repository as an asset of its `video-v1` release (the maintainer's
+/// answer at M15.R, 2026-10-20; that repository's `SOURCES.tsv` and `video/README.md` give each
+/// clip's item, author and licence). Release assets, not files at a pinned commit: three are over
+/// GitHub's 100 MB file limit, and the other sets are fetched as commit archives. Read by
+/// `crates/image/tests/video_frames.rs`.
 pub const VIDEO_FILES: &[PinnedFile] = &[
     PinnedFile {
         name: "IMG_0444.MOV",
-        url: "https://archive.org/download/ankkumar-zurich-eprix-2018-02/IMG_0444.MOV",
+        url: corpus_video!("IMG_0444.MOV"),
         sha256: "42c1f6d143e25f00e88ad8281a54c2e1d325e27afc6d73bb6eaaf16238d32a53",
         what: "iPhone 7 Plus, HEVC Main 1080p30, 51 frames (CC BY-SA 4.0, ankkumar), 2.0 MB",
     },
     PinnedFile {
         name: "IMG_0445.MOV",
-        url: "https://archive.org/download/ankkumar-zurich-eprix-2018-03/IMG_0445.MOV",
+        url: corpus_video!("IMG_0445.MOV"),
         sha256: "c4da19d500667740dafe4201d5a3245dbaa38a2cbb1793d345be46e6f2f2f3ef",
         what: "iPhone 7 Plus, HEVC Main 1080p30, AAC-LC mono (CC BY-SA 4.0, ankkumar), 24.4 MB",
     },
     PinnedFile {
         name: "IMG_0477.MOV",
-        url: "https://archive.org/download/ankkumar-zurich-eprix-2018-05/IMG_0477.MOV",
+        url: corpus_video!("IMG_0477.MOV"),
         sha256: "1f1a7a969c1831e1d7b5fd545fb341d64cbb54854d8dc16b2742b82f9716eb86",
         what: "iPhone 7 Plus, HEVC Main 1080p30, portrait (CC BY-SA 4.0, ankkumar), 21.3 MB",
     },
     PinnedFile {
         name: "IMG_0488.MOV",
-        url: "https://archive.org/download/ankkumar-zurich-eprix-2018-11/IMG_0488.MOV",
+        url: corpus_video!("IMG_0488.MOV"),
         sha256: "241f8f6af0a7e9ef7b233efe2c492256db863eb46000453c5ceb2948b9d816db",
         what: "iPhone 7 Plus, HEVC Main 1080p30, portrait (CC BY-SA 4.0, ankkumar), 36.7 MB",
     },
     PinnedFile {
         name: "IMG_6851.MOV",
-        url: "https://archive.org/download/img-6851_202505/IMG_6851.MOV",
+        url: corpus_video!("IMG_6851.MOV"),
         sha256: "811d06bf464975c5131b8bcf6258d8cbc033b4c94e8986a0f636251df34842bb",
         what: "iPhone 13, H.264 High 1080p29.97, portrait, AAC-LC stereo (public domain mark), 14.3 MB",
     },
     PinnedFile {
         name: "20260418_0635.MOV",
-        url: "https://archive.org/download/bo-ngua-xanh_20260418/20260418_0635.MOV",
+        url: corpus_video!("20260418_0635.MOV"),
         sha256: "e465cf1d5c9572d06f302a555356f6b4e53313f1fa3e319405edb04af13aa79c",
         what: "iPhone 7 Plus, H.264 High 1080p30, portrait (CC0), 156.6 MB",
     },
     PinnedFile {
         name: "BTS_iPhone12mini_4K60.MOV",
-        url: "https://archive.org/download/behind-the-scene-mexico-2024-by-l-eau-rend-guidali-www.-etoile.-app-18/Behind%20The%20Scene%20Mexico%202024%20by%20L%20eau%20rend%20Guidali%20%5BWww.Etoile.App%5D%2018.MOV",
+        url: corpus_video!("BTS_iPhone12mini_4K60.MOV"),
         sha256: "66e4127d06bd75bd707c2b7e566438eb27990e1049364effde80c2a8d9c81332",
         what: "iPhone 12 mini, H.264 High 4K 59.94, portrait (public domain mark), 94.3 MB",
     },
     PinnedFile {
         name: "20260404_201346.mp4",
-        url: "https://archive.org/download/20260404-201346/20260404_201346.mp4",
+        url: corpus_video!("20260404_201346.mp4"),
         sha256: "30316225ce021c1bb9a620700d24cfdc800871aec8ebc0031aa0e5191b4b096d",
         what: "Android 14, H.264 High 1080p30, portrait, AAC-LC 48 kHz stereo (CC0), 62.8 MB",
     },
     PinnedFile {
         name: "VID_20261017_160853309.mp4",
-        url: "https://archive.org/download/outerpasta-videos-rog-lvl-20/VID_20261017_160853309.mp4",
+        url: corpus_video!("VID_20261017_160853309.mp4"),
         sha256: "34bde67731965ad0a085a63f7327d13af8b8a0ff322011fb0419c75358af715a",
         what: "moto g play (2023), H.264 High 1080p29.6, landscape (CC BY-SA 4.0, outerpasta), 41.1 MB",
     },
     PinnedFile {
         name: "VID_20261017_141936777.mp4",
-        url: "https://archive.org/download/outerpasta-videos-rog-lvl-20/VID_20261017_141936777.mp4",
+        url: corpus_video!("VID_20261017_141936777.mp4"),
         sha256: "7fc67fb2a16ccb59276f4ef90853050a2db5ff932f4ae22e7726fd8d00e744f3",
         what: "moto g play (2023), H.264 High 1080p29.6, portrait (CC BY-SA 4.0, outerpasta), 17.0 MB",
     },
     PinnedFile {
         name: "M-6_Fun_Fact.MOV",
-        url: "https://archive.org/download/m-6-fun-fact/M-6%20Fun%20Fact.MOV",
+        url: corpus_video!("M-6_Fun_Fact.MOV"),
         sha256: "6508907b38cc63e9a9d6af8868ec61a271a17a57962e622bbd561b975d43e326",
         what: "iPhone 13, HEVC Main 10 HLG, Dolby Vision 8.4, 1080p60, portrait (CC0), 119.0 MB",
     },
     PinnedFile {
         name: "104-107_Fun_Fact.MOV",
-        url: "https://archive.org/download/104-107-fun-fact/104-107%20Fun%20Fact.MOV",
+        url: corpus_video!("104-107_Fun_Fact.MOV"),
         sha256: "474d46d61bd7d7192cd8176b6ad39a281ce2661066f1349a2b74b9dbe001fb48",
         what: "iPhone 13, HEVC Main 10 HLG, Dolby Vision 8.4, 1080p60 (CC0), 187.9 MB",
     },
@@ -440,8 +452,9 @@ pub const VIDEO: Set = Set {
     name: "video",
     what: "12 phone clips (H.264 and HEVC, 1080p to 4K, HDR, with AAC sound), about 740 MB",
     terms: "Phone clips from the Internet Archive (https://archive.org/details/<item>), unmodified, each under the licence its \
-            uploader set: CC BY-SA 4.0 (ankkumar's Zurich ePrix 2018 clips; outerpasta's videos), CC0, or the public domain \
-            mark; see docs/video-decoders.md §9 for each file's item and licence.",
+            uploader set: CC BY-SA 4.0 (Ank Kumar's Zurich E-Prix 2018 clips; Alex Barry's ROG LVL 20 videos), CC0, or the \
+            public domain mark; downloaded from the video-v1 release of https://github.com/pkkid/dalica-corpus, whose \
+            SOURCES.tsv and video/README.md give each file's item, author and licence.",
     used_by: &["dalica-image"],
     source: Source::Files(VIDEO_FILES),
 };
