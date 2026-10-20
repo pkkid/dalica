@@ -213,6 +213,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "altc264"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa7c718fae42814e88ac1ede43420ded2ddf8621023d009169f5ae3b74d2761e"
+
+[[package]]
 name = "android-activity"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1158,6 +1164,7 @@ name = "dalica-image"
 version = "0.9.0"
 dependencies = [
  "allocation-counter",
+ "altc264",
  "dalica-core",
  "dalica-scenes",
  "heic-rs",
@@ -1171,6 +1178,8 @@ dependencies = [
  "moxcms 0.9.1",
  "png",
  "proptest",
+ "rusty_aac",
+ "rusty_h265",
  "serde_json",
  "thiserror 2.0.21",
  "tiff",
@@ -4325,6 +4334,27 @@ dependencies = [
  "tempfile",
  "wait-timeout",
 ]
+
+[[package]]
+name = "rusty_aac"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9408128402e729f7f5b71f05870198b9140bcb597e6e09dddc75f1272f7aec48"
+
+[[package]]
+name = "rusty_h265"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56850745172ccec10fdb3829ae06b5b6b1bc6995571dd59373e5ef7bc9007d7d"
+dependencies = [
+ "rusty_h265-accel",
+]
+
+[[package]]
+name = "rusty_h265-accel"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f62022e27b5db632a5738a6c0b542e74d290f0b588140bd06bd5ed05005157b"
 
 [[package]]
 name = "same-file"

@@ -15,6 +15,11 @@ autotests = false
 # HEIF/HEIC decoding through heic-rs (formats.md §3). Off by default: shipping an HEVC decoder is the
 # distributor's decision; without it HEIC files show "HEIC support isn't included in this build".
 heif = ["dep:heic-rs"]
+# HEVC video frames through rusty_h265 (formats.md §1, docs/video-decoders.md). Off by default, as
+# `heif`: decoding HEVC needs a patent licence in some countries, and whether release builds carry it
+# is the maintainer's question at M15.R. Without it an HEVC clip answers "This video can't be played
+# (HEVC support isn't included in this build)".
+hevc = ["dep:rusty_h265"]
 # The corpus tests (`tests/corpus.rs`, docs/development.md §11): real files from the pinned corpora,
 # run by `cargo xtask test-corpus`. Off by default, so plain `cargo test` and `cargo xtask ci`
 # neither compile nor need them.
@@ -40,6 +45,14 @@ dalica-core.workspace = true
 # Pure Rust, no unsafe, MIT OR Apache-2.0; only with the `heif` feature (security.md §8.6 review in
 # the M5.10 commit).
 heic-rs = { workspace = true, optional = true }
+# H.264 video frames (formats/video/frames/h264.rs; docs/video-decoders.md §2): pure Rust, MIT, no
+# dependencies; run on the calling thread unless a caller asks for threads. Its `unsafe` is M15.R's
+# question (the record's §8.2).
+altc264.workspace = true
+# HEVC video frames, only with the `hevc` feature (formats/video/frames/hevc.rs).
+rusty_h265 = { workspace = true, optional = true }
+# The clip's AAC sound (formats/video/sound.rs): pure Rust, Apache-2.0, no dependencies, no defaults.
+rusty_aac.workspace = true
 # GIF (first frame) and BMP through its decoders (`formats.md` §1); already in the product graph via `thumbs`.
 image.workspace = true
 # Lossy and lossless WebP, alpha, the first frame of animations (`formats.md` §1).

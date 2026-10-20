@@ -1,6 +1,6 @@
-//! Videos: MP4, M4V, QuickTime and Matroska files recognised by their content and probed for
-//! their facts (`formats.md` §1), with no frame decoded: until a decoder lands (M15.15), every
-//! image path answers [`Error::Unsupported`] with [`REASON`].
+//! Videos: MP4, M4V, QuickTime and Matroska files recognised by their content, probed for their
+//! facts (`formats.md` §1), and, for the codecs reserved decision 2's spike passed
+//! (`docs/video-decoders.md`), decoded frame by frame and their sound sample by sample.
 //!
 //! - [`recognise`]: the kind from the first bytes. ISO BMFF files by their `ftyp` brands: a major
 //!   or compatible brand naming MP4, M4V or QuickTime, and no still-image brand (`heic`, `mif1`,
@@ -10,16 +10,28 @@
 //! - [`probe`]: duration, frame size, rotation, creation date, codecs, frame rate, sound and
 //!   location, read through `bmff.rs`'s bounded box walk (`mp4.rs`) or our own bounded EBML reader
 //!   (`ebml.rs`, `mkv.rs`). [`probe_file`] reads only the boxes it needs from a file on disk.
+//! - [`playable`] / [`playability`]: whether this build plays a clip's video (H.264 always, HEVC
+//!   with the `hevc` feature) and its sound (AAC), from the facts alone, with the reason when not.
+//! - [`frames::FrameSource`]: one open clip's frames (poster, at a time, next, previous), upright
+//!   and in 8-bit sRGB; [`sound::SoundSource`]: its sound as samples.
+//!
+//! The still-image paths ([`header`], [`decode`], thumbnails) never decode a video: they answer
+//! [`Error::Unsupported`] with [`REASON`], and a caller that wants a clip's picture opens a
+//! [`frames::FrameSource`] (its poster frame), which reads the file sample by sample instead of
+//! holding it in memory.
 //!
 //! Every size and count is hostile (`security.md` §4.2): boxes nest at most 12 deep with at most
 //! 4,096 per level; an EBML element lies inside its parent, and one of unknown size runs to its
-//! parent's end and no further; sample tables are never read whole (only their headers); every
-//! box or element read is counted by one [`Work`] of [`MAX_STEPS`]. Bytes that stop before the
-//! facts are complete are [`Error::Truncated`], so a caller reading a prefix can read on.
+//! parent's end and no further; every box or element read is counted by one [`Work`] of
+//! [`MAX_STEPS`]. Bytes that stop before the facts are complete are [`Error::Truncated`], so a
+//! caller reading a prefix can read on. The frame and sound readers bound what they read and
+//! decode in their own modules.
 
 mod ebml;
+pub mod frames;
 mod mkv;
 mod mp4;
+pub mod sound;
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::ops::Range;
@@ -34,10 +46,11 @@ use crate::limits::{Budget, Limits, Work};
 use crate::sniff::{Format, VideoKind};
 use crate::{Error, Header, Result};
 
-/// No build decodes video frames yet (M15.15).
+/// The still-image paths never decode a video: its frames come from [`frames::FrameSource`].
 pub const DECODES: bool = false;
 
-/// The tile text of a video until its frames are decoded (`formats.md` §1).
+/// The tile text of a video Dalica cannot play, and the start of every reason a clip gives for
+/// it (`formats.md` §1).
 pub const REASON: &str = "This video can't be played";
 
 /// Most boxes or elements one probe reads.
@@ -92,6 +105,137 @@ impl VideoInfo {
     pub fn display_size(&self) -> Option<(u32, u32)> {
         self.size.map(|(w, h)| if self.rotation % 2 == 1 { (h, w) } else { (w, h) })
     }
+}
+
+/// A video codec this build decodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VideoCodec {
+    H264,
+    Hevc,
+}
+
+/// Why Dalica cannot play a clip's video.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Why {
+    /// No decoder for its codec (or one the spike failed).
+    NoDecoder,
+    /// A decoder Dalica has, left out of this build (HEVC without the `hevc` feature).
+    NotInBuild,
+    /// The decoder refused this stream (a profile it does not decode), in its words.
+    Unsupported(String),
+    /// The file has no video track.
+    NoVideo,
+}
+
+/// A clip whose video Dalica cannot play: its codec's name and why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unplayable {
+    /// The codec's name (`ProRes`, `HEVC`, …), or the code the file gives for an unknown one.
+    pub codec: String,
+    pub why: Why,
+}
+
+impl Unplayable {
+    /// "This video can't be played", with the codec's name and why.
+    pub fn reason(&self) -> String {
+        match &self.why {
+            Why::NoDecoder => format!("{REASON} ({})", self.codec),
+            Why::NotInBuild => format!("{REASON} ({} support isn't included in this build)", self.codec),
+            Why::Unsupported(what) => format!("{REASON} ({}: {what})", self.codec),
+            Why::NoVideo => format!("{REASON} (it has no video track)"),
+        }
+    }
+}
+
+/// Whether a clip's sound plays.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SoundPlay {
+    /// Its sound decodes (AAC).
+    Plays,
+    /// It has sound Dalica cannot decode: it plays muted, with this reason.
+    Muted(String),
+    /// It has no sound track.
+    Silent,
+}
+
+/// What Dalica plays of a clip: its video (or why not) and its sound.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Playability {
+    pub video: std::result::Result<VideoCodec, Unplayable>,
+    pub sound: SoundPlay,
+}
+
+/// The name of a video codec from its sample entry code or Matroska `CodecID`.
+pub fn video_codec_name(code: &str) -> String {
+    let name = match code {
+        "avc1" | "avc2" | "avc3" | "avc4" | "V_MPEG4/ISO/AVC" => "H.264",
+        "hvc1" | "hev1" | "V_MPEGH/ISO/HEVC" => "HEVC",
+        "dvh1" | "dvhe" | "dva1" | "dvav" => "Dolby Vision",
+        "apch" | "apcn" | "apcs" | "apco" | "ap4h" | "ap4x" | "V_PRORES" => "ProRes",
+        "jpeg" | "mjpa" | "mjpb" | "V_MJPEG" => "Motion JPEG",
+        "av01" | "V_AV1" => "AV1",
+        "vp09" | "V_VP9" => "VP9",
+        "vp08" | "V_VP8" => "VP8",
+        "mp4v" | "V_MPEG4/ISO/SP" | "V_MPEG4/ISO/ASP" | "V_MPEG4/ISO/AP" => "MPEG-4 Part 2",
+        "mp2v" | "V_MPEG2" => "MPEG-2",
+        "s263" | "h263" => "H.263",
+        "" => "an unknown codec",
+        other => other,
+    };
+    name.to_string()
+}
+
+/// The name of a sound codec from its sample entry code or Matroska `CodecID`.
+pub fn sound_codec_name(code: &str) -> String {
+    let name = match code {
+        "mp4a" => "AAC",
+        c if c.starts_with("A_AAC") => "AAC",
+        "ac-3" | "A_AC3" => "AC-3",
+        "ec-3" | "A_EAC3" => "E-AC-3",
+        "Opus" | "A_OPUS" => "Opus",
+        "alac" | "A_ALAC" => "Apple Lossless",
+        "lpcm" | "sowt" | "twos" | "in24" | "in32" | "fl32" | "fl64" | "raw " | "ipcm" | "A_PCM/INT/LIT" | "A_PCM/INT/BIG" | "A_PCM/FLOAT/IEEE" => {
+            "PCM"
+        }
+        ".mp3" | "A_MPEG/L3" => "MP3",
+        "samr" | "sawb" => "AMR",
+        "A_VORBIS" => "Vorbis",
+        "A_FLAC" | "fLaC" => "FLAC",
+        "" => "an unknown codec",
+        other => other,
+    };
+    name.to_string()
+}
+
+/// The reason a clip plays muted.
+pub fn muted_reason(codec: &str) -> String {
+    format!("This clip plays without sound ({codec} sound can't be played)")
+}
+
+/// Whether this build plays the clip's video, from its facts.
+pub fn playable(info: &VideoInfo) -> bool {
+    playability(info).video.is_ok()
+}
+
+/// What this build plays of the clip, from its facts: its video codec (or why not) and whether its
+/// sound plays. A frame source may still refuse a profile its decoder does not take
+/// ([`Why::Unsupported`]) and a sound source a stream that is not AAC after all.
+pub fn playability(info: &VideoInfo) -> Playability {
+    let code = info.video_codec.as_deref().unwrap_or("");
+    let video = match code {
+        _ if info.size.is_none() && info.video_codec.is_none() => Err(Unplayable { codec: String::new(), why: Why::NoVideo }),
+        "avc1" | "avc3" | "V_MPEG4/ISO/AVC" => Ok(VideoCodec::H264),
+        "hvc1" | "hev1" | "V_MPEGH/ISO/HEVC" if cfg!(feature = "hevc") => Ok(VideoCodec::Hevc),
+        "hvc1" | "hev1" | "V_MPEGH/ISO/HEVC" => Err(Unplayable { codec: "HEVC".into(), why: Why::NotInBuild }),
+        other => Err(Unplayable { codec: video_codec_name(other), why: Why::NoDecoder }),
+    };
+    let sound = match (info.has_sound, info.sound_codec.as_deref().unwrap_or("")) {
+        (false, _) => SoundPlay::Silent,
+        (true, "mp4a") => SoundPlay::Plays,
+        (true, c) if c.starts_with("A_AAC") => SoundPlay::Plays,
+        (true, c) => SoundPlay::Muted(muted_reason(&sound_codec_name(c))),
+    };
+    Playability { video, sound }
 }
 
 /// The video kind of a file starting with `head`, or `None`.
@@ -194,12 +338,12 @@ pub fn probe_file(path: &Path, limits: &Limits) -> Result<VideoInfo> {
     probe_as(kind, &boxes, limits)
 }
 
-/// A video's header: unsupported until its frames are decoded (the facts come from [`probe`]).
+/// A video's header: never read as a still image (the facts come from [`probe`]).
 pub fn header(kind: VideoKind, _bytes: &[u8], _limits: &Limits) -> Result<Header> {
     Err(Error::Unsupported(Format::Video(kind)))
 }
 
-/// A video's frames: unsupported until M15.15.
+/// A video as a still image: never (its frames come from [`frames::FrameSource`]).
 pub fn decode(_bytes: &[u8], header: &Header, _budget: &mut Budget, _limits: &Limits) -> Result<Decoded> {
     Err(Error::Unsupported(header.format))
 }

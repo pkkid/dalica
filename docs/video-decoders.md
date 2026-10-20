@@ -8,6 +8,20 @@ M15.30 and M15.34 read it for which crate decodes what. Nothing here is product 
 dependency was added: the tasks that build on it add the crates named in §2, each through
 `cargo xtask deps` and `security.md` §8.6.
 
+> Status (M15.15, 2026-10-19): built. `dalica-image` decodes H.264 through `altc264` =0.1.1 in
+> every build, HEVC through `rusty_h265` =0.6.2 (`simd`) behind its non-default `hevc` feature
+> until §8's first question is answered, and AAC through `rusty_aac` =1.1.1 (no default features):
+> `formats::video::frames::FrameSource` and `formats::video::sound::SoundSource` (`formats.md` §1,
+> the Video row). `rusty_h264` is not used. The phone clips of §9 are pinned for the corpus job as
+> the `video` set (`xtask/src/corpus_pins.rs`), not published. Measured through Dalica's own path
+> (demuxing, the gate, conversion to upright 8-bit sRGB), release build, one core, on a machine at
+> load 20–27 of 24 threads (floors, as §3 says): H.264 1080p (IMG_6851) 34–40 fps at full size,
+> 66–68 fps at a 256 px long side, peak 92 MB; HEVC 1080p (IMG_0445) 24 fps full size, 34 fps at
+> 256 px, 92 MB; HEVC Main 10 HLG 1080p60 (M-6) 8–12 fps, 101 MB (decoder-bound under that load;
+> its tone mapping costs about 45 ms a 1080p frame on one core); H.264 4K60 with 8 threads
+> 59 fps at a 1,280 px long side, 11.6 fps at full size, 0.74–1.2 GB (6.9 fps and 374 MB on one
+> core); AAC: a 7.9 s stereo track in 24 ms.
+
 ## 1. The bar
 
 From the task block, a codec **passes** when one crate
