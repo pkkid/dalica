@@ -103,6 +103,9 @@ struct Listed {
     star: bool,
     /// The edits its folder's sidecar gives it (drawn while the library does not hold it).
     edits: Vec<String>,
+    /// A video's facts as the scan read them (`None`: a still): listed with the video tile, never
+    /// decoded (M15.16).
+    video: Option<dalica_library::VideoFacts>,
 }
 
 /// The two sizes decoded by path.
@@ -380,14 +383,19 @@ impl Session {
             .iter()
             .map(|p| {
                 let own = folder_id.and_then(|f| lib.photo_by_name(f, &p.name));
-                json!({
+                let mut out = json!({
                     "name": p.name,
                     "path": l.folder.join(&p.name),
                     "id": own.map(|o| o.id),
                     "star": own.map_or(p.star, |o| o.star),
                     "width": own.map_or(p.width, |o| o.width),
                     "height": own.map_or(p.height, |o| o.height),
-                })
+                });
+                match own {
+                    Some(o) => crate::video::add_kind(&mut out, lib, o.id),
+                    None => crate::video::add_listed_kind(&mut out, p.video.as_ref()),
+                }
+                out
             })
             .collect();
         json!({
@@ -537,6 +545,10 @@ impl Session {
         let Some(listed) = listed else {
             return Pixels::Failed(format!("{} {NOT_LISTED}", path.display()));
         };
+        // A video is the video tile with its reason, never decoded (its frames follow with M15.15).
+        if listed.video.is_some() {
+            return Pixels::Failed(crate::video::CANNOT_PLAY.into());
+        }
         let (_, render, screen, limits) = self.thumbs.screen_source();
         let images = self.images();
         images.take();
@@ -608,7 +620,7 @@ fn read_listing(file: &Path, options: &dalica_scan::Options) -> Listing {
     let mut photos: Vec<Listed> = found
         .iter()
         .flat_map(|f| f.photos.iter())
-        .map(|p| Listed { name: p.name.clone(), width: p.width, height: p.height, star: p.star, edits: p.info.edits.clone() })
+        .map(|p| Listed { name: p.name.clone(), width: p.width, height: p.height, star: p.star, edits: p.info.edits.clone(), video: p.video.clone() })
         .collect();
     photos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then_with(|| a.name.cmp(&b.name)));
     let refused = if photos.iter().any(|p| p.name == name) {

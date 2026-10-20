@@ -153,7 +153,12 @@ fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         .filter_map(|id| lib.photo(id))
         .filter(|p| q.folder.is_none_or(|f| p.folder == f))
         .filter(|p| q.starred.is_none_or(|want| p.star == want))
-        .map(|p| json!({ "id": p.id, "folder": p.folder, "name": p.name, "star": p.star, "width": p.width, "height": p.height, "date": p.date }))
+        .map(|p| {
+            let mut out =
+                json!({ "id": p.id, "folder": p.folder, "name": p.name, "star": p.star, "width": p.width, "height": p.height, "date": p.date });
+            crate::video::add_kind(&mut out, lib, p.id);
+            out
+        })
         .collect();
     let total = matching.len();
     let page: Vec<Value> = matching.into_iter().skip(q.offset).take(limit).collect();

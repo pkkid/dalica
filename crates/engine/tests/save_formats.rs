@@ -649,8 +649,10 @@ fn avif_and_video_cannot_be_saved_and_nothing_is_written() {
     let mut lib = Lib::new(&files);
     let fine = lib.edit("fine.jpg", &[TUNING]);
     let mut ids = Vec::new();
+    // A video takes only a rotation (M15.16): its edit is one.
+    let op = |name: &str| if name.ends_with(".mp4") { ROTATE } else { TUNING };
     for (name, _, why) in &refused {
-        let id = lib.edit(name, &[TUNING]);
+        let id = lib.edit(name, &[op(name)]);
         let reason = format!("{why}, so Dalica cannot save its edits");
         // Alone: disabled up front with the reason, no job started.
         assert_eq!(lib.s.execute("photo.save", &json!({ "ids": [id], "confirm": true })), Err(CmdError::Disabled(reason)), "{name}");
@@ -673,7 +675,7 @@ fn avif_and_video_cannot_be_saved_and_nothing_is_written() {
     assert!(lib.s.library().can_undo_save(fine));
     for ((name, bytes, _), id) in refused.iter().zip(&ids) {
         assert_eq!(&read(&lib.path(name)), bytes, "{name}: untouched");
-        assert_eq!(lib.edits(*id), [TUNING], "{name}: keeps its edits");
+        assert_eq!(lib.edits(*id), [op(name)], "{name}: keeps its edits");
         assert!(lib.s.library().has_unsaved_edits(*id), "{name}: still unsaved");
         assert!(lib.s.library().saved(*id).is_none() && lib.s.library().saved_as(*id).is_none(), "{name}");
         assert!(!lib.kept(name).exists(), "{name}: nothing kept");

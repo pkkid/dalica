@@ -39,6 +39,9 @@
 //!   (path, size, modification time) and not tried again until the file changes. A photo whose
 //!   folder cannot be reached (an offline volume) is not a failure: it keeps its cached entries,
 //!   draws what it has, and is never made again until its folder is back.
+//! - **A video** ([`crate::video::is_video`]) is never tracked, read or decoded here: its cell is
+//!   the video tile (M15.16; its poster frame follows with M15.20), so it answers
+//!   [`Thumb::NotScanned`] and never a failure, and Refresh Thumbnails leaves it out.
 //! - **Upkeep** ([`dalica_thumbs::upkeep`]): after scans settle, a background job compacts packs
 //!   past 25 % dead; at start and whenever a worker sees the cache past its size (the cache size
 //!   setting, 2 GiB by default), a pruning job takes it down to 80 %, largest sizes and oldest
@@ -1383,8 +1386,12 @@ fn fallback(library: &Library, id: PhotoId) -> Thumb {
     library.sketch(id).map_or(Thumb::NotScanned, |s| Thumb::Sketch(*s))
 }
 
-/// The file of `photo` as its cache key sees it.
+/// The file of `photo` as its cache key sees it; `None` for a video, which the thumbnailer never
+/// reads (its cell is the video tile until its poster frame is made, M15.20).
 fn source(library: &Library, photo: &Photo) -> Option<Source> {
+    if crate::video::is_video(library, photo.id) {
+        return None;
+    }
     let folder = library.folder(photo.folder)?;
     Some(Source { path: folder.path.join(&photo.name), file_size: photo.size, mtime_ms: photo.mtime.as_millis() })
 }

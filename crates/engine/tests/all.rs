@@ -89,6 +89,7 @@ mod tuning_commands;
 mod two_volumes;
 mod undo_emptied_folder;
 mod variant;
+mod videos;
 mod viewer;
 mod watching;
 mod write_back;

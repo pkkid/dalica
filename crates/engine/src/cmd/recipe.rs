@@ -39,7 +39,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Set Recipe",
         menu: "",
         keys: &[],
-        params: r#"{"ids":[PhotoId], "recipe":"op(…)|op(…)" | ["op(…)" | {"op":name, "params"?:"text"}], "label"?:string, "dropUnknown"?:bool (false)}: replaces each photo's whole recipe, verbatim, as one step of its own history; refuses by name to drop an entry Dalica cannot read (legacy:, unknown, or refused parameters) unless dropUnknown, and to add one the photo does not hold; every photo and entry is checked before any changes; answers {"photos":[photo.history.state + "changed"]}"#,
+        params: r#"{"ids":[PhotoId], "recipe":"op(…)|op(…)" | ["op(…)" | {"op":name, "params"?:"text"}], "label"?:string, "dropUnknown"?:bool (false)}: replaces each photo's whole recipe, verbatim, as one step of its own history; a video takes no new entry but a rotation or a trim (disabled); refuses by name to drop an entry Dalica cannot read (legacy:, unknown, or refused parameters) unless dropUnknown, and to add one the photo does not hold; every photo and entry is checked before any changes; answers {"photos":[photo.history.state + "changed"]}"#,
         effect: Effect::Library,
         history: History::Photo,
         enabled: has_ids,
@@ -166,6 +166,12 @@ fn set(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     // Every photo is checked before any changes.
     for id in &ids {
         check(*id, &s.library().info(*id).edits, &new, drop_unknown)?;
+        // A video takes only its own edits (a rotation, the trim): a new entry of any other kind
+        // is refused (M15.16); one it already holds may stay.
+        let held = &s.library().info(*id).edits;
+        if new.iter().any(|e| !held.contains(e) && crate::video::edit_refusal(s.library(), *id, &EditOp::parse(e)).is_some()) {
+            return Err(CmdError::Disabled(crate::video::EDITS_REFUSED.into()));
+        }
     }
     let mut photos = Vec::with_capacity(ids.len());
     for id in ids {

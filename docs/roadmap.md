@@ -10164,7 +10164,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     name; a truncated stream, a bit-flipped stream and a frame size past the limits are refused
     with their reasons without a panic or a hang; the PR names the parity rows a failed codec takes
     out of 1.0 for M15.R.
-- ⬜ **M15.16 `engine`: videos in the session**
+- ✅ **M15.16 `engine`: videos in the session**
   - after: M15.4, M15.11
   - files: `crates/engine/src/cmd/video.rs`, `crates/engine/src/video.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/collage.rs`, `crates/engine/tests/videos.rs`
   - scope: needed under any answer: `video.inspect {id}` (the facts, whether Dalica can play it, the

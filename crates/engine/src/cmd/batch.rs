@@ -68,7 +68,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Batch Edit",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId], "op":name | "name(params)", "params"?:"text between the parentheses" (the catalogue's defaults when left out)}: appends the operation to each photo's recipe with the edit view's rules (a rotation after a rotation merges, the same flip twice cancels, a tuning after a tuning replaces it), clearing each redo list, as one library undo step named by the operation ("Undo Auto Fix"); an operation this build cannot draw yet is disabled with its reason ("Arrives with Effects"); answers {ids (the photos changed), operation, label}"#,
+            params: r#"{"ids":[PhotoId], "op":name | "name(params)", "params"?:"text between the parentheses" (the catalogue's defaults when left out)}: appends the operation to each photo's recipe with the edit view's rules (a rotation after a rotation merges, the same flip twice cancels, a tuning after a tuning replaces it), clearing each redo list, as one library undo step named by the operation ("Undo Auto Fix"); an operation this build cannot draw yet is disabled with its reason ("Arrives with Effects"); a video takes only a rotation (skipped with its reason; videos alone: disabled); answers {ids (the photos changed), operation, label, skipped:[{id, reason}]}"#,
             effect: Effect::Library,
             history: History::Library,
             enabled: apply_enabled,
@@ -263,6 +263,13 @@ fn apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let Apply { ids, op, params: given } = params(p)?;
     let ids = photos(s, ids)?;
     let op = operation(&op, given.as_deref())?;
+    // Videos take only their own edits (`crate::video::edit_refusal`): skipped with the reason,
+    // and refused when nothing else is left.
+    let (ids, refused): (Vec<PhotoId>, Vec<PhotoId>) = ids.into_iter().partition(|id| crate::video::edit_refusal(s.library(), *id, &op).is_none());
+    if ids.is_empty() && !refused.is_empty() {
+        return Err(CmdError::Disabled(crate::video::EDITS_REFUSED.into()));
+    }
+    let skipped: Vec<Value> = refused.iter().map(|id| json!({ "id": id, "reason": crate::video::EDITS_REFUSED })).collect();
     let mut recipes = Vec::new();
     for id in &ids {
         let info = s.library().info(*id);
@@ -274,7 +281,7 @@ fn apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let changed: Vec<PhotoId> = recipes.iter().map(|(id, _)| *id).collect();
     let name = label(&op);
     library_step(s, name, recipes)?;
-    Ok(json!({ "ids": changed, "operation": op.to_string(), "label": name }))
+    Ok(json!({ "ids": changed, "operation": op.to_string(), "label": name, "skipped": skipped }))
 }
 
 // ----- edit.copyRecipe -----
