@@ -13,7 +13,8 @@ dependency was added: the tasks that build on it add the crates named in §2, ea
 > until §8's first question is answered, and AAC through `rusty_aac` =1.1.1 (no default features):
 > `formats::video::frames::FrameSource` and `formats::video::sound::SoundSource` (`formats.md` §1,
 > the Video row). `rusty_h264` is not used. The phone clips of §9 are pinned for the corpus job as
-> the `video` set (`xtask/src/corpus_pins.rs`), not published. Measured through Dalica's own path
+> the `video` set (`xtask/src/corpus_pins.rs`), published to `pkkid/dalica-corpus` as the assets
+> of its `video-v1` release (§8 question 4, answered at M15.R). Measured through Dalica's own path
 > (demuxing, the gate, conversion to upright 8-bit sRGB), release build, one core, on a machine at
 > load 20–27 of 24 threads (floors, as §3 says): H.264 1080p (IMG_6851) 34–40 fps at full size,
 > 66–68 fps at a 256 px long side, peak 92 MB; HEVC 1080p (IMG_0445) 24 fps full size, 34 fps at
@@ -284,14 +285,20 @@ task waits on them: the later tasks build on §2 and keep the tile path.
 4. **Publishing the samples.** May the phone clips of §9 (CC BY-SA 4.0, CC0 and public domain;
    about 740 MB) go to `pkkid/dalica-corpus` as a `video` set, so the review's corpus job can rerun
    this measurement? The ITU conformance bitstreams carry no open licence and stay a download.
+   *Answered at M15.R (2026-10-20): publish all 12.* They are the assets of the `video-v1`
+   release of `dalica-corpus` (§9).
 5. **The sound crates' age.** `lewton` (Vorbis) and `claxon` (FLAC) pass but have had no release
    since 2021 and 2020. Accept them, or prefer `rusty_flac` (new, 11 `unsafe`) for FLAC; Vorbis has
    no other allow-listed decoder (Symphonia is MPL-2.0 and would need a licence exception).
 
 ## 9. Samples
 
-Fetched into the agent's scratch directory, never committed, not published (§8 asks). Phone files
-from the Internet Archive (each item's licence as its uploader set it; `https://archive.org/download/<item>/<file>`):
+Never committed here. The phone files are from the Internet Archive (each item's licence as its
+uploader set it; `https://archive.org/download/<item>/<file>`) and, unmodified, the assets of the
+`video-v1` release of `pkkid/dalica-corpus`, where the corpus job fetches them by URL and sha256
+(`SOURCES.tsv` and `video/README.md` there credit each author; the three long names are stored as
+`BTS_iPhone12mini_4K60.MOV`, `M-6_Fun_Fact.MOV` and `104-107_Fun_Fact.MOV`). The other samples
+below were fetched into the agent's scratch directory and are not published:
 
 | File | Item | Licence | What | SHA-256 |
 |---|---|---|---|---|
