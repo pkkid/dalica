@@ -359,6 +359,46 @@ pub const BUDGETS: &[Budget] = &[
         judge: crate::bench::judge_collage_canvas,
         relative: None,
     },
+    Budget {
+        milestone: 15,
+        name: "video probe",
+        what: "video_probe: 1 000 MP4, QuickTime and Matroska containers of 30 s clips with sound probed as a scan probes them, a round's median within 1.5 × its first measurement (writes about 40 MB, removed after)",
+        cargo: &["bench", "-p", "dalica-image", "--bench", "video_probe", "--", "--json"],
+        judge: crate::bench::judge_video_probe,
+        relative: None,
+    },
+    Budget {
+        milestone: 15,
+        name: "video play",
+        what: "video_play: H.264 clips at 1080p30 and 4K60: the poster and its thumbnails, a frame step (medians), the owner's frame while playing and the player's decoded frame (p95), each within 1.5 × its first measurement, a playing frame never above 16 ms; the phone clips' rows when fetched, printed (writes about 0.1 GB, removed after)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "video_play", "--", "--json"],
+        judge: crate::bench::judge_video_play,
+        relative: None,
+    },
+    Budget {
+        milestone: 15,
+        name: "camera import",
+        what: "camera_import: 300 JPEGs of 2048 px imported from the in-memory PTP camera, files a second from the median of three at least the first measurement ÷ 1.5 (writes about 0.1 GB, removed after)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "camera_import", "--", "--json"],
+        judge: crate::bench::judge_camera_import,
+        relative: None,
+    },
+    Budget {
+        milestone: 15,
+        name: "accessibility frame",
+        what: "a11y_frame: the light table's frame at 100 k photos while it scrolls with AccessKit on (p95) within 1.5 × its first measurement and 8 ms, and its overhead over AccessKit off (p95) within 1.5 × its first measurement and never above 1 ms",
+        cargo: &["bench", "-p", "dalica-ui", "--bench", "a11y_frame", "--", "--json"],
+        judge: crate::bench::judge_a11y_frame,
+        relative: None,
+    },
+    Budget {
+        milestone: 15,
+        name: "translation frame",
+        what: "i18n_frame: the light table's frame at 100 k photos while it scrolls in the pseudo-locale (p95) within 1.5 × its first measurement and 8 ms, and its overhead over English (p95) within 1.5 × its first measurement and never above 1 ms",
+        cargo: &["bench", "-p", "dalica-ui", "--bench", "i18n_frame", "--", "--json"],
+        judge: crate::bench::judge_i18n_frame,
+        relative: None,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -1580,6 +1620,16 @@ mod tests {
                     )
                 } else if args.contains(&"legacy_scan") {
                     (true, crate::bench::tests::legacy_scan_out("release", 10_000, 64 << 20, crate::bench::tests::LEGACY_SCAN_MEASURED))
+                } else if args.contains(&"video_probe") {
+                    (true, crate::bench::tests::video_probe_out("release", 1000, crate::bench::tests::PROBE_MEASURED))
+                } else if args.contains(&"video_play") {
+                    (true, crate::bench::tests::video_play_out("release", true, crate::bench::tests::PLAY_MEASURED))
+                } else if args.contains(&"camera_import") {
+                    (true, crate::bench::tests::camera_import_out("release", 300, 2048, crate::bench::tests::CAMERA_MEASURED))
+                } else if args.contains(&"a11y_frame") {
+                    (true, crate::bench::tests::ui_frame_out("a11y_frame", "release", 100_000, crate::bench::tests::A11Y_MEASURED))
+                } else if args.contains(&"i18n_frame") {
+                    (true, crate::bench::tests::ui_frame_out("i18n_frame", "release", 100_000, crate::bench::tests::I18N_MEASURED))
                 } else if args.contains(&"collage_canvas") {
                     (true, crate::bench::tests::collage_canvas_out("release", 100, crate::bench::tests::CANVAS_MEASURED))
                 } else if args.contains(&"effect_tiles") {
@@ -1603,10 +1653,17 @@ mod tests {
         // a cold start of three frames, nor the import (8 s more over 1 000 files is inside its
         // 1.5 ×), nor the tile grids (a few hundred ms), nor face inference (tens of ms). Of M14's,
         // the collage layouts (under 2 ms) and the canvas's drag frame miss; the render (seconds)
-        // and the legacy scans (a hundred ms and more) do not.
+        // and the legacy scans (a hundred ms and more) do not. Of M15's, the probe, the video's
+        // steps and frames, and the AccessKit and translation frames miss; the camera import (2.4 s
+        // more over 300 files is inside its headroom) does not.
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("12 of 19 missed")
+            e.contains("16 of 24 missed")
+                && e.contains("M15 video probe: 1 of 1 missed")
+                && e.contains("M15 video play: 5 of 8 missed")
+                && !e.contains("M15 camera import")
+                && e.contains("M15 accessibility frame: 2 of 2 missed")
+                && e.contains("M15 translation frame: 2 of 2 missed")
                 && e.contains("M14 collage: 6 of 8 missed: layout pile 200")
                 && e.contains("M14 collage canvas: 1 of 1 missed: drag frame")
                 && !e.contains("M14 legacy scan")
@@ -1630,18 +1687,18 @@ mod tests {
         assert!(e.contains("M11 import: first thumbnails"), "{e}");
         // The largest planted slowdown misses every budget, the cold start's included.
         let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
-        assert!(e.contains("19 of 19 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
+        assert!(e.contains("24 of 24 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 19 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 24 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 19 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 24 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("19 of 19 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("24 of 24 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }

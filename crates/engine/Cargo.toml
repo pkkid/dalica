@@ -116,3 +116,13 @@ harness = false
 [[bench]]
 name = "faces_scan"
 harness = false
+
+[[bench]]
+name = "video_play"
+harness = false
+path = "benches/video.rs"
+
+[[bench]]
+name = "camera_import"
+harness = false
+path = "benches/import_camera.rs"

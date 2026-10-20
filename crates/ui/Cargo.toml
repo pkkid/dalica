@@ -74,3 +74,13 @@ harness = false
 name = "collage_canvas"
 harness = false
 path = "benches/collage.rs"
+
+[[bench]]
+name = "a11y_frame"
+harness = false
+path = "benches/a11y.rs"
+
+[[bench]]
+name = "i18n_frame"
+harness = false
+path = "benches/i18n.rs"
