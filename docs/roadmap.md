@@ -10099,7 +10099,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     open-with start the right program (a stub program on `PATH` records its arguments); files and
     text round-trip through the clipboard where a display is available (skipped and named
     otherwise).
-- ⬜ **M15.13 macOS packages signed and notarized**
+- ✅ **M15.13 macOS packages signed and notarized**
   - after: M6.23, M15.10
   - files: `packaging/macos/import-cert.sh`, `packaging/macos/package.sh`, `packaging/macos/notarize.sh`, `packaging/macos/verify.sh`, `packaging/macos/common.sh`, `packaging/macos/entitlements.plist`, `.github/workflows/release.yml`, `packaging/README.md`, `docs/releasing.md`
   - scope: `releasing.md` → macOS: the `sign macOS universal` job imports the Developer ID

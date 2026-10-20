@@ -4,10 +4,10 @@
 #
 # Every other run is a dry run that still builds, checksums and verifies: a manual run on any other
 # branch, and a pull request that touches packaging/, the workflows or the icons. In a dry run the
-# Windows signing job runs without the `release` environment and without its secrets, signing with
-# a throwaway self-signed certificate it makes itself (trusted on that runner only), so the signing
-# path runs on every packaging pull request; the macOS signing job is skipped (and the `release`
-# environment, restricted to the `release` branch, would refuse it), and the draft job never runs.
+# signing jobs run without the `release` environment and without its secrets, each signing with a
+# throwaway self-signed identity it makes itself (trusted on that runner only), so the signing path
+# runs on every packaging pull request; macOS notarization and stapling, which need Apple's
+# credentials, are skipped there and named; the draft job never runs.
 #
 # Least privilege: the workflow reads (`contents: read`); the build jobs read no secrets and run
 # without the `release` environment; only the signing jobs of a release run use that environment
@@ -107,7 +107,7 @@ jobs:
             echo "prerelease=$pre"
             echo "real=$real"
           } >>"$GITHUB_OUTPUT"
-          if [ "$real" = true ]; then kind="release run"; else kind="dry run (nothing is signed or drafted)"; fi
+          if [ "$real" = true ]; then kind="release run"; else kind="dry run (signed with throwaway identities; nothing notarized or drafted)"; fi
           echo "### Dalica v$v at \`${GITHUB_SHA::9}\`: $kind" >>"$GITHUB_STEP_SUMMARY"
 
   linux:
@@ -259,13 +259,23 @@ jobs:
           CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
           CRAFT_FONTS_REQUIRED: "1"
         run: packaging/macos/package.sh
-      # Unsigned here; on the release branch the signing job replaces it with the signed set.
+      # Signed ad hoc here; the signing job replaces it with the set it signs from the stage below.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos-universal
           path: dist/release/*
           if-no-files-found: error
           retention-days: 14
+      # The tested universal programs and licence files, for the signing job to sign and package
+      # (not a release asset: the checksum and draft jobs take `release-*` only).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stage-macos-universal
+          path: |
+            target/macos-package/bin/
+            target/macos-package/doc/
+          if-no-files-found: error
+          retention-days: 3
 
   # The signing jobs: in a release run the only jobs in the `release` environment and the only
   # ones that see its secrets. One job per Windows architecture the build matrix makes (x64 only
@@ -326,48 +336,59 @@ jobs:
           overwrite: true
           retention-days: 14
 
-  # macOS: signing and notarization arrive in M15.13; until then the job reports which secrets are
-  # configured, states every artifact as unsigned in the summary, and passes the set through.
+  # macOS (M15.13): package.sh --from-stage assembles Dalica.app from the build job's universal
+  # programs, signs it inside-out with the hardened runtime and a secure timestamp, builds and signs
+  # the DMG and the CLI zip, notarizes the app, the DMG and the zip (notarize.sh) and staples the
+  # app and the DMG, then verify.sh checks the set as users download it. A release run imports the
+  # Developer ID certificate (APPLE_CERTIFICATE) into a temporary keychain and notarizes with the
+  # three Apple secrets (all or none); without the certificate it warns and signs ad hoc, without
+  # the three it warns and does not notarize. A dry run never reads those secrets: it signs with a
+  # throwaway self-signed identity made in a temporary keychain (import-cert.sh --throwaway), and
+  # notarization, stapling and Gatekeeper's checks are skipped and named. The keychain is deleted
+  # at the job's end whatever happened.
   sign-macos:
     name: sign macOS universal
     needs: [version, macos]
-    if: needs.version.outputs.real == 'true'
     runs-on: macos-latest
-    timeout-minutes: 60
-    environment: release
+    timeout-minutes: 90
+    # A release run only; an empty name runs the dry run without an environment.
+    environment: ${{ needs.version.outputs.real == 'true' && 'release' || '' }}
+    env:
+      DALICA_VERSION: ${{ needs.version.outputs.version }}
+      DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
+      REAL: ${{ needs.version.outputs.real }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-macos-universal
-          path: dist/release
-      - name: Signing state
+          name: stage-macos-universal
+          path: stage
+      - name: Signing identity
+        # The secrets reach the script only through these variables, and only in a release run.
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          KEYCHAIN_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.KEYCHAIN_PASSWORD || '' }}
         run: |
-          cert=false notary=0
-          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ]; then cert=true; fi
-          for s in "$APPLE_ID" "$APPLE_PASSWORD" "$APPLE_TEAM_ID"; do
-            if [ -n "$s" ]; then notary=$((notary + 1)); fi
-          done
-          if [ "$cert" = false ]; then
-            echo "::warning::No macOS signing secrets (APPLE_CERTIFICATE + APPLE_CERTIFICATE_PASSWORD): the macOS artifacts are unsigned."
+          if [ "$REAL" = true ]; then
+            packaging/macos/import-cert.sh
+          else
+            echo "Dry run: signing with a throwaway self-signed identity (never trusted elsewhere, never notarized or drafted)"
+            packaging/macos/import-cert.sh --throwaway
           fi
-          case "$notary" in
-            0) echo "::warning::No notarization secrets (APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID): the macOS artifacts are not notarized." ;;
-            3) ;;
-            *) echo "::warning::Only $notary of APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID are set (all three or none): the macOS artifacts are not notarized." ;;
-          esac
-          if [ "$cert" = true ]; then
-            echo "::warning::macOS signing secrets are configured, but signing and notarization arrive in M15: the macOS artifacts are unsigned."
-          fi
-          {
-            echo "#### macOS signature state"
-            for f in dist/release/*; do echo "- \`${f##*/}\`: unsigned, not notarized"; done
-          } >>"$GITHUB_STEP_SUMMARY"
+      - name: Sign, notarize and package
+        env:
+          APPLE_ID: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ needs.version.outputs.real == 'true' && secrets.APPLE_TEAM_ID || '' }}
+        run: |
+          rm -rf dist/release
+          packaging/macos/package.sh --from-stage stage
+      - name: Delete the temporary keychain
+        if: always()
+        run: packaging/macos/import-cert.sh --delete
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos-universal
@@ -377,8 +398,8 @@ jobs:
           retention-days: 14
 
   # SHA256SUMS.txt over the complete artifact set, written after signing: the signed set on the
-  # release branch; in a dry run the Windows set signed with the throwaway certificate and the
-  # other build outputs as built (the macOS signing job is skipped there, never failed).
+  # release branch; in a dry run the Windows and macOS sets signed with the throwaway identities and
+  # the Linux build outputs as built.
   checksums:
     name: checksums
     needs: [version, linux, windows, macos, sign-windows, sign-macos]
@@ -447,7 +468,7 @@ jobs:
   release:
     name: draft GitHub Release
     needs: [version, checksums, verify, sign-windows, sign-macos]
-    # Only a release-branch run reaches here: the signing jobs it needs are skipped elsewhere.
+    # Only a release-branch run reaches here.
     if: needs.version.outputs.real == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20

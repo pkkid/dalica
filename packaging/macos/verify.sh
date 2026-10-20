@@ -12,13 +12,21 @@
 #
 # Usage: packaging/macos/verify.sh       (package.sh runs it last)
 #
-# With a real signing identity and the notarization credentials in the environment (the
-# MACOS_SIGN_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID that package.sh uses), every check
-# is strict: Developer ID, hardened runtime, secure timestamp, stapled tickets on the app and the
-# DMG, and Gatekeeper's assessment (for the CLI, an online lookup: a bare binary cannot hold a
-# ticket). Without them (ad hoc builds) the signatures' integrity and everything else above are
-# still checked, and the Developer ID and notarization checks are warnings. Nothing here reads or
-# prints a secret's value; it only tests whether one is set.
+# What the signatures must show follows common.sh's signing mode (the MACOS_SIGN_IDENTITY,
+# MACOS_SIGN_THROWAWAY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID that package.sh uses):
+#
+#   every mode     strict integrity (codesign --verify --strict) and the hardened runtime
+#   throwaway      also: signed by that identity's certificate (its SHA-1), a secure timestamp, the
+#                  DMG signed too; the notarization checks are skipped and named (a dry run)
+#   developer-id   also: a Developer ID Application authority, the expected certificate when the
+#                  identity is a SHA-1, the team when APPLE_TEAM_ID is set; with all three
+#                  notarization credentials also the stapled tickets on the app and the DMG and
+#                  Gatekeeper's assessment (for the CLI, an online lookup: a bare binary cannot hold
+#                  a ticket)
+#   adhoc          the certificate and notarization checks are warnings, enough to check a bundle
+#                  locally
+#
+# Nothing here reads or prints a secret's value; it only tests whether one is set.
 #
 # Adapted from PhotoCraft packaging/macos/verify.sh @ 77221725 and the finished-image check of
 # LightCraft packaging/macos/package.sh @ 9978dc73 (MIT OR Apache-2.0).
@@ -28,25 +36,31 @@ set -euo pipefail
 
 case "${1:-}" in
   "") ;;
-  -h | --help) sed -n '2,23p' "$0"; exit 0 ;;
+  -h | --help) sed -n '2,30p' "$0"; exit 0 ;;
   *) echo "unknown argument: $1" >&2; exit 2 ;;
 esac
 
-IDENTITY="${MACOS_SIGN_IDENTITY:--}"
-STRICT=0
-if [ "$IDENTITY" != "-" ] && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
-  STRICT=1
-fi
+# IDENTITY, SIGN_MODE and NOTARIZE come from common.sh. STRICT: the notarization checks apply.
+STRICT="$NOTARIZE"
+# The expected leaf certificate, when the identity is given by its SHA-1 (import-cert.sh does).
+WANT_SHA1=""
+re='^[0-9A-Fa-f]{40}$'
+if [[ $IDENTITY =~ $re ]]; then WANT_SHA1="$(printf '%s' "$IDENTITY" | tr '[:lower:]' '[:upper:]')"; fi
 
 FAILED=0
-# A check that only a signed and notarized build can pass.
+# A check that only a build signed with a real certificate can pass: an error unless ad hoc.
 fail_signed() {
-  if [ "$STRICT" = 1 ]; then
+  if [ "$SIGN_MODE" != adhoc ]; then
     echo "error: $*" >&2
     FAILED=1
   else
     warn "$* (expected without signing secrets)"
   fi
+}
+# A check that only a notarized build can pass.
+fail_notarized() {
+  echo "error: $*" >&2
+  FAILED=1
 }
 die() {
   echo "error: $*" >&2
@@ -89,21 +103,42 @@ reports_version() {
   fi
 }
 
-# signed_details FILE NAME: the Developer ID, hardened runtime, timestamp and team checks.
-signed_details() {
-  local details
+# signer FILE NAME: the certificate, timestamp and team checks; prints the signature's details.
+signer() {
+  local details leaf
   details="$(codesign -d --verbose=2 "$1" 2>&1)"
   printf '%s\n' "$details" | grep -E '^(Identifier|Format|CodeDirectory|Authority|Timestamp|TeamIdentifier)[= ]' || true
-  printf '%s\n' "$details" | grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*runtime' ||
-    die "$2 is not signed with the hardened runtime"
-  printf '%s\n' "$details" | grep -q '^Authority=Developer ID Application:' ||
-    fail_signed "$2 is not signed with a Developer ID Application identity"
+  if [ "$SIGN_MODE" = developer-id ] || [ "$SIGN_MODE" = adhoc ]; then
+    printf '%s\n' "$details" | grep -q '^Authority=Developer ID Application:' ||
+      fail_signed "$2 is not signed with a Developer ID Application identity"
+  fi
   printf '%s\n' "$details" | grep -q '^Timestamp=' ||
     fail_signed "$2 has no secure timestamp"
-  if [ -n "${APPLE_TEAM_ID:-}" ]; then
+  if [ -n "$WANT_SHA1" ]; then
+    rm -f "$TMP"/cert*
+    codesign -d --extract-certificates="$TMP/cert" "$1" >/dev/null 2>&1 || true
+    if [ -f "$TMP/cert0" ]; then
+      leaf="$(shasum -a 1 "$TMP/cert0" | awk '{ print toupper($1) }')"
+    else
+      leaf=none
+    fi
+    if [ "$leaf" = "$WANT_SHA1" ]; then
+      echo "$2: signed by the expected certificate $WANT_SHA1"
+    else
+      fail_signed "$2 is signed by certificate $leaf, not $WANT_SHA1"
+    fi
+  fi
+  if [ -n "${APPLE_TEAM_ID:-}" ] && [ "$SIGN_MODE" = developer-id ]; then
     printf '%s\n' "$details" | grep -qx "TeamIdentifier=$APPLE_TEAM_ID" ||
       fail_signed "$2 is signed by a different team"
   fi
+}
+
+# signed_details FILE NAME: code (an executable or the bundle): the hardened runtime, then signer.
+signed_details() {
+  codesign -d --verbose=2 "$1" 2>&1 | grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*runtime' ||
+    die "$2 is not signed with the hardened runtime"
+  signer "$1" "$2"
 }
 
 for f in "$DMG" "$CLI_ZIP"; do
@@ -131,23 +166,26 @@ has_archs "$CLI" dalica-cli
 # Integrity first: this holds for ad hoc builds too.
 codesign --verify --strict --verbose=2 "$CLI"
 signed_details "$CLI" dalica-cli
-if gk="$(assess --assess --type install -vv "$CLI")"; then
-  printf '%s\n' "$gk"
-  printf '%s\n' "$gk" | grep -q 'source=Notarized Developer ID' ||
-    fail_signed "Gatekeeper accepts dalica-cli but not as notarized"
-else
-  printf '%s\n' "$gk"
-  fail_signed "Gatekeeper rejects dalica-cli (not notarized)"
+if [ "$STRICT" = 1 ]; then
+  if gk="$(assess --assess --type install -vv "$CLI")"; then
+    printf '%s\n' "$gk"
+    printf '%s\n' "$gk" | grep -q 'source=Notarized Developer ID' ||
+      fail_notarized "Gatekeeper accepts dalica-cli but not as notarized"
+  else
+    printf '%s\n' "$gk"
+    fail_notarized "Gatekeeper rejects dalica-cli (not notarized)"
+  fi
 fi
 reports_version "$CLI" dalica-cli
 
 # ---- DMG ---------------------------------------------------------------------------------------
 echo "==> $(basename "$DMG")"
 codesign --verify --strict --verbose=2 "$DMG"
+if [ "$SIGN_MODE" != adhoc ]; then signer "$DMG" "$(basename "$DMG")"; fi
 if [ "$STRICT" = 1 ]; then
-  xcrun stapler validate "$DMG" || fail_signed "no notarization ticket stapled to the DMG"
+  xcrun stapler validate "$DMG" || fail_notarized "no notarization ticket stapled to the DMG"
   assess --assess --type open --context context:primary-signature -vv "$DMG" ||
-    fail_signed "Gatekeeper rejects the DMG"
+    fail_notarized "Gatekeeper rejects the DMG"
 fi
 
 mkdir -p "$MNT"
@@ -198,8 +236,8 @@ ditto "$APP" "$TMP/installed/Dalica.app"
 codesign --verify --deep --strict --verbose=2 "$TMP/installed/Dalica.app"
 signed_details "$TMP/installed/Dalica.app" Dalica.app
 if [ "$STRICT" = 1 ]; then
-  xcrun stapler validate "$TMP/installed/Dalica.app" || fail_signed "no notarization ticket stapled to Dalica.app"
-  assess --assess --type execute -vv "$TMP/installed/Dalica.app" || fail_signed "Gatekeeper rejects Dalica.app"
+  xcrun stapler validate "$TMP/installed/Dalica.app" || fail_notarized "no notarization ticket stapled to Dalica.app"
+  assess --assess --type execute -vv "$TMP/installed/Dalica.app" || fail_notarized "Gatekeeper rejects Dalica.app"
 fi
 reports_version "$EXE" "Dalica.app (mounted DMG)"
 
@@ -209,11 +247,12 @@ MOUNTED=0
 if [ "$FAILED" != 0 ]; then
   die "the macOS artifacts failed verification"
 fi
-if [ "$STRICT" = 1 ]; then
-  result="signed (Developer ID, hardened runtime), notarized; app and DMG stapled"
-else
-  result="ad hoc signatures intact; Developer ID and notarization not checked (no signing secrets)"
-fi
+case "$SIGN_MODE:$STRICT" in
+  developer-id:1) result="signed (Developer ID, hardened runtime, timestamp), notarized; app and DMG stapled" ;;
+  developer-id:0) result="signed (Developer ID, hardened runtime, timestamp); not checked: $NOT_NOTARIZED (not notarized)" ;;
+  throwaway:*) result="signed with the dry run's throwaway identity $IDENTITY (hardened runtime, timestamp; the app, the CLI and the DMG; strict after a ditto copy); skipped: $NOT_NOTARIZED" ;;
+  *) result="ad hoc signatures intact; not checked: $NOT_NOTARIZED (no signing secrets)" ;;
+esac
 echo "==> verified: $result"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   echo "- macOS \`$(basename "$DMG")\`, \`$(basename "$CLI_ZIP")\`: $result" >>"$GITHUB_STEP_SUMMARY"
