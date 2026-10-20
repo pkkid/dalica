@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use dalica_ui::control::{Code, Error, MAX_REQUEST_LINE, Reply, Request, reply_line};
@@ -56,6 +56,7 @@ pub struct Pending {
     pub req: Request,
     arrived: Instant,
     answer: SyncSender<Answer>,
+    unwritten: Arc<Unwritten>,
 }
 
 impl Pending {
@@ -63,7 +64,7 @@ impl Pending {
     /// deadline, so it must not run.
     pub fn dispatch(&self) -> bool {
         if self.arrived.elapsed() > REPLY_DEADLINE {
-            let _ = self.answer.try_send(Answer::Done(Err(queued_too_long())));
+            self.done(Err(queued_too_long()));
             return false;
         }
         let _ = self.answer.try_send(Answer::Dispatched);
@@ -72,7 +73,43 @@ impl Pending {
 
     /// Sends the reply (dropped if the connection has given up on it).
     pub fn reply(self, reply: Reply) {
-        let _ = self.answer.try_send(Answer::Done(reply));
+        self.done(reply);
+    }
+
+    /// Hands the reply to its connection, counted as unwritten until the connection has written it
+    /// ([`Hub::wait_replies_written`]).
+    fn done(&self, reply: Reply) {
+        self.unwritten.add();
+        if self.answer.try_send(Answer::Done(reply)).is_err() {
+            self.unwritten.written();
+        }
+    }
+}
+
+/// Replies the UI thread has answered that their connections have not written yet.
+#[derive(Default)]
+struct Unwritten {
+    count: Mutex<usize>,
+    changed: Condvar,
+}
+
+impl Unwritten {
+    fn add(&self) {
+        let mut n = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        *n = n.saturating_add(1);
+    }
+
+    fn written(&self) {
+        let mut n = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        *n = n.saturating_sub(1);
+        self.changed.notify_all();
+    }
+
+    /// Waits until none is left, at most `within`; whether none is left.
+    fn wait(&self, within: Duration) -> bool {
+        let n = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        let (n, _) = self.changed.wait_timeout_while(n, within, |n| *n > 0).unwrap_or_else(PoisonError::into_inner);
+        *n == 0
     }
 }
 
@@ -84,12 +121,20 @@ fn queued_too_long() -> Error {
 pub struct Hub {
     pub rx: Receiver<Msg>,
     quit_written: Receiver<()>,
+    unwritten: Arc<Unwritten>,
 }
 
 impl Hub {
     /// Waits (at most `within`) until the reply to `app.quit` has been written to its client.
     pub fn wait_quit_written(&self, within: Duration) {
         let _ = self.quit_written.recv_timeout(within);
+    }
+
+    /// Waits (at most `within`) until every reply the UI thread has answered has been written to
+    /// its client: the process may exit then without cutting one off (`dalica --view` closed by a
+    /// request's Esc). Whether all were written.
+    pub fn wait_replies_written(&self, within: Duration) -> bool {
+        self.unwritten.wait(within)
     }
 }
 
@@ -100,6 +145,9 @@ struct Shared {
     wake: Waker,
     open: AtomicUsize,
     quit_written: SyncSender<()>,
+    unwritten: Arc<Unwritten>,
+    /// Runs before a connection writes the UI's reply (a test seam; a no-op in the app).
+    before_write: Waker,
     /// How long a connection has to authenticate: [`AUTH_WITHIN`] (shorter only in unit tests).
     auth_within: Duration,
     /// How long a connection may idle before it is closed: [`IDLE`] (shorter only in unit tests).
@@ -121,17 +169,29 @@ pub fn bind(port: u16) -> std::io::Result<TcpListener> {
 
 /// Starts accepting on `listener` (already bound) on its own thread.
 pub fn start(listener: TcpListener, token: Token, wake: Waker) -> std::io::Result<Hub> {
-    start_with(listener, token, wake, AUTH_WITHIN, IDLE)
+    start_with(listener, token, wake, AUTH_WITHIN, IDLE, Arc::new(|| {}))
 }
 
-/// [`start`], with the time a connection has to authenticate and the time it may idle (a test
-/// seam: the app always uses [`AUTH_WITHIN`] and [`IDLE`]).
-fn start_with(listener: TcpListener, token: Token, wake: Waker, auth_within: Duration, idle: Duration) -> std::io::Result<Hub> {
+/// [`start`], with the time a connection has to authenticate, the time it may idle and what runs
+/// before a connection writes the UI's reply (a test seam: the app always uses [`AUTH_WITHIN`],
+/// [`IDLE`] and nothing).
+fn start_with(listener: TcpListener, token: Token, wake: Waker, auth_within: Duration, idle: Duration, before_write: Waker) -> std::io::Result<Hub> {
     let (tx, rx) = mpsc::channel();
     let (quit_tx, quit_rx) = mpsc::sync_channel(1);
-    let shared = Arc::new(Shared { token, tx: Mutex::new(tx), wake, open: AtomicUsize::new(0), quit_written: quit_tx, auth_within, idle });
+    let unwritten = Arc::new(Unwritten::default());
+    let shared = Arc::new(Shared {
+        token,
+        tx: Mutex::new(tx),
+        wake,
+        open: AtomicUsize::new(0),
+        quit_written: quit_tx,
+        unwritten: Arc::clone(&unwritten),
+        before_write,
+        auth_within,
+        idle,
+    });
     std::thread::Builder::new().name("dalica-control".into()).spawn(move || accept(listener, shared))?;
-    Ok(Hub { rx, quit_written: quit_rx })
+    Ok(Hub { rx, quit_written: quit_rx, unwritten })
 }
 
 fn accept(listener: TcpListener, shared: Arc<Shared>) {
@@ -309,8 +369,14 @@ fn connection(stream: TcpStream, id: u64, shared: &Shared) {
         }
         let quit = req.method == QUIT;
         let rid = req.id.clone();
-        let reply = ask_ui(shared, id, req);
+        let (reply, answered) = ask_ui(shared, id, req);
+        if answered {
+            (shared.before_write)();
+        }
         let written = write(&mut out, &rid, &reply);
+        if answered {
+            shared.unwritten.written();
+        }
         if quit {
             let _ = shared.quit_written.try_send(());
             return;
@@ -322,26 +388,29 @@ fn connection(stream: TcpStream, id: u64, shared: &Shared) {
 }
 
 /// Hands `req` to the UI thread and waits for its reply: until the deadline while it is queued,
-/// then [`RUN_LIMIT`] once it runs.
-fn ask_ui(shared: &Shared, conn: u64, req: Request) -> Reply {
+/// then [`RUN_LIMIT`] once it runs. Whether the UI thread answered it (then the reply counts as
+/// unwritten until it is written: [`Hub::wait_replies_written`]).
+fn ask_ui(shared: &Shared, conn: u64, req: Request) -> (Reply, bool) {
     let (tx, rx) = mpsc::sync_channel(2);
     let arrived = Instant::now();
-    if !shared.send(Msg::Request(Pending { conn, req, arrived, answer: tx })) {
-        return Err(Error::new(Code::Internal, "the app is shutting down"));
+    let unwritten = Arc::clone(&shared.unwritten);
+    if !shared.send(Msg::Request(Pending { conn, req, arrived, answer: tx, unwritten })) {
+        return (Err(Error::new(Code::Internal, "the app is shutting down")), false);
     }
     let mut limit = arrived + REPLY_DEADLINE;
     loop {
         match rx.recv_timeout(limit.saturating_duration_since(Instant::now())) {
             Ok(Answer::Dispatched) => limit = Instant::now() + RUN_LIMIT,
-            Ok(Answer::Done(reply)) => return reply,
-            Err(RecvTimeoutError::Timeout) if limit == arrived + REPLY_DEADLINE => return Err(queued_too_long()),
+            Ok(Answer::Done(reply)) => return (reply, true),
+            Err(RecvTimeoutError::Timeout) if limit == arrived + REPLY_DEADLINE => return (Err(queued_too_long()), false),
             Err(RecvTimeoutError::Timeout) => {
-                return Err(Error::new(
+                let e = Error::new(
                     Code::Timeout,
                     format!("the UI did not answer within {} s; the request may still run or have run: inspect before retrying", RUN_LIMIT.as_secs()),
-                ));
+                );
+                return (Err(e), false);
             }
-            Err(RecvTimeoutError::Disconnected) => return Err(Error::new(Code::Internal, "the app dropped the request")),
+            Err(RecvTimeoutError::Disconnected) => return (Err(Error::new(Code::Internal, "the app dropped the request")), false),
         }
     }
 }
@@ -357,7 +426,7 @@ pub fn pending_for_test(conn: u64, req: Request, arrived: Instant) -> (Pending, 
             Err(_) => return None,
         }
     };
-    (Pending { conn, req, arrived, answer: tx }, take)
+    (Pending { conn, req, arrived, answer: tx, unwritten: Arc::default() }, take)
 }
 
 #[cfg(test)]
@@ -464,7 +533,7 @@ mod tests {
         let l = bind(0).unwrap();
         let port = l.local_addr().unwrap().port();
         let token = Token::generate().unwrap();
-        let hub = start_with(l, token.clone(), Arc::new(|| {}), auth_within, idle).unwrap();
+        let hub = start_with(l, token.clone(), Arc::new(|| {}), auth_within, idle, Arc::new(|| {})).unwrap();
         let mut ui = ui;
         std::thread::spawn(move || {
             while let Ok(m) = hub.rx.recv() {
@@ -498,6 +567,36 @@ mod tests {
     fn closed(r: &mut BufReader<TcpStream>) -> bool {
         let mut rest = Vec::new();
         matches!(r.read_to_end(&mut rest), Ok(0))
+    }
+
+    /// The UI thread can wait until the replies it answered are written (`dalica --view` closed by
+    /// a request's Esc exits only then): while a connection has not written its reply yet (held
+    /// here by the test seam before the write), the wait says so; once written, it returns, and the
+    /// client has the reply.
+    #[test]
+    fn the_ui_waits_until_every_answered_reply_is_written() {
+        let l = bind(0).unwrap();
+        let port = l.local_addr().unwrap().port();
+        let token = Token::generate().unwrap();
+        let (open_tx, open_rx) = mpsc::channel::<()>();
+        let open_rx = Mutex::new(open_rx);
+        let hold: Waker = Arc::new(move || {
+            let _ = open_rx.lock().unwrap().recv_timeout(Duration::from_secs(20));
+        });
+        let hub = start_with(l, token.clone(), Arc::new(|| {}), AUTH_WITHIN, IDLE, hold).unwrap();
+        assert!(hub.wait_replies_written(Duration::ZERO), "nothing answered yet");
+        let (mut s, mut r) = client(port);
+        let auth = json!({ "id": 0, "method": "auth", "params": { "token": token_hex(&token) } }).to_string();
+        assert_eq!(send(&mut s, &mut r, &auth).unwrap()["ok"], true);
+        let asking = std::thread::spawn(move || send(&mut s, &mut r, &json!({ "id": 1, "method": "ui.key" }).to_string()));
+        let Ok(Msg::Request(p)) = hub.rx.recv_timeout(Duration::from_secs(20)) else { panic!("no request") };
+        assert!(p.dispatch());
+        p.reply(Ok(json!({ "closed": true })));
+        assert!(!hub.wait_replies_written(Duration::from_millis(50)), "answered, not written yet");
+        open_tx.send(()).unwrap();
+        assert!(hub.wait_replies_written(Duration::from_secs(20)), "written");
+        let reply = asking.join().unwrap().expect("the client has the reply");
+        assert_eq!((reply["id"].clone(), reply["result"]["closed"].clone()), (json!(1), json!(true)));
     }
 
     #[test]
