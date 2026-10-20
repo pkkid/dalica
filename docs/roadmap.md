@@ -11549,8 +11549,22 @@ under their own key, and a snapshot without them reads as one with none.
     starts) and make the test wait for the widget, never loosening what it checks.
   - done when: a test at the Large font at 1400 × 900 and 900 × 600 finds no bottom-bar label
     clipped; the drag test passes 200 runs in a row at full strength.
+- ⬜ **M16.27 `ui-kit` + packaging: smaller 1.0 packages**
+  - after: M15.R
+  - files: `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/build.rs`, `crates/ui-kit/Cargo.toml`, `packaging/README.md`, `docs/releasing.md`, `xtask/src/package_size.rs`
+  - scope: the 1.0.0 packages are about three times 0.9.0's (Linux x86_64 tar 98 MB, was 34 MB;
+    `dalica` 99 MB with 47 MB of `.rodata`, which embeds `NotoSansCJKsc-Regular` among the
+    fallback fonts). Measure what each part costs (`cargo bloat`-style section and symbol sizes,
+    the embedded fonts, the decoders), then cut what Dalica does not need: embed only the
+    fallback fonts the shipped languages and common user text need, compressed, or load the
+    rest from the system; `dalica-cli` (84 MB) carries no fonts at all. Record before and after
+    sizes per package in `releasing.md`, and add a package-size budget so it can't grow back
+    unnoticed.
+  - done when: the Linux tar, MSI and DMG are each at most half their 1.0.0 size, CJK, Thai and
+    Latin user text still draw (a fingerprint per script), and the size budget runs in
+    `cargo xtask budgets`.
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; a plain review unless M16.1
@@ -11575,7 +11589,7 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 ```text
 wave 1   M16.1 lead: M15.R's answers  ‖  M16.2 search colours + classifier  ‖  M16.3 ui-kit theme ground
          ‖  M16.4 engine Theme setting + commands  ‖  M16.13 hevc forwarded  ‖  M16.15 folder music kept
-         ‖  M16.20 side pane slide  ‖  M16.22 rescan label  ‖  M16.23 Open With icons  ‖  M16.25 screenshot findings (ui)  ‖  M16.26 bottom bar + drag test
+         ‖  M16.20 side pane slide  ‖  M16.22 rescan label  ‖  M16.23 Open With icons  ‖  M16.25 screenshot findings (ui)  ‖  M16.26 bottom bar + drag test  ‖  M16.27 smaller packages
          (once M15.R is closed)
 wave 2   M16.5 switching in the window  ‖  M16.6 Pro, Studio, Classic palettes
          ‖  M16.7 Adwaita, Solarized, Breeze + Soft palettes (after M16.1)  ‖  M16.9 colours in model, index, store
