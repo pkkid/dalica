@@ -32,8 +32,13 @@
 //!   sound's clock ([`Session::video_position`]); with no sound output at all it is the session's
 //!   clock instead.
 //! - **Frames are decoded ahead**, at most [`FRAMES_AHEAD`], and the one shown is the last one due
-//!   ([`Session::video_frame`]): when decoding falls behind, a frame whose successor is already due
-//!   is dropped (counted in `dropped`), never shown late.
+//!   ([`Session::video_frame`]); every frame decoded is handed over, however late, so a decoder
+//!   slower than the clip shows frames at its own rate (one superseded before the window asks is
+//!   counted in `dropped`). A decoder that falls more than [`BEHIND_MS`] behind skips ahead to a
+//!   key frame (`catch_up`: one already due; for a slow decoder one due by the time it is
+//!   decoded, or the next one once it is [`FAR_BEHIND_MS`] behind), the frames skipped counted in
+//!   `dropped`: the picture catches up with the sound at each key frame and the sound is never
+//!   held back. The worker stops decoding to queue more sound after a quarter of what is queued.
 //! - **The trim is respected:** Play starts at the trim's start when the position is outside it,
 //!   and stops at its end (or the clip's), paused there.
 //! - **Seek and step** are requests the worker answers: the reply comes at once with `pending`,
@@ -49,13 +54,13 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dalica_core::{Clock, PhotoId, Timestamp};
 use dalica_edit::Op as EditOp;
 use dalica_edit::ops::video::{self as trim, Trim};
 use dalica_image::Limits;
-use dalica_image::formats::video::frames::{Frame, FrameOptions, FrameSource};
+use dalica_image::formats::video::frames::{Frame, FrameError, FrameOptions, FrameSource};
 use dalica_image::formats::video::sound::SoundSource;
 use dalica_image::formats::video::{self as clip, SoundPlay, VideoInfo};
 use dalica_image::sniff::VideoKind;
@@ -89,6 +94,12 @@ pub const PLAY_SIDE: u32 = 1920;
 pub const FRAMES_AHEAD: usize = 8;
 /// How far ahead of what has been heard the sound is queued, in milliseconds.
 pub const SOUND_AHEAD_MS: u64 = 500;
+/// A decoder whose last frame is this far behind the position skips ahead to a key frame due.
+pub const BEHIND_MS: u64 = 100;
+/// A decoder this far behind skips to the next key frame however far it is (the picture holds
+/// until it is due): the most the picture lags the sound, but in a clip whose key frames are
+/// further apart than that.
+pub const FAR_BEHIND_MS: u64 = 1_000;
 /// The most frames one step moves.
 pub const MAX_STEP: i64 = 100_000;
 /// The format silence is queued in, for a clip without sound it plays.
@@ -317,6 +328,66 @@ enum Request {
     Play { generation: u64, from_ms: u64 },
 }
 
+/// What the player's worker decodes frames with: a [`FrameSource`], or a test's stand-in
+/// ([`Session::set_video_frames`]).
+pub trait PlayFrames: Send {
+    /// Frames in display order.
+    fn frame_count(&self) -> usize;
+    /// The display time of frame `index`, in milliseconds.
+    fn time_of(&self, index: usize) -> Option<u64>;
+    /// The frame shown at `ms`.
+    fn index_at(&self, ms: u64) -> usize;
+    /// The first frame at or after `index` that decoding can start at ([`FrameSource::key_after`]).
+    fn key_after(&self, index: usize) -> Option<usize>;
+    /// Frame `index` in display order.
+    fn frame(&mut self, index: usize) -> Result<Frame, FrameError>;
+    /// The frame after the one returned last, or `None` at the end.
+    fn next_frame(&mut self) -> Result<Option<Frame>, FrameError>;
+    /// The frame returned last.
+    fn current_index(&self) -> Option<usize>;
+    /// What decoding the frame returned last took, in milliseconds, when the source says (a test's
+    /// decoder on a virtual clock); `None`: the worker measures it.
+    fn decode_ms(&self) -> Option<u64> {
+        None
+    }
+    /// The frame shown at `ms`, decoded.
+    fn frame_at(&mut self, ms: u64) -> Result<Frame, FrameError> {
+        let index = self.index_at(ms);
+        self.frame(index)
+    }
+}
+
+impl PlayFrames for FrameSource {
+    fn frame_count(&self) -> usize {
+        FrameSource::frame_count(self)
+    }
+    fn time_of(&self, index: usize) -> Option<u64> {
+        FrameSource::time_of(self, index)
+    }
+    fn index_at(&self, ms: u64) -> usize {
+        FrameSource::index_at(self, ms)
+    }
+    fn key_after(&self, index: usize) -> Option<usize> {
+        FrameSource::key_after(self, index)
+    }
+    fn frame(&mut self, index: usize) -> Result<Frame, FrameError> {
+        FrameSource::frame(self, index)
+    }
+    fn next_frame(&mut self) -> Result<Option<Frame>, FrameError> {
+        FrameSource::next_frame(self)
+    }
+    fn current_index(&self) -> Option<usize> {
+        FrameSource::current_index(self)
+    }
+    fn frame_at(&mut self, ms: u64) -> Result<Frame, FrameError> {
+        FrameSource::frame_at(self, ms)
+    }
+}
+
+/// Opens a clip's frames for the player's worker, on the worker (a test's stand-in for
+/// [`FrameSource::open`]); `Err` is the reason the player shows.
+pub type FrameOpener = Arc<dyn Fn(&Path) -> Result<Box<dyn PlayFrames>, String> + Send + Sync>;
+
 /// The video open in the edit view.
 struct Open {
     id: PhotoId,
@@ -336,9 +407,17 @@ impl std::fmt::Debug for Open {
 }
 
 /// The edit view's video player.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Video {
     open: Option<Open>,
+    /// Opens the frames instead of [`FrameSource::open`] (tests).
+    opener: Option<FrameOpener>,
+}
+
+impl std::fmt::Debug for Video {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Video").field("open", &self.open).field("opener", &self.opener.is_some()).finish()
+    }
 }
 
 fn lock(shared: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
@@ -373,6 +452,13 @@ impl Session {
     /// The edit view's video player.
     pub fn video(&self) -> &Video {
         &self.video
+    }
+
+    /// Makes the player's worker open the frames of the videos opened from now on with `opener`
+    /// instead of [`FrameSource::open`] (`None`: the clip's own decoder again). For tests: a
+    /// decoder of a known speed on the session's clock.
+    pub fn set_video_frames(&mut self, opener: Option<FrameOpener>) {
+        self.video.opener = opener;
     }
 
     /// Whether photo `id` is a video ([`is_video`]).
@@ -486,7 +572,8 @@ impl Session {
         if open.playback.video.is_ok() {
             let (tx, rx) = mpsc::channel();
             let sound_plays = matches!(open.playback.sound, SoundPlay::Plays);
-            let worker = Worker { path, shared: Arc::clone(&shared), sound: self.sound(), clock: Arc::clone(&self.clock), rx };
+            let opener = self.video.opener.clone();
+            let worker = Worker { path, shared: Arc::clone(&shared), sound: self.sound(), clock: Arc::clone(&self.clock), rx, opener };
             let spawned = std::thread::Builder::new().name("dalica-video".into()).spawn(move || worker.run(sound_plays, start));
             match spawned {
                 Ok(_) => open.worker = Some(tx),
@@ -743,6 +830,7 @@ struct Worker {
     sound: Arc<dyn Sound>,
     clock: Arc<dyn Clock>,
     rx: Receiver<Request>,
+    opener: Option<FrameOpener>,
 }
 
 /// One play's progress.
@@ -754,6 +842,12 @@ struct Play {
     /// The clip's sound has run out (silence follows).
     sound_done: bool,
     frames_done: bool,
+    /// The last frame handed to the owner.
+    handed: Option<usize>,
+    /// What the last three frames decoded in turn took, in milliseconds ([`PlayFrames::decode_ms`],
+    /// else measured; their median is the decoder's speed: one held up by something else does not
+    /// count).
+    costs: [u64; 3],
 }
 
 impl Worker {
@@ -761,13 +855,18 @@ impl Worker {
         let limits = Limits::default();
         let threads = std::thread::available_parallelism().map_or(0, |n| (n.get() / 2).min(MAX_THREADS));
         let options = FrameOptions { max_side: Some(PLAY_SIDE), threads };
-        let mut frames = match FrameSource::open(&self.path, &limits, options) {
+        let opened = match &self.opener {
+            Some(open) => open(&self.path),
+            None => FrameSource::open(&self.path, &limits, options).map(|f| Box::new(f) as Box<dyn PlayFrames>).map_err(|e| e.reason()),
+        };
+        let mut frames = match opened {
             Ok(f) => f,
-            Err(e) => {
-                lock(&self.shared).failed = Some(e.reason());
+            Err(why) => {
+                lock(&self.shared).failed = Some(why);
                 return;
             }
         };
+        let frames = frames.as_mut();
         let mut sound = None;
         let mut muted = None;
         if sound_plays {
@@ -805,12 +904,12 @@ impl Worker {
         loop {
             let wait = if play.is_some() { PUMP_WAIT } else { IDLE_WAIT };
             match self.rx.recv_timeout(wait) {
-                Ok(r) => self.handle(r, &mut frames, sound.as_mut(), &mut play),
+                Ok(r) => self.handle(r, frames, sound.as_mut(), &mut play),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
             }
             while let Ok(r) = self.rx.try_recv() {
-                self.handle(r, &mut frames, sound.as_mut(), &mut play);
+                self.handle(r, frames, sound.as_mut(), &mut play);
             }
             if let Some(p) = play.as_mut() {
                 let current = {
@@ -821,7 +920,7 @@ impl Worker {
                     play = None;
                     continue;
                 }
-                self.pump(p, &mut frames, sound.as_mut(), format);
+                self.pump(p, frames, sound.as_mut(), format);
             }
         }
     }
@@ -831,7 +930,7 @@ impl Worker {
         lock(&self.shared).generation == generation
     }
 
-    fn handle(&self, r: Request, frames: &mut FrameSource, sound: Option<&mut SoundSource>, play: &mut Option<Play>) {
+    fn handle(&self, r: Request, frames: &mut dyn PlayFrames, sound: Option<&mut SoundSource>, play: &mut Option<Play>) {
         match r {
             Request::Show { generation, ms } => {
                 *play = None;
@@ -878,13 +977,21 @@ impl Worker {
                         return;
                     }
                 }
-                *play = Some(Play { generation, from_ms, queued: 0, sound_done: false, frames_done: false });
+                *play = Some(Play {
+                    generation,
+                    from_ms,
+                    queued: 0,
+                    sound_done: false,
+                    frames_done: false,
+                    handed: frames.current_index(),
+                    costs: [0; 3],
+                });
             }
         }
     }
 
     /// A seek or step's frame, or why it failed.
-    fn land(&self, generation: u64, got: Result<(Frame, u64), dalica_image::formats::video::frames::FrameError>) {
+    fn land(&self, generation: u64, got: Result<(Frame, u64), FrameError>) {
         let mut s = lock(&self.shared);
         if s.generation != generation {
             return;
@@ -900,7 +1007,7 @@ impl Worker {
     }
 
     /// Queues the sound ahead of what has been heard and decodes the frames ahead of the one shown.
-    fn pump(&self, p: &mut Play, frames: &mut FrameSource, mut sound: Option<&mut SoundSource>, format: Format) {
+    fn pump(&self, p: &mut Play, frames: &mut dyn PlayFrames, mut sound: Option<&mut SoundSource>, format: Format) {
         let (end, volume, timing) = {
             let s = lock(&self.shared);
             (s.end_ms, s.volume, s.timing)
@@ -951,7 +1058,11 @@ impl Worker {
                 p.queued = p.queued.saturating_add((samples.len() / channels) as u64);
             }
         }
-        // Frames ahead, those already late dropped.
+        // Frames ahead. Each one decoded is handed over, however late: the owner shows the last
+        // one due, so a decoder slower than the clip shows frames at its own rate. One that falls
+        // behind skips ahead to a key frame ([`catch_up`]); one that spends a quarter of the sound
+        // queued ahead decoding stops to queue more first.
+        let started = position(&lock(&self.shared), self.sound.as_ref(), self.clock.as_ref());
         let mut decoded = 0;
         while !p.frames_done && decoded < FRAMES_AHEAD {
             let (pos, room) = {
@@ -961,11 +1072,30 @@ impl Worker {
                 }
                 (position(&s, self.sound.as_ref(), self.clock.as_ref()), s.ahead.len() < FRAMES_AHEAD)
             };
-            if !room {
+            if !room || (decoded > 0 && pos.saturating_sub(started) >= SOUND_AHEAD_MS / 4) {
                 break;
             }
             decoded += 1;
-            let f = match frames.next_frame() {
+            let cost = {
+                let mut c = p.costs;
+                c.sort_unstable();
+                c.get(1).copied().unwrap_or(0)
+            };
+            let skip = catch_up(frames, pos, cost);
+            let got = match skip {
+                Some(key) => frames.frame(key).map(Some),
+                None => {
+                    let t = Instant::now();
+                    let got = frames.next_frame();
+                    let took = frames.decode_ms().unwrap_or_else(|| u64::try_from(t.elapsed().as_millis()).unwrap_or(u64::MAX));
+                    p.costs.rotate_left(1);
+                    if let Some(c) = p.costs.last_mut() {
+                        *c = took;
+                    }
+                    got
+                }
+            };
+            let f = match got {
                 Ok(Some(f)) => f,
                 Ok(None) => {
                     p.frames_done = true;
@@ -981,18 +1111,57 @@ impl Worker {
                 p.frames_done = true;
                 break;
             }
-            let next = frames.time_of(f.index + 1).unwrap_or(u64::MAX);
             let mut s = lock(&self.shared);
             if s.generation != p.generation {
                 return;
             }
-            if next <= pos {
-                s.dropped = s.dropped.saturating_add(1);
-                continue;
+            if let Some((key, from)) = skip.zip(p.handed) {
+                s.dropped = s.dropped.saturating_add(key.saturating_sub(from).saturating_sub(1) as u64);
             }
+            p.handed = Some(f.index);
             s.ahead.push_back((p.generation, Arc::new(f)));
         }
     }
+}
+
+/// Where a decoder that fell behind skips to, if it should, when the frame it decoded last is more
+/// than [`BEHIND_MS`] behind the position `pos`: the last key frame after it already due (always
+/// cheaper than decoding the frames before it); for a decoder slower than the clip (`cost_ms` a
+/// frame, the median of the last three), also one due by the time it is decoded (so the picture
+/// never waits for it), or, when it is more than [`FAR_BEHIND_MS`] behind, the next key frame
+/// however far (the picture waits for it). `None`: decode on (a decoder keeping up or able to, or
+/// a clip without a key frame ahead).
+fn catch_up(frames: &dyn PlayFrames, pos: u64, cost_ms: u64) -> Option<usize> {
+    let last = frames.current_index()?;
+    let at = frames.time_of(last)?;
+    let behind = pos.saturating_sub(at);
+    if behind <= BEHIND_MS {
+        return None;
+    }
+    let next = frames.key_after(last.checked_add(1)?)?;
+    let latest_by = |horizon: u64| {
+        let mut best = None;
+        let mut key = next;
+        for _ in 0..frames.frame_count() {
+            if frames.time_of(key).is_none_or(|t| t > horizon) {
+                break;
+            }
+            best = Some(key);
+            match key.checked_add(1).and_then(|k| frames.key_after(k)) {
+                Some(k) if k > key => key = k,
+                _ => break,
+            }
+        }
+        best
+    };
+    if let Some(key) = latest_by(pos) {
+        return Some(key);
+    }
+    let interval = last.checked_add(1).and_then(|n| frames.time_of(n)).map_or(0, |t| t.saturating_sub(at));
+    if cost_ms < interval {
+        return None;
+    }
+    latest_by(pos.saturating_add(cost_ms)).or((behind > FAR_BEHIND_MS).then_some(next))
 }
 
 #[cfg(test)]

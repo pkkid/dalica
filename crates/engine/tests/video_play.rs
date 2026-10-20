@@ -2,7 +2,9 @@
 //! `creating.md` §4), on the silent `Sound` and a virtual clock: playing a second of its clock shows
 //! the frames due within one frame, and a jump drops the frames in between rather than showing
 //! them late; play respects the trim; Set Start and Set End write a trim that survives a restart;
-//! steps and seeks land on their frames; Save Frame at 1.5 s writes a JPEG of the frame's size into
+//! steps and seeks land on their frames; a decoder slower than the clip (a stand-in on the virtual
+//! clock) shows about as many frames as it decodes, moving forward, never held, the picture caught
+//! up with the clock at each key frame; Save Frame at 1.5 s writes a JPEG of the frame's size into
 //! the Video Frames project, dated the clip's date plus the frame's time; Export Clip copies the
 //! trimmed part beside the clip; a clip of a codec Dalica cannot play opens with "This video can't
 //! be played (MPEG-4 Part 2)" and its playback commands refuse with it and write nothing while its
@@ -12,12 +14,15 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use dalica_core::{PhotoId, VirtualClock};
+use dalica_core::{Clock, PhotoId, VirtualClock};
 use dalica_engine::sound::{Format, Silent};
 use dalica_engine::{CmdError, JobState, Session};
 use dalica_fs::Expect;
+use dalica_image::Rgba8;
+use dalica_image::formats::video::frames::{Frame, FrameError};
 use dalica_library::Project;
 use serde_json::{Value, json};
 
@@ -632,4 +637,134 @@ fn a_clip_whose_sound_dalica_cannot_decode_plays_muted_and_refuses_the_volume() 
     let v = lib.run("video.close", json!({}));
     assert_eq!(v["open"], false);
     assert_eq!(disabled(lib.s.execute("video.play", &json!({}))), "No video is open.");
+}
+
+// --- A decoder slower than the clip --------------------------------------------------------------------
+
+/// A stand-in decoder on the session's virtual clock: `SLOW_FRAMES` frames `SLOW_FRAME_MS` apart,
+/// a key frame every `SLOW_KEYS`, each frame taking `SLOW_DECODE_MS` of the clock to decode (from
+/// the key frame before it, or on from the frame decoded last when no key frame lies between),
+/// once `paced` is set.
+struct Slow {
+    clock: Arc<VirtualClock>,
+    paced: Arc<AtomicBool>,
+    /// The clock's time (ms) a decode under way ends at; 0 when none is.
+    busy: Arc<AtomicU64>,
+    /// The frame the decoder stands at, and the one returned last.
+    at: Option<usize>,
+    last: Option<usize>,
+}
+
+const SLOW_FRAMES: usize = 100;
+const SLOW_FRAME_MS: u64 = 20;
+const SLOW_KEYS: usize = 25;
+const SLOW_DECODE_MS: u64 = 50;
+
+impl Slow {
+    fn now_ms(&self) -> u64 {
+        self.clock.now().as_millis() as u64
+    }
+
+    /// Spends `frames` decodes of the clock.
+    fn spend(&self, frames: usize) {
+        if !self.paced.load(Ordering::SeqCst) {
+            return;
+        }
+        let until = self.now_ms() + frames as u64 * SLOW_DECODE_MS;
+        self.busy.store(until, Ordering::SeqCst);
+        let start = Instant::now();
+        while self.now_ms() < until && start.elapsed() < PATIENCE {
+            std::thread::sleep(Duration::from_micros(100));
+        }
+        self.busy.store(0, Ordering::SeqCst);
+    }
+}
+
+impl dalica_engine::video::PlayFrames for Slow {
+    fn frame_count(&self) -> usize {
+        SLOW_FRAMES
+    }
+    fn time_of(&self, index: usize) -> Option<u64> {
+        (index < SLOW_FRAMES).then_some(index as u64 * SLOW_FRAME_MS)
+    }
+    fn index_at(&self, ms: u64) -> usize {
+        ((ms / SLOW_FRAME_MS) as usize).min(SLOW_FRAMES - 1)
+    }
+    fn key_after(&self, index: usize) -> Option<usize> {
+        Some(index.next_multiple_of(SLOW_KEYS)).filter(|k| *k < SLOW_FRAMES)
+    }
+    fn frame(&mut self, index: usize) -> Result<Frame, FrameError> {
+        let key = index / SLOW_KEYS * SLOW_KEYS;
+        let from = match self.at {
+            Some(at) if at < index && at >= key => at + 1,
+            _ => key,
+        };
+        self.spend(index + 1 - from);
+        (self.at, self.last) = (Some(index), Some(index));
+        Ok(Frame { image: Rgba8 { width: 2, height: 2, data: vec![0; 16] }, index, time_ms: index as u64 * SLOW_FRAME_MS })
+    }
+    fn next_frame(&mut self) -> Result<Option<Frame>, FrameError> {
+        let index = self.last.map_or(0, |i| i + 1);
+        if index >= SLOW_FRAMES { Ok(None) } else { self.frame(index).map(Some) }
+    }
+    fn current_index(&self) -> Option<usize> {
+        self.last
+    }
+    fn decode_ms(&self) -> Option<u64> {
+        Some(SLOW_DECODE_MS)
+    }
+}
+
+#[test]
+fn a_decoder_slower_than_the_clip_shows_frames_at_its_own_rate_and_keeps_up_with_the_clock() {
+    let mut lib = Lib::new();
+    let (paced, busy) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)));
+    let (clock, p, b) = (lib.clock.clone(), paced.clone(), busy.clone());
+    lib.s.set_video_frames(Some(Arc::new(move |_: &Path| {
+        let slow = Slow { clock: clock.clone(), paced: p.clone(), busy: b.clone(), at: None, last: None };
+        Ok(Box::new(slow) as Box<dyn dalica_engine::video::PlayFrames>)
+    })));
+    on_owner(|| {
+        lib.open("clip.mp4");
+        paced.store(true, Ordering::SeqCst);
+        lib.run("video.play", json!({}));
+        // The owner's frames, 10 ms of the clock apart, each once the worker has done all it can
+        // by then (decoding a frame due later, or idle).
+        let now = |lib: &Lib| lib.clock.now().as_millis() as u64;
+        let (mut shown, mut last, mut changed_at) = (Vec::<(u64, u64)>::new(), None, 0u64);
+        let (mut longest_hold, mut most_behind) = (0u64, 0u64);
+        for tick in 1..=180u64 {
+            lib.clock.advance(Duration::from_millis(10));
+            let start = Instant::now();
+            while busy.load(Ordering::SeqCst) <= now(&lib) && start.elapsed() < Duration::from_millis(20) {
+                std::thread::sleep(Duration::from_micros(200));
+            }
+            let pos = lib.s.video_position().unwrap();
+            // The sound starts once play's first frame is decoded (one decode of the clock).
+            assert!(
+                pos <= tick * 10 && pos + SLOW_DECODE_MS + 10 >= tick * 10,
+                "the position follows the clock, the sound never held back: {pos} at {}",
+                tick * 10
+            );
+            let f = lib.s.video_frame().unwrap();
+            if Some(f.index) != last {
+                assert!(last.is_none_or(|l| f.index > l), "the frames move forward: {last:?} then {}", f.index);
+                shown.push((pos, f.index as u64));
+                longest_hold = longest_hold.max(pos - changed_at);
+                (last, changed_at) = (Some(f.index), pos);
+            }
+            if pos > 300 {
+                most_behind = most_behind.max(pos.saturating_sub(f.time_ms));
+            }
+        }
+        // 1.8 s at 50 ms a frame is 36 decodes: about as many shown, never the 2 or 3 of a worker
+        // that drops every frame whose successor is due.
+        let want = 1800 / SLOW_DECODE_MS;
+        assert!(shown.len() as u64 >= want * 7 / 10 && shown.len() as u64 <= want + 10, "{} frames shown: {shown:?}", shown.len());
+        let gop = SLOW_KEYS as u64 * SLOW_FRAME_MS;
+        assert!(most_behind <= gop, "the picture catches up at each key frame: {most_behind} ms behind at most; {shown:?}");
+        assert!(longest_hold <= 3 * SLOW_DECODE_MS, "the picture never stalls: held {longest_hold} ms at most; {shown:?}");
+        let v = lib.state();
+        assert_eq!(v["playing"], true, "{v}");
+    });
 }
