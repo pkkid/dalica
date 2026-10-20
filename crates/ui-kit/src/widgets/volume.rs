@@ -7,10 +7,11 @@
 
 use egui::{Color32, CornerRadius, Id, Key, Modifiers, Pos2, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 
-use super::{Target, focus_ring, register};
+use super::{Target, access_range, focus_ring, register};
 use crate::Tokens;
 use crate::icons::{VideoIcon, paint_video};
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The speaker toggle's edge, in points.
 pub const VOLUME_BUTTON: f32 = 24.0;
@@ -155,10 +156,13 @@ pub fn volume(ui: &mut Ui, t: &Tokens, id: &str, level: f32, muted: bool) -> Vol
     focus_ring(p, t, &rs, thumb.expand(1.0), 1);
 
     let ctx = ui.ctx();
-    register(ctx, &mute_id, Role::Toggle, "Mute", Target::Widget(&rt), now_muted);
-    register(ctx, id, Role::Other, "Volume", Target::Widget(&rs), rs.dragged());
-    rt.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, now_muted, "Mute"));
-    rs.widget_info(|| egui::WidgetInfo::slider(enabled, f64::from(heard), "Volume"));
-    let rt = rt.on_hover_text(if now_muted { "Unmute" } else { "Mute" });
+    let texts = text::texts(ctx);
+    let (mute, volume) = (texts.get(Text::Mute), texts.get(Text::Volume));
+    rt.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, now_muted, mute));
+    register(ctx, &mute_id, Role::Toggle, mute, Target::Widget(&rt), now_muted);
+    rs.widget_info(|| egui::WidgetInfo::slider(enabled, f64::from(heard), volume));
+    access_range(&rs, f64::from(heard), 0.0, 1.0, f64::from(VOLUME_STEP), &format!("{:.0} %", heard * 100.0));
+    register(ctx, id, Role::Other, volume, Target::Widget(&rs), rs.dragged());
+    let rt = rt.on_hover_text(texts.get(if now_muted { Text::Unmute } else { Text::Mute }));
     VolumeOut { level: out_level, muted: out_muted, toggle: rt, slider: rs }
 }

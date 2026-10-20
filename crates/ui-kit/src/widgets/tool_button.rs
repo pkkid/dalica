@@ -60,7 +60,7 @@ pub fn tool_button(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, label: &str, a
     let at = Align2::CENTER_CENTER.align_size_within_rect(galley.size(), row).min;
     p.galley(at.round(), galley, text);
     focus_ring(p, t, &r, r.rect, t.radius);
-    register(ui.ctx(), id, Role::Tool, label, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, active, label));
+    register(ui.ctx(), id, Role::Tool, label, Target::Widget(&r), active);
     tooltip(r, t, tip, None)
 }

@@ -14,6 +14,7 @@ use egui::{Color32, Mesh, Painter, Rect, Shape, Stroke, Ui, pos2};
 use super::{Target, register};
 use crate::Tokens;
 use crate::registry::Role;
+use crate::text::{self, Text};
 use crate::theme::{HISTOGRAM, histogram_fill};
 
 /// The most bins drawn per channel; more are ignored (a hostile caller cannot make the mesh huge).
@@ -175,7 +176,7 @@ pub fn paint_histogram(painter: &Painter, t: &Tokens, rect: Rect, bins: [&[u64];
 pub fn histogram(ui: &Ui, t: &Tokens, id: &str, rect: Rect, bins: [&[u64]; 3]) {
     paint_histogram(ui.painter(), t, rect, bins);
     if usable(rect) {
-        register(ui.ctx(), id, Role::Histogram, "Histogram", Target::Painted { rect, clip: ui.clip_rect() }, false);
+        register(ui.ctx(), id, Role::Histogram, &text::get(ui.ctx(), Text::Histogram), Target::Painted { rect, clip: ui.clip_rect() }, false);
     }
 }
 

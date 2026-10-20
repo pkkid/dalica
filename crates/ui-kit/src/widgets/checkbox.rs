@@ -41,6 +41,10 @@ pub fn checkbox_row(
         if enabled && ui.is_enabled() {
             *on = value;
         }
+        // The hint (or the reason it cannot be changed) is what a screen reader adds after the name.
+        if let Some(more) = reason.or(hint_text.filter(|h| !h.is_empty())) {
+            super::access(&response, |node| node.set_description(more));
+        }
         let response = match reason {
             Some(reason) => tooltip(response, t, reason, None),
             None => response,

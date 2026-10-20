@@ -10,9 +10,10 @@
 
 use egui::{Id, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2, pos2, vec2};
 
-use super::{Target, register};
+use super::{Target, access, focus_ring, register};
 use crate::Tokens;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The radius of the wheel handle, in points (its grab square is twice as wide plus 8).
 pub const TRANSFORM_WHEEL: f32 = 8.0;
@@ -158,9 +159,17 @@ pub fn transform_handle(ui: &mut Ui, t: &Tokens, id: &str, h: &TransformHandle) 
         if hot {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Alias);
         }
+        focus_ring(p, t, &r, Rect::from_center_size(at, Vec2::splat(2.0 * TRANSFORM_WHEEL)), TRANSFORM_WHEEL as u8);
     }
-    register(ui.ctx(), id, Role::Other, "Turn and scale", Target::Widget(&r), r.dragged());
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, "Turn and scale"));
+    // The angle and the scale as values: "Turned 15°, scaled 120 %".
+    let texts = text::texts(ui.ctx());
+    let name = texts.get(Text::TurnAndScale);
+    let shown_scale = out.scale.unwrap_or(scale);
+    let value =
+        text::fill(texts.get(Text::TurnedScaled), &[("angle", &format!("{shown_angle:.0}")), ("scale", &format!("{:.0}", shown_scale * 100.0))]);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, name));
+    access(&r, |node| node.set_value(value));
+    register(ui.ctx(), id, Role::Other, name, Target::Widget(&r), r.dragged());
     out
 }
 

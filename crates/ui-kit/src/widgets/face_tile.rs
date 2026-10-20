@@ -16,6 +16,7 @@ use crate::Tokens;
 use crate::fonts;
 use crate::icons::{PeopleIcon, paint_people};
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The surround round the picture, each side (points).
 pub const FACE_TILE_PAD: f32 = 4.0;
@@ -150,9 +151,11 @@ fn ignore_button(ui: &mut Ui, t: &Tokens, id: &str, picture: Rect, enabled: bool
     focus_ring(p, t, &r, rect, 3);
     // The search field's cross, 8 pt across.
     cross(p, rect.expand(2.0), glyph);
-    register(ui.ctx(), id, Role::Button, "Ignore", Target::Widget(&r), false);
-    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, "Ignore"));
-    tooltip(r, t, "Ignore this face", None)
+    let texts = text::texts(ui.ctx());
+    let name = texts.get(Text::Ignore);
+    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, name));
+    register(ui.ctx(), id, Role::Button, name, Target::Widget(&r), false);
+    tooltip(r, t, texts.get(Text::IgnoreFace), None)
 }
 
 /// A face tile ([`face_tile_size`]): the picture `tile.side` square [`FACE_TILE_PAD`] in from the
@@ -232,12 +235,13 @@ pub fn face_tile(ui: &mut Ui, t: &Tokens, tile: &FaceTile<'_>) -> FaceTileOut {
         p.galley(at.round(), galley, color);
         row_top = row.max.y;
     }
+    let unnamed = text::get(ui.ctx(), Text::UnnamedFace);
     let accessible = match tile.label {
-        FaceLabel::None => "Unnamed face",
+        FaceLabel::None => unnamed.as_str(),
         _ => text,
     };
-    register(ui.ctx(), &id, Role::Thumbnail, accessible, Target::Widget(&r), tile.selected);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, tile.selected, accessible));
+    register(ui.ctx(), &id, Role::Thumbnail, accessible, Target::Widget(&r), tile.selected);
 
     // The parts on top take their own clicks.
     let ignore = tile.ignore && ignore_button(ui, t, &format!("{id}/ignore"), picture, enabled).clicked();

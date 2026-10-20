@@ -8,6 +8,7 @@ use crate::Tokens;
 use crate::fonts;
 use crate::icons::{self, ViewingIcon};
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The edge of the header's clock button (points).
 pub const GROUP_CLOCK: f32 = 24.0;
@@ -76,8 +77,10 @@ pub fn group_header(ui: &mut Ui, t: &Tokens, id: &str, title: &str, detail: &str
         p.galley(pos2(x, rect.center().y - g.size().y / 2.0).round(), g, detail_color);
     }
     register(ui.ctx(), id, Role::Other, title, Target::Painted { rect, clip: ui.clip_rect() }, false);
-    register(ui.ctx(), &select_id, Role::Button, "Select this group", Target::Widget(&r), all_selected);
-    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, all_selected, "Select this group"));
-    let r = tooltip(r, t, "Select this group", Some("Selects every picture taken in this period"));
+    let texts = text::texts(ui.ctx());
+    let name = texts.get(Text::SelectGroup);
+    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, all_selected, name));
+    register(ui.ctx(), &select_id, Role::Button, name, Target::Widget(&r), all_selected);
+    let r = tooltip(r, t, name, Some(texts.get(Text::SelectGroupDetail)));
     GroupHeaderOut { select: r.clicked(), rect }
 }

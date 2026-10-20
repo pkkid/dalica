@@ -9,9 +9,10 @@
 
 use egui::{Id, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2, pos2, vec2};
 
-use super::{Target, register};
+use super::{Target, focus_ring, register};
 use crate::Tokens;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// How far each arm of the cross reaches from the centre, in points.
 pub const CROSSHAIR_ARM: f32 = 10.0;
@@ -168,14 +169,20 @@ pub fn crosshair(ui: &mut Ui, t: &Tokens, id: &str, rect: Rect, c: &Crosshair) -
             p.circle_filled(to_screen(h), if edge { CROSSHAIR_HANDLE + 1.0 } else { CROSSHAIR_HANDLE - 0.5 }, ink(hr.as_ref()));
         }
     }
+    focus_ring(&p, t, &cr, Rect::from_center_size(at, Vec2::splat(2.0 * (RING + 2.0))), (RING + 2.0) as u8);
+    if let (Some(r), Some(h)) = (&hr, handle) {
+        focus_ring(&p, t, r, Rect::from_center_size(to_screen(h), Vec2::splat(2.0 * CROSSHAIR_HANDLE)), CROSSHAIR_HANDLE as u8);
+    }
     if hot(&cr) || hr.as_ref().is_some_and(hot) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
     }
-    register(ui.ctx(), id, Role::Other, "Crosshair", Target::Widget(&cr), cr.dragged());
-    cr.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, "Crosshair"));
+    let texts = text::texts(ui.ctx());
+    let (name, angle) = (texts.get(Text::Crosshair), texts.get(Text::Angle));
+    cr.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, name));
+    register(ui.ctx(), id, Role::Other, name, Target::Widget(&cr), cr.dragged());
     if let Some(r) = &hr {
-        register(ui.ctx(), &hid, Role::Other, "Angle", Target::Widget(r), r.dragged());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, "Angle"));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, angle));
+        register(ui.ctx(), &hid, Role::Other, angle, Target::Widget(r), r.dragged());
     }
     out
 }

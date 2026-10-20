@@ -107,8 +107,8 @@ pub fn effect_tile(ui: &mut Ui, t: &Tokens, tile: &EffectTile<'_>) -> Response {
     let at = Align2::CENTER_CENTER.align_size_within_rect(galley.size(), row).min;
     p.galley(at.round(), galley, text);
     focus_ring(p, t, &r, r.rect, t.radius);
-    register(ui.ctx(), &id, Role::Tool, tile.label, Target::Widget(&r), false);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, tile.label));
+    register(ui.ctx(), &id, Role::Tool, tile.label, Target::Widget(&r), false);
     tooltip(r, t, tile.label, Some(tile.tooltip))
 }
 

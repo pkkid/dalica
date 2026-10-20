@@ -14,6 +14,7 @@ use super::marks::cross;
 use super::{Target, focus_ring, register, tooltip};
 use crate::Tokens;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The side of each mark's button (points).
 pub const SUGGEST_MARK: f32 = 20.0;
@@ -77,12 +78,13 @@ fn mark_button(ui: &mut Ui, t: &Tokens, id: &str, rect: Rect, mark: Mark, enable
         Mark::Confirm => check_mark(p, glyph, color),
         Mark::Reject => cross(p, glyph.expand(2.0), color),
     }
+    let texts = text::texts(ui.ctx());
     let (label, tip) = match mark {
-        Mark::Confirm => ("Confirm", "Confirm this match"),
-        Mark::Reject => ("Reject", "Not this person"),
+        Mark::Confirm => (texts.get(Text::Confirm), texts.get(Text::ConfirmMatch)),
+        Mark::Reject => (texts.get(Text::Reject), texts.get(Text::NotThisPerson)),
     };
-    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), false);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, label));
+    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), false);
     tooltip(r, t, tip, None)
 }
 

@@ -260,8 +260,9 @@ fn list<S: AsRef<str>>(
                     let galley = one_line(p, label, fonts::regular(t.body), color, rect.width() - 16.0);
                     let at = Align2::LEFT_CENTER.align_size_within_rect(galley.size(), rect.shrink2(vec2(8.0, 0.0))).min;
                     p.galley(pos2(at.x, at.y).round(), galley, color);
-                    register(ui.ctx(), &format!("{id}/option/{i}"), Role::Suggestion, label, Target::Widget(&r), lit);
                     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::SelectableLabel, true, lit, label));
+                    super::access_row(&r, egui::accesskit::Role::ListBoxOption, lit, None, None);
+                    register(ui.ctx(), &format!("{id}/option/{i}"), Role::Suggestion, label, Target::Widget(&r), lit);
                     if lit && moved {
                         r.scroll_to_me(None);
                     }

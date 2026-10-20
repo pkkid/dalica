@@ -339,8 +339,11 @@ glides a pan on after a drag is let go while still moving (faster than 150 pt/s;
 at most 6000 pt/s), and any click, drag or key stops it.
 
 Every widget has the states rest, hover, pressed, active (toggled, selected or open), disabled and
-focused. The keyboard focus ring is a 1.5 pt `accent` outline 1 pt outside the control, so it reads
-on every fill (the primary button's included). `crates/ui-kit/tests/widgets.rs` renders each widget
+focused. The keyboard focus ring is a 1.5 pt outline in the focus colour (`accent_hover`,
+`widgets::focus_color`) 1 pt outside the control, so it reads on every fill (the primary button's
+included); a field's focused frame and a slider's focused ring use the same stroke
+(`widgets::focus_stroke`). Every widget that takes the keyboard focus shows it; the rows of an open
+menu (dropdown items, rich items, autocomplete rows) show it as their hover fill, as menus do. `crates/ui-kit/tests/widgets.rs` renders each widget
 in each state with real input (pointer moved, button held, focus requested) and keeps a fingerprint
 per widget. The small marks inside widgets (a chevron, the magnifier, a clear cross) are drawn by
 the widget itself; the icons a caller picks are §5's.
@@ -406,7 +409,30 @@ underneath, pushed up by the next header).
 
 ## 9. Accessibility and scaling
 
-- AccessKit roles and labels on every custom widget; keyboard focus ring = 1.5 pt `accent`.
+- AccessKit roles and labels on every custom widget; keyboard focus ring = 1.5 pt in the focus
+  colour (`accent_hover`, 3.0:1 on `chrome` and more on every darker surface, as WCAG 2.2 asks of a
+  focus indicator; `accent` itself is 2.6:1). `crates/ui-kit/tests/accessibility.rs` checks all of
+  this on a gallery of every widget, headless with AccessKit on (M15.14):
+  - **Name**: the label, else the tooltip, else the last part of the automation id
+    (`button:map.zoomIn` → "zoomIn"). `widgets::register` writes it with the role and state, after
+    any finer role a widget gave through `Response::widget_info`; no interactive node is unnamed.
+  - **Role and state**: buttons and tool buttons; toggles and checkboxes checked or not; radio
+    buttons and toggle groups; tabs, list rows (`access_row`: selected, and for a tree row expanded
+    and its level) and suggestions selected; dropdowns their choice as value and whether they are
+    open; text fields their value and placeholder, a date field its long date as description;
+    swatches their colour as `#rrggbb`; the map a group with its zoom; the turn-and-scale handle
+    its angle and scale as text; a dialog a modal dialog.
+  - **Values**: every slider (the spec sliders, the zoom and age sliders, the scrubber's playhead
+    and trim handles, the volume, the colour picker's hue) gives its value, range, step and the
+    value as shown (`access_range`); the stepper's buttons carry the value they change.
+  - **Keys**: Tab moves the focus in the order widgets are drawn and reaches every one that takes
+    it; Enter and Space activate the focused widget that takes clicks. Click-catching surfaces (an
+    overlay bar, a popup's body, a dialog's backdrop) take no focus.
+- **The texts `ui-kit` says itself** (month and weekday names, the colour picker's labels, the text
+  menu, the names of the small buttons inside widgets) come from one table, `ui_kit::text`
+  (`Text`, `Texts`), set per `egui::Context` by the app (`text::set`), English until it is.
+  `Texts::translated` asks for each text by its English and a context ("month", "colour picker"),
+  so `ui`'s catalogs translate them as their own; templates keep named placeholders (`{name}`).
 - UI Scale (Auto, 75–300 %) and UI Font Size (Small/Medium/Large) as in PhotoCraft
   (`docs/ui-design.md` there).
 - Minimum contrast: `text_label` on `chrome`, `text_dim` on `chrome` (status line, tooltip detail,
@@ -417,7 +443,8 @@ underneath, pushed up by the next header).
   `button` 5.1, `inset` 5.2, `tray_bg` 5.0, `field` 5.2, `canvas` 5.6, `grid_bg` 6.3. Three pairs
   fall short by decision and are pinned so they cannot get worse: `text_dim` on `hover` (3.75:1,
   counts in a hovered row; 4.5:1 would need about `#a8a8a8`, too close to `text_label`), `accent`
-  on `chrome` (2.6:1: the focus ring and drop-target outline, below WCAG 2.2's 3:1), and the slider
+  on `chrome` (2.6:1: the drop-target outline, below WCAG 2.2's 3:1; the focus ring uses the brighter
+  focus colour since M15.14), and the slider
   `track` (2.0:1, a guide under the 5.3:1 ring).
 
 ## 10. Verification

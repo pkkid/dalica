@@ -35,7 +35,11 @@ pub fn section_header(ui: &mut Ui, t: &Tokens, id: &str, title: &str, open: bool
     let galley = one_line(p, title, fonts::semibold(t.body), text, r.rect.max.x - x - 6.0);
     p.galley(pos2(x, r.rect.center().y - galley.size().y / 2.0).round(), galley, text);
     focus_ring(p, t, &r, r.rect, t.radius);
-    register(ui.ctx(), id, Role::Toggle, title, Target::Widget(&r), open);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::CollapsingHeader, enabled, open, title));
+    super::access(&r, |node| {
+        node.clear_toggled();
+        node.set_expanded(open);
+    });
+    register(ui.ctx(), id, Role::Toggle, title, Target::Widget(&r), open);
     r
 }

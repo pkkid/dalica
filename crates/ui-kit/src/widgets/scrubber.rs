@@ -11,8 +11,9 @@
 
 use egui::{Align2, Color32, CornerRadius, Id, Key, Modifiers, Pos2, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 
-use super::{Target, focus_ring, register};
+use super::{Target, access_range, focus_ring, register};
 use crate::registry::Role;
+use crate::text::{self, Text};
 use crate::{Tokens, fonts};
 
 /// The height of the playhead's row, in points.
@@ -331,14 +332,19 @@ pub fn scrubber(ui: &mut Ui, t: &Tokens, id: &str, clip: &Scrubber, width: f32) 
     p.galley(text_pos.round(), galley, t.text_label);
 
     let ctx = ui.ctx();
-    register(ctx, id, Role::Other, "Position", Target::Widget(&r), r.dragged());
-    register(ctx, &start_id, Role::Other, "Trim start", Target::Widget(&rs), rs.dragged());
-    register(ctx, &end_id, Role::Other, "Trim end", Target::Widget(&re), re.dragged());
+    let texts = text::texts(ctx);
+    let (duration, step) = (s.duration_ms as f64, s.step_ms as f64);
+    for (resp, rid, name, ms) in [
+        (&r, id, Text::Position, now.position_ms),
+        (&rs, start_id.as_str(), Text::TrimStart, now.start_ms),
+        (&re, end_id.as_str(), Text::TrimEnd, now.end_ms),
+    ] {
+        let name = texts.get(name);
+        resp.widget_info(|| egui::WidgetInfo::slider(enabled, ms as f64, name));
+        access_range(resp, ms as f64, 0.0, duration, step, &clock_text(ms));
+        register(ctx, rid, Role::Other, name, Target::Widget(resp), resp.dragged());
+    }
     register(ctx, &format!("{id}/readout"), Role::Other, &out.readout, Target::Painted { rect: readout_rect, clip: ui.clip_rect() }, false);
-    let value = now.position_ms as f64;
-    r.widget_info(|| egui::WidgetInfo::slider(enabled, value, "Position"));
-    rs.widget_info(|| egui::WidgetInfo::slider(enabled, now.start_ms as f64, "Trim start"));
-    re.widget_info(|| egui::WidgetInfo::slider(enabled, now.end_ms as f64, "Trim end"));
     out.response = r;
     out
 }

@@ -11,6 +11,7 @@ pub mod input;
 pub mod linebreak;
 pub mod raster;
 pub mod registry;
+pub mod text;
 pub mod theme;
 pub mod widgets;
 

@@ -6,10 +6,11 @@ use std::ops::RangeInclusive;
 
 use egui::{CornerRadius, Id, Response, Sense, Stroke, Ui, Vec2, WidgetType, pos2, vec2};
 
-use super::{Target, focus_ring, register};
+use super::{Target, access_range, focus_ring, register};
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The edge of the stepper's − and + buttons (points).
 pub const STEPPER_BUTTON: f32 = 22.0;
@@ -59,14 +60,21 @@ pub fn stepper(ui: &mut Ui, t: &Tokens, id: &str, value: i32, range: RangeInclus
     let widest = [text(lo), text(hi)].into_iter().map(|s| ui.painter().layout_no_wrap(s, font.clone(), t.overlay_text).size().x).fold(0.0, f32::max);
     let (minus_id, plus_id) = stepper_ids(id);
     let mut value = start;
-    if button(ui, t, &minus_id, false, enabled && start > lo, "Decrease").clicked() {
+    let texts = text::texts(ui.ctx());
+    let minus = button(ui, t, &minus_id, false, enabled && start > lo, texts.get(Text::Decrease));
+    if minus.clicked() {
         value = stepped(value, -1, lo..=hi);
     }
     let (_, label_rect) = ui.allocate_space(vec2(widest.ceil() + 2.0 * STEPPER_GAP, STEPPER_BUTTON));
-    if button(ui, t, &plus_id, true, enabled && start < hi, "Increase").clicked() {
+    let plus = button(ui, t, &plus_id, true, enabled && start < hi, texts.get(Text::Increase));
+    if plus.clicked() {
         value = stepped(value, 1, lo..=hi);
     }
     let shown = text(value);
+    // Both buttons carry the value they change, as a spin button's do.
+    for r in [&minus, &plus] {
+        access_range(r, f64::from(value), f64::from(lo), f64::from(hi), 1.0, &shown);
+    }
     let color = if enabled { t.overlay_text } else { t.overlay_disabled };
     let galley = ui.painter().layout_no_wrap(shown.clone(), font, color);
     let pos = label_rect.center() - galley.size() / 2.0;
@@ -93,8 +101,8 @@ fn button(ui: &mut Ui, t: &Tokens, id: &str, plus: bool, enabled: bool, tooltip:
     if plus {
         p.line_segment([pos2(c.x, c.y - arm), pos2(c.x, c.y + arm)], stroke);
     }
-    register(ui.ctx(), id, Role::Button, tooltip, Target::Widget(&r), false);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, tooltip));
+    register(ui.ctx(), id, Role::Button, tooltip, Target::Widget(&r), false);
     super::tooltip(r, t, tooltip, None)
 }
 

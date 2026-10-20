@@ -14,6 +14,7 @@ use crate::Tokens;
 use crate::fonts;
 use crate::icons::{self, Glyph};
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// How long the bar takes to fade in or out (seconds).
 pub const OVERLAY_FADE_SECS: f64 = 0.2;
@@ -100,9 +101,9 @@ pub fn overlay_bar<R>(ui: &mut Ui, t: &Tokens, id: &str, rect: Rect, opacity: f3
     if opacity <= 0.0 || !(rect.is_finite() && rect.is_positive()) {
         return None;
     }
-    let panel = ui.interact(rect, Id::new(id), Sense::click());
+    let panel = ui.interact(rect, Id::new(id), Sense::CLICK);
     ui.painter().rect_filled(rect, CornerRadius::same(t.overlay_radius), t.overlay_bar.gamma_multiply(opacity));
-    register(ui.ctx(), id, Role::Other, "Controls", Target::Widget(&panel), false);
+    register(ui.ctx(), id, Role::Other, &text::get(ui.ctx(), Text::Controls), Target::Widget(&panel), false);
     let inner =
         ui.scope_builder(UiBuilder::new().max_rect(rect.shrink2(OVERLAY_PAD)).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
             ui.multiply_opacity(opacity);
@@ -149,8 +150,8 @@ pub fn overlay_button(ui: &mut Ui, t: &Tokens, id: &str, glyph: Glyph, label: Op
         let pos = pos2(rect.min.x + 10.0 + OVERLAY_GLYPH + 6.0, rect.center().y - g.size().y / 2.0);
         p.galley(pos.round(), g, text_color);
     }
-    register(ui.ctx(), id, Role::IconButton, tooltip, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, active, tooltip));
+    register(ui.ctx(), id, Role::IconButton, tooltip, Target::Widget(&r), active);
     super::tooltip(r, t, tooltip, None)
 }
 

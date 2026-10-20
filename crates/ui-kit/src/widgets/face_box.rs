@@ -10,10 +10,11 @@
 
 use egui::{Align2, CornerRadius, CursorIcon, Id, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetType, pos2, vec2};
 
-use super::{Target, one_line, register};
+use super::{Target, focus_ring, one_line, register};
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// The side of a handle (points).
 pub const FACE_BOX_HANDLE: f32 = 7.0;
@@ -63,6 +64,20 @@ impl BoxHandle {
             BoxHandle::Bottom => "s",
             BoxHandle::BottomLeft => "sw",
             BoxHandle::Left => "w",
+        }
+    }
+
+    /// The handle's spoken name ("Top-left corner").
+    pub fn text(self) -> Text {
+        match self {
+            BoxHandle::TopLeft => Text::TopLeftCorner,
+            BoxHandle::Top => Text::TopEdge,
+            BoxHandle::TopRight => Text::TopRightCorner,
+            BoxHandle::Right => Text::RightEdge,
+            BoxHandle::BottomRight => Text::BottomRightCorner,
+            BoxHandle::Bottom => Text::BottomEdge,
+            BoxHandle::BottomLeft => Text::BottomLeftCorner,
+            BoxHandle::Left => Text::LeftEdge,
         }
     }
 
@@ -316,12 +331,19 @@ pub fn face_box(ui: &mut Ui, t: &Tokens, id: &str, area: Rect, b: &FaceBox<'_>) 
         ui.ctx().set_cursor_icon(CursorIcon::Move);
     }
 
-    let label = b.label.filter(|l| !l.is_empty()).unwrap_or("Face");
+    focus_ring(&p, t, &body, shown.expand(1.0), 0);
+    for (h, _, r) in &handles {
+        focus_ring(&p, t, r, Rect::from_center_size(h.on(shown), Vec2::splat(FACE_BOX_HANDLE + 2.0)), 0);
+    }
+
+    let texts = text::texts(ui.ctx());
+    let label = b.label.filter(|l| !l.is_empty()).unwrap_or(texts.get(Text::Face));
+    body.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, label));
     register(ui.ctx(), id, Role::Other, label, Target::Widget(&body), lit);
-    body.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Other, enabled, label));
     for (h, hid, r) in &handles {
-        register(ui.ctx(), hid, Role::Other, h.name(), Target::Widget(r), r.dragged());
-        r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Other, edit, h.name()));
+        let name = texts.get(h.text());
+        r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Other, edit, name));
+        register(ui.ctx(), hid, Role::Other, name, Target::Widget(r), r.dragged());
     }
     out
 }

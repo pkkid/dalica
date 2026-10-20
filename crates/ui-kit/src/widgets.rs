@@ -8,15 +8,25 @@
 //!
 //! Every widget paints its states from [`Tokens`]: rest, hover, pressed, active (toggled, selected
 //! or open), disabled (`ui.is_enabled()` false, or its own `enabled` flag) and focused (the 1.5 pt
-//! `accent` ring of [`focus_ring`], `design-system.md` §9). The `tests/widgets.rs` gallery renders
-//! each one in each state.
+//! ring of [`focus_ring`] in [`focus_color`], `design-system.md` §9). The `tests/widgets.rs`
+//! gallery renders each one in each state.
+//!
+//! **Accessibility** (`design-system.md` §9): [`register`] also writes the widget's AccessKit node:
+//! a role for its [`Role`] (unless the widget gave a finer one through `Response::widget_info`
+//! first), its name (the label, else the tooltip the caller passed, else the last part of its
+//! automation id) and its toggled or selected state. Widgets with a value add it with [`access`]
+//! and [`access_range`] (a slider's value, range, step and the value as text; a dropdown's choice
+//! and whether it is open; a row's level). A focused widget that takes clicks is activated by
+//! Enter and Space. The texts widgets draw or speak themselves come from [`crate::text`].
 
+use egui::accesskit::{self, Toggled};
 use egui::{Align2, Color32, Context, CornerRadius, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetType, vec2};
 
 use crate::Tokens;
 use crate::fonts;
 use crate::icons::{self, Icon};
 use crate::registry::{self, Role, WidgetInfo};
+use crate::text::{self, Text};
 
 mod age_slider;
 mod autocomplete;
@@ -163,12 +173,16 @@ pub enum Target<'a> {
 /// widget and panel uses, never [`registry::register`] by hand. The rect is clipped to what is
 /// visible; a widget scrolled entirely out of sight is not listed. `active` is the toggled, selected
 /// or open state.
+///
+/// For a [`Target::Widget`] it also fills in the AccessKit node of the widget (see the module
+/// docs): call it after `Response::widget_info`, whose finer role and state it keeps.
 pub fn register(ctx: &Context, id: &str, role: Role, label: &str, target: Target<'_>, active: bool) {
     let info = match target {
         Target::Widget(r) => {
             if !r.interact_rect.is_positive() {
                 return;
             }
+            fill_access(r, id, role, label, active);
             let enabled = r.enabled() && (r.sense.interactive() || r.sense.is_focusable());
             WidgetInfo::new(id, role, label, r.interact_rect, enabled, active).with_egui_id(r.id)
         }
@@ -200,18 +214,121 @@ fn fill(t: &Tokens, r: &Response, active: bool) -> Color32 {
     }
 }
 
-/// The keyboard focus ring (`design-system.md` §9): a `focus_width` `accent` outline 1 pt outside
-/// `rect`, so it reads on any fill (the primary button's `accent` included). Painted only while
-/// `r` has the keyboard focus.
+/// The keyboard focus ring (`design-system.md` §9): a `focus_width` outline in [`focus_color`] 1 pt
+/// outside `rect`, so it reads on any fill (the primary button's `accent` included). Painted only
+/// while `r` has the keyboard focus.
 pub fn focus_ring(painter: &Painter, t: &Tokens, r: &Response, rect: Rect, radius: u8) {
     if r.has_focus() {
-        painter.rect_stroke(
-            rect.expand(1.0),
-            CornerRadius::same(radius.saturating_add(1)),
-            Stroke::new(t.focus_width, t.accent),
-            StrokeKind::Outside,
-        );
+        painter.rect_stroke(rect.expand(1.0), CornerRadius::same(radius.saturating_add(1)), focus_stroke(t), StrokeKind::Outside);
     }
+}
+
+/// The colour of the keyboard focus: `accent_hover`, the brighter of the two accent blues, which
+/// stands 3:1 against `chrome` and every darker surface as WCAG 2.2 asks of a focus indicator
+/// (`accent` itself is 2.6:1 on `chrome`; `design-system.md` §9).
+pub fn focus_color(t: &Tokens) -> Color32 {
+    t.accent_hover
+}
+
+/// The stroke of the keyboard focus: `focus_width` in [`focus_color`]. Widgets that outline
+/// themselves when focused (a field's frame, a slider's ring) use it too.
+pub fn focus_stroke(t: &Tokens) -> Stroke {
+    Stroke::new(t.focus_width, focus_color(t))
+}
+
+/// The AccessKit role a widget of `role` has when it gave none finer of its own.
+pub fn access_role(role: Role) -> accesskit::Role {
+    use accesskit::Role as A;
+    match role {
+        Role::Button | Role::IconButton | Role::Tool => A::Button,
+        Role::Toggle => A::Button,
+        Role::Badge | Role::Histogram => A::Image,
+        Role::Menu | Role::MenuItem => A::MenuItem,
+        Role::TreeRow => A::TreeItem,
+        Role::Thumbnail | Role::Suggestion => A::ListBoxOption,
+        Role::ScrollTrack | Role::ScrollThumb => A::ScrollBar,
+        Role::Tab => A::Tab,
+        Role::Other => A::GenericContainer,
+    }
+}
+
+/// The name AccessKit gives a widget registered as `id` with `label`: the label (or the tooltip
+/// the caller passed as one), else the last part of the id (`button:map.zoomIn` → `zoomIn`).
+pub fn access_name<'a>(id: &'a str, label: &'a str) -> &'a str {
+    if !label.trim().is_empty() {
+        return label;
+    }
+    let last = id.rsplit('/').next().unwrap_or(id);
+    let last = last.rsplit(':').next().unwrap_or(last);
+    last.rsplit('.').find(|p| !p.is_empty()).unwrap_or(last)
+}
+
+/// Fills in what the widget's AccessKit node lacks: its role, its name, its state.
+fn fill_access(r: &Response, id: &str, role: Role, label: &str, active: bool) {
+    let name = access_name(id, label);
+    r.ctx.accesskit_node_builder(r.id, |node| {
+        if node.role() == accesskit::Role::Unknown {
+            node.set_role(access_role(role));
+        }
+        if node.label().is_none_or(|l| l.trim().is_empty()) {
+            node.set_label(name);
+        }
+        match role {
+            Role::Toggle if node.toggled().is_none() && !matches!(node.role(), accesskit::Role::RadioButton | accesskit::Role::Tab) => {
+                node.set_toggled(if active { Toggled::True } else { Toggled::False });
+            }
+            Role::Tab | Role::Suggestion | Role::TreeRow | Role::Thumbnail if node.is_selected().is_none() => {
+                node.clear_toggled();
+                node.set_selected(active);
+            }
+            Role::Menu if node.is_expanded().is_none() => node.set_expanded(active),
+            _ => {}
+        }
+    });
+}
+
+/// Writes more of `r`'s AccessKit node (a value, a level, whether it is open): `write` runs only
+/// while AccessKit is on.
+pub fn access(r: &Response, write: impl FnOnce(&mut accesskit::Node)) {
+    r.ctx.accesskit_node_builder(r.id, write);
+}
+
+/// A row's AccessKit state: `role` (a list's [`accesskit::Role::ListBoxOption`], a tree's
+/// [`accesskit::Role::TreeItem`]), selected, and, in a tree, open or closed (`expanded`, `None` for a
+/// row with nothing under it) and its depth (`level`, 1 at the top).
+pub fn access_row(r: &Response, role: accesskit::Role, selected: bool, expanded: Option<bool>, level: Option<usize>) {
+    access(r, |node| {
+        node.set_role(role);
+        node.clear_toggled();
+        node.set_selected(selected);
+        if let Some(open) = expanded {
+            node.set_expanded(open);
+        }
+        if let Some(level) = level {
+            node.set_level(level.max(1));
+        }
+    });
+}
+
+/// A value widget's AccessKit value: `value` in `min ..= max` by `step` (0 for none), and `text`,
+/// the value as the widget shows it ("50 %", "00:00:09"). Numbers that are not finite are left out.
+pub fn access_range(r: &Response, value: f64, min: f64, max: f64, step: f64, text: &str) {
+    access(r, |node| {
+        let (lo, hi) = if min <= max { (min, max) } else { (max, min) };
+        if lo.is_finite() && hi.is_finite() {
+            node.set_min_numeric_value(lo);
+            node.set_max_numeric_value(hi);
+        }
+        if value.is_finite() {
+            node.set_numeric_value(if lo.is_finite() && hi.is_finite() { value.clamp(lo, hi) } else { value });
+        }
+        if step.is_finite() && step > 0.0 {
+            node.set_numeric_value_step(step);
+        }
+        if !text.is_empty() {
+            node.set_value(text);
+        }
+    });
 }
 
 /// `text` on one line in `font`, cut short with "…" when wider than `max` points.
@@ -233,8 +350,8 @@ pub fn text_button(ui: &mut Ui, t: &Tokens, id: &str, label: &str, active: bool)
     focus_ring(p, t, &r, r.rect, t.radius);
     let pos = r.rect.center() - galley.size() / 2.0;
     p.galley(pos.round(), galley, t.text);
-    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, label));
+    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), active);
     r
 }
 
@@ -263,8 +380,8 @@ pub fn icon_button(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, size: f32, act
         t.icon
     };
     icons::paint(p, Rect::from_center_size(r.rect.center(), Vec2::splat((size * 0.6).round())), icon, glyph);
-    register(ui.ctx(), id, Role::IconButton, tooltip, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, active, tooltip));
+    register(ui.ctx(), id, Role::IconButton, tooltip, Target::Widget(&r), active);
     r.on_hover_text(tooltip)
 }
 
@@ -283,9 +400,11 @@ pub fn star_toggle(ui: &mut Ui, t: &Tokens, id: &str, on: bool) -> Response {
         (true, false) => (Icon::StarOutline, t.icon),
     };
     icons::paint(p, glyph, icon, color);
-    register(ui.ctx(), id, Role::Toggle, "Star", Target::Widget(&r), on);
-    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Checkbox, enabled, on, "Star"));
-    r.on_hover_text("Star / Unstar")
+    let texts = text::texts(ui.ctx());
+    let name = texts.get(Text::Star);
+    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Checkbox, enabled, on, name));
+    register(ui.ctx(), id, Role::Toggle, name, Target::Widget(&r), on);
+    r.on_hover_text(texts.get(Text::StarUnstar))
 }
 
 /// A label in `font`, `color`, aligned in `rect` (a convenience for panels).

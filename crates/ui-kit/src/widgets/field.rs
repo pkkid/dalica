@@ -17,6 +17,7 @@ use super::marks;
 use super::{Target, register};
 use crate::Tokens;
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// What a text field did this pass.
 #[derive(Debug, Clone)]
@@ -50,11 +51,11 @@ pub fn focus_field(ctx: &egui::Context, id: &str) {
 }
 
 /// The frame of a field in `rect`: `field` (or `canvas` focused) with a 1 pt border, `field_border`
-/// at rest, `button_border` hovered and `accent` focused (`focus_width`, the focus ring).
+/// at rest, `button_border` hovered and the focus colour focused (`focus_width`, the focus ring).
 fn frame(t: &Tokens, rect: Rect, hovered: bool, focused: bool, enabled: bool) -> Vec<Shape> {
     let fill = if focused { t.canvas } else { t.field };
     let (width, color) = if focused {
-        (t.focus_width, t.accent)
+        (t.focus_width, super::focus_color(t))
     } else if enabled && hovered {
         (1.0, t.button_border)
     } else {
@@ -159,7 +160,7 @@ pub fn search_field(ui: &mut Ui, t: &Tokens, id: &str, clear_id: &str, text: &mu
             clear_shapes.push(Shape::circle_filled(clear_rect.center(), 8.0, t.hover));
         }
         if c.has_focus() {
-            clear_shapes.push(Shape::circle_stroke(clear_rect.center(), 9.0, Stroke::new(t.focus_width, t.accent)));
+            clear_shapes.push(Shape::circle_stroke(clear_rect.center(), 9.0, super::focus_stroke(t)));
         }
         let glyph = if !enabled {
             t.text_disabled
@@ -169,8 +170,9 @@ pub fn search_field(ui: &mut Ui, t: &Tokens, id: &str, clear_id: &str, text: &mu
             t.text_dim
         };
         marks::cross(ui.painter(), clear_rect.shrink(2.0), glyph);
-        register(ui.ctx(), clear_id, Role::Button, "Clear search", Target::Widget(&c), false);
-        c.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Clear search"));
+        let name = text::get(ui.ctx(), Text::ClearSearch);
+        c.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
+        register(ui.ctx(), clear_id, Role::Button, &name, Target::Widget(&c), false);
         if c.clicked() {
             text.clear();
             cleared = true;

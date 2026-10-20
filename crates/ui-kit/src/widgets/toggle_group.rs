@@ -118,8 +118,8 @@ pub fn toggle_group(ui: &mut Ui, t: &Tokens, toggles: &[ImageToggle<'_>], chosen
         let side = (size.x.min(size.y) * TOGGLE_GLYPH_SHARE).round();
         paint_glyph(p, Rect::from_center_size(r.rect.center(), Vec2::splat(side)), tg.glyph, glyph);
         focus_ring(p, t, r, r.rect, t.radius);
-        register(ui.ctx(), tg.id, Role::Toggle, tg.tooltip, Target::Widget(r), on);
         r.widget_info(|| egui::WidgetInfo::selected(WidgetType::RadioButton, enabled, on, tg.tooltip));
+        register(ui.ctx(), tg.id, Role::Toggle, tg.tooltip, Target::Widget(r), on);
     }
     let responses = responses.into_iter().zip(toggles).map(|(r, tg)| if tg.tooltip.is_empty() { r } else { r.on_hover_text(tg.tooltip) }).collect();
     ToggleGroupOut { chosen: picked.filter(|&i| Some(i) != current), responses }

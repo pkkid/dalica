@@ -5,7 +5,7 @@
 
 use egui::{Align, Color32, CornerRadius, Id, Layout, Rect, Response, Sense, Ui, UiBuilder, WidgetType, pos2, vec2};
 
-use super::{Target, one_line, register};
+use super::{Target, access_row, focus_ring, one_line, register};
 use crate::Tokens;
 use crate::fonts;
 use crate::registry::Role;
@@ -110,8 +110,10 @@ pub fn list_row(
         child.set_clip_rect(inner.intersect(ui.clip_rect()));
         cell(&mut child, &info);
     }
-    register(ui.ctx(), id, Role::Other, label, Target::Widget(&r), selected);
+    focus_ring(ui.painter(), t, &r, rect.shrink(1.0), t.radius);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::SelectableLabel, enabled, selected, label));
+    access_row(&r, egui::accesskit::Role::ListBoxOption, selected, None, None);
+    register(ui.ctx(), id, Role::Other, label, Target::Widget(&r), selected);
     r
 }
 

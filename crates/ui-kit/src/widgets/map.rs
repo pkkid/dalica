@@ -32,12 +32,13 @@ use serde::{Deserialize, Serialize};
 
 pub use land::{LAND_FILE, LAND_MAGIC, LAND_MAX_BYTES, Land, LandError, Ring as LandRing, offline_land, triangulate};
 
-use super::{Target, one_line, primary_button, register, text_button};
+use super::{Target, access, access_range, focus_ring, one_line, primary_button, register, text_button};
 use crate::Tokens;
 use crate::fonts;
 use crate::icons::{PeopleIcon, paint_people};
 use crate::input::wheel::{self, Wheel};
 use crate::registry::Role;
+use crate::text::{self, Text};
 
 /// Markers closer than this on screen (points) are drawn as one.
 pub const MARKER_GROUP: f32 = 32.0;
@@ -573,6 +574,7 @@ fn map_button(ui: &mut Ui, t: &Tokens, id: &str, rect: Rect, glyph: PeopleIcon, 
         t.icon
     };
     paint_people(p, Rect::from_center_size(rect.center(), Vec2::splat(16.0)), glyph, color);
+    focus_ring(p, t, &r, rect, t.radius);
     r
 }
 
@@ -736,11 +738,13 @@ pub fn map(ui: &mut Ui, t: &Tokens, rect: Rect, m: &Map<'_>) -> MapOut {
         if r.clicked() {
             out.marker_clicked = Some(g.members.clone());
         }
-        register(ui.ctx(), &gid, Role::Button, &grouped(g.count), Target::Widget(&r), false);
+        focus_ring(&p, t, &r, glyph.shrink(4.0), 4);
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, grouped(g.count)));
+        register(ui.ctx(), &gid, Role::Button, &grouped(g.count), Target::Widget(&r), false);
     }
 
     // The pin.
+    let texts = text::texts(ui.ctx());
     let pin_id = format!("{map_id}/pin");
     let pin_rect = m.pin.map(|q| glyph_rect(view.to_screen(rect, q)));
     if let (Some(q), Some(glyph)) = (m.pin, pin_rect) {
@@ -749,7 +753,10 @@ pub fn map(ui: &mut Ui, t: &Tokens, rect: Rect, m: &Map<'_>) -> MapOut {
         paint_marker(&p, t, tip, t.caution);
         p.circle_filled(pos2(glyph.center().x, glyph.min.y + 0.38 * MARKER_SIZE), 2.5, t.canvas);
         out.pin_clicked = r.clicked();
-        register(ui.ctx(), &pin_id, Role::Button, "Pin", Target::Widget(&r), false);
+        focus_ring(&p, t, &r, glyph.shrink(4.0), 4);
+        let name = texts.get(Text::Pin);
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+        register(ui.ctx(), &pin_id, Role::Button, name, Target::Widget(&r), false);
     }
 
     // The controls: + over − at the top left, the pin tool beside them.
@@ -762,11 +769,13 @@ pub fn map(ui: &mut Ui, t: &Tokens, rect: Rect, m: &Map<'_>) -> MapOut {
     let zo = map_button(ui, t, "button:map.zoomOut", minus, PeopleIcon::MapZoomOut, zoom > 0, false, bottom);
     let pin_tool = plus.translate(vec2(MAP_BUTTON + 6.0, 0.0));
     let pt = map_button(ui, t, "button:map.pin", pin_tool, PeopleIcon::PinTool, true, m.pin_tool, CornerRadius::same(t.radius));
-    for (r, id, label, active) in
-        [(&zr, "button:map.zoomIn", "Zoom in", false), (&zo, "button:map.zoomOut", "Zoom out", false), (&pt, "button:map.pin", "Pin", m.pin_tool)]
-    {
-        register(ui.ctx(), id, if id == "button:map.pin" { Role::Toggle } else { Role::IconButton }, label, Target::Widget(r), active);
+    for (r, id, label, active) in [
+        (&zr, "button:map.zoomIn", texts.get(Text::ZoomIn), false),
+        (&zo, "button:map.zoomOut", texts.get(Text::ZoomOut), false),
+        (&pt, "button:map.pin", texts.get(Text::Pin), m.pin_tool),
+    ] {
         r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, r.enabled(), active, label));
+        register(ui.ctx(), id, if id == "button:map.pin" { Role::Toggle } else { Role::IconButton }, label, Target::Widget(r), active);
     }
     if zr.clicked() {
         out.view = out.view.zoomed(rect, rect.center(), zoom.saturating_add(1).min(MAX_ZOOM));
@@ -775,9 +784,9 @@ pub fn map(ui: &mut Ui, t: &Tokens, rect: Rect, m: &Map<'_>) -> MapOut {
         out.view = out.view.zoomed(rect, rect.center(), zoom.saturating_sub(1));
     }
     out.pin_tool_clicked = pt.clicked();
-    let _ = zr.on_hover_text("Zoom in");
-    let _ = zo.on_hover_text("Zoom out");
-    let _ = pt.on_hover_text("Drop a pin");
+    let _ = zr.on_hover_text(texts.get(Text::ZoomIn));
+    let _ = zo.on_hover_text(texts.get(Text::ZoomOut));
+    let _ = pt.on_hover_text(texts.get(Text::DropPin));
 
     // The attribution, bottom right on a translucent `chrome` plate.
     let text = m.attribution.filter(|s| !s.is_empty()).unwrap_or(OFFLINE_ATTRIBUTION);
@@ -813,8 +822,14 @@ pub fn map(ui: &mut Ui, t: &Tokens, rect: Rect, m: &Map<'_>) -> MapOut {
     if out.changed {
         ui.ctx().request_repaint();
     }
-    register(ui.ctx(), &map_id, Role::Other, "Map", Target::Widget(&response), false);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, "Map"));
+    // A group with its zoom: a screen reader hears "Map, zoom level 5".
+    focus_ring(&p, t, &response, rect.shrink(2.0), 0);
+    let zoom = out.view.zoom();
+    let name = texts.get(Text::Map);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, name));
+    access(&response, |node| node.set_role(egui::accesskit::Role::Group));
+    access_range(&response, f64::from(zoom), 0.0, f64::from(MAX_ZOOM), 1.0, &text::fill(texts.get(Text::MapZoom), &[("zoom", &zoom.to_string())]));
+    register(ui.ctx(), &map_id, Role::Other, name, Target::Widget(&response), false);
     out
 }
 
@@ -827,7 +842,7 @@ fn paint_bubble(ui: &mut Ui, t: &Tokens, map_id: &str, area: Rect, anchor: Rect,
     let (rect, side) = bubble_rect(area, anchor, size);
     let bubble_id = format!("{map_id}/bubble");
     // The bubble takes the clicks on it, so none reaches the map under it.
-    let r = ui.interact(rect, Id::new(&bubble_id), Sense::click());
+    let r = ui.interact(rect, Id::new(&bubble_id), Sense::CLICK);
     let p = ui.painter_at(area);
     let radius = CornerRadius::same(6);
     p.add(t.popup_shadow.as_shape(rect, radius));

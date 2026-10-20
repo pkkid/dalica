@@ -16,7 +16,9 @@
 //!   February).
 //! - **Limits**: years [`MIN_YEAR`] to [`MAX_YEAR`], the range Dalica's dates have.
 //!
-//! No locale formats yet: the text is ISO, and callers show the long date beside it.
+//! No locale formats yet: the text is ISO, and callers show the long date beside it. A date
+//! field speaks its long date as its AccessKit description, in the month and weekday names of
+//! [`crate::text`] ("Monday, October 19, 2026" in English).
 //!
 //! The date rules (month lengths, reading a date strictly, the limits and stopping at them rather
 //! than wrapping) and their tests are adapted from LightCraft `crates/ui-egui/src/date_picker.rs`
@@ -31,8 +33,10 @@ use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 use egui::{CornerRadius, Key, Modifiers, Stroke, StrokeKind, Ui};
 
+use super::access;
 use super::field::{FieldOut, TextField, egui_id};
 use crate::Tokens;
+use crate::text::{self, Texts};
 
 /// The earliest year a date can have.
 pub const MIN_YEAR: u16 = 1;
@@ -237,6 +241,10 @@ trait Parts: Copy + PartialEq {
     /// The part a cursor at character `at` is in, and that part's characters.
     fn part_at(at: usize) -> (Self::Part, Range<usize>);
     fn stepped(self, part: Self::Part, delta: i32) -> Self;
+    /// The value as a screen reader says it, when that is more than its text.
+    fn spoken(&self, _texts: &Texts) -> Option<String> {
+        None
+    }
 }
 
 impl Parts for PickedDate {
@@ -260,6 +268,10 @@ impl Parts for PickedDate {
 
     fn stepped(self, part: DatePart, delta: i32) -> Self {
         self.step(part, delta)
+    }
+
+    fn spoken(&self, texts: &Texts) -> Option<String> {
+        Some(texts.long_date(self.year, self.month, self.day)).filter(|s| !s.is_empty())
     }
 }
 
@@ -350,6 +362,10 @@ fn picker<V: Parts>(ui: &mut Ui, t: &Tokens, id: &str, hint: &str, width: f32, v
         ui.data_mut(|d| d.insert_temp(memo, text));
     }
     let valid = read.is_some();
+    // The long date ("Monday, October 19, 2026"), in the names the app's text table gives.
+    if let Some(spoken) = value.spoken(&text::texts(ui.ctx())) {
+        access(&field.response, |node| node.set_description(spoken));
+    }
     if field.editing && !valid {
         ui.painter().rect_stroke(field.rect, CornerRadius::same(t.radius), Stroke::new(t.focus_width, t.caution), StrokeKind::Inside);
     }
