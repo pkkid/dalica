@@ -104,15 +104,18 @@ their meaning.
 Checked on the M15.35 branch over `main` at `a7fdedcc` (2026-10-20):
 
 - `cargo xtask i18n`: **1590 of 1590 keys** translated (100 %; `complete_menus`, so a missing key
-  fails the gate), **1590 drafts** awaiting the fluent review, no catalog fault. The release notes
-  stay in English (16 of 312 lines happen to match a translated heading); they are reported, never
-  failed.
+  fails the gate), **1621 drafts** awaiting the fluent review (the keys, the 30 command labels a
+  macro makes, which the sources do not show, and one engine message), no catalog fault. The
+  release notes stay in English (16 of 312 lines happen to match a translated heading); they are
+  reported, never failed.
 - `crates/ui/tests/i18n_languages.rs` with craft-fonts at the release pin (`3d9ab3a`, Noto Sans
   Thai): the library, the edit view (Basic, Tuning, Effects) and all eight tabs of Options at 1400 ×
-  900 and 900 × 600 with no label cut, every wrapped Thai label broken between words, every Thai
+  900 and 900 × 600 with no label cut, no text left in English but user data and the names above,
+  every wrapped Thai label broken between words, every Thai
   character drawn by a face that has it and every mark over or under its consonant; plurals for 0,
   1, 2, 5 and 21; switching English ⇄ Thai keeping the view, the selection and the undo history; the
-  library's fingerprint `i18n-th-library-1400x900`. The screenshots were looked at.
+  library's fingerprint `i18n-th-library-1400x900`; every registered command's label has an entry.
+  The screenshots were looked at.
 - Not covered by a sweep in Thai (only in the pseudo-locale): the other dialogs, the rooms, the
   slideshow and the viewer. The review's hand check covers them, and text input with a Thai input
   method (`thai-text.md` → Known limits).
