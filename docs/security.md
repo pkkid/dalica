@@ -13,7 +13,10 @@ same code.
 > **Status:** each control below is marked **Implemented** (with its code path) or **Planned (Mn)**
 > with the milestone from [`roadmap.md`](roadmap.md) in which it lands; as of M6 the file-system,
 > decoder and watcher controls are built, and so are metadata reading, metadata write-back and the
-> release workflow (signing excepted). The commit that lands a control
+> release workflow. M15's lines (videos, cameras, the OS services, the hand-off between two
+> launches, sound, signing, the fuzz targets and the dependencies M15 added) were set by the 1.0
+> audit (M15.36, 2026-10-20) from what each task's pull request and crate README record, each
+> naming its task, and each saying what is not done. The commit that lands a control
 > changes its mark to **Implemented** and names the code path. Never describe a control as
 > implemented before its code and tests are on `main`, and never report a successful build as a
 > published release.
@@ -56,7 +59,11 @@ Principles:
 | Network features | user-initiated only, TLS with certificate validation always on, size limits, pinned model hashes | the HTTPS transport **implemented** (M13.13: `crates/fetch/src/http.rs`, `http/`, `proxy.rs`; the stack of §8.2, redirects to https only and at most 8, reply heads capped, `HTTPS_PROXY`/`NO_PROXY` or a manual proxy through `CONNECT`; fuzz target `response`); map tiles and the geocoder **implemented** (M13.20: `crates/engine/src/map_tiles.rs`, `geocode.rs`: off until the user allows them, only from the open Places pane, at most two tiles at a time, cached, one geocoder request a second, the limits of §4.2); model downloads M13.16 | the crypto provider is an alpha release (§8.2); no revocation checking (no OCSP or CRL fetching); the root certificates are fixed at build time; no proxy authentication |
 | Generated output | escaped JSON, sanitized file names | M8 (export), M14 (collage) | |
 | Dependencies | pure Rust, banned crates, licence allow-list, advisory check | M0 | scanner results do not replace review |
-| Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs | **Implemented** (M6.13 `.github/workflows/release.yml`, `packaging/checksums.sh`; packages M6.21–M6.23); signing and notarization M15 | until M15 every artifact is unsigned (ad hoc on macOS); consumers verify `SHA256SUMS.txt` |
+| Videos | our own bounded box and EBML walks before any decoder; frames and sound read sample by sample under the raster limits, every decoder call panic-guarded; fuzz target `video_probe` | **Implemented** (M15.2 probe, M15.15 frames and sound, M15.20 posters, M15.25 playback and Export Clip; §4.2) | the H.264 decoder (`altc264`) rests on 257 `unsafe` sites and HEVC is behind a non-default feature (§8.7, questions for M15.R); the frame and sound readers have no fuzz target yet (§7.1) |
+| Cameras and phones (PTP/MTP) | our own reader of what a device sends, every count and length bounded, timeouts, copies verified, deletes only of verified copies, never over automation | **Implemented** (M15.9 reader, M15.19 import; §4.2, §5.9; fuzz target `ptp`) | Linux only: on Windows and macOS the system's own service holds the device (§5.9); no live session measured on hardware (checked at M15.R) |
+| External programs, clipboard, drag out, default viewer | argument vectors, never a shell; launches only from the user's own input, never over automation; system handler lists read with limits; `mimeapps.list` merged through `fs` | **Implemented** (M15.12, M15.17, M15.22, M15.23, M15.24; §5.11) | dragging out on Wayland is not built; macOS sets no default viewer (it only declares Dalica a viewer); Windows and macOS are compiled and tested by CI only |
+| Files handed to the running Dalica | loopback, a 256-bit token in a private file, one bounded request per connection, the paths only opened in the viewer | **Implemented** (M15.18; §6.1) | no fuzz target for its request line (§7.1) |
+| Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs, signing and notarization, an SBOM and an advisory check per release | **Implemented** (M6.13 `.github/workflows/release.yml`, `packaging/checksums.sh`; packages M6.21–M6.23; Windows signing M15.10, macOS signing and notarization M15.13, SBOM and advisories M15.40; §10) | every dry run signs with a throwaway identity; the real certificates and Apple's notarization have not run yet (checked at M15.R); consumers verify `SHA256SUMS.txt` |
 
 The table is a plan, not a guarantee about any build. Verify source and release evidence before
 relying on it.
@@ -115,13 +122,16 @@ untrusted files and bytes
   EXIF + maker notes / XMP (incl. extended XMP) / IPTC / ICC profiles / embedded thumbnails
   .dalica.json sidecars / .dalica-originals/.dalica.json / legacy sidecars and backup folders
   folders.json / albums.json / people.json / settings.json / index journal + snapshot
-  video containers (M15) / face models (M13) / map tiles and geocoder replies (M13)
+  video containers, their H.264 / HEVC / AAC streams and music files (M15) / face models (M13)
+  map tiles and geocoder replies (M13) / what a camera or phone sends over PTP/MTP (M15)
+  system handler lists: desktop entries, mimeapps.list, the registry's answers (M15)
 
 untrusted names
   file and folder names from disks, shares and devices / names inside sidecars / paths in metadata
 
 untrusted control data
   CLI arguments / JSON-lines control requests / MCP requests / agent commands / snapshot scripts
+  files handed over by another Dalica launch (M15)
 
 untrusted build inputs
   crates / git dependencies on the Craft apps / CI actions / release secrets / packaging tools
@@ -260,6 +270,10 @@ sidecar and XMP writing, MCP results and external process arguments (§4.4).
 | JSON line → command | `apps/dalica/src/control/`, `crates/ui/src/control/`, `crates/engine` | auth, line shape, limits, command policy, parameter type/range, enabled state |
 | MCP call → command | `crates/mcp` | roots, read-only mode, argument limits, result limits |
 | Library → generated output | `crates/create` | JSON escaping, name sanitizing, external-process arguments |
+| Video bytes → frames and sound | `crates/image` (`formats/video/`) | box and EBML limits, sample tables against their boxes, the coded size before the decoder, decode budget, panic guard (M15) |
+| Camera → import | `crates/scan` (`ptp/`), `crates/engine` (`camera.rs`) | container lengths, handle and object limits, timeouts, verified copies, deletes only of verified copies, never over automation (M15) |
+| Library → other programs | `apps/dalica` (`os/`), `crates/engine` (`cmd/os.rs`, `automation.rs`) | argument vectors, no shell, user input only, bounded handler lists, `mimeapps.list` merged through `fs` (M15) |
+| Another launch → running app | `apps/dalica` (`instance/`) | loopback, token, one bounded request, paths only opened in the viewer (M15) |
 
 ### Agent guidance
 
@@ -318,7 +332,13 @@ rather than relying on defaults.
 | JSON files (`folders`, `albums`, `people`, `settings`) | `library` | file ≤ 64 MiB; depth ≤ 64 | M1 |
 | Index journal / snapshot | `library` | checksummed records ≤ 16 MiB; a torn tail is discarded, a bad checksum stops replay at that record; version checked | M1 |
 | Control / MCP JSON | `ui`, `mcp` | see §6.5 | M2 / M10 |
-| Video containers | `image` or the video crate | box depth ≤ 12, ≤ 4,096 boxes per level, sample tables bounded; or an external process with a timeout (reserved decision 2) | M15 |
+| Video containers (probe) | `image` | MP4, M4V and MOV through the ISOBMFF box walk above (only `ftyp` and `moov` read, a movie box over the 64 MiB header limit refused); Matroska through our own EBML reader (RFC 8794, RFC 9559): nesting ≤ 12, ≤ 4,096 elements per level, an element past its parent malformed, unknown-size elements bounded by their parent; a cut file is `Truncated`, never a panic; HEIC, AVIF and CR3 are never videos | **Implemented** (M15.2: `formats/video.rs`, `formats/video/{mp4,ebml,mkv}.rs`, `crates/image/tests/video.rs`; fuzz target `video_probe`, 7.6 M runs in 181 s, one finding fixed with its regression test). Reserved decision 2 chose decoders in the process (M15.46's record, `video-decoders.md`), so no external video process exists |
+| Video frames and a clip's sound | `image` | our own sample-table and cluster demuxers: ≤ 2²¹ samples per track, a sample ≤ 32 MiB read one at a time (a clip is never held in memory), every table checked against its box before anything is reserved, codec configuration ≤ 64 KiB; every SPS parsed and its coded size checked before the decoder sees it (≤ 8,192 a side, ≤ 8,192 × 4,352 px, the caller's `Limits`, and 20 pictures plus 8 per decoding thread within the decode budget); ≤ 8 threads, spawned fallibly; sound ≤ 8 channels, ≤ 192 kHz, ≤ 4,096 frames a packet; every decoder call inside `catch_unwind` (the decoder rebuilt after a panic) | **Implemented** (M15.15: `formats/video/frames.rs`, `frames/track.rs`, `video/sound.rs`, `crates/image/tests/video_frames.rs`: cut, bit-flipped and oversized streams refused with their reasons under a time bound). H.264 through `altc264` in every build; HEVC through `rusty_h265` only with `dalica-image`'s non-default `hevc` feature, which neither `dalica-engine` nor the apps forward, so the shipped build shows HEVC clips as tiles; the decoders' own `unsafe` is §8.7's. No fuzz target reads frames or sound yet (§7.1) |
+| Slideshow music files | `image` | known by their first bytes, never their name; a file over 2 GiB refused before it is read; ≤ 8 channels, a rate of 8–192 kHz, ≤ 65,535 frames a block; read as a stream; a decoder panic caught and answered as a damaged file | **Implemented** (M15.27: `formats/audio.rs`, `crates/image/tests/audio.rs`); MP3, Ogg Vorbis, FLAC and WAV through `nanomp3`, `lewton`, `claxon` and `hound` (§8.7) |
+| Cameras and phones over PTP/MTP | `scan`, `engine` | every container's length checked against what arrived; ≤ 5 parameters, ≤ 100,000 object handles, ≤ 4,096 codes in a dataset, strings ≤ 255 UTF-16 units; an object ≤ 4 GiB and never read past the size its info declares (chunked reads end with a one-byte read past the end); 5 s per transfer, 60 s per transaction, an unplugged or silent device refused without a panic; names through `core::names::sanitize`; the import reads an object whole into memory only up to 64 MiB, writes every copy through `fs` (temporary file, fsync, read back against the received bytes' hash, a rename that never replaces), deletes from the device only an object it copied and verified while the device still reports its listed size and dates, only after the question and never over automation; no device I/O on the owner thread; a held device is listed as held, never detached | **Implemented** (M15.9: `crates/scan/src/ptp.rs`, `ptp/`, `crates/scan/tests/ptp.rs` over an in-memory responder, fuzz target `ptp` 5.7 M runs in 181 s; M15.19: `crates/engine/src/camera.rs`, `crates/engine/tests/import_camera.rs`). The USB transport (`nusb`) builds on Linux and Windows only; no live session was measured on hardware (checked at M15.R) |
+| Files handed to the running Dalica (§6.1) | `dalica` | one request line per connection ≤ 525,312 bytes within 5 s in all; ≤ 64 paths, each absolute UTF-8 ≤ 4,096 bytes, any violation refusing the whole request; reply ≤ 256 bytes; `instance.json` ≤ 4 KiB | **Implemented** (M15.18: `apps/dalica/src/instance.rs`, `instance/wire.rs`, `apps/dalica/tests/instance.rs`); no fuzz target |
+| System handler lists | `dalica` | desktop entries, `mime/globs2`, `mime/subclasses` and `mimeapps.list`: ≤ 256 KiB per file, ≤ 8,192 entries, ≤ 4 folder levels, ≤ 64 handlers; an unclosed quote in `Exec` refused; a field code inside a longer word dropped, never filled; Windows' `reg query` output parsed by the same bounded reader | **Implemented** (M15.12: `apps/dalica/src/os.rs`, `os/`, `apps/dalica/tests/os.rs` `hostile_entries_and_lists_are_bounded`, 2,000 random inputs through every parser, 20,000 at full strength) |
+| `mimeapps.list` written (default viewer) | `dalica` | written through `fs`, merged: every other group, comment and key kept byte for byte; the replaced handlers remembered first in Dalica's own file and put back on "Don't use Dalica as a viewer", leaving a key the user changed since alone; a list that is not UTF-8 kept aside as `.corrupt-<time>`; a list over the size limit or a link refused and left untouched | **Implemented** (M15.24: `apps/dalica/src/os/default_viewer.rs`, `apps/dalica/tests/default_viewer.rs`: 300 generated hostile lists and a 100 KB line) |
 | Face models | `faces` | file ≤ 512 MiB (a longer source refused before a byte is read); weights ≤ 64 Mi elements in all, ≤ 20,000 weight tensors and ≤ 20,000 nodes; rank ≤ 8 for every weight, declared input or output and value; names ≤ 4,096 bytes, lists ≤ 1,000,000 values, ≤ 5,000,000 protobuf fields; one input, ≤ 64 outputs; any one tensor ≤ 64 Mi elements; live tensors, constant copies and the convolution scratch kept between layers ≤ 512 MiB at every step, checked for the input before anything is allocated; every weight and every computed value finite (an overflow is an error); stride and padding ≤ 65,536, nearest `Resize` by whole factors 1–16; external or sparse weights, custom operator domains, training graphs, opsets outside 10–17 and element types other than float32 (int64 only for constant shapes) refused by name; the interpreter starts no thread and a panic in a run is caught; SHA-256 pinned in the source for the built-in models | Limits **implemented** (M13.6; `crates/faces/src/limits.rs`, `graph.rs`, `net/shape.rs`, `runtime.rs`); the pins M13.10 |
 | HTTPS replies | `fetch` | status line and headers ≤ 64 KiB and ≤ 100 lines (no folded lines), ≤ 4 interim `1xx` heads, a chunk-size line ≤ 1 KiB and ≤ 100 trailers; one `Content-Length` (two different ones refused); a compressed or transformed body refused; ≤ 8 redirects, each to an https address; a proxy's `CONNECT` answer ≤ 16 KiB; the body capped by the download's spec (`fetch`) | **Implemented** (M13.13: `crates/fetch/src/http/response.rs`, `proxy.rs`) |
 | Map tiles, geocoder replies | `engine` | tile ≤ 1 MiB (refused as it arrives, announced or not) and ≤ 1,024 px edge (read from its header before any pixel), decoded under the raster limits, a placeholder otherwise and never kept in the cache; JSON reply ≤ 1 MiB, nesting depth ≤ 32 (checked before it is parsed), ≤ 20 results, a name ≤ 256 bytes and a place ≤ 1 KiB each, a point on the globe or the result is passed over; the cache (`<cache>/tiles/`) ≤ 200 MB, pruned oldest first, listing and deleting only its own file names inside its own folder names, links never followed | **Implemented** (M13.20: `crates/engine/src/map_tiles.rs`, `geocode.rs`; `crates/engine/tests/map_tiles.rs`) |
@@ -651,7 +671,15 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   at most 256 MiB kept for its header and thumbnail and 16 GiB read in all, never by the size the
   device reports; headers decode under `dalica-image`'s limits, and a header that lies about its
   size is listed with its reason and no thumbnail; `crates/scan/tests/import_source.rs`). Cameras
-  and phones over MTP/PTP: planned with the OS integration.**
+  and phones over PTP/MTP: built (M15.9, M15.19) with the limits of §4.2: what the device sends is
+  bounded and timed, and nothing it reports sizes an allocation past 64 MiB.** What each system
+  lets Dalica reach (M15.9, `crates/scan/README.md`): on Linux the USB transport reaches a camera
+  the desktop does not hold, and a phone the desktop already mounted (gvfs, kio-fuse) is listed as
+  a drive; on Windows the portable-device driver and on macOS the image-capture service hold the
+  device, so Dalica lists it as held and reaches it only as a drive or card when it offers one (no
+  USB transport is built on macOS). Never detaching a driver is deliberate. Whether to reach
+  cameras on Windows and macOS through the systems' own APIs (which needs `unsafe` in Dalica's
+  code) is a question for M15.R.
 
 ### 5.10 Private data at rest
 
@@ -669,12 +697,47 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
 
 - Programs are started with an argument vector, never through a shell; paths come after `--`
   where the program supports it, and a path starting with `-` is passed as `./-name`.
-- Only user actions in the UI launch external programs (Open With, Open in External Editor, Locate
-  on Disk). These commands are refused over automation (§6.6). **Planned (M15).**
+  **Implemented (M15.12:** `apps/dalica/src/os.rs`, `os/`: reveal through the file manager's
+  D-Bus `ShowItems` or `xdg-open` on Linux, `explorer.exe /select,` on Windows, `open -R` on
+  macOS; Open With from the desktop entry's `Exec` split by its specification (a field code inside
+  a longer word is dropped, never filled), Windows' `open` command split as
+  `CommandLineToArgvW` does with `%1` put in after the split, `open -a` on macOS; the external
+  editor gets every file in one start. `apps/dalica/tests/os.rs`
+  `every_oss_vectors_keep_each_path_one_argument_and_never_start_a_shell` runs every OS's vectors
+  through a recording runner with paths holding spaces, a leading `-`, non-ASCII and shell
+  metacharacters; on the OS it runs on, stub programs on `PATH` record what they were given.
+  Windows and macOS vectors are checked on Linux as data; their real starts are compiled and run
+  only by the review's CI.**
+- Only the user's own input launches external programs (Open With, Open in External Editor,
+  Locate on Disk, a folder's Locate on Disk). **Implemented (M15.17, M15.22):** the four launching
+  commands are in `automation::NEVER_AUTOMATED` and refused with `external_denied` over every
+  automation route, even with `--automation-allow-external`
+  (`crates/engine/tests/os.rs`
+  `over_automation_the_launching_commands_are_refused_and_nothing_is_recorded`); a control
+  request's synthetic key or click that reaches one in the window is refused by `App::run` while
+  the request drives the app (`crates/ui/src/control/tests.rs`
+  `a_control_requests_key_or_click_never_locates_on_disk`); choosing the external editor
+  (`files.externalEditor`) is a launch by proxy and needs `--automation-allow-external`
+  (`automation::EXTERNAL_OPTIONS`). The system clipboard (`photo.copyToSystem`,
+  `photo.copyPath`) is not a launch and passes the policy; a picture is checked as width × height
+  × 4 bytes before the clipboard is touched.
+- Setting the default viewer (`viewer.setDefault`) changes the user's system settings and needs
+  `--automation-allow-external` (M15.24, `crates/engine/tests/default_viewer.rs`). On Linux it
+  merges `mimeapps.list` through `fs` (§4.2); on Windows it registers per user and opens the
+  system's Default apps settings; on macOS it sets nothing (no safe binding to the role-handler
+  API exists in the workspace) and says how to choose Dalica in Finder.
+- Photos dragged out to another application (M15.23) hand over the files on disk, never the
+  unsaved edits (a note says so on the drag). On X11 Dalica is its own XDND source over x11rb's
+  pure-Rust connection (`drag_out::x11::tests` drops on a live XDND window of the test's own); on
+  Windows and macOS the pinned `drag` crate keeps OLE's and AppKit's `unsafe` out of the
+  workspace (§8.7). On Wayland dragging out is not built (the drag would have to start on winit's
+  own connection, reachable only through raw pointers): the status line points at Copy, which
+  puts the files on the clipboard. No target application was tried by hand on any OS (checked at
+  M15.R).
 - URLs Dalica opens are fixed `https://` addresses from its own configuration (map attribution,
   help), never URLs found in metadata.
-- An optional external video process (reserved decision 2) runs with a timeout, without a shell,
-  with only the input path and fixed arguments; its output is parsed with the limits of §4.2.
+- No external video process exists: reserved decision 2 chose pure-Rust decoders inside the
+  process (M15.46, M15.15), parsed with the limits of §4.2.
 
 ### 5.12 Tests
 
@@ -698,8 +761,25 @@ preferences, all with the user's file-system permissions.
 | Headless script on stdio | `dalica-cli run`, `dalica-cli snapshot --script` | inherited from the process pipe | M1, M2 |
 | MCP over stdio, headless engine | `dalica-cli mcp [--demo]` | inherited from the process pipe | M10 |
 | MCP bridge to the running app | `dalica-cli mcp --connect 127.0.0.1:<port>` | token (§6.3) | M10 |
+| Files handed to the running Dalica (one Dalica per user) | every launch of the per-user library | token in `instance.json` | M15.18 |
 
 Prefer stdio. Start the TCP control channel only when needed.
+
+**The hand-off channel (M15.18, implemented:** `apps/dalica/src/instance.rs`, `instance/`,
+`apps/dalica/tests/instance.rs`**).** A second launch of Dalica on the per-user library hands its
+files to the running one instead of opening the library twice. The running Dalica holds
+`instance.lock` (an exclusive OS lock, released when the process ends) and listens on
+`127.0.0.1` at a port the OS chooses; `instance.json` (`port`, `token`, `pid`) is written through
+`dalica_fs::replace_private` in the per-user settings folder (`0600` on Unix, the folder's ACL on
+Windows). The token is 256 bits from the OS random source, compared in constant time, never
+logged. A connection carries one request line within the limits of §4.2 (5 s in all, ≤ 64
+absolute paths); any violation refuses the whole request and nothing opens; at most 8 connections
+are served at once, and past that a connection is dropped and the sender retries. The receiver
+answers `ok` only once its window has taken the paths (within 8 s); otherwise the sender starts on
+its own after 10 s, so a file is never acknowledged and then dropped. A handed path can only open
+the viewer on it (`Session::hand_viewer`), exactly what `dalica --view` does; nothing is written.
+Launches with `--library`, `--demo`, `DALICA_HOME` or a portable copy never take part. The request
+line has no fuzz target (§7.1).
 
 ### 6.2 Loopback only
 
@@ -810,7 +890,8 @@ retrying. A bounded reply does not imply a bounded command cost.
   new file's folder must already exist; only an export creates its single output folder.
   Checks resolve links, so they run off the UI thread; the lexical part runs first, on it.
 - **Refused over automation:** commands that open a native file dialog (supply the path parameter
-  instead), launch external programs (§5.11), permanently delete card contents (§5.7), change the
+  instead), launch external programs (§5.11; with deleting from a camera or card, the commands of
+  `automation::NEVER_AUTOMATED`, refused whatever was granted), permanently delete card contents (§5.7), change the
   watched-folder list or other file-bearing preferences except through the root-checked commands
   above, or download anything (models, tiles). Individual safe preferences remain settable.
 - **Same policy for every route.** Synthetic UI input (`ui.clickWidget`, `ui.key`, `ui.type`,
@@ -872,7 +953,9 @@ Built: the roots and `--read-only` (M10.16), the annotations (M10.15). Bridge mo
 | Request, reply, depth, connection, timeout limits | Implemented (M2; `control_security.rs`, the `ui` control tests; depth 64 since #102) |
 | Screenshot / snapshot dimension limits | Implemented (M1, M2; the `ui` control tests) |
 | Command error contract and `panic_hunt` | Implemented (M1; `panic_hunt`) |
-| Root-checked path parameters | Implemented (M2 screenshots, M8 exports and Save As; one engine policy since M10.16: `crates/engine/tests/automation_roots.rs`, the `ui` control tests); collage destinations over the control channel, the default folder included (M14.17: `crates/ui/src/control/engine.rs`; the MCP server's with M14.21); import destinations as they land |
+| Root-checked path parameters | Implemented (M2 screenshots, M8 exports and Save As; one engine policy since M10.16: `crates/engine/tests/automation_roots.rs`, the `ui` control tests); collage destinations over the control channel, the default folder included (M14.17: `crates/ui/src/control/engine.rs`; the MCP server's with M14.21); import destinations as they land; the video outputs (M15.25, M15.26, M15.28): `video.exportClip` and `player.exportClip` take their `path` as a new file inside a write root (`WRITE_PATHS` in `crates/ui/src/control/engine.rs`, `check_paths` in `crates/mcp/src/headless.rs`), Save Frame as Picture writes into the Video Frames folder only when it lies inside a write root (a control request's click outside is refused and writes nothing: `crates/ui/tests/video_player.rs` `a_control_click_on_save_frame_outside_the_write_roots_is_refused_and_writes_nothing`; headless MCP: `crates/mcp/src/headless.rs`'s tests), and Export's videos (`export.run {videos}`) and a collage's poster frames go to the destinations already checked |
+| Commands never automated | Implemented (M15.17: `automation::NEVER_AUTOMATED`: `import.removeFromSource`, `photo.locate`, `folder.locate`, `photo.openWith`, `photo.openExternal`, refused with `external_denied` whatever was granted, each for its own reason since M15.42; M15.22: `App::run` refuses them while a control request drives the window) |
+| People data withheld | Implemented (M13; `--automation-allow-people`): names, nicknames and face rectangles (`PEOPLE_REPLIES`, `FACE_POINTS`, `NAME_SEARCHES`); a person's export folder (M14.25, M15.42, M15.51: `withholdNames` on `library.query`, `search.suggest` and `slideshow.list`; the job, its folder, its failed items' reasons, its toast and the edit view's status prefix withheld in `ui.inspect`, `ui.state`, `jobs.*` and headless MCP; `crates/ui/src/control/tests.rs`, `crates/engine/tests/search.rs`, `crates/mcp/tests/command_tools.rs`) |
 | Batch limits, paging, preview limits | Planned (M10) |
 | MCP roots, read-only mode, tool annotations | Implemented (M10.15 annotations; M10.16 client roots, `--automation-*`, `--read-only`: `crates/mcp/tests/roots.rs`, `crates/engine/tests/read_only.rs`); read-only for the desktop app's control channel not built |
 | Server proof in the handshake | Planned (M10) |
@@ -912,15 +995,21 @@ its own entry points, because the limits are the ones Dalica passes.
 
 | Crate | Targets | Lands |
 |---|---|---|
-| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched |
+| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc`, `video_probe` (any bytes as a video's header: refused or truncated, or facts in range, the box and EBML limits of §4.2 holding) | **Implemented** (M5.1, in `crates/image/fuzz/`; `video_probe` M15.2: 7.6 M runs in 181 s before merging, one finding (an 8-byte EBML size overflowing a shift) fixed with its regression test; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched |
 | `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged), `carry` (any file as the source of a rendered copy's metadata: an error, or a JPEG or PNG whose metadata reads back, orientation 1, the size asked, no GPS when the location was removed; setting the orientation reads back as asked), `regions` (MWG face regions: an XMP packet read, then written into with named faces; a merge that succeeds reads back exactly the faces written, writing them again changes nothing, and the same packet in a JPEG passes `write_owned`'s verification) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `carry` M8.7; `regions` M13.11; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
 | `crates/faces` | `model` (any bytes as a face model: refused with a reason, or loaded and run on a fixed input of its declared shape, each dynamic size taken as 1, giving finite outputs of the shapes promised by the input check) | **Implemented** (M13.6, in `crates/faces/fuzz/`, seeded by `dalica_faces::synthetic`); built and run for 60 s at every milestone review and when the Fuzz workflow is dispatched. Local run before merging (stable with cargo-fuzz's flags): 7.0 M runs in 180 s from the synthetic models, 1,235 corpus entries, no finding |
 | `crates/fetch` | `response` (any bytes as a server's reply, read as the HTTPS transport reads one after the TLS layer, the first byte choosing how many bytes each read hands out: an error, or a status of 200–599 and a body no longer than the input and exactly its announced length; a `Location` it carries leads to an https address or is refused) | **Implemented** (M13.13, in `crates/fetch/fuzz/`); built and run for 60 s at every milestone review and when the Fuzz workflow is dispatched. Local run before merging (stable with cargo-fuzz's flags): 3.3 M runs in 180 s from four seed replies, 794 corpus entries, no finding |
 | `crates/sidecar` | `parse` (any bytes as a folder's `.dalica.json`, an originals record and `albums.json`, under the default and small limits: refused by a named limit or as not JSON, or every typed read returns, every face rectangle inside the picture with its corners in order, every geotag on the globe, every usable originals entry under a plain name), `roundtrip` (print → parse gives the same document and printing is stable, for all three; writing back every value read reads back the same and a second write-back changes nothing; every key Dalica does not read, at the top level, in `"folder"` and in each photo's entry, keeps its value), `recipe` (every `edits`, `redo` and saved or original `recipe` list a sidecar or originals record holds, and the input's own lines as one list, on a picture size and EXIF orientation from the first bytes: the list prints back exactly, each operation prints its own text, typed parameters, clamped or not, print to text that reads back as the same parameters, and the pipeline, orientation and shown size return), `legacy` (any bytes as a legacy sidecar under the default and small limits: refused by a named limit, or every typed read returns, every listed file is found, every rectangle inside the picture with its corners in order, every contact id and album token of its fixed shape) | **Implemented** (`legacy` M14.2; `parse`, `roundtrip` and `recipe` M15.39; in `crates/sidecar/fuzz/`, each started from its `seeds/<target>`); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags, 180 s each): `legacy` 4.9 M runs, 2,333 corpus entries; `parse` 5.4 M runs, 5,251 entries; `roundtrip` 5.2 M runs, 5,168 entries; `recipe` 2.3 M runs, 7,428 entries; no finding. `crates/sidecar/src/tests.rs` keeps its property tests (random bytes never panic, print → parse is the identity, any file name round-trips as a key) |
 | `crates/store` | `journal` (any bytes as `index.log`, as they are or with each line framed as a checksummed record, its last newline kept or torn: reading stops at the first torn, mismatched or unreadable record with every record before it whole, the valid prefix reads again the same; the ops replay onto an empty model as opening the store does, and the model they build, written as a snapshot, loads back and writes the same bytes again), `snapshot` (any bytes as `index.snap`, as they are or framed as one record: refused with a reason, or loaded, and the loaded model written, loaded and written again gives the same bytes at the same op number), `people` (any bytes as `people.json`: refused as damaged, or print → parse gives the same document and printing is stable; writing back the people, legacy ids and rejected suggestions read reads back the same, keeps every top-level key Dalica does not know, and a second write-back changes nothing) | **Implemented** (M15.39, in `crates/store/fuzz/`, each started from its `seeds/<target>`); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags, 180 s each): `journal` 3.9 M runs, 6,326 corpus entries; `snapshot` 6.5 M runs, 8,497 entries; `people` 5.7 M runs, 4,580 entries; no finding. `albums.json` is the sidecar crate's (`parse`, `roundtrip`); `folders.json` and `settings.json` are read in `crates/engine` and have no target yet. The journal's tests still read every prefix of it in memory and reopen the store at each record boundary (`crates/store/src/lib.rs`), and tear the sketch file's tail (`crates/store/tests/sketch.rs`) |
 | `crates/ui` control | `request_line` (any bytes as one line after `auth`: refused with `parse` (over the line limit, not UTF-8, nested past §6.5's depth, not JSON, not an object, no string `method`), skipped when blank, or a request whose parameters nest within the limit, handled by the headless app with no library open, a stub file picker and the default automation settings: an answer given up front is never `internal`, input it would play and work it would run are dropped unplayed so nothing reaches the disk; every answer is one JSON line under the reply limit echoing the id) | **Implemented** (M15.39, in `crates/ui/fuzz/`, started from `seeds/request_line`); built and run for 60 s at every milestone review and when the Fuzz workflow is dispatched, with `--cfg fuzzing` like every other target (the fuzz crate builds `dalica-ui` without its `camera-usb` feature, so `nusb` is not in its graph; M15.52). Local run before merging (stable with cargo-fuzz's flags): 2.4 M runs in 180 s, 3,521 corpus entries, peak 113 MB, no finding. The `auth` state machine is the app's transport (`apps/dalica/src/control/transport.rs`), outside any library crate, and has no target; its tests cover it |
-| `crates/mcp` | `tool_args` | M10 |
-| video demuxer | `demux` (if a pure-Rust path is chosen) | M15 |
+| `crates/scan` | `ptp` (what a camera sends to the PTP/MTP reader: random containers cut into random transfers through a whole session and each dataset parser; every answer an error or values within §4.2's limits) | **Implemented** (M15.9, in `crates/scan/fuzz/`; the fuzz crate builds `dalica-scan` without its `usb` feature, since `nusb` does not build under `--cfg fuzzing`); built and run for 60 s at every milestone review and when the Fuzz workflow is dispatched. Local run before merging (stable with cargo-fuzz's flags): 5.7 M runs in 181 s, 976 new units, peak 48 MB, no finding. `crates/scan/tests/ptp.rs` keeps its property test (random containers never panic) |
+| `crates/engine` | `folders_json`, `settings_json` | **Not on `main`.** Landed by M15.53 (#1089: `crates/engine/fuzz/`, 1.8 M and 1.4 M runs in 180 s with no finding), then removed with every other file of M15.53 (the `apps/dalica/fuzz` workspace, its `fuzz.yml` jobs, the root manifest's excludes, `transport.rs`'s `frame` and `step` and `folders::parse_for_fuzzing`) by the squash merge of M15.28 (#1090, commit `06328422`); only its roadmap tick was put back (#1097). Found by the 1.0 audit (M15.36); restoring it is a fix task before M15.R. Until then `folders.json` and `settings.json` have no target |
+| `apps/dalica` control | `auth` | **Not on `main`**, for the same reason as the row above (M15.53, removed by #1090). The transport's own tests cover the `auth` step (`apps/dalica/src/control/transport.rs`) |
+| `crates/mcp` | `tool_args` | Not built (planned at M10, never scheduled): the MCP server's arguments are fuzzed only through `panic_hunt`'s hostile parameters to the commands they map to |
+| video frames and sound | `video_frames`, `video_sound` (the sample-table and cluster demuxers, the SPS gate, the decoders behind `catch_unwind`, AAC packets) | Not built: M15.15 left them open (`crates/image/fuzz` was outside its files); `crates/image/tests/video_frames.rs` cuts, bit-flips and oversizes streams under a time bound. A question for M15.R, with the `unsafe` in `altc264` (§8.7) |
+| music files | `audio` | Not built; `crates/image/tests/audio.rs` covers damaged files |
+| the hand-off channel | `handoff` (`instance/wire.rs`'s request line) | Not built (M15.53 left it out of its scope); `apps/dalica/tests/instance.rs` covers the limits |
+| system handler lists | (`apps/dalica/src/os/`'s readers) | Not built as a fuzz target; `apps/dalica/tests/os.rs` runs 2,000 random inputs through every parser (20,000 at full strength) |
 
 Command parameters are fuzzed by `panic_hunt` (M1, an ordinary `dalica-engine` test), which runs
 every registered command with hostile parameters generated from its spec and must stay green.
@@ -944,7 +1033,9 @@ M15.39) builds every `image`, `meta`, `faces`, `fetch`, `sidecar`, `scan`, `stor
 (maintainer decision, 2026-10-15; before that the targets were built but never run), and for a
 chosen time when dispatched by hand. A crash fails the review's run and keeps its input as an artifact; the fix is a
 task merged before the review closes. A scheduled weekly run of every target for a fixed time lands
-by M15. Continuous hosted fuzzing is future work.
+by M15: **not built**, and the maintainer's rule of 2026-10-15 runs GitHub only at reviews and
+when dispatched, so whether a weekly run is still wanted is a question for M15.R. Continuous hosted
+fuzzing is future work.
 
 ### 7.3 What counts as a finding
 
@@ -1137,6 +1228,32 @@ result does not replace reading the code. Community batches follow the checklist
 §4 (new dependencies, `build.rs` or CI changes, `unsafe`, hidden Unicode, network access, file
 writes outside the library).
 
+### 8.7 Dependencies M15 added
+
+Recorded by the 1.0 audit (M15.36) from each task's pull request; every one passed `cargo xtask
+deps` (pure Rust, no C build, licences in §8.3) when it landed. `unsafe` counts are the crates' own
+(M15.46's record, `video-decoders.md` §7, for the decoders; a count of the keyword in the crate's
+`src` for the rest, which overstates: comments and `forbid` attributes count too). Dalica's own code
+stays `#![forbid(unsafe_code)]`; the crates below are where M15 accepted `unsafe` to keep it out of
+the workspace.
+
+| Crate (pin) | Licence | Brought by | Reaches | `unsafe` | Note |
+|---|---|---|---|---|---|
+| `altc264` =0.1.1 | MIT | M15.15 (H.264 frames, every build) | hostile video bytes | 257 sites in 15 files (SIMD intrinsics, raw-pointer picture slices, `get_unchecked`, a lifetime `transmute` in its thread pool) | first released 2026-10-14, one maintainer; the coded size is checked before it sees a stream and every call is panic-guarded (§4.2); no fuzz target of ours reaches it yet (§7.1). **Question for M15.R** (record §8 Q2): accept it, require a safe build (H.264 would stay a tile), or a fuzzing gate first |
+| `rusty_h265` =0.6.2 with `simd` | Apache-2.0 | M15.15 (HEVC frames) | hostile video bytes | 0 in the decoder (`forbid`); 702 in `rusty_h265-accel`'s SIMD kernels | only with `dalica-image`'s non-default `hevc` feature, which the apps do not forward: **not in the shipped build**. Patents and `unsafe` are M15.R questions (record §8 Q1, Q2) |
+| `rusty_aac` =1.1.1, no defaults | Apache-2.0 | M15.15 (a clip's sound) | hostile audio packets | 36 in 4 files (`set_len` after full writes; the rest behind `simd`, off) | packets bounded by §4.2 |
+| `nanomp3` =0.2.0, `lewton` =0.10.2 (`ogg` 0.8.0), `claxon` =0.4.3, `hound` =3.5.1 | MIT OR Apache-2.0; MIT OR Apache-2.0 (BSD-3-Clause); Apache-2.0; Apache-2.0 | M15.27 (slideshow music) | hostile music files | `nanomp3` and `lewton` `forbid(unsafe_code)`; `claxon` and `hound` a few sites each | `lewton` and `claxon` unreleased since 2021 and 2020 (record §8 Q5) |
+| `pulseaudio` =0.3.2 | MIT | M15.27 (sound on Linux) | the local sound server's replies | 2 | message types only; the protocol client is our own |
+| `cpal` =0.18.2, no defaults (with `coreaudio-rs`, `objc2-core-audio*`, `objc2-audio-toolbox`, `objc2-avf-audio`, `mach2`, `dasp_sample`) | Apache-2.0 | M15.27 (sound on Windows and macOS) | the system's audio APIs | about 200 | only its WASAPI and CoreAudio hosts; never on Linux, where it would link ALSA's C library (`alsa`, `alsa-sys` are in `Cargo.lock` only) |
+| `nusb` 0.2.8 | Apache-2.0 OR MIT | M15.9 (cameras over USB) | a USB device | about 350 | Linux and Windows only (macOS would need `io-kit-sys`, not in §8.1's allow-list); behind the engine's default `camera-usb` feature (M15.52) so fuzz builds leave it out |
+| `drag` =2.1.1 (with `windows` 0.52, `dunce`, `core-graphics` 0.24) | Apache-2.0 OR MIT | M15.23 (dragging photos out on Windows and macOS) | the OS's drag session | 37 | pinned; its GTK path for Linux is in `Cargo.lock` but never resolved (`cargo tree -i gtk-sys` prints nothing on any target) |
+| `x11rb` 0.13.2 (already in the graph through winit and arboard) | MIT OR Apache-2.0 | M15.23 (the X11 drag source) | the X server | about 76, compiled in: winit turns on its `allow-unsafe-code` feature in the product graph | our own XDND source over its pure-Rust connection; Dalica's code calls only its safe API |
+| `fmv-macos-events` =0.1.0 | MIT OR Apache-2.0 | M15.18 (Finder's Open With, the Dock) | Apple events | 12 | objc2 only; pinned as PhotoCraft pins it |
+| `wl-clipboard-rs` 0.9 (with `os_pipe`, `tree_magic_mini`, `nom` 8, `petgraph`, `fixedbitset`, `hashbrown` 0.15, `foldhash`); features of `arboard`, `zbus` and `objc2-app-kit` | MIT or Apache-2.0 | M15.12 (the clipboard, the file manager's D-Bus call, macOS handler lists) | the desktop session | as reviewed in M15.12 | files on the Wayland clipboard; macOS handlers through `objc2-app-kit`'s safe `NSWorkspace` methods |
+
+Advisories against all of these are checked by `cargo xtask advisories` (§8.4); the only recorded
+exceptions are the two of §8.4 (`rsa`, `rustls-webpki` 0.102), neither brought by M15's crates.
+
 ## 9. Security testing
 
 - `cargo xtask ci` on every task (never-crash lints, `#![forbid(unsafe_code)]`, the changed
@@ -1156,8 +1273,9 @@ writes outside the library).
 ## 10. Release security
 
 Releases follow the Craft apps' workflow (`process.md` §7). **Implemented (M6.13:
-`.github/workflows/release.yml`, `packaging/checksums.sh`; the packages M6.21–M6.23); signing and
-notarization M15.** [`releasing.md`](releasing.md) describes every job.
+`.github/workflows/release.yml`, `packaging/checksums.sh`; the packages M6.21–M6.23; Windows
+signing M15.10, macOS signing and notarization M15.13).** [`releasing.md`](releasing.md) describes
+every job.
 
 - A `release` branch builds platform packages (AppImage, Flatpak, deb/rpm, tarball, MSI, portable
   zip, DMG) and creates or updates a **draft** release; a maintainer publishes it after checking.
@@ -1175,8 +1293,26 @@ notarization M15.** [`releasing.md`](releasing.md) describes every job.
   a missing one produces an unsigned artifact and a warning, never a failed build. The job summary
   states the signature state of every artifact; the release notes say it by hand
   (`releasing.md` step 5). Consumers verify the signature rather than assume one. **The jobs and
-  their warnings are implemented (M6.13); the signing itself is M15**, so until then every artifact
-  is unsigned (ad hoc on macOS) and the warnings say so.
+  their warnings are implemented (M6.13); the signing itself is implemented (M15.10, M15.13):**
+  - Windows (`sign Windows x64`): the build job's tested programs are signed, the MSI is built
+    around them and signed, and `test-sign.ps1` checks every signature; a release run signs with the
+    `.pfx` (`WINDOWS_CERTIFICATE`) or Azure Trusted Signing (`AZURE_*`), timestamped. Measured by
+    the dry run of #1046 (release run 39331055880: both programs, the MSI and the programs inside it
+    signed with a throwaway certificate and `Valid`).
+  - macOS (`sign macOS`): `Dalica.app` signed inside-out with the hardened runtime, a secure
+    timestamp and empty entitlements (no `--deep`), the DMG and the CLI zip signed; with a
+    Developer ID and the three Apple secrets the app, the DMG and the zip are notarized
+    (`notarize.sh`) and the app and the DMG stapled; `verify.sh` checks them as users download them
+    (after a `ditto` copy); the temporary keychain is deleted whatever happens. Measured by the dry
+    run of #1068 (release run 39356962443).
+  - Signing runs in its own job from the build job's stage, so the secrets never reach a job that
+    runs cargo. A dry run never reads them: each is `real && secrets.X || ''`, and it signs with a
+    throwaway self-signed identity made in the job and trusted on that runner only (notarization,
+    stapling and Gatekeeper's check are skipped and named).
+  - **Not yet done:** no release run has used the real Windows certificate or the Apple Developer
+    ID, so the real signatures, notarization and stapling are unmeasured; they are checked at
+    M15.R with the maintainer's secrets. Until a release run signs, artifacts are unsigned (ad hoc
+    on macOS) and the warnings say so.
 - Every release carries `SHA256SUMS.txt` over all artifacts, written once the set is complete,
   re-downloaded and verified on Linux, Windows and macOS (with the script's planted-mismatch
   self-test) and verified again by the draft job. **Implemented (M6.13).**
@@ -1190,6 +1326,9 @@ notarization M15.** [`releasing.md`](releasing.md) describes every job.
   a user's `flatpak override`, since the Folder Manager does not use the portal file chooser yet);
   the MSI registers Dalica under "Open with" without taking over a default; the macOS app has empty
   entitlements and the hardened runtime, and registers its formats as Alternate handler only.
+  Since M15.24 the Linux desktop entry and the macOS `Info.plist` declare Dalica a viewer of the
+  types it shows, and the MSI declares Capabilities and RegisteredApplications so Windows' Default
+  apps can offer it; none of them takes a default by itself (§5.11).
   Packaging tools downloaded in CI (nfpm, appimagetool, its runtime, actionlint) are pinned by
   SHA-256; WiX is pinned by version (5.0.2).
 
