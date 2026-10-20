@@ -64,6 +64,11 @@
 //! derived facts the scan finds again (index-only). A folder whose fact is `legacy` gets its first
 //! `.dalica.json` from [`crate::legacy::first_write`]. The folder mark `"project": "collages"`
 //! reads and writes like `"exported"`.
+//!
+//! **M15** (M15.11): each video's facts ([`VIDEO_FIELDS`]: duration, frame size, rotation, codecs,
+//! sound, frame rate) are read from its container on scan and kept by the index only, like the
+//! search facts; a rebuild's scan reads them again. A video's star, caption, tags and recipe live in
+//! the sidecar exactly as a photo's: `.dalica.json` does not change shape.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -237,6 +242,23 @@ pub const FOLDER_DATA_M14: [(&str, Source); 1] = [("sidecar", Source::Index)];
 
 /// Per-photo data M14 adds: the legacy original ([`dalica_library::LegacyOriginal`]).
 pub const PHOTO_DATA_M14: [(&str, Source); 1] = [("legacyOriginal", Source::Fields("LEGACY_ORIGINAL_FIELDS"))];
+
+/// Per-photo data M15 adds beside [`dalica_library::Photo`]: a video's facts
+/// ([`dalica_library::VideoFacts`]).
+pub const PHOTO_DATA_M15: [(&str, Source); 1] = [("video", Source::Fields("VIDEO_FIELDS"))];
+
+/// Every field of [`dalica_library::VideoFacts`]: probed from the container on scan, kept by the
+/// index only (a rebuild's scan probes again; the video file is never written).
+pub const VIDEO_FIELDS: [(&str, Source); 8] = [
+    ("durationMs", Source::Index),
+    ("width", Source::Index),
+    ("height", Source::Index),
+    ("rotation", Source::Index),
+    ("videoCodec", Source::Index),
+    ("soundCodec", Source::Index),
+    ("sound", Source::Index),
+    ("frameRateMilli", Source::Index),
+];
 
 /// Every field of [`dalica_library::LegacyOriginal`]: derived facts the scan reads from the legacy
 /// originals folder again (index-only; the legacy files are never written).

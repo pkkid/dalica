@@ -174,6 +174,11 @@ fn unreadable(name: &str) -> Option<String> {
     let format = match split_ext(name).1?.to_ascii_lowercase().as_str() {
         "avif" => Format::Avif,
         "heic" | "heif" => Format::Heif,
+        // Videos (M15.11): listed, never saved through the photo path.
+        "mp4" => Format::Video(dalica_image::sniff::VideoKind::Mp4),
+        "m4v" => Format::Video(dalica_image::sniff::VideoKind::M4v),
+        "mov" => Format::Video(dalica_image::sniff::VideoKind::QuickTime),
+        "mkv" => Format::Video(dalica_image::sniff::VideoKind::Matroska),
         _ => return None,
     };
     (!format.supported()).then(|| format!("{}, so Dalica cannot save its edits", dalica_image::Error::Unsupported(format).reason()))

@@ -41,6 +41,7 @@ pub mod originals;
 pub mod ptp;
 pub mod rules;
 pub mod skip;
+pub mod video;
 pub mod volumes;
 mod walk;
 pub mod watch;

@@ -37,6 +37,8 @@ Dalica speaks PTP to the device itself over USB, through `nusb` (pure Rust; no l
 
 Every file is recognised by its content (`dalica_image::sniff`), never by its name: a `.jpg` that holds a PNG is a PNG, text named `.jpg` is nothing. Every recognised format is listed unless its `FileType` is turned off (JPEG is always on); a format `dalica-image` does not decode yet, and a file whose header cannot be read, is listed at 0 × 0 (the thumbnail job gives the reason). Formats `dalica-image` learns to read are sized without a change here; a format it adds beyond today's list falls under the RAW toggle.
 
+**Videos** (M15.11, `video`): an MP4, MOV, M4V or MKV is listed under the `video` type (on by default) with what `dalica_image::formats::video::probe_file` reads from its container instead of a header: `FoundPhoto::{width, height}` the frame size as shown (the rotation applied), `date` the container's creation date (none: the file's time counts, as for any photo without a date), `video` its `VideoFacts` (duration, stored size, rotation, codecs made safe and capped at `MAX_CODEC`, sound, frame rate), and, when metadata is read, `file` its date and location (`Values::place`, so the location comes in as a geotag the way a photo's GPS does) with the search facts `video` and `geotagged`. `diff` sets the facts with the derived `Op::SetVideos` after the saved records. A container the probe refuses is listed with the empty record and a `Failure` with the reason; the probe runs inside the same per-file guard. Nothing writes to a video.
+
 Each file is read inside a per-file guard (`security.md` §4.3): on a reading thread, inside `catch_unwind`, within `Options::budget` (10 s). The thread reads up to 16 files ahead of the one waited for. A file that fails (a header error), panics or overruns the budget becomes a `Failure { path, size, mtime, format, reason }`: reported once as `Event::Failed`, kept in `Summary::failures`, and, given back in `Options::failures`, not read again (still listed at 0 × 0 when its format was recognised) until its size or modification time changes. A thread that overruns is abandoned and a fresh one takes the next file.
 
 ## Skip rules
@@ -60,7 +62,7 @@ The same names deeper down (a `Library` or `tmp` folder inside Pictures) are the
 
 ## File Types
 
-`FileType`: `jpeg` (always on), `png`, `gif`, `bmp`, `tiff`, `webp`, `heif`, `avif`, `jxl`, `psd`, `raw`, `video` (stable ids for settings and the control API). `FileTypes::all()`, `jpeg_only()`, `with(type, on)`, `allows(type)`.
+`FileType`: `jpeg` (always on), `png`, `gif`, `bmp`, `tiff`, `webp`, `heif`, `avif`, `jxl`, `psd`, `raw`, `video` (stable ids for settings and the control API). `FileTypes::all()`, `jpeg_only()`, `with(type, on)`, `allows(type)`, `allows_format(format)` (every video kind is `video`, never RAW).
 
 ## Test it alone
 

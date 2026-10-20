@@ -15,5 +15,6 @@ mod ptp;
 mod rules;
 mod scan;
 mod skip;
+mod video;
 mod volumes;
 mod watch;

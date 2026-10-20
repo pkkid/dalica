@@ -244,6 +244,7 @@ impl FileType {
             Format::Avif => FileType::Avif,
             Format::JpegXl => FileType::JpegXl,
             Format::Psd => FileType::Psd,
+            Format::Video(_) => FileType::Video,
             // Formats `dalica-image` learns later are the RAW containers it tells apart by content
             // (`roadmap.md` M5.1); they fall under the RAW toggle without a change here.
             #[allow(unreachable_patterns)]
@@ -316,7 +317,6 @@ impl FileTypes {
 
     /// Whether a scan lists files of `format`.
     pub fn allows_format(self, format: Format) -> bool {
-        // Videos are not listed yet, as before M15.2 sniffed them; M15.11 replaces this with fileTypes.video.
-        !matches!(format, Format::Video(_)) && self.allows(FileType::of(format))
+        self.allows(FileType::of(format))
     }
 }
