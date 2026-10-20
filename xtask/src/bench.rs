@@ -113,13 +113,46 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-ui",
         what: "the Collage room's frame with 100 pictures on the page while one is dragged, in the headless app",
     },
+    Bench {
+        name: "video_probe",
+        package: "dalica-image",
+        what: "probing 1 000 MP4, QuickTime and Matroska containers of 30 s clips with sound, as a scan does",
+    },
+    Bench {
+        name: "video_play",
+        package: "dalica-engine",
+        what: "H.264 clips at 1080p and 4K (and the phone clips when fetched): the poster and its thumbnails, a frame step, the owner's frame while playing, the player's decoded frame",
+    },
+    Bench {
+        name: "camera_import",
+        package: "dalica-engine",
+        what: "300 JPEGs of 2048 px listed, then imported, from the in-memory PTP camera: files and MB per second copied and verified",
+    },
+    Bench {
+        name: "a11y_frame",
+        package: "dalica-ui",
+        what: "the light table's frame at 100 k photos while it scrolls, AccessKit on against off, in the headless app",
+    },
+    Bench {
+        name: "i18n_frame",
+        package: "dalica-ui",
+        what: "the light table's frame at 100 k photos while it scrolls, in the pseudo-locale against English, in the headless app",
+    },
 ];
 
 /// The benches whose source file is not named after the bench (`[[bench]]` with a `path`): the
 /// bench's name, and its file's stem under the crate's `benches/` (checked by the tests; cargo
 /// itself finds them by name).
 #[cfg(test)]
-pub const BENCH_FILES: [(&str, &str); 2] = [("legacy_scan", "legacy"), ("collage_canvas", "collage")];
+pub const BENCH_FILES: [(&str, &str); 7] = [
+    ("legacy_scan", "legacy"),
+    ("collage_canvas", "collage"),
+    ("video_probe", "video"),
+    ("video_play", "video"),
+    ("camera_import", "import_camera"),
+    ("a11y_frame", "a11y"),
+    ("i18n_frame", "i18n"),
+];
 
 /// The stem of `bench`'s source file under its crate's `benches/`.
 #[cfg(test)]
@@ -896,6 +929,139 @@ pub fn judge_collage_canvas(stdout: &str, plant: f64) -> Result<String, String> 
     ))
 }
 
+// ---------------------------------------------------------------------------------------------
+// M15's budgets (M15.34, `docs/development.md` §8): probing videos, a video's poster, step and
+// playing frames, the camera import, and the AccessKit tree's and the translations' cost. Each
+// judge adds a planted slowdown once per measured operation (a round of probes, a poster, a step,
+// a frame, a file copied).
+// ---------------------------------------------------------------------------------------------
+
+/// Probing 1 000 containers (`video_probe` → `PROBE_BUDGET_MS`): a round's median, 1.5 × the first
+/// measurement rounded up to 1 ms.
+pub const VIDEO_PROBE_MS: f64 = 10.0;
+pub const VIDEO_PROBE_FILES: u64 = 1_000;
+
+/// The procedural clips' budgets (`video_play` → `BUDGETS`): row, statistic, budget in ms; 1.5 ×
+/// the first measurement, the posters and steps rounded up to 1 ms, the frames to 0.5 ms.
+pub const VIDEO_PLAY_BUDGETS: [(&str, &str, f64); 8] = [
+    ("poster h264 1080p", "p50_ms", 26.0),
+    ("step h264 1080p", "p50_ms", 11.0),
+    ("play frame h264 1080p", "p95_ms", 0.5),
+    ("decode frame h264 1080p", "p95_ms", 20.5),
+    ("poster h264 4k", "p50_ms", 50.0),
+    ("step h264 4k", "p50_ms", 22.0),
+    ("play frame h264 4k", "p95_ms", 0.5),
+    ("decode frame h264 4k", "p95_ms", 38.5),
+];
+/// A playing video's frame on the owner thread never above this at p95 (`video_play` →
+/// `FRAME_CAP_MS`), whatever the first measurement.
+pub const VIDEO_FRAME_CAP_MS: f64 = 16.0;
+
+/// The camera import (`camera_import` → `FILES_PER_S_BUDGET`): files a second from the median, the
+/// first measurement ÷ 1.5 rounded down to 0.1, over 300 pictures of 2048 px.
+pub const CAMERA_FILES_PER_S: f64 = 13.9;
+pub const CAMERA_OBJECTS: u64 = 300;
+pub const CAMERA_SIDE_PX: u64 = 2048;
+
+/// The AccessKit tree's budgets (`a11y_frame` → `FRAME_BUDGET_MS`, `OVERHEAD_BUDGET_MS`,
+/// `OVERHEAD_CAP_MS`): the frame with it on and its overhead over the frame with it off, at p95,
+/// 1.5 × the first measurement rounded up to 0.5 ms; the frame never above the 8 ms frame budget,
+/// the overhead never above [`UI_OVERHEAD_CAP_MS`].
+pub const A11Y_FRAME_P95_MS: f64 = 2.0;
+pub const A11Y_OVERHEAD_P95_MS: f64 = 0.5;
+/// The translations' budgets (`i18n_frame`, the same constants): the frame in the pseudo-locale
+/// and its overhead over the frame in English, at p95.
+pub const I18N_FRAME_P95_MS: f64 = 1.5;
+pub const I18N_OVERHEAD_P95_MS: f64 = 0.5;
+/// The AccessKit and translation overheads never above this at p95, whatever the first measurement.
+pub const UI_OVERHEAD_CAP_MS: f64 = 1.0;
+/// The library the two frame budgets hold for.
+pub const UI_FRAME_PHOTOS: u64 = 100_000;
+
+/// `video_probe --json` in release over 1 000 files: a round's median within its budget (a planted
+/// slowdown added once per round).
+pub fn judge_video_probe(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("video_probe", stdout)?;
+    let files = report.get("files").and_then(Value::as_u64).unwrap_or(0);
+    if files != VIDEO_PROBE_FILES {
+        return Err(format!("video_probe ran over {files} files; the budget holds for {VIDEO_PROBE_FILES}"));
+    }
+    let row = format!("probe {files}");
+    Ok(format!("median: {}", judge_rows("video_probe", &report, &[(row.as_str(), "p50_ms", VIDEO_PROBE_MS)], plant)?.join("; ")))
+}
+
+/// `video_play --json` in release, its full clips: each procedural clip's poster and step medians
+/// and its playing and decoded frames' p95 within their budgets, the playing frame within
+/// [`VIDEO_FRAME_CAP_MS`] (a planted slowdown added to each). Every miss is listed; the phone
+/// clips' rows and the clips not played are printed, never judged.
+pub fn judge_video_play(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("video_play", stdout)?;
+    if report.get("full") != Some(&Value::Bool(true)) {
+        return Err("video_play ran its smoke clips; the budgets hold for its full ones (--bench)".into());
+    }
+    let checks: Vec<(&str, &str, f64)> = VIDEO_PLAY_BUDGETS
+        .iter()
+        .map(|(name, stat, b)| (*name, *stat, if name.starts_with("play frame") { b.min(VIDEO_FRAME_CAP_MS) } else { *b }))
+        .collect();
+    let parts = judge_rows("video_play", &report, &checks, plant)?;
+    let phones =
+        report.get("rows").and_then(Value::as_array).map_or(0, |rows| rows.iter().filter(|r| r.get("phone") == Some(&Value::Bool(true))).count());
+    let not_played = report.get("not_played").and_then(Value::as_array).map_or(0, Vec::len);
+    Ok(format!("{} (cap {VIDEO_FRAME_CAP_MS} ms); {phones} phone rows printed, {not_played} clips not played", parts.join("; ")))
+}
+
+/// `camera_import --json` in release over 300 pictures of 2048 px: files a second from the
+/// import's median at least its budget (a planted slowdown counted once per file).
+pub fn judge_camera_import(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("camera_import", stdout)?;
+    let number = |key: &str| report.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let (n, side) = (number("objects"), number("side_px"));
+    if n < CAMERA_OBJECTS || side < CAMERA_SIDE_PX {
+        return Err(format!("camera_import ran {n} pictures of {side} px; the budget holds for {CAMERA_OBJECTS} of {CAMERA_SIDE_PX} px"));
+    }
+    let name = format!("camera import {n}");
+    let import_s = row_number("camera_import", &report, &name, "p50_ms")? / 1000.0;
+    let secs = import_s + plant * n as f64 / 1000.0;
+    let rate = n as f64 / secs.max(1e-9);
+    let note = if plant > 0.0 { format!(" ({import_s:.2} s measured + {plant:.2} ms planted per file)") } else { String::new() };
+    if rate < CAMERA_FILES_PER_S {
+        return Err(format!("{name}: {rate:.1} files/s in {secs:.2} s{note}, under the {CAMERA_FILES_PER_S} files/s budget"));
+    }
+    Ok(format!("{name}: {rate:.1} files/s ≥ {CAMERA_FILES_PER_S} files/s"))
+}
+
+/// A frame bench's report over 100 000 photos: the frame named `frame` and the overhead at p95
+/// within their budgets (a planted slowdown added to each: it is planted in the measured frames).
+fn judge_ui_frame(bench: &str, stdout: &str, plant: f64, frame: &str, frame_budget: f64, overhead_budget: f64) -> Result<String, String> {
+    let report = release_report(bench, stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    if photos != UI_FRAME_PHOTOS {
+        return Err(format!("{bench} ran over {photos} photos; the budgets hold for {UI_FRAME_PHOTOS}"));
+    }
+    let (frame, overhead) = (format!("{frame} 100k"), "overhead 100k".to_string());
+    let checks = [
+        (frame.as_str(), "p95_ms", frame_budget.min(crate::accept::FRAME_BUDGET_MS)),
+        (overhead.as_str(), "p95_ms", overhead_budget.min(UI_OVERHEAD_CAP_MS)),
+    ];
+    Ok(format!(
+        "p95: {} (caps {} and {UI_OVERHEAD_CAP_MS} ms)",
+        judge_rows(bench, &report, &checks, plant)?.join("; "),
+        crate::accept::FRAME_BUDGET_MS
+    ))
+}
+
+/// `a11y_frame --json` in release over 100 000 photos: the frame with AccessKit on and its
+/// overhead, at p95, within their budgets.
+pub fn judge_a11y_frame(stdout: &str, plant: f64) -> Result<String, String> {
+    judge_ui_frame("a11y_frame", stdout, plant, "frame on", A11Y_FRAME_P95_MS, A11Y_OVERHEAD_P95_MS)
+}
+
+/// `i18n_frame --json` in release over 100 000 photos: the frame in the pseudo-locale and its
+/// overhead, at p95, within their budgets.
+pub fn judge_i18n_frame(stdout: &str, plant: f64) -> Result<String, String> {
+    judge_ui_frame("i18n_frame", stdout, plant, "frame qps", I18N_FRAME_P95_MS, I18N_OVERHEAD_P95_MS)
+}
+
 fn append(path: &Path, line: &str) -> Result<(), String> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
@@ -1562,6 +1728,157 @@ pub(crate) mod tests {
         assert!(judge_collage_canvas(&collage_canvas_out("release", 12, CANVAS_MEASURED), 0.0).unwrap_err().contains("holds for 100"));
     }
 
+    /// The video probe's first measurement (M15.34): a round's median over 1 000 files.
+    pub const PROBE_MEASURED: f64 = 6.645;
+
+    /// What `video_probe --json` prints over `files` with a round's median `p50`.
+    pub fn video_probe_out(mode: &str, files: u64, p50: f64) -> String {
+        let r = json!({ "bench": "video_probe", "mode": mode, "files": files, "rows": [
+            { "name": format!("probe {files}"), "samples": 7, "p50_ms": p50, "p95_ms": p50 * 1.1, "max_ms": p50 * 1.2, "per_file_us": p50 },
+        ]});
+        format!("{r}\n")
+    }
+
+    /// The video bench's first measurement (M15.34), in the order of [`VIDEO_PLAY_BUDGETS`].
+    pub const PLAY_MEASURED: [f64; 8] = [16.811, 7.275, 0.0365, 13.424, 32.733, 14.518, 0.0323, 25.516];
+
+    /// What `video_play --json` prints for its full clips (`full`) with `values`, and a phone row.
+    pub fn video_play_out(mode: &str, full: bool, values: [f64; 8]) -> String {
+        let mut rows: Vec<Value> = VIDEO_PLAY_BUDGETS
+            .iter()
+            .zip(values)
+            .map(|((name, stat, _), v)| {
+                let (p50, p95) = if *stat == "p50_ms" { (v, v * 1.2) } else { (v * 0.5, v) };
+                json!({ "name": name, "samples": 30, "p50_ms": p50, "p95_ms": p95, "max_ms": p95 * 2.0, "phone": false })
+            })
+            .collect();
+        rows.push(json!({ "name": "decode frame phone h264 4k", "samples": 150, "p50_ms": 31.3, "p95_ms": 56.5, "max_ms": 950.0, "phone": true }));
+        let not_played = [json!({ "name": "phone hevc 1080p", "reason": "This video can't be played (HEVC support isn't included in this build)" })];
+        let r = json!({ "bench": "video_play", "mode": mode, "full": full, "play_side": 1920, "not_played": not_played, "rows": rows });
+        format!("{r}\n")
+    }
+
+    /// The camera import's first measurement (M15.34): the import's median over 300 pictures, ms.
+    pub const CAMERA_MEASURED: f64 = 14_317.2;
+
+    /// What `camera_import --json` prints over `n` pictures of `side` px imported in `import_ms`.
+    pub fn camera_import_out(mode: &str, n: u64, side: u64, import_ms: f64) -> String {
+        let r = json!({ "bench": "camera_import", "mode": mode, "objects": n, "side_px": side, "runs": 3, "rows": [
+            { "name": format!("camera list {n}"), "samples": 3, "p50_ms": 50.1, "p95_ms": 50.2, "max_ms": 50.2 },
+            { "name": format!("camera import {n}"), "samples": 3, "p50_ms": import_ms, "p95_ms": import_ms, "max_ms": import_ms,
+              "files_per_s": n as f64 * 1000.0 / import_ms },
+        ]});
+        format!("{r}\n")
+    }
+
+    /// The frame benches' first measurements (M15.34): the frame's and the overhead's p95.
+    pub const A11Y_MEASURED: (f64, f64) = (1.2261, 0.2343);
+    pub const I18N_MEASURED: (f64, f64) = (0.9838, 0.0053);
+
+    /// What `a11y_frame` or `i18n_frame` (`bench`) prints over `photos` with the frames `off` and
+    /// `on` named, the second's p95 `frame` and the overhead's p95 `overhead`.
+    pub fn ui_frame_out(bench: &str, mode: &str, photos: u64, (frame, overhead): (f64, f64)) -> String {
+        let (off, on) = if bench == "a11y_frame" { ("frame off", "frame on") } else { ("frame en", "frame qps") };
+        let label = if photos == 100_000 { "100k".to_string() } else { photos.to_string() };
+        let r = json!({ "bench": bench, "mode": mode, "photos": photos, "window": [1400, 900], "rows": [
+            { "name": format!("{off} {label}"), "samples": 960, "p50_ms": 0.3, "p95_ms": frame - overhead, "max_ms": 1.4 },
+            { "name": format!("{on} {label}"), "samples": 960, "p50_ms": 0.5, "p95_ms": frame, "max_ms": 1.6 },
+            { "name": format!("overhead {label}"), "samples": 960, "p50_ms": 0.2, "p95_ms": overhead },
+        ]});
+        format!("{r}\n")
+    }
+
+    #[test]
+    fn the_video_probe_budget_judges_a_rounds_median() {
+        assert!(one_and_a_half(VIDEO_PROBE_MS, PROBE_MEASURED, 1.0));
+        let ok = judge_video_probe(&video_probe_out("release", 1000, PROBE_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("median: probe 1000 6.64 ms ≤ 10 ms"), "{ok}");
+        let e = judge_video_probe(&video_probe_out("release", 1000, VIDEO_PROBE_MS + 0.1), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 1 missed: probe 1000: median"), "{e}");
+        let e = judge_video_probe(&video_probe_out("release", 1000, PROBE_MEASURED), 8.0).unwrap_err();
+        assert!(e.contains("+ 8.00 ms planted"), "{e}");
+        assert!(judge_video_probe(&video_probe_out("debug", 1000, PROBE_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_video_probe(&video_probe_out("release", 30, PROBE_MEASURED), 0.0).unwrap_err().contains("holds for 1000"));
+    }
+
+    #[test]
+    fn the_video_play_budgets_judge_each_procedural_clip_and_cap_the_playing_frame() {
+        let ok = judge_video_play(&video_play_out("release", true, PLAY_MEASURED), 0.0).unwrap();
+        assert!(ok.contains("poster h264 4k") && ok.contains("1 phone rows printed, 1 clips not played"), "{ok}");
+        for (i, ((name, stat, budget), measured)) in VIDEO_PLAY_BUDGETS.iter().zip(PLAY_MEASURED).enumerate() {
+            let step = if name.contains("frame") { 0.5 } else { 1.0 };
+            assert!(one_and_a_half(*budget, measured, step), "{name}: {budget} is not 1.5 × {measured}");
+            let mut slow = PLAY_MEASURED;
+            slow[i] = budget + 0.01;
+            let e = judge_video_play(&video_play_out("release", true, slow), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("1 of 8 missed: {name}: {}", stat_name(stat))), "{e}");
+        }
+        assert!(VIDEO_PLAY_BUDGETS.iter().filter(|b| b.0.starts_with("play frame")).all(|b| b.2 <= VIDEO_FRAME_CAP_MS));
+        // A phone row is never judged, however slow.
+        let slow_phone = video_play_out("release", true, PLAY_MEASURED).replace("\"p95_ms\":56.5", "\"p95_ms\":5000.0");
+        assert!(judge_video_play(&slow_phone, 0.0).is_ok());
+        // 8 ms planted misses the steps and the frames, not the posters or the 4K decode (tens of
+        // ms); the largest planted slowdown misses all eight.
+        let e = judge_video_play(&video_play_out("release", true, PLAY_MEASURED), 8.0).unwrap_err();
+        assert!(e.starts_with("5 of 8 missed") && !e.contains("poster") && !e.contains("decode frame h264 4k"), "{e}");
+        let e = judge_video_play(&video_play_out("release", true, PLAY_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.starts_with("8 of 8 missed"), "{e}");
+        assert!(judge_video_play(&video_play_out("debug", true, PLAY_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_video_play(&video_play_out("release", false, PLAY_MEASURED), 0.0).unwrap_err().contains("smoke clips"));
+        let missing = video_play_out("release", true, PLAY_MEASURED).replace("step h264 4k", "step h264 2k");
+        assert!(judge_video_play(&missing, 0.0).unwrap_err().contains("no row `step h264 4k`"));
+    }
+
+    #[test]
+    fn the_camera_import_budget_judges_files_a_second() {
+        // The rate budget is the first measurement's ÷ 1.5, rounded down to 0.1.
+        let rate = 300.0 * 1000.0 / CAMERA_MEASURED;
+        assert!(CAMERA_FILES_PER_S <= rate / 1.5 && CAMERA_FILES_PER_S > rate / 1.5 - 0.1, "{CAMERA_FILES_PER_S} vs {rate}");
+        let ok = judge_camera_import(&camera_import_out("release", 300, 2048, CAMERA_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("camera import 300: 21.0 files/s ≥ 13.9"), "{ok}");
+        let slow = 300.0 * 1000.0 / (CAMERA_FILES_PER_S - 0.05);
+        let e = judge_camera_import(&camera_import_out("release", 300, 2048, slow), 0.0).unwrap_err();
+        assert!(e.contains("under the 13.9 files/s budget"), "{e}");
+        // A planted slowdown counts once per file: 8 ms over 300 files is inside the headroom, the
+        // largest is not.
+        assert!(judge_camera_import(&camera_import_out("release", 300, 2048, CAMERA_MEASURED), 8.0).is_ok());
+        let e = judge_camera_import(&camera_import_out("release", 300, 2048, CAMERA_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.contains("ms planted per file"), "{e}");
+        assert!(judge_camera_import(&camera_import_out("debug", 300, 2048, CAMERA_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        for (n, side) in [(20, 2048), (300, 320)] {
+            assert!(
+                judge_camera_import(&camera_import_out("release", n, side, CAMERA_MEASURED), 0.0).unwrap_err().contains("holds for 300 of 2048 px")
+            );
+        }
+    }
+
+    #[test]
+    fn the_accesskit_and_translation_budgets_judge_the_frame_and_its_overhead() {
+        for (bench, judge, (frame_b, overhead_b), measured, on) in [
+            (
+                "a11y_frame",
+                judge_a11y_frame as fn(&str, f64) -> Result<String, String>,
+                (A11Y_FRAME_P95_MS, A11Y_OVERHEAD_P95_MS),
+                A11Y_MEASURED,
+                "frame on",
+            ),
+            ("i18n_frame", judge_i18n_frame, (I18N_FRAME_P95_MS, I18N_OVERHEAD_P95_MS), I18N_MEASURED, "frame qps"),
+        ] {
+            assert!(one_and_a_half(frame_b, measured.0, 0.5) && one_and_a_half(overhead_b, measured.1, 0.5), "{bench}");
+            assert!(frame_b <= crate::accept::FRAME_BUDGET_MS && overhead_b <= UI_OVERHEAD_CAP_MS, "{bench}: within the caps");
+            let ok = judge(&ui_frame_out(bench, "release", 100_000, measured), 0.0).unwrap();
+            assert!(ok.starts_with(&format!("p95: {on} 100k")) && ok.contains("overhead 100k"), "{ok}");
+            let e = judge(&ui_frame_out(bench, "release", 100_000, (frame_b + 0.01, measured.1)), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("1 of 2 missed: {on} 100k: p95")), "{e}");
+            let e = judge(&ui_frame_out(bench, "release", 100_000, (measured.0, overhead_b + 0.01)), 0.0).unwrap_err();
+            assert!(e.starts_with("1 of 2 missed: overhead 100k: p95"), "{e}");
+            let e = judge(&ui_frame_out(bench, "release", 100_000, measured), 8.0).unwrap_err();
+            assert!(e.starts_with("2 of 2 missed") && e.contains("+ 8.00 ms planted"), "{e}");
+            assert!(judge(&ui_frame_out(bench, "debug", 100_000, measured), 0.0).unwrap_err().contains("debug build"));
+            assert!(judge(&ui_frame_out(bench, "release", 2_000, measured), 0.0).unwrap_err().contains("hold for 100000"));
+        }
+    }
+
     /// The benches' own `--check` budgets are the ones judged here.
     #[test]
     fn the_benches_carry_the_budgets_judged_here() {
@@ -1673,6 +1990,57 @@ pub(crate) mod tests {
                 && legacy.contains("format!(\"legacy file {mib:.0} MiB\")")
         );
         assert!(canvas.contains(&format!("const PICTURES: usize = {CANVAS_PICTURES};")) && canvas.contains("\"drag frame\""));
+        // M15.34: probing videos, the video's poster, step and frames, the camera import, the
+        // AccessKit tree and the translations.
+        let probe = std::fs::read_to_string(root.join("crates").join("image").join("benches").join("video.rs")).unwrap();
+        let play = read("engine", "video");
+        let camera = read("engine", "import_camera");
+        let a11y = read("ui", "a11y");
+        let i18n = read("ui", "i18n");
+        for (name, stat, budget) in VIDEO_PLAY_BUDGETS {
+            let row = format!("(\"{name}\", \"{stat}\", {budget:?}),");
+            assert!(play.contains(&row), "the video bench's budget for {name} is ours: {row}");
+        }
+        for (source, constant, ours) in [
+            (&probe, "PROBE_BUDGET_MS", VIDEO_PROBE_MS),
+            (&play, "FRAME_CAP_MS", VIDEO_FRAME_CAP_MS),
+            (&camera, "FILES_PER_S_BUDGET", CAMERA_FILES_PER_S),
+            (&a11y, "FRAME_BUDGET_MS", A11Y_FRAME_P95_MS),
+            (&a11y, "OVERHEAD_BUDGET_MS", A11Y_OVERHEAD_P95_MS),
+            (&a11y, "OVERHEAD_CAP_MS", UI_OVERHEAD_CAP_MS),
+            (&a11y, "FRAME_CAP_MS", crate::accept::FRAME_BUDGET_MS),
+            (&i18n, "FRAME_BUDGET_MS", I18N_FRAME_P95_MS),
+            (&i18n, "OVERHEAD_BUDGET_MS", I18N_OVERHEAD_P95_MS),
+            (&i18n, "OVERHEAD_CAP_MS", UI_OVERHEAD_CAP_MS),
+            (&i18n, "FRAME_CAP_MS", crate::accept::FRAME_BUDGET_MS),
+        ] {
+            assert!(source.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours: {ours}");
+        }
+        assert!(
+            probe.contains(&format!("const FILES: usize = {};", grouped_thousands(VIDEO_PROBE_FILES)))
+                && probe.contains("format!(\"probe {}\", a.files)")
+        );
+        for printed in [
+            "format!(\"poster {name}\")",
+            "format!(\"step {name}\")",
+            "format!(\"play frame {name}\")",
+            "format!(\"decode frame {name}\")",
+            "\"full\": a.full",
+        ] {
+            assert!(play.contains(printed), "video_play prints {printed}");
+        }
+        assert!(
+            camera.contains(&format!("const OBJECTS: usize = {CAMERA_OBJECTS};"))
+                && camera.contains(&format!("const SIDE: u32 = {CAMERA_SIDE_PX};"))
+                && camera.contains("format!(\"camera import {n}\")")
+        );
+        for (source, frame) in [(&a11y, "frame on"), (&i18n, "frame qps")] {
+            assert!(source.contains(&format!("const PHOTOS: usize = {};", grouped_thousands(UI_FRAME_PHOTOS))));
+            assert!(
+                source.contains(&format!("format!(\"{frame} {{}}\", label(a.photos))"))
+                    && source.contains("format!(\"overhead {}\", label(a.photos))")
+            );
+        }
     }
 
     /// `n` as Rust source writes it with `_` between thousands (`1_000`, `10_000`).

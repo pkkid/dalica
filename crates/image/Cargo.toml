@@ -97,3 +97,8 @@ zune-core.workspace = true
 allocation-counter.workspace = true
 # Ogg Vorbis music made by tests/audio.rs.
 rusty_vorbis.workspace = true
+
+[[bench]]
+name = "video_probe"
+harness = false
+path = "benches/video.rs"

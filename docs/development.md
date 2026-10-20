@@ -284,6 +284,14 @@ cargo run --release -p dalica -- --control 7990 --demo
 | A first scan of 10 000 photos in 100 folders with only the previous organizer's sidecar; with `.dalica.json` (median) | ≤ 195 ms; ≤ 190 ms |
 | A folder whose legacy sidecar is 64 MiB, the reader's limit, scanned (median) | ≤ 995 ms |
 | The Collage room's frame with 100 pictures on the page while one is dragged (p95; never above 16 ms) | ≤ 0.5 ms |
+| Probe 1 000 video containers (MP4, QuickTime, Matroska; 30 s clips with sound) as a scan does (median) | ≤ 10 ms |
+| An H.264 clip's poster and its thumbnails made again, 1080p30; 4K60 (median) | ≤ 26 ms; ≤ 50 ms |
+| A frame step in the edit view's player, 1080p30; 4K60 (median) | ≤ 11 ms; ≤ 22 ms |
+| The owner thread's frame while a 1080p30 or 4K60 clip plays (p95; never above 16 ms) | ≤ 0.5 ms |
+| The player's decoded frame at its 1 920 px, 1080p30; 4K60 (p95) | ≤ 20.5 ms; ≤ 38.5 ms |
+| Import from a camera over PTP, 300 JPEGs of 2048 px from the in-memory camera: copied and verified (from the median) | ≥ 13.9 files/s |
+| The light table's frame at 100 k photos while it scrolls, AccessKit on; its overhead over off (p95; never above 8 ms and 1 ms) | ≤ 2 ms; ≤ 0.5 ms |
+| The same frame in the pseudo-locale; its overhead over English (p95; never above 8 ms and 1 ms) | ≤ 1.5 ms; ≤ 0.5 ms |
 
 **Judged against a base on the same machine** (`cargo xtask budgets --baseline <ref>`; maintainer
 decisions, 2026-10-15, for the import at M12.R, and for the M13 rows at M13.R): the save, export
@@ -504,6 +512,56 @@ the performance cores (`taskset -c 0-15 cargo xtask budgets`).
   (0.164, 0.167, 0.170; median 0.153), 100 textures; the drop's frame (the move given to the engine)
   about 0.18 ms, printed, not budgeted.
 
+M15's budgets (M15.34) follow the same rule: 1.5 × the first measurement, the median of three
+runs in one sitting, release on two hardware threads (`taskset -c 0,1`, one performance core of the
+i7-13700K), 2026-10-20, the same workstation (load average 3 to 4.4 over the runs, no other bench
+pinned there; the three runs within 6 % of each other); times rounded up to 1 ms, frames to 0.5 ms,
+rates down to 0.1; a playing video's frame on the owner thread never above 16 ms and the AccessKit
+and translation overheads never above 1 ms at p95, whatever the first numbers. None was missed;
+nothing needed speeding up.
+- **Probing videos** (the `video_probe` bench, `dalica-image`): 1 000 containers of 30 s clips at
+  30 frames a second with AAC sound (900 video samples and 1 407 packets in each sample table), a
+  third each MP4 with the movie box last, QuickTime with a location, Matroska; `probe_file` on all
+  of them, as a scan does, in 6.65 ms (the runs 7.09, 6.38, 6.65): 6.6 µs a file, from the page
+  cache.
+- **A video's poster, step and frames** (the `video_play` bench, `dalica-engine`): H.264 clips
+  made here, 1920 × 1080 at 30 frames a second (5 s) and 3840 × 2160 at 60 (3 s), an IDR of I_PCM
+  macroblocks every second and P frames of skipped macroblocks between (so every pixel is
+  predicted from the frame before and converted and scaled as a phone's would be), with silent AAC
+  sound. The poster and its thumbnails made again (Refresh Thumbnails of the clip's folder to the
+  session idle, after one untimed poster on each of the pool's workers, whose first poster also
+  touches a frame's memory for the first time: about 14 ms more at 1080p) 16.8 ms and 32.7 ms; a
+  frame step to the frame shown 7.28 and 14.5 ms; the owner
+  thread's frame while it plays at 60 frames a second (the poll, the position and the frame to
+  show) 0.036 and 0.032 ms at p95; the player's decoded frame (at most 1 920 px, the player's
+  threads: one here, half the cores up to eight) 13.4 and 25.5 ms at p95 (6.9 and 14.1 ms at the
+  median). On one core the 4K60 clip cannot play at its rate: its decoded frame takes longer than
+  its 16.7 ms frame time, and 46 to 65 of its 120 frames in two seconds were dropped (none at
+  1080p30). On the performance cores (`taskset -c 0-15`, eight decoding threads) the 4K frame takes
+  2.9 ms (6.4 at p95) and nothing is dropped. The phone clips of the corpus job (`corpus/video`) are
+  measured when fetched and printed, never budgeted (not every machine has them); on one core:
+  iPhone 13 H.264 1080p30 poster 55.9 ms, step 20.1 ms, decoded frame 19.4 ms (21.2 at p95), none
+  dropped; iPhone 12 mini H.264 4K60 poster 160.7 ms, step 32.1 ms, decoded frame 31.3 ms (56.5 at
+  p95), most frames dropped; on the performance cores it decodes in 7.9 ms (14.4 at p95) and plays
+  without a drop. With the `hevc` build feature (`cargo bench -p dalica-engine --features
+  dalica-image/hevc --bench video_play`) on the performance cores: iPhone 7 Plus HEVC 1080p30 frame
+  19.4 ms (40.7 at p95), none dropped; the iPhone 13's HEVC Main 10 HLG 1080p60 31.0 ms (44.4 at
+  p95; the decoder has no threads of its own, and each frame is tone-mapped from HLG), which cannot
+  keep up with its 16.7 ms frames on this machine: 3 of 120 frames shown in two seconds.
+- **Import from a camera** (the `camera_import` bench, `dalica-engine`): 300 `scenes` JPEGs of
+  2048 px (160 px EXIF thumbnails) in `dalica-scan`'s in-memory PTP responder, listed in 50 ms,
+  then imported by date taken in 14.3 s (14.40, 14.27, 14.32 s): 20.95 files/s, 2.14 MB/s. Like the
+  card's import, each copy is two `fsync`s on this disk, which bound it.
+- **AccessKit** (the `a11y_frame` bench, `dalica-ui`): the index-only 100 k library in the headless
+  app at 1400 × 900, the light table scrolled from four places, each pass with AccessKit off and on
+  in turn over the same frames: a frame with it on 1.23 ms at p95 (1.21, 1.24, 1.23; 0.51 ms at the
+  median), off 0.99 ms; the overhead 0.234 ms at p95 (0.219, 0.234, 0.246; 0.20 ms at the median).
+  M15.29 measured 0.8 to 1.4 ms in a debug build.
+- **Translations** (the `i18n_frame` bench, `dalica-ui`): the same frames in the pseudo-locale and
+  in English: in the pseudo-locale 0.984 ms at p95 (0.984, 0.984, 1.009), in English 0.98 ms; the
+  overhead 0.005 ms at p95 (−0.003, 0.005, 0.032), within the noise. The budget is the 0.5 ms
+  rounding, not 1.5 × the noise.
+
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
 **The release budgets.** The lead runs `cargo xtask budgets` once per milestone, at its review, on
@@ -555,7 +613,17 @@ slowdown added once per layout or render; the render's peak memory), the `legacy
 scan's median, a planted slowdown added once per scan) and the `collage_canvas` bench (a drag
 frame's p95, a planted slowdown added); `--plant-ms 8` misses the layouts and the drag frame, not
 the render (seconds) or the scans (a hundred milliseconds and more), and `--plant-ms 1000` misses
-every M14 time. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+every M14 time. Since M15 it also runs the `video_probe` bench (a round's median, a planted
+slowdown added once per round), the `video_play` bench (each procedural clip's poster and step
+medians and its playing and decoded frames' p95, a planted slowdown added to each; the phone
+clips' rows printed, never judged), the `camera_import` bench (files per second, a planted slowdown
+counted once per file) and the `a11y_frame` and `i18n_frame` benches (the frame with AccessKit on
+or in the pseudo-locale and its overhead, at p95, a planted slowdown added to the frame and so to
+the overhead); at the first measurement's numbers `--plant-ms 8` misses the probe, the video's
+steps and frames (not its posters or the 4K decoded frame) and the AccessKit and translation frames,
+not the camera import (2.4 s over 300 files; on the performance cores, 2026-10-20, it missed the
+probe, the 1080p poster and step and both playing frames, the AccessKit and translation frames:
+17 of 24 budgets), and `--plant-ms 1000` misses every M15 budget. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
 review (maintainer decision, 2026-10-15), locally:
 
 ```sh
@@ -931,8 +999,11 @@ budgeted, baseline-compared run that feeds the scorecard.
 `first_thumbnails`, `edit_preview`, `save_export`, `search`, `scan_throughput`, `import` and
 `batch_edit`, `effect_tiles` and `faces_scan` (`dalica-engine`), `cold_start`, `slideshow` and
 `people_places` (`dalica-ui`), `effects` (`dalica-edit`), `inference` (`dalica-faces`), `collage`
-(`dalica-create`), `legacy_scan` (`dalica-scan`, in `benches/legacy.rs`) and `collage_canvas`
-(`dalica-ui`, in `benches/collage.rs`).
+(`dalica-create`), `legacy_scan` (`dalica-scan`, in `benches/legacy.rs`), `collage_canvas`
+(`dalica-ui`, in `benches/collage.rs`), `video_probe` (`dalica-image`, in `benches/video.rs`),
+`video_play` and `camera_import` (`dalica-engine`, in `benches/video.rs` and
+`benches/import_camera.rs`), and `a11y_frame` and `i18n_frame` (`dalica-ui`, in `benches/a11y.rs`
+and `benches/i18n.rs`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -1122,6 +1193,42 @@ driver at 1400 × 900 and steps until every picture has its thumbnail, then drag
 move's frame, timed whole by `Driver::step`) and `drop frame` (the release, the move given to the
 engine). It fails when a drag is not one step of the room's history; `--check` judges the drag
 frame's p95. Without `--bench` it runs 12 pictures, one drag of ten moves.
+
+`video_probe` (M15.34, `dalica-image`) writes `--files` (1 000) containers of 30 s clips at 30
+frames a second with sound, a third each MP4 (movie box last), QuickTime (with a location) and
+Matroska, under the target directory (about 40 MB, removed after), then probes them all with
+`probe_file` `--rounds` (7) times after one untimed round. Row: `probe <n>` (a round's time, and
+`per_file_us`). It fails when a probe misses a file's length, size or sound; `--check` judges the
+median. Without `--bench` it runs 30 files, two rounds.
+
+`video_play` (M15.34, `dalica-engine`) writes two H.264 clips (1080p30 for 5 s, 4K60 for 3 s; an
+IDR of I_PCM macroblocks a second, P frames of skipped ones between, silent AAC sound) and copies
+the phone clips of `corpus/video` that are fetched (`IMG_6851.MOV`, `BTS_iPhone12mini_4K60.MOV`,
+and with `--features dalica-image/hevc` `IMG_0445.MOV` and `M-6_Fun_Fact.MOV`), each into a folder
+of its own, into a new library on a temporary thumbnail cache. Rows per clip: `poster <clip>`
+(Refresh Thumbnails of its folder to the session idle; `--samples`, 5), `open <clip>`, `step <clip>`
+(`video.step` to the next frame shown; `--steps`, 30), `play frame <clip>` (the owner's frames at
+60 a second for `--play-ms`, 2 000, with `shown` and `dropped`) and `decode frame <clip>` (a
+`FrameSource` opened as the player opens it, each frame asked in turn, up to `--decode-frames`,
+150; with `frame_time_ms`). A clip this build cannot play is listed under `not_played` with the
+reason; `--no-phones` leaves the corpus out. `--check` judges the procedural clips' rows. Without
+`--bench` it runs two small clips.
+
+`camera_import` (M15.34, `dalica-engine`) makes `--objects` (300) `scenes` JPEGs of `--side`
+(2048) px with EXIF thumbnails, puts them in `dalica-scan`'s in-memory PTP responder and, `--runs`
+(3) times on a new library, opens the camera, lists it and imports every picture by date taken,
+with frames at 60 a second. Rows: `camera list <n>` and `camera import <n>` (with `files_per_s`,
+`mb_per_s`, `bytes`). It fails when a picture is not copied; `--check` judges the rate. Without
+`--bench` it runs 20 pictures of 320 px once.
+
+`a11y_frame` and `i18n_frame` (M15.34, `dalica-ui`) open the index-only synthetic library of
+`--photos` (100 000) photos in the headless driver at 1400 × 900 and, from four places, scroll the
+light table for `--frames` (120) wheel events in each of two modes in turn over the same frames:
+AccessKit off and on (`a11y_frame`; a frame run outside the driver checks the tree is built), or
+English and the pseudo-locale (`i18n_frame`, through `options.set`; the texts drawn are checked
+bracketed or not). Rows: `frame off|on <n>` or `frame en|qps <n>`, and `overhead <n>` (the second
+mode's p50 and p95 less the first's). `--check` judges the second frame's p95 and the overhead's.
+Without `--bench` they run 2 000 photos and ten wheel events a place.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

@@ -10532,7 +10532,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: `crates/ui/tests/i18n_views.rs` (headless, the pseudo-locale): in the edit view on
     each tab, both rooms, the slideshow with its bar and the viewer, every text drawn is bracketed
     except user data; no label clips at 1400 × 900 and 900 × 600; `cargo xtask i18n` passes.
-- ⬜ **M15.34 `image` + `engine` + `ui` + `xtask`: M15's budgets: videos, cameras, AccessKit and translations**
+- ✅ **M15.34 `image` + `engine` + `ui` + `xtask`: M15's budgets: videos, cameras, AccessKit and translations**
   - after: M15.19, M15.20, M15.26, M15.29, M15.46
   - files: `crates/image/benches/video.rs`, `crates/engine/benches/video.rs`, `crates/engine/benches/import_camera.rs`, `crates/ui/benches/a11y.rs`, `crates/ui/benches/i18n.rs`, `xtask/src/bench.rs`, `docs/development.md`
   - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`
