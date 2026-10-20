@@ -225,7 +225,12 @@ impl Window {
                 *step.lock().unwrap_or_else(PoisonError::into_inner) = Some(what.to_string());
                 ctx.request_repaint();
             };
-            let _ = tx.send(open(source, launch.as_ref(), &report));
+            // The window's session reaches the real OS services; headless ones keep the recording.
+            let opened = open(source, launch.as_ref(), &report).map(|mut session| {
+                session.set_os(Arc::new(crate::os::Native::new()));
+                session
+            });
+            let _ = tx.send(opened);
             ctx.request_repaint();
         });
         if let Err(e) = spawned {

@@ -12,6 +12,7 @@ mod gpu;
 mod icon;
 mod logging;
 mod native_menu;
+mod os;
 mod paths;
 mod preflight;
 mod viewer;

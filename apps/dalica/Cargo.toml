@@ -21,6 +21,8 @@ dalica-core.workspace = true
 dalica-image = { workspace = true, optional = true }
 dalica-engine.workspace = true
 dalica-fs.workspace = true
+# The file types of the default-viewer calls (`os`, M15.12).
+dalica-scan.workspace = true
 dalica-ui.workspace = true
 dalica-ui-kit.workspace = true
 eframe.workspace = true
@@ -32,9 +34,20 @@ rfd = { workspace = true, default-features = false, features = ["xdg-portal"] }
 serde_json.workspace = true
 wgpu.workspace = true
 
-# The system menu bar, generated from the menu model (design-system.md §11.1).
+# The clipboard (`os`, M15.12).
+arboard.workspace = true
+
+# Locate on Disk's D-Bus call and the Wayland copy of files (`os`, M15.12).
+[target.'cfg(target_os = "linux")'.dependencies]
+wl-clipboard-rs.workspace = true
+zbus.workspace = true
+
+# The system menu bar, generated from the menu model (design-system.md §11.1), and the applications
+# that open a file (`os`, M15.12).
 [target.'cfg(target_os = "macos")'.dependencies]
 muda.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
 
 # The icon and VERSIONINFO of dalica.exe (build.rs; only used when targeting Windows).
 [build-dependencies]

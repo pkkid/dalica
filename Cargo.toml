@@ -50,6 +50,16 @@ wgpu = { version = "30.0.1", default-features = false, features = ["std", "parki
 rfd = { version = "0.17.2", default-features = false }
 # The macOS menu bar only (apps/dalica); no GTK backend (it links C, architecture.md §1).
 muda = { version = "0.21.2", default-features = false }
+# The app's OS services (apps/dalica `os`, M15.12; security.md §5.11), each already in the graph
+# (egui-winit's clipboard, the portal's and AccessKit's D-Bus, winit's AppKit): the clipboard's files,
+# picture and text with its Wayland data-control path (as PhotoCraft), the Wayland copy of files that
+# file managers paste, Locate on Disk's `FileManager1` call on Linux, and the applications that open a
+# file on macOS (safe methods only).
+arboard = { version = "3.6.1", default-features = false, features = ["image-data", "wayland-data-control"] }
+wl-clipboard-rs = { version = "0.9", default-features = false }
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
 
 # Decoding, encoding, colour, resampling
 image = { version = "0.25.10", default-features = false, features = ["png", "tiff", "webp", "gif", "bmp"] }
