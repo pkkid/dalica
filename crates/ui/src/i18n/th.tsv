@@ -675,8 +675,8 @@
 ~	Other photo	รูปภาพอื่น
 ~	PNG	PNG
 ~	PSD	PSD
-~	Page Down	Page Down
-~	Page Up	Page Up
+~	Page Down	เลื่อนลงหนึ่งหน้า
+~	Page Up	เลื่อนขึ้นหนึ่งหน้า
 ~	Page format	รูปแบบหน้า
 ~	Paint	ระบาย
 ~	Paint where Soften applies	ระบายบริเวณที่จะใช้การทำให้นุ่ม
@@ -1601,3 +1601,37 @@
 ~window	Minimize	ย่อเล็กสุด
 ~window	Restore	คืนขนาด
 ~zoom	Fit	พอดี
+
+# Labels made by a macro (cargo xtask i18n cannot read them from the sources; the test
+# i18n_languages::every_command_has_a_thai_label checks them) and engine texts the window shows.
+~	Apply Quick Tag 1	ใช้แท็กด่วน 1
+~	Apply Quick Tag 2	ใช้แท็กด่วน 2
+~	Apply Quick Tag 3	ใช้แท็กด่วน 3
+~	Apply Quick Tag 4	ใช้แท็กด่วน 4
+~	Apply Quick Tag 5	ใช้แท็กด่วน 5
+~	Apply Quick Tag 6	ใช้แท็กด่วน 6
+~	Apply Quick Tag 7	ใช้แท็กด่วน 7
+~	Apply Quick Tag 8	ใช้แท็กด่วน 8
+~	Apply Quick Tag 9	ใช้แท็กด่วน 9
+~	Apply Quick Tag 10	ใช้แท็กด่วน 10
+~	Select Previous Photo	เลือกรูปภาพก่อนหน้า
+~	Select Next Photo	เลือกรูปภาพถัดไป
+~	Select Photo Above	เลือกรูปภาพด้านบน
+~	Select Photo Below	เลือกรูปภาพด้านล่าง
+~	Select First Photo of Section	เลือกรูปภาพแรกของส่วน
+~	Select Last Photo of Section	เลือกรูปภาพสุดท้ายของส่วน
+~	Extend Selection to Previous Photo	ขยายการเลือกไปยังรูปภาพก่อนหน้า
+~	Extend Selection to Next Photo	ขยายการเลือกไปยังรูปภาพถัดไป
+~	Extend Selection to Photo Above	ขยายการเลือกไปยังรูปภาพด้านบน
+~	Extend Selection to Photo Below	ขยายการเลือกไปยังรูปภาพด้านล่าง
+~	Extend Selection to First Photo	ขยายการเลือกไปยังรูปภาพแรก
+~	Extend Selection to Last Photo	ขยายการเลือกไปยังรูปภาพสุดท้าย
+~	Select Previous Item	เลือกรายการก่อนหน้า
+~	Select Next Item	เลือกรายการถัดไป
+~	Select Item Above	เลือกรายการด้านบน
+~	Select Item Below	เลือกรายการด้านล่าง
+~	Extend Selection to Previous Item	ขยายการเลือกไปยังรายการก่อนหน้า
+~	Extend Selection to Next Item	ขยายการเลือกไปยังรายการถัดไป
+~	Extend Selection to Item Above	ขยายการเลือกไปยังรายการด้านบน
+~	Extend Selection to Item Below	ขยายการเลือกไปยังรายการด้านล่าง
+~	This session has no face models folder (DALICA_FACE_MODELS, or the configuration folder).	เซสชันนี้ไม่มีโฟลเดอร์โมเดลใบหน้า (DALICA_FACE_MODELS หรือโฟลเดอร์การกำหนดค่า)

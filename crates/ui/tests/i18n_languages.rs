@@ -2,10 +2,12 @@
 //! registry lists them; Thai's catalog reads without a fault, its one plural form reads right for
 //! 0, 1, 2, 5 and 21 and its text carries break marks between words (`docs/thai-text.md`). The
 //! library, the edit view and the Options dialog drawn in Thai at 1400 × 900 and 900 × 600: no
-//! label cut at the side of its area, every wrapped Thai label broken only between words, and
+//! label cut at the side of its area, no text left in English but user data and the names kept in
+//! Latin letters, every wrapped Thai label broken only between words, and
 //! (built with `CRAFT_FONTS_DIR`) every character drawn by a face that has it, every mark above or
 //! below its consonant; switching between English and Thai keeps the view, the selection and the
-//! undo history; and (with the fonts) a fingerprint of the library in Thai at 1400 × 900.
+//! undo history; every command's label has a Thai entry (the macro-made ones `cargo xtask i18n`
+//! cannot read included); and (with the fonts) a fingerprint of the library in Thai at 1400 × 900.
 //! `DALICA_SHOTS=<dir>` writes the windows (`i18n-th-*.png`).
 
 use std::collections::BTreeSet;
@@ -39,6 +41,21 @@ fn the_registry_lists_english_then_thai_and_thais_catalog_reads_whole() {
     assert!(i18n::choices().contains(&("th", "ไทย")));
     assert_eq!(i18n::resolve_setting("th-TH", &[]).code, "th");
     assert_eq!(i18n::resolve_setting("system", &["th_TH.UTF-8".to_string()]).code, "th");
+}
+
+#[test]
+fn every_command_has_a_thai_label() {
+    // The labels `cargo xtask i18n` cannot read from the sources (made by a macro) are checked
+    // here, from the registries themselves.
+    let mut labels: Vec<(&str, &str)> = dalica_engine::cmd::specs().iter().map(|c| (c.id, c.label)).collect();
+    labels.extend(dalica_ui::commands::UI_COMMANDS.iter().map(|c| (c.id, c.label)));
+    let c = i18n::catalog(thai());
+    let missing: Vec<String> = labels
+        .iter()
+        .filter(|(id, label)| !label.trim().is_empty() && c.id(id).is_none() && c.plain(label).is_none())
+        .map(|(id, label)| format!("{id}: {label:?}"))
+        .collect();
+    assert!(missing.is_empty(), "{} commands with no Thai label:\n{}", missing.len(), missing.join("\n"));
 }
 
 /// `s` without its break marks.
@@ -101,6 +118,38 @@ fn texts(shapes: &[ClippedShape]) -> Vec<(TextShape, egui::Rect)> {
     out
 }
 
+/// The names that stay in Latin letters (`localization-th.md` → What stays as written).
+const KEPT: &[&str] = &["Dalica", "A|B", "A|A", "px", "AVIF", "BMP", "GIF", "JPEG", "JPEG XL", "PNG", "PSD", "TIFF", "WebP", "RAW", "HEIC/HEIF"];
+
+/// A text with no Thai that is right as it is: no word in it, a kept name, user data (a folder's
+/// name or path, the camera named in a photo), a key, a web address, a credit.
+fn kept_in_latin(text: &str, data: &BTreeSet<String>) -> bool {
+    let t = text.trim();
+    t.chars().filter(|c| c.is_ascii_alphabetic()).count() < 2
+        || KEPT.contains(&t)
+        || data.iter().any(|d| t.contains(d.as_str()))
+        || dalica_engine::Key::parse(t).is_ok()
+        || t.starts_with("https://")
+        || t.starts_with('/')
+        || t.contains(":\\")
+        || t.contains('©')
+}
+
+/// The texts no catalog may translate: the folders' names and paths, the photos' names, and the
+/// camera the demo photos name.
+fn user_data(d: &Driver) -> BTreeSet<String> {
+    let lib = d.app().session().unwrap().library();
+    let mut out: BTreeSet<String> = ["Dalica Scenes 1".to_string()].into_iter().collect();
+    for f in lib.folders() {
+        out.insert(f.path.display().to_string());
+        out.extend(f.path.file_name().map(|n| n.to_string_lossy().into_owned()));
+    }
+    out.extend(lib.photos().map(|p| p.name.clone()));
+    out.extend(std::env::var("HOME").ok().filter(|h| h.len() > 1));
+    out.retain(|s| !s.trim().is_empty());
+    out
+}
+
 /// Thai marks drawn above or below their consonant (สระอำ, a spacing vowel, aside).
 fn is_mark(c: char) -> bool {
     matches!(c, '\u{0E31}' | '\u{0E34}'..='\u{0E3A}' | '\u{0E47}'..='\u{0E4E}') && c != '\u{0E4D}'
@@ -111,9 +160,10 @@ fn is_below(c: char) -> bool {
 }
 
 /// What the next frame draws wrong in Thai, each with `place`: a label cut at the side of its area
-/// (`cut`), a Thai label wrapped inside a word, a character no face has, a mark away from its
-/// consonant (`faults`; the last two only with the fonts).
-fn look(d: &mut Driver, place: &str, cut: &mut BTreeSet<String>, faults: &mut BTreeSet<String>) -> usize {
+/// (`cut`), a text left in English (not user data in `data`, nor a name kept in Latin letters), a
+/// Thai label wrapped inside a word, a character no face has, a mark away from its consonant
+/// (`faults`; the last two only with the fonts). Returns how many Thai texts it drew.
+fn look(d: &mut Driver, place: &str, data: &BTreeSet<String>, cut: &mut BTreeSet<String>, faults: &mut BTreeSet<String>) -> usize {
     d.settle(FRAMES).unwrap();
     let shapes = crate::accessibility::frame(d, Vec::new()).shapes;
     let screen = d.ctx().content_rect();
@@ -126,6 +176,9 @@ fn look(d: &mut Driver, place: &str, cut: &mut BTreeSet<String>, faults: &mut BT
             cut.insert(format!("{place}: {text:?} cut at the side: {r:?} in {clip:?}"));
         }
         if !text.chars().any(is_thai) {
+            if !kept_in_latin(&text, data) {
+                faults.insert(format!("{place}: {text:?} is drawn in English"));
+            }
             continue;
         }
         thai_texts += 1;
@@ -194,8 +247,9 @@ fn walk(size: (u32, u32)) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut d = thai_library(dir.path(), size);
     let tag = format!("{}x{}", size.0, size.1);
     let (mut cut, mut faults) = (BTreeSet::new(), BTreeSet::new());
+    let data = user_data(&d);
     let mut see = |d: &mut Driver, place: &str| {
-        let n = look(d, place, &mut cut, &mut faults);
+        let n = look(d, place, &data, &mut cut, &mut faults);
         assert!(n > 5, "{place}: the interface is drawn in Thai ({n} Thai texts)");
         shot(d, &format!("i18n-th-{}-{tag}", place.replace(' ', "-")));
     };
