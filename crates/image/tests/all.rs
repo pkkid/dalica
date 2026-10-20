@@ -10,6 +10,7 @@
 mod common;
 
 mod audio;
+mod clip_writer;
 mod color;
 mod decode;
 mod encode;
@@ -17,6 +18,7 @@ mod heif_wide;
 mod jpeg_quality;
 mod jpeg_transform;
 mod jxl;
+mod music_writer;
 mod p0_formats;
 mod psd;
 mod raw_containers;

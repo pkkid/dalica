@@ -1347,6 +1347,7 @@ dependencies = [
  "log",
  "moxcms 0.9.1",
  "nanomp3",
+ "ogg",
  "png",
  "proptest",
  "rusty_aac",

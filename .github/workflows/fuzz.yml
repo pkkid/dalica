@@ -6,14 +6,18 @@
 # cargo-fuzz workspaces on nightly Rust). Like every test run on GitHub, it runs only at
 # a milestone review (the pull request of a `review/M<n>.R` branch: every target built and run for
 # 60 s) and when dispatched by hand (`seconds` per target); a task's pull request runs nothing
-# (docs/development.md §3).
+# (docs/development.md §3). The image job's clip and music targets (`video_frames`, `video_sound`,
+# `music`: the H.264 and HEVC decoders, AAC, MP3, Vorbis, FLAC and WAV) are the gate on the
+# decoders' `unsafe` (docs/security.md §8.7); they start from the clips and music files its
+# `seeds` example writes into `corpus/`.
 # `dalica-meta` reads through `dalica-image`'s IFD walker, so those jobs always run together;
 # `dalica-faces` (the face models' reader and interpreter), `dalica-fetch` (a server's reply as
 # the HTTPS transport reads it), `dalica-sidecar` (the folder sidecar, the originals record,
 # `albums.json`, the edit lists and the legacy sidecar reader), `dalica-scan` (what a camera sends
 # to the PTP/MTP reader), `dalica-store` (the index journal and snapshot, `people.json`) and
 # `dalica-ui` (a control-channel request line, handled by the headless app), `dalica-engine`
-# (`folders.json` and `settings.json`) and the app (a connection's `auth` step) have their own jobs.
+# (`folders.json` and `settings.json`) and the app (a connection's `auth` step, the single-instance
+# hand-off's request line) have their own jobs.
 # The sidecar, store, ui, engine and app jobs start each target from its `seeds/<target>` beside the
 # corpus.
 # Actions are pinned to full commit hashes (docs/security.md §8.5).
@@ -60,6 +64,10 @@ jobs:
       - name: Build every target
         working-directory: crates/image/fuzz
         run: cargo +nightly fuzz build
+      # The clip and music targets start from files written procedurally into corpus/<target>.
+      - name: Write the seeds
+        working-directory: crates/image/fuzz
+        run: cargo +nightly run --release --example seeds
       - name: Run every target
         working-directory: crates/image/fuzz
         env:

@@ -1,6 +1,8 @@
 # The fuzz targets of `dalica-image` (`docs/security.md` §7.1): a separate cargo-fuzz workspace,
 # outside the product graph and excluded from the root workspace, because cargo-fuzz needs nightly
 # Rust and sanitizer instrumentation. Run: `cargo +nightly fuzz run <target>` from this directory.
+# The video and sound targets start from clips and music files the `seeds` example writes into
+# `corpus/<target>` (never committed): `cargo +nightly run --release --example seeds` first.
 [package]
 name = "dalica-image-fuzz"
 version = "0.0.0"
@@ -12,8 +14,15 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-dalica-image = { path = ".." }
+# With HEVC, so that the `video_frames` target reaches `rusty_h265` too (the product builds it
+# only with the feature; security.md §8.7).
+dalica-image = { path = "..", features = ["hevc"] }
 libfuzzer-sys = "0.4"
+
+# The `seeds` example's music writers (`../tests/music_writer.rs`), as `dalica-image`'s tests pin them.
+[dev-dependencies]
+hound = "=3.5.1"
+rusty_vorbis = { version = "=0.1.1", default-features = false }
 
 # Its own workspace, so the root manifest's members and lockfile are untouched.
 [workspace]
@@ -126,3 +135,28 @@ path = "fuzz_targets/video_probe.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "video_frames"
+path = "fuzz_targets/video_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "video_sound"
+path = "fuzz_targets/video_sound.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "music"
+path = "fuzz_targets/music.rs"
+test = false
+doc = false
+bench = false
+
+[[example]]
+name = "seeds"
+path = "examples/seeds.rs"

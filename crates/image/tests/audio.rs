@@ -6,166 +6,7 @@
 
 use dalica_image::formats::audio::{CANNOT_PLAY, Music, MusicKind, is_music_name, sniff};
 
-// --- WAV ---------------------------------------------------------------------------------------------
-
-fn wav(rate: u32, channels: u16, frames: usize) -> Vec<u8> {
-    let spec = hound::WavSpec { channels, sample_rate: rate, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
-    let mut out = std::io::Cursor::new(Vec::new());
-    let mut w = hound::WavWriter::new(&mut out, spec).unwrap();
-    for i in 0..frames * usize::from(channels) {
-        w.write_sample(((i % 200) as i16 - 100) * 100).unwrap();
-    }
-    w.finalize().unwrap();
-    out.into_inner()
-}
-
-// --- FLAC: verbatim subframes ----------------------------------------------------------------------------
-
-#[derive(Default)]
-struct Bits {
-    out: Vec<u8>,
-    acc: u64,
-    n: u32,
-}
-
-impl Bits {
-    fn u(&mut self, bits: u32, v: u64) -> &mut Bits {
-        for i in (0..bits).rev() {
-            self.acc = (self.acc << 1) | ((v >> i) & 1);
-            self.n += 1;
-            if self.n == 8 {
-                self.out.push(self.acc as u8);
-                (self.acc, self.n) = (0, 0);
-            }
-        }
-        self
-    }
-}
-
-fn crc8(data: &[u8]) -> u8 {
-    let mut crc = 0u8;
-    for &b in data {
-        crc ^= b;
-        for _ in 0..8 {
-            crc = if crc & 0x80 != 0 { (crc << 1) ^ 0x07 } else { crc << 1 };
-        }
-    }
-    crc
-}
-
-fn crc16(data: &[u8]) -> u16 {
-    let mut crc = 0u16;
-    for &b in data {
-        crc ^= u16::from(b) << 8;
-        for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x8005 } else { crc << 1 };
-        }
-    }
-    crc
-}
-
-/// A 16-bit FLAC of `channels` channels at `rate`: blocks of the sizes given, every sample verbatim.
-fn flac(rate: u32, channels: u8, blocks: &[usize]) -> Vec<u8> {
-    let total: usize = blocks.iter().sum();
-    let mut out = b"fLaC".to_vec();
-    let mut info = Bits::default();
-    info.u(16, 4096).u(16, 4096).u(24, 0).u(24, 0);
-    info.u(20, u64::from(rate)).u(3, u64::from(channels - 1)).u(5, 15).u(36, total as u64);
-    info.u(64, 0).u(64, 0);
-    out.extend([0x80, 0, 0, 34]);
-    out.extend(info.out);
-    for (k, &size) in blocks.iter().enumerate() {
-        let mut h = Bits::default();
-        h.u(14, 0b11_1111_1111_1110).u(1, 0).u(1, 0);
-        // 4096 by its code, any other size as a 16-bit number after the frame number.
-        h.u(4, if size == 4096 { 0b1100 } else { 0b0111 }).u(4, 0);
-        h.u(4, u64::from(channels - 1)).u(3, 0b100).u(1, 0);
-        h.u(8, k as u64);
-        if size != 4096 {
-            h.u(16, size as u64 - 1);
-        }
-        let mut frame = h.out;
-        frame.push(crc8(&frame));
-        let mut b = Bits::default();
-        for c in 0..channels {
-            b.u(8, 0b0000_0010);
-            for i in 0..size {
-                b.u(16, (((i + usize::from(c) * 7) % 300) as i16 - 150) as u16 as u64);
-            }
-        }
-        frame.extend(b.out);
-        let crc = crc16(&frame);
-        frame.extend(crc.to_be_bytes());
-        out.extend(frame);
-    }
-    out
-}
-
-// --- MP3: silent MPEG-1 layer III frames ------------------------------------------------------------------
-
-/// `frames` frames of 128 kbit/s stereo at 44.1 kHz, every granule empty (silence).
-fn mp3(frames: usize) -> Vec<u8> {
-    let mut out = Vec::new();
-    for _ in 0..frames {
-        let mut f = vec![0xff, 0xfb, 0x90, 0x00];
-        f.resize(417, 0);
-        out.extend(f);
-    }
-    out
-}
-
-// --- Ogg Vorbis ----------------------------------------------------------------------------------------------
-
-fn ogg_crc(data: &[u8]) -> u32 {
-    let mut crc: u32 = 0;
-    for &b in data {
-        crc ^= u32::from(b) << 24;
-        for _ in 0..8 {
-            crc = if crc & 0x8000_0000 != 0 { (crc << 1) ^ 0x04c1_1db7 } else { crc << 1 };
-        }
-    }
-    crc
-}
-
-fn ogg_page(seq: u32, granule: u64, kind: u8, packet: &[u8]) -> Vec<u8> {
-    let mut segs = vec![255u8; packet.len() / 255];
-    segs.push((packet.len() % 255) as u8);
-    let mut page = b"OggS".to_vec();
-    page.extend([0, kind]);
-    page.extend(granule.to_le_bytes());
-    page.extend(0x00da_11ca_u32.to_le_bytes());
-    page.extend(seq.to_le_bytes());
-    page.extend([0; 4]);
-    page.push(segs.len() as u8);
-    page.extend(segs);
-    page.extend(packet);
-    let crc = ogg_crc(&page);
-    page[22..26].copy_from_slice(&crc.to_le_bytes());
-    page
-}
-
-/// `frames` frames of a stereo tone at 44.1 kHz as Ogg Vorbis, one packet a page, the last page's
-/// granule `length` (the stream ends there).
-fn vorbis(frames: usize, length: u64) -> Vec<u8> {
-    let mut enc = rusty_vorbis::VorbisEncoder::new(rusty_vorbis::VorbisEncoderConfig::default());
-    let pcm: Vec<f32> = (0..frames * 2).map(|i| ((i / 2) as f32 * 0.05).sin() * 0.3).collect();
-    enc.push_pcm_f32(&pcm, 2, 44_100).unwrap();
-    enc.finish();
-    let mut packets = Vec::new();
-    while let Ok(p) = enc.next_packet() {
-        packets.push(p.data);
-    }
-    let (headers, audio) = packets.split_at(3);
-    let mut out = ogg_page(0, 0, 0x02, &headers[0]);
-    out.extend(ogg_page(1, 0, 0, &headers[1]));
-    out.extend(ogg_page(2, 0, 0, &headers[2]));
-    for (i, p) in audio.iter().enumerate() {
-        let last = i + 1 == audio.len();
-        let granule = if last { length } else { i as u64 * 1024 };
-        out.extend(ogg_page(3 + i as u32, granule, if last { 0x04 } else { 0 }, p));
-    }
-    out
-}
+use crate::music_writer::*;
 
 // --- The tests -------------------------------------------------------------------------------------------------
 
@@ -253,4 +94,78 @@ fn other_kinds_truncated_files_and_hostile_headers_are_refused_with_their_reason
             }
         }
     }
+}
+
+/// Found by the `music` fuzz target (M15.R): `lewton` reserves memory for the sizes the Vorbis
+/// headers declare before it reads them, and a failed reservation aborts the process. A comment
+/// header declaring 2³² − 1 comments, a codebook of 2²⁴ − 1 entries of 65,535 dimensions, and one
+/// whose lookup values need more bits than its packet holds are refused with a reason first; the
+/// stream's own headers still play.
+#[test]
+fn an_ogg_vorbis_stream_declaring_more_than_its_headers_hold_is_refused_before_it_is_read() {
+    let refused = |packets: &[Vec<u8>]| Music::from_bytes(vorbis_pages(packets, 1024)).map(|_| ()).unwrap_err().reason;
+    let packets = vorbis_packets(2048);
+    assert!(Music::from_bytes(vorbis_pages(&packets, 1024)).is_ok());
+
+    let mut comments = packets.clone();
+    comments[1] = [&b"\x03vorbis"[..], &0u32.to_le_bytes(), &u32::MAX.to_le_bytes(), &[1]].concat();
+    assert_eq!(refused(&comments), format!("{CANNOT_PLAY} (a damaged Ogg Vorbis comment header)"));
+
+    /// Bits least significant first, as Vorbis packs them.
+    fn pack(fields: &[(u32, u64)]) -> Vec<u8> {
+        let mut out = b"\x05vorbis".to_vec();
+        let mut at = 0usize;
+        for &(n, v) in fields {
+            for i in 0..n {
+                if at.is_multiple_of(8) {
+                    out.push(0);
+                }
+                *out.last_mut().unwrap() |= (((v >> i) & 1) as u8) << (at % 8);
+                at += 1;
+            }
+        }
+        out
+    }
+    // One codebook (count − 1 = 0), ordered: all its entries of one length, then a lookup of type 1.
+    let huge = |dims: u64, entries: u64, value_bits: u64, values: u64| {
+        // The ordered lengths: one run of every entry, in ilog(entries) bits.
+        let run = 64 - entries.leading_zeros();
+        let mut f = vec![(8, 0), (24, 0x56_4342), (16, dims), (24, entries), (1, 1), (5, 0), (run, entries), (4, 1), (32, 0), (32, 0)];
+        f.extend([(4, value_bits - 1), (1, 0)]);
+        f.extend(std::iter::repeat_n((value_bits as u32, 1), values as usize));
+        pack(&f)
+    };
+    let mut setup = packets.clone();
+    setup[2] = huge(65_535, (1 << 24) - 1, 1, 1);
+    assert_eq!(refused(&setup), format!("{CANNOT_PLAY} (an Ogg Vorbis stream with codebooks too large)"));
+    // No dimensions: `lewton` takes 2³² − 1 lookup values, more than the packet's bits.
+    setup[2] = huge(0, 1, 8, 1);
+    assert_eq!(refused(&setup), format!("{CANNOT_PLAY} (a damaged Ogg Vorbis setup header)"));
+}
+
+/// Found by the `music` fuzz target (M15.R): nine bytes changed in the audio pages of an Ogg
+/// Vorbis file made `lewton` give samples that are not numbers. Samples come out finite and within
+/// −1 ..= 1 whatever the decoder gives.
+#[test]
+fn samples_a_decoder_gives_out_of_range_come_out_finite_and_in_range() {
+    let mut bytes = vorbis(2048, 2048);
+    for (at, b) in [(3110, 0xff), (3111, 0xff), (3112, 0xff), (3113, 0x53), (4453, 0x8f), (4454, 0xff), (4455, 0x9f), (4456, 0x67), (4462, 0x37)] {
+        bytes[at] = b;
+    }
+    // Every page's checksum made right again, so that only the audio is damaged.
+    let mut at = 0;
+    while at + 27 <= bytes.len() {
+        assert_eq!(&bytes[at..at + 4], b"OggS");
+        let segs = usize::from(bytes[at + 26]);
+        let body: usize = bytes[at + 27..at + 27 + segs].iter().map(|&s| usize::from(s)).sum();
+        let end = at + 27 + segs + body;
+        bytes[at + 22..at + 26].fill(0);
+        let crc = ogg_crc(&bytes[at..end]);
+        bytes[at + 22..at + 26].copy_from_slice(&crc.to_le_bytes());
+        at = end;
+    }
+    let mut m = Music::from_bytes(bytes).unwrap();
+    let (samples, _) = all(&mut m);
+    assert!(!samples.is_empty());
+    assert!(samples.iter().all(|s| s.is_finite() && (-1.0..=1.0).contains(s)), "a sample out of range");
 }

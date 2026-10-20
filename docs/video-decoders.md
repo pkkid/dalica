@@ -275,6 +275,10 @@ task waits on them: the later tasks build on §2 and keep the tile path.
    22–31 fps on 30 fps 1080p clips). Accept them as they are; or require the safe builds (H.264
    then has no passing crate and stays tiles, HEVC decodes below real time on one core and needs
    frame threading of our own); or accept them behind a fuzzing gate of our own before 1.0.
+   *Answered at M15.R (2026-10-20): accepted behind the fuzzing gate. `video_frames` and
+   `video_sound` (`crates/image/fuzz`) reach `altc264`, `rusty_h265` and `rusty_aac` through
+   Dalica's own entry points and run for 60 s each at every review (`security.md` §7.1, §7.2,
+   §8.7).*
 3. **The bar's frame rate.** The bar says "1080p in real time on one core". `rusty_h265` with
    `simd` meets it at 30 fps (51–56 fps) but not quite at 60 fps: the two iPhone 13 HDR clips,
    1080p60, decode at 48 and 59 fps; 4K60 at 22 fps. Is 1080p30 the bar (then HEVC passes as
