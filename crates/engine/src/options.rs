@@ -9,8 +9,8 @@
 //! that existed before M10 (`fileTypes`, the `files` group, M7's `edit.singleClickLeaves`, M8's
 //! export and M9's ask-first settings) are rows here, never second copies of their settings.
 //!
-//! An option whose feature does not exist yet (the photo viewer's file types until the OS integration, the network log until it
-//! exists) is listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
+//! An option whose feature does not exist yet (the network log until it exists), or that another
+//! command sets (the photo viewer's file types, [`SET_DEFAULT`]), is listed with the reason the dialog shows ([`OptionSpec::unavailable`]); its setting is stored only
 //! once its feature reads it, so `options.set` refuses it until then and its value is its default.
 //! The slideshow's music, its folder and video sound waited on sound until M15.27 (their reason,
 //! [`crate::sound::SOUND_UNAVAILABLE`], is now `None`; a system without a sound output greys them
@@ -29,7 +29,9 @@
 //! "External editor" (`files.externalEditor`, [`Settings::external_editor`]) is a text row (a
 //! program's name or path, empty for the system's editor; M15.22 with the window's field). The Photo
 //! Viewer's File Types row (`viewer.defaultViewer`) is a list of file types ([`OptionSpec::many`]:
-//! any of its choices, each once), still waiting on the OS integration (M15.24).
+//! any of its choices, each once). Since M15.24 it is set by `viewer.setDefault`, which also asks
+//! the system to open those types with Dalica, so `options.set` refuses it with a reason naming
+//! that command ([`SET_DEFAULT`]).
 //!
 //! [`OptionSpec::check`] is the one validation of a value, [`OptionSpec::store`] the one way a
 //! value is written (a merge into its object, unknown keys kept) and [`OptionSpec::to_json`] the
@@ -407,7 +409,9 @@ pub fn on_tab(tab: Tab) -> impl Iterator<Item = &'static OptionSpec> {
     CATALOGUE.iter().filter(move |o| o.tab == tab)
 }
 
-const OS_INTEGRATION: &str = "Arrives with OS integration";
+/// Why `options.set` refuses `viewer.defaultViewer`: the types are chosen with the system's
+/// default applications, by the one command that does both.
+pub const SET_DEFAULT: &str = "use viewer.setDefault, which also makes Dalica the default viewer for these types";
 const TRANSITIONS: &[(&str, &str)] = &[
     ("cut", "Cut"),
     ("panAndZoom", "Pan and Zoom"),
@@ -674,7 +678,7 @@ static CATALOGUE: &[OptionSpec] = &[
         |s| json!(s.viewer().default_viewer.iter().map(|t| t.id()).collect::<Vec<_>>()),
     )
     .many()
-    .later(OS_INTEGRATION),
+    .later(SET_DEFAULT),
     row("viewer.wheel", Tab::PhotoViewer, "Interface", "Mouse wheel", Kind::Choice(WHEEL), Initial::Str("zoom"), |s| json!(s.viewer().wheel.id())),
     row("viewer.hideControls", Tab::PhotoViewer, "Interface", "Hide controls automatically", Kind::Bool, Initial::Bool(true), |s| {
         json!(s.viewer().hide_controls)

@@ -6,7 +6,7 @@
 # Runs in a second with no build; package.sh runs it before making the AppImage.
 #
 # Adapted from PhotoCraft packaging/linux/apprun-test.sh @ dc35ce76 (MIT OR Apache-2.0), with
-# Dalica's names and an Exec without file arguments.
+# Dalica's names and an Exec that keeps its file argument (`%f`, opened in the photo viewer).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,8 +47,9 @@ out="$("$APPDIR/AppRun" --demo --library x)" || fail "AppRun exited non-zero"
 DESKTOP="$XDG_DATA_HOME/applications/$APP_ID.desktop"
 [ -f "$DESKTOP" ] || fail "desktop entry not installed"
 
-# 2. Exec points at the AppImage (quoted, the space kept), TryExec is gone, the rest is as packaged.
-expected_exec="Exec=\"$(readlink -f "$APPIMAGE")\""
+# 2. Exec points at the AppImage (quoted, the space kept) with the packaged file argument, TryExec
+#    is gone, the rest is as packaged.
+expected_exec="Exec=\"$(readlink -f "$APPIMAGE")\" %f"
 grep -Fxq "$expected_exec" "$DESKTOP" || fail "Exec not rewritten: $(grep '^Exec=' "$DESKTOP")"
 if grep -q '^TryExec=' "$DESKTOP"; then fail "TryExec kept, the entry would be hidden"; fi
 grep -Fxq "Icon=$APP_ID" "$DESKTOP" || fail "Icon line lost"
@@ -74,7 +75,7 @@ after="$(stat -c %i "$DESKTOP")"
 mv "$APPIMAGE" "$TMP/moved.AppImage"
 export APPIMAGE="$TMP/moved.AppImage"
 "$APPDIR/AppRun" >/dev/null || fail "launch after a move exited non-zero"
-grep -Fxq "Exec=\"$(readlink -f "$APPIMAGE")\"" "$DESKTOP" || fail "Exec not refreshed after a move"
+grep -Fxq "Exec=\"$(readlink -f "$APPIMAGE")\" %f" "$DESKTOP" || fail "Exec not refreshed after a move"
 
 # 6. An external integrator's entry for this AppImage: ours goes, the icons stay.
 ext_desktop="$XDG_DATA_HOME/applications/appimagekit-dalica.desktop"

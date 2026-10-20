@@ -97,7 +97,8 @@ fn open(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     app.can_pick().map_err(CmdError::Disabled)?;
     let last = remembered(app);
     let begin = app.session().and_then(|s| s.library().folder(folder).map(|f| f.path.clone()).and_then(|p| start(s, &p, last)));
-    let request = FolderRequest { title: TITLE, folder: begin, command: "folder.move", params: json!({ "folder": folder }), output: false };
+    let request =
+        FolderRequest { title: crate::tl!("Move Folder"), folder: begin, command: "folder.move", params: json!({ "folder": folder }), output: false };
     app.pick_folder_for(request).map_err(CmdError::Disabled)?;
     Ok(json!({ "dialog": crate::menus::FILE_PICKER }))
 }
@@ -110,6 +111,19 @@ mod tests {
     use crate::app::tests::session_with_photos;
     use crate::picker::ScriptedPicker;
 
+    /// The native dialog runs on a thread of its own, which draws in English: the request carries
+    /// its title already translated.
+    #[test]
+    fn the_folder_pickers_title_is_in_the_language_in_effect() {
+        use crate::i18n::{PSEUDO, pseudo, with_language};
+        let (_dir, s, ids) = session_with_photos(1);
+        let folder = s.library().photo(ids[0]).unwrap().folder;
+        let mut app = App::with_picker(Some(s), Arc::new(ScriptedPicker::new()));
+        app.state_mut().folder = Some(folder);
+        with_language(&PSEUDO, || open(&mut app, &json!({}))).unwrap();
+        assert_eq!(app.folder_request().unwrap().title, pseudo::translate(TITLE));
+    }
+
     #[test]
     fn move_folder_opens_the_folder_picker_for_the_current_folder() {
         let (_dir, s, ids) = session_with_photos(1);
@@ -121,7 +135,7 @@ mod tests {
         assert_eq!(check(&app, &json!({})), Ok(()));
         assert_eq!(open(&mut app, &json!({})).unwrap(), json!({ "dialog": "filePicker" }));
         let r = app.folder_request().cloned().unwrap();
-        assert_eq!((r.title, r.command, r.params), (TITLE, "folder.move", json!({ "folder": folder })));
+        assert_eq!((r.title.as_str(), r.command, r.params), (TITLE, "folder.move", json!({ "folder": folder })));
         assert_eq!(r.folder.as_deref(), path.parent(), "nothing moved yet: the folder's parent");
         assert!(check(&app, &json!({})).is_err(), "one file dialog at a time");
         // Without a picker it says why; bad params and unknown folders are refused.

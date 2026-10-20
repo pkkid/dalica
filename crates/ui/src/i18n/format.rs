@@ -113,12 +113,42 @@ pub fn weekday(date: Date) -> u8 {
     u8::try_from(d % 7).unwrap_or(0)
 }
 
+/// The English month names, January first.
+const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+/// The English weekday names, Sunday first.
+const WEEKDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/// Month `month`'s name as a part of a date's template ([`month_name`]): under the pseudo-locale
+/// the English name, so the date is bracketed once, as the one text it is (`⁅June 4, 2026····⁆`,
+/// not `⁅⁅June··⁆ 4, 2026···⁆`).
+pub fn month_part(month: u8) -> String {
+    match super::is_pseudo() {
+        true => usize::from(month).checked_sub(1).and_then(|i| MONTHS.get(i)).map_or_else(|| "?".to_string(), |m| (*m).to_string()),
+        false => month_name(month),
+    }
+}
+
+/// Weekday `day`'s name as a part of a date's template ([`weekday_name`]; see [`month_part`]).
+pub fn weekday_part(day: u8) -> String {
+    match super::is_pseudo() {
+        true => WEEKDAYS.get(usize::from(day)).map_or_else(|| "?".to_string(), |w| (*w).to_string()),
+        false => weekday_name(day),
+    }
+}
+
 /// A date written out: `June 4, 2026`.
 pub fn long_date(date: Date) -> String {
-    tl!(ctx = "date", "{month} {day}, {year}", month = month_name(date.month()), day = date.day(), year = date.year())
+    tl!(ctx = "date", "{month} {day}, {year}", month = month_part(date.month()), day = date.day(), year = date.year())
 }
 
 /// A date with its weekday: `Thursday, June 4, 2026`.
 pub fn long_date_with_weekday(date: Date) -> String {
-    tl!(ctx = "date", "{weekday}, {date}", weekday = weekday_name(weekday(date)), date = long_date(date))
+    tl!(
+        ctx = "date",
+        "{weekday}, {month} {day}, {year}",
+        weekday = weekday_part(weekday(date)),
+        month = month_part(date.month()),
+        day = date.day(),
+        year = date.year()
+    )
 }

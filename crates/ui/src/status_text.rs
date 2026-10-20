@@ -23,6 +23,7 @@
 use dalica_core::{Date, DateTime, PhotoId};
 use dalica_library::{Library, Photo};
 
+use crate::i18n::format::{month_part, weekday_part};
 use crate::panels::light_table::long_date;
 use crate::state::UiState;
 use crate::{tl, tln, tray};
@@ -175,14 +176,19 @@ pub fn size(bytes: u64) -> String {
     crate::i18n::format::file_size(bytes)
 }
 
-/// `7:42 PM`, or `7:42:05 PM` with `seconds`: a time of day on the twelve-hour clock.
-pub fn clock(d: DateTime, seconds: bool) -> String {
-    let (hour, pm) = match d.hour() {
+/// The hour of `d` on the twelve-hour clock, and whether it is after noon.
+fn twelve_hour(d: DateTime) -> (u8, bool) {
+    match d.hour() {
         0 => (12, false),
         h @ 1..=11 => (h, false),
         12 => (12, true),
         h => (h.saturating_sub(12), true),
-    };
+    }
+}
+
+/// `7:42 PM`, or `7:42:05 PM` with `seconds`: a time of day on the twelve-hour clock.
+pub fn clock(d: DateTime, seconds: bool) -> String {
+    let (hour, pm) = twelve_hour(d);
     let (minute, second) = (format!("{:02}", d.minute()), format!("{:02}", d.second()));
     match (seconds, pm) {
         (false, false) => tl!(ctx = "time", "{hour}:{minute} AM", hour = hour, minute = minute),
@@ -192,9 +198,44 @@ pub fn clock(d: DateTime, seconds: bool) -> String {
     }
 }
 
-/// `June 4, 2026 7:42 PM`.
+/// `June 4, 2026 7:42 PM`: one template, so the pseudo-locale brackets it once
+/// ([`crate::i18n::format::month_part`]).
 pub fn date_time(d: DateTime) -> String {
-    tl!(ctx = "date", "{date} {time}", date = long_date(d.date()), time = clock(d, false))
+    let (hour, pm) = twelve_hour(d);
+    let (month, day, year, minute) = (month_part(d.date().month()), d.date().day(), d.date().year(), format!("{:02}", d.minute()));
+    match pm {
+        false => tl!(ctx = "date", "{month} {day}, {year} {hour}:{minute} AM", month = month, day = day, year = year, hour = hour, minute = minute),
+        true => tl!(ctx = "date", "{month} {day}, {year} {hour}:{minute} PM", month = month, day = day, year = year, hour = hour, minute = minute),
+    }
+}
+
+/// `Thursday, June 4, 2026 7:42 PM`, one template as [`date_time`] is.
+pub fn date_time_with_weekday(d: DateTime) -> String {
+    let (hour, pm) = twelve_hour(d);
+    let weekday = weekday_part(crate::i18n::format::weekday(d.date()));
+    let (month, day, year, minute) = (month_part(d.date().month()), d.date().day(), d.date().year(), format!("{:02}", d.minute()));
+    match pm {
+        false => tl!(
+            ctx = "date",
+            "{weekday}, {month} {day}, {year} {hour}:{minute} AM",
+            weekday = weekday,
+            month = month,
+            day = day,
+            year = year,
+            hour = hour,
+            minute = minute
+        ),
+        true => tl!(
+            ctx = "date",
+            "{weekday}, {month} {day}, {year} {hour}:{minute} PM",
+            weekday = weekday,
+            month = month,
+            day = day,
+            year = year,
+            hour = hour,
+            minute = minute
+        ),
+    }
 }
 
 /// `June 4, 2026 to June 6, 2026`, or one date when they all fall on the same day; `None` when no
@@ -204,7 +245,16 @@ pub fn date_range(dates: impl IntoIterator<Item = Date>) -> Option<String> {
         .into_iter()
         .fold((None, None), |(lo, hi): (Option<Date>, Option<Date>), d| (Some(lo.map_or(d, |l| l.min(d))), Some(hi.map_or(d, |h| h.max(d)))));
     match (first, last) {
-        (Some(a), Some(b)) if a != b => Some(tl!(ctx = "date", "{first} to {last}", first = long_date(a), last = long_date(b))),
+        (Some(a), Some(b)) if a != b => Some(tl!(
+            ctx = "date",
+            "{first_month} {first_day}, {first_year} to {last_month} {last_day}, {last_year}",
+            first_month = month_part(a.month()),
+            first_day = a.day(),
+            first_year = a.year(),
+            last_month = month_part(b.month()),
+            last_day = b.day(),
+            last_year = b.year()
+        )),
         (Some(a), _) => Some(long_date(a)),
         _ => None,
     }
@@ -415,6 +465,19 @@ mod tests {
         assert_eq!(date_range([day(6), day(4), day(5)]).as_deref(), Some("June 4, 2026 to June 6, 2026"));
         assert_eq!(date_range([day(4), day(4)]).as_deref(), Some("June 4, 2026"));
         assert_eq!(date_range([]), None);
+        assert_eq!(date_time_with_weekday(at(19, 42)), "Thursday, June 4, 2026 7:42 PM");
+    }
+
+    #[test]
+    fn the_pseudo_locale_brackets_a_date_once() {
+        use crate::i18n::{PSEUDO, pseudo, with_language};
+        let at = DateTime::new(Date::new(2026, 6, 4).unwrap(), 19, 42, 0).unwrap();
+        let texts = with_language(&PSEUDO, || {
+            [date_time(at), date_time_with_weekday(at), date_range([at.date(), Date::new(2026, 6, 6).unwrap()]).unwrap(), long_date(at.date())]
+        });
+        for t in texts {
+            assert!(t.starts_with(pseudo::OPEN) && t.matches(pseudo::OPEN).count() == 1, "{t:?}");
+        }
     }
 
     #[test]

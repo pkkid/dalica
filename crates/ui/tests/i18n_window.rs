@@ -1,7 +1,8 @@
 //! The main window through the catalogs (M15.31, `localization.md` → Checking a translation),
 //! headless in the pseudo-locale `qps`: in the library with the tree, a folder and an album
 //! selected, the tray holding photos, every side pane open in turn and a notice showing, every text
-//! a frame draws is bracketed except user data (folder, file, album and people's names, captions,
+//! a frame draws is bracketed (once: a date is one template, never a bracketed month inside a
+//! bracketed date) except user data (folder, file, album and people's names, captions,
 //! tags, paths), the keyboard shortcuts written beside menu rows (key names, as the keymap writes
 //! them) and the map's attribution (a third party's credit, kept as it is); so are the menu bar,
 //! each of its menus with each of their submenus, and the photo menu. At 1400 × 900 and 900 × 600
@@ -80,8 +81,25 @@ fn is_attribution(text: &str) -> bool {
     text == dalica_ui_kit::widgets::OFFLINE_ATTRIBUTION || text.contains('©')
 }
 
-/// The texts the next frame draws that went through no catalog and are not user data, each with
-/// `place`.
+/// Whether a date in `text` (a month's name) sits inside two pseudo-locale brackets: a date is one
+/// template, bracketed once (`⁅June 4, 2026····⁆`, never `⁅⁅June··⁆ 4, 2026···⁆`).
+fn date_nests(text: &str) -> bool {
+    const MONTHS: [&str; 12] =
+        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            pseudo::OPEN => depth += 1,
+            pseudo::CLOSE => depth = depth.saturating_sub(1),
+            _ if depth > 1 && MONTHS.iter().any(|m| text[i..].starts_with(m)) => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The texts the next frame draws that went through no catalog and are not user data, and those
+/// whose date is bracketed twice, each with `place`.
 fn untranslated(d: &mut Driver, place: &str, data: &BTreeSet<String>, out: &mut BTreeSet<String>) {
     d.step();
     let drawn = d.drawn_texts().to_vec();
@@ -90,6 +108,9 @@ fn untranslated(d: &mut Driver, place: &str, data: &BTreeSet<String>, out: &mut 
         if !is_user_data(t, data) && !is_shortcut(t) && !is_attribution(t) {
             out.insert(format!("{place}: {t:?}"));
         }
+    }
+    for t in drawn.iter().filter(|t| date_nests(t)) {
+        out.insert(format!("{place}: {t:?} brackets its date twice"));
     }
 }
 

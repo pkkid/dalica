@@ -1429,7 +1429,8 @@ impl Quality {
 }
 
 /// How the Export dialog exports videos (`creating.md` §2): their first frame as a photo, or the
-/// whole video unresized. The row stays disabled until videos are decoded (M15).
+/// whole video unresized (live since M15.28: the first frame is the clip's poster; a clip that
+/// can't be played is skipped with the reason).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Videos {

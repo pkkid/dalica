@@ -267,7 +267,7 @@ fn numbers_sizes_and_dates_go_through_the_language() {
     assert_eq!(english.10, "?");
     assert_eq!(format::weekday(dalica_core::Date::new(2000, 1, 1).unwrap()), 6);
     let pseudo = i18n::with_language(&PSEUDO, || (format::file_size(3_100_000), format::long_date(date)));
-    assert!(pseudo.0.starts_with("⁅3.1 MB") && pseudo.1.starts_with("⁅⁅June··⁆ 4, 2026"), "{pseudo:?}");
+    assert!(pseudo.0.starts_with("⁅3.1 MB") && pseudo.1.starts_with("⁅June 4, 2026") && pseudo.1.matches('⁅').count() == 1, "{pseudo:?}");
 }
 
 /// The texts the next frame draws.

@@ -27,7 +27,7 @@ pub struct PickerRequest {
     /// The command the answer is for.
     pub command: &'static str,
     pub kind: PickerKind,
-    pub title: &'static str,
+    pub title: String,
     /// A save dialog's suggested file name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -109,7 +109,7 @@ fn request_for(ask: Ask<'_>) -> PickerRequest {
         Ask::Folder => PickerRequest {
             command: "folders.add",
             kind: PickerKind::Folder,
-            title: "Add Folder",
+            title: crate::tl!("Add Folder"),
             name: None,
             folder: None,
             params: Value::Null,
@@ -118,7 +118,7 @@ fn request_for(ask: Ask<'_>) -> PickerRequest {
         Ask::FolderFor(request) => PickerRequest {
             command: request.command,
             kind: PickerKind::Folder,
-            title: request.title,
+            title: request.title.clone(),
             name: None,
             folder: request.folder.clone(),
             params: request.params.clone(),
@@ -127,7 +127,7 @@ fn request_for(ask: Ask<'_>) -> PickerRequest {
         Ask::Save(request) => PickerRequest {
             command: request.command,
             kind: PickerKind::Save,
-            title: request.title,
+            title: request.title.clone(),
             name: Some(request.name.clone()),
             folder: request.folder.clone(),
             params: request.params.clone(),
@@ -136,7 +136,7 @@ fn request_for(ask: Ask<'_>) -> PickerRequest {
         Ask::File(request) => PickerRequest {
             command: request.command,
             kind: PickerKind::File,
-            title: request.title,
+            title: request.title.clone(),
             name: None,
             folder: None,
             params: request.params.clone(),
@@ -283,7 +283,7 @@ mod tests {
     fn a_picker_is_waiting_from_its_opening_and_an_early_answer_reaches_it() {
         let stub = Arc::new(StubPicker::new());
         let picker: Arc<dyn Picker> = Arc::new(Late(Arc::clone(&stub)));
-        let request = OpenRequest { title: "Add a Model File", filters: MODEL_FILTERS, command: "faceModel.addFile", params: Value::Null };
+        let request = OpenRequest { title: "Add a Model File".into(), filters: MODEL_FILTERS, command: "faceModel.addFile", params: Value::Null };
         let pending = Pending::pick_file(&picker, request).unwrap();
         let waiting = stub.waiting().expect("waiting from its opening");
         assert_eq!((waiting.command, waiting.kind), ("faceModel.addFile", PickerKind::File));

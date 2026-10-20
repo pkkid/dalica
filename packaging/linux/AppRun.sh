@@ -2,7 +2,8 @@
 # The AppImage's entry point, installed as `AppRun` at the top of the AppDir by package.sh.
 #
 # Adapted from PhotoCraft packaging/linux/AppRun @ dc35ce76 (MIT OR Apache-2.0). Changed for
-# Dalica: its names, and Exec without file arguments (dalica takes none).
+# Dalica: its names, and Exec keeps the packaged entry's file argument (`%f`: since M15.24 a lone
+# file opens in the photo viewer, as `--view FILE`).
 #
 # On Wayland the dock finds a window's icon through its app id (org.dalica.Dalica) and an
 # installed .desktop file of that name. An AppImage installs nothing, so without help every run
@@ -63,11 +64,11 @@ integrate() {
       fi
     fi
   else
-    # Exec points at this AppImage (dalica is not on the host's PATH); TryExec, which would hide
-    # the entry, goes; everything else stays as packaged.
+    # Exec points at this AppImage (dalica is not on the host's PATH), its arguments (`%f`) kept;
+    # TryExec, which would hide the entry, goes; everything else stays as packaged.
     tmp="$apps/.$DESK_ID.tmp.$$"
     esc="$(printf '%s' "$appimage" | sed 's/[\\&|]/\\&/g')"
-    if sed -e "s|^Exec=.*|Exec=\"$esc\"|" -e '/^TryExec=/d' "$src_desktop" 2>/dev/null >"$tmp"; then
+    if sed -e "s|^Exec=[^ ]*|Exec=\"$esc\"|" -e '/^TryExec=/d' "$src_desktop" 2>/dev/null >"$tmp"; then
       if cmp -s "$tmp" "$apps/$DESK_ID.desktop"; then
         rm -f "$tmp"
       elif mv -f "$tmp" "$apps/$DESK_ID.desktop" 2>/dev/null; then

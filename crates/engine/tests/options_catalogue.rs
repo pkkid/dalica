@@ -107,7 +107,7 @@ fn each_default_is_its_accessors_and_each_option_is_read_back_from_its_key() {
     }
     // The options whose feature is still to come say why, and the HEIC row follows the build.
     let reasons: Vec<(&str, &str)> = catalogue().iter().filter_map(|o| o.unavailable.map(|r| (o.key, r))).collect();
-    assert!(reasons.iter().any(|(k, r)| *k == "viewer.defaultViewer" && r.starts_with("Arrives with")), "{reasons:?}");
+    assert!(reasons.iter().any(|(k, r)| *k == "viewer.defaultViewer" && r.contains("viewer.setDefault")), "{reasons:?}");
     for key in ["slideshow.music", "slideshow.musicFolder", "slideshow.videoSound"] {
         assert!(catalogue().iter().any(|o| o.key == key && o.available()), "{key} can be changed now that Dalica plays sound");
     }
@@ -228,7 +228,9 @@ fn the_m15_rows_language_external_editor_and_viewer_file_types() {
     assert_eq!(st.external_editor(), "/usr/bin/gimp", "nothing changed");
 
     let types = find("viewer.defaultViewer").unwrap();
-    assert_eq!((types.many, types.available(), types.unavailable), (true, false, Some("Arrives with OS integration")));
+    assert_eq!((types.many, types.available(), types.unavailable), (true, false, Some(dalica_engine::options::SET_DEFAULT)));
+    let refused = s.execute("options.set", &json!({ "values": { "viewer.defaultViewer": ["jpeg"] } })).unwrap_err().to_string();
+    assert!(refused.contains("viewer.setDefault"), "options.set points to the command that sets it: {refused}");
     assert_eq!(types.to_json(&empty)["type"], json!("list"));
     assert_eq!(types.default_value(), json!([]));
     let ids: Vec<String> = types.choices(&empty).into_iter().map(|c| c.0).collect();

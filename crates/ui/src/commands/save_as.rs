@@ -137,7 +137,7 @@ pub fn request(app: &App, id: PhotoId) -> Option<SaveRequest> {
     };
     let stem = dalica_core::names::split_ext(&photo.name).0;
     let name = free_name(app, folder.as_deref(), &format!("{stem}.{ext}"));
-    Some(SaveRequest { title: TITLE, name, folder, filters, command: "photo.saveTo", params: json!({ "id": id }) })
+    Some(SaveRequest { title: crate::tl!("Save As"), name, folder, filters, command: "photo.saveTo", params: json!({ "id": id }) })
 }
 
 /// `name`, or the first numbered name (`-001` …) the library knows no file of in `folder`. The
@@ -155,7 +155,7 @@ fn free_name(app: &App, folder: Option<&Path>, name: &str) -> String {
 
 /// The picker opened again for photo `id` after `tried` could not be written: `title`, the name
 /// tried, in its folder when `keep_folder` and it names one, else in the folder [`request`] offers.
-fn again(app: &App, id: PhotoId, tried: Option<&Path>, title: &'static str, keep_folder: bool) -> Option<SaveRequest> {
+fn again(app: &App, id: PhotoId, tried: Option<&Path>, title: String, keep_folder: bool) -> Option<SaveRequest> {
     let mut r = request(app, id)?;
     r.title = title;
     if let Some(tried) = tried {
@@ -205,7 +205,7 @@ pub fn ran(app: &mut App, id: &str, params: &Value, result: &Result<Value, CmdEr
         }
         // A name Save As cannot write (`photo.tif`, a path into `.dalica-originals`): ask again;
         // the status line already gives the reason.
-        Err(CmdError::BadParams(_) | CmdError::Limit(_)) => app.save_as.again = again(app, asked, tried.as_deref(), TITLE, true),
+        Err(CmdError::BadParams(_) | CmdError::Limit(_)) => app.save_as.again = again(app, asked, tried.as_deref(), crate::tl!("Save As"), true),
         Err(_) => {}
     }
 }
@@ -231,8 +231,8 @@ pub fn follow(app: &mut App) {
             let code = failed.get("code").and_then(Value::as_str).unwrap_or_default();
             let reason = failed.get("reason").and_then(Value::as_str).unwrap_or_default().to_string();
             let asked = match code {
-                "exists" => again(app, f.id, f.path.as_deref(), ANOTHER_NAME, true),
-                "no_folder" => again(app, f.id, f.path.as_deref(), TITLE, false),
+                "exists" => again(app, f.id, f.path.as_deref(), crate::tl!("Choose Another Name"), true),
+                "no_folder" => again(app, f.id, f.path.as_deref(), crate::tl!("Save As"), false),
                 _ => None,
             };
             if asked.is_some() {
@@ -283,7 +283,7 @@ mod tests {
                 scripted.last_save()
             })
             .unwrap();
-        assert_eq!((asked.title, asked.command, asked.params.clone()), (TITLE, "photo.saveTo", json!({ "id": ids[0] })));
+        assert_eq!((asked.title.as_str(), asked.command, asked.params.clone()), (TITLE, "photo.saveTo", json!({ "id": ids[0] })));
         assert!(asked.name.ends_with(".jpg") && asked.folder.is_some(), "{asked:?}");
         // Graceful failures.
         for (bad, code) in [

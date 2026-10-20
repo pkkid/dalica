@@ -78,7 +78,7 @@ const BROWSE_W: f32 = 90.0;
 /// as a place to write).
 pub fn browse_request(key: &str, value: &Value) -> FolderRequest {
     let shown = value.as_str().map(PathBuf::from).filter(|p| p.is_absolute());
-    FolderRequest { title: BROWSE_TITLE, folder: shown, command: FOLDER_COMMAND, params: json!({ "key": key }), output: true }
+    FolderRequest { title: tl!("Default Export Location"), folder: shown, command: FOLDER_COMMAND, params: json!({ "key": key }), output: true }
 }
 
 /// What the tab asks of the app this pass besides draft changes.

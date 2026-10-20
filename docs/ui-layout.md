@@ -539,7 +539,11 @@ Every part of the window is usable without a pointer and described to a screen r
   parent), Enter and Space act on it (the library tree: as a click; the Folder Manager: expand or
   collapse); the selection follows the focus. Tab goes on to the next control, Shift+Tab back.
   The light table's stop is the focused cell, else the first selected one in view, else the first
-  in view.
+  in view. The shortcut editor's list (Options ▸ Keyboard Shortcuts) is one stop too, a grid: its
+  current cell (the one last focused or clicked, else the first row's first key cell); ↑/↓ go to
+  the row above or below (skipping the rows that cannot be changed), ←/→ between the two key
+  cells and ↺, Home and End to the first and last row, Enter and Space record (Esc stops
+  recording and keeps the focus there).
 - **A focused control** takes its own Enter and Space (a button presses, a toggle flips) and its
   arrows (a slider moves, a row group steps); the view's shortcuts keep working (Ctrl+8 stars),
   except while a text field has the focus. **A focused cell** of the light table leaves the

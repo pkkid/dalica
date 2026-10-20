@@ -56,8 +56,9 @@ pub fn list_columns(rect: Rect, widths: &[f32]) -> Vec<Rect> {
 }
 
 /// One row of a list (`design-system.md` §6): the full width of `ui` × [`list_row_height`], the
-/// whole row clickable (it registers `id`, role `other`, labelled `label`, active when
-/// `selected`). Rest no fill; hovered `hover`; selected `pressed` (both radius 4). A modified row
+/// whole row clickable but no Tab stop (a list draws only the rows in view, so it chooses its own
+/// stop among the widgets in its cells; it registers `id`, role `other`, labelled `label`, active
+/// when `selected`). Rest no fill; hovered `hover`; selected `pressed` (both radius 4). A modified row
 /// has a 6 pt `text` dot centred in the [`LIST_ROW_GUTTER`] and its first column SemiBold. The
 /// columns are laid out by [`list_columns`]; `cell` is called for each with a ui confined to it
 /// (left to right, centred vertically) and the cell's colour, and may add text ([`list_text`]) or
@@ -77,7 +78,7 @@ pub fn list_row(
     let width = ui.available_width();
     let width = if width.is_finite() { width.max(0.0) } else { 0.0 };
     let (_, rect) = ui.allocate_space(vec2(width, list_row_height(t)));
-    let r = ui.interact(rect, Id::new(id), if enabled { Sense::click() } else { Sense::hover() });
+    let r = ui.interact(rect, Id::new(id), if enabled { Sense::CLICK } else { Sense::hover() });
     let hot = enabled && r.contains_pointer();
     let p = ui.painter();
     if selected {

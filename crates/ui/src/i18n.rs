@@ -106,6 +106,16 @@ pub fn tr(english: &str) -> String {
     catalog(lang).tr(english).to_string()
 }
 
+/// A translated `text` as a value the user keeps (a default name offered in a field, saved if
+/// left as it is): without the line-break marks catalog text carries for wrapping
+/// ([`dalica_ui_kit::linebreak::unmark`]; Thai, `docs/thai-text.md`).
+pub fn user_text(text: String) -> String {
+    match dalica_ui_kit::linebreak::unmark(&text) {
+        std::borrow::Cow::Borrowed(_) => text,
+        std::borrow::Cow::Owned(plain) => plain,
+    }
+}
+
 /// `english` in `context` (a word that reads differently by use).
 pub fn tr_ctx(context: &str, english: &str) -> String {
     let lang = current();

@@ -79,7 +79,7 @@ pub fn rows(app: &App) -> Vec<Opt> {
 /// the draft (a folder to read music from).
 pub fn music_request(value: &Value) -> FolderRequest {
     let folder = value.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute());
-    FolderRequest { title: MUSIC_TITLE, folder, command: FOLDER_COMMAND, params: serde_json::json!({ "key": MUSIC_FOLDER }), output: false }
+    FolderRequest { title: tl!("Music Folder"), folder, command: FOLDER_COMMAND, params: serde_json::json!({ "key": MUSIC_FOLDER }), output: false }
 }
 
 /// Draws the tab's body; changes go into the Options draft.

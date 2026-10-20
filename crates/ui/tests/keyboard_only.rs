@@ -643,3 +643,54 @@ fn the_folder_managers_tree_is_one_tab_stop_whose_arrows_walk_and_fold_it() {
     assert_eq!(focused(&d), folder(0));
     d.app_mut().state_mut().dialogs.clear();
 }
+
+#[test]
+fn the_shortcut_list_longer_than_its_view_is_one_tab_stop_whose_arrows_walk_its_cells() {
+    use crate::common::try_widget;
+    use dalica_ui::dialogs::options::shortcuts::{self, cell_id};
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = demo(dir.path());
+    d.run("app.shortcuts", &json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
+    let editor = d.state().options.as_ref().unwrap().shortcuts.clone();
+    let rows: Vec<_> = shortcuts::rows(d.app_mut(), &editor).into_iter().filter(|r| r.editable).collect();
+    let cell = |i: usize, slot: u8| {
+        let r: &shortcuts::Row = &rows[i];
+        cell_id(&r.command, r.cell_context(editor.context), slot)
+    };
+    let last = rows.len() - 1;
+    assert!(try_widget(&d, &cell(last, 0)).is_none(), "the list is longer than its view ({} rows)", rows.len());
+    // Tab comes round, entering the list once.
+    let stops = walk(&mut d, "Tab");
+    let in_list: Vec<&String> = stops.iter().map(|s| &s.0).filter(|s| s.starts_with("shortcut:")).collect();
+    assert_eq!(in_list, [&cell(0, 0)], "one stop, the first row's first key cell: {stops:?}");
+    while focused(&d) != cell(0, 0) {
+        press(&mut d, "Tab");
+    }
+    press(&mut d, "Right");
+    assert_eq!(focused(&d), cell(0, 1));
+    press(&mut d, "Down");
+    assert_eq!(focused(&d), cell(1, 1), "Down: the row below, the same cell");
+    press(&mut d, "End");
+    assert_eq!(focused(&d), cell(last, 1), "End: the last row, scrolled into view");
+    assert!(try_widget(&d, &cell(last, 1)).is_some());
+    press(&mut d, "Left");
+    press(&mut d, "Home");
+    assert_eq!(focused(&d), cell(0, 0), "Home: the first row");
+    // Enter records the focused cell; Esc stops it.
+    press(&mut d, "Enter");
+    d.settle(FRAMES).unwrap();
+    assert!(d.state().options.as_ref().unwrap().shortcuts.recording.is_some(), "Enter records");
+    press(&mut d, "Escape");
+    d.settle(FRAMES).unwrap();
+    assert!(d.state().options.as_ref().unwrap().shortcuts.recording.is_none(), "Esc stops recording");
+    // Tab leaves the list; Shift+Tab comes back to the same cell.
+    press(&mut d, "Down");
+    let here = focused(&d);
+    assert_eq!(here, cell(1, 0));
+    press(&mut d, "Tab");
+    assert!(!focused(&d).starts_with("shortcut:"), "Tab left the list for {}", focused(&d));
+    press(&mut d, "Shift+Tab");
+    assert_eq!(focused(&d), here);
+    d.app_mut().state_mut().dialogs.clear();
+}

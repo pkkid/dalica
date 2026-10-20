@@ -190,6 +190,17 @@ fn mark_breaks_a_paragraph_only_at_dictionary_word_boundaries() {
 }
 
 #[test]
+fn unmark_gives_back_the_text_mark_was_given() {
+    let plain = paragraph("");
+    let marked = linebreak::mark(&plain).into_owned();
+    assert!(marked.contains(MARK));
+    assert_eq!(linebreak::unmark(&marked), plain);
+    for text in ["", "อัลบั้ม ใหม่", "Holiday photos 2026"] {
+        assert!(matches!(linebreak::unmark(text), Cow::Borrowed(t) if t == text), "{text}");
+    }
+}
+
+#[test]
 fn a_label_wrapped_at_200_px_breaks_only_at_the_marks() {
     let ctx = thai_ctx();
     let plain = paragraph("");

@@ -517,7 +517,8 @@ fn export_clip(app: &mut App, params: &Value) -> Result<Value, CmdError> {
         Some(ext) => format!("{base}.{ext}"),
         None => base,
     };
-    let request = SaveRequest { title: "Export Clip", name, folder, filters: CLIP_FILTERS, command: "player.exportClip", params: json!({}) };
+    let request =
+        SaveRequest { title: crate::tl!("Export Clip"), name, folder, filters: CLIP_FILTERS, command: "player.exportClip", params: json!({}) };
     app.pick_save(request).map_err(CmdError::Disabled)?;
     Ok(json!({ "picking": true }))
 }

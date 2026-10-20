@@ -234,7 +234,8 @@ fn add_file(app: &mut App, params: &Value) -> Result<Value, CmdError> {
             face_model::open(app, draft)
         }
         None => {
-            let request = OpenRequest { title: PICK_TITLE, filters: MODEL_FILTERS, command: "faceModel.addFile", params: json!({}) };
+            let request =
+                OpenRequest { title: crate::tl!("Add a Model File"), filters: MODEL_FILTERS, command: "faceModel.addFile", params: json!({}) };
             app.pick_file_for(request).map_err(CmdError::Disabled)?;
             Ok(json!({ "dialog": "filePicker" }))
         }

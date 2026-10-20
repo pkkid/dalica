@@ -99,8 +99,8 @@ fn gallery(ui: &mut Ui, t: &Tokens, st: &mut St) {
         dropdown(ui, t, "dropdown:a11y.sort", "By date", |_| {});
         let row = RichRow { glyph: Glyph::Collage(CollageIcon::NoBorder), name: "Picture pile", description: "Photos scattered" };
         rich_dropdown(ui, t, "dropdown:a11y.style", &row, 200.0, |_| {});
-        key_cell(ui, t, "key:a11y.open", &KeyCell { keys: &["Ctrl+O"], mac: false, recording: false, conflict: false, width: 140.0 });
-        key_cell(ui, t, "key:a11y.none", &KeyCell { keys: &[], mac: false, recording: false, conflict: false, width: 140.0 });
+        key_cell(ui, t, "key:a11y.open", &KeyCell { keys: &["Ctrl+O"], mac: false, recording: false, conflict: false, width: 140.0, stop: true });
+        key_cell(ui, t, "key:a11y.none", &KeyCell { keys: &[], mac: false, recording: false, conflict: false, width: 140.0, stop: true });
     });
     at(ui, row(80.0), |ui| {
         ui.allocate_ui(vec2(240.0, 50.0), |ui| slider(ui, t, &FILL, 25.0));

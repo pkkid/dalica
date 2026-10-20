@@ -7,7 +7,7 @@
 //! named keys as their glyphs: ↩ ⎋ ⇥ ⌫ ⌦ and the arrows). The macOS rendering is adapted from
 //! LightCraft `crates/ui-egui/src/menubar.rs` (`shortcut_text`) at b3d392b4 (MIT OR Apache-2.0).
 
-use egui::{Align2, CornerRadius, Rect, Response, Stroke, StrokeKind, Ui, WidgetType, pos2, vec2};
+use egui::{Align2, CornerRadius, Id, Rect, Response, Sense, Stroke, StrokeKind, Ui, WidgetType, pos2, vec2};
 
 use super::{Target, allocate, focus_ring, one_line, register};
 use crate::Tokens;
@@ -42,11 +42,14 @@ pub struct KeyCell<'a> {
     pub conflict: bool,
     /// The cell's width; a non-finite or tiny width is [`KEY_CELL_W`].
     pub width: f32,
+    /// The cell takes the keyboard's focus (a Tab stop). A list of many cells makes only its
+    /// current one a stop and walks the others with the arrows; the rest still click.
+    pub stop: bool,
 }
 
 impl Default for KeyCell<'_> {
     fn default() -> Self {
-        KeyCell { keys: &[], mac: false, recording: false, conflict: false, width: KEY_CELL_W }
+        KeyCell { keys: &[], mac: false, recording: false, conflict: false, width: KEY_CELL_W, stop: true }
     }
 }
 
@@ -138,12 +141,17 @@ pub fn key_cell_height(t: &Tokens) -> f32 {
 /// `field` with a 1.5 pt `accent` outline saying "Press the new shortcut…" in `text`; a conflict
 /// outlines it 1.5 pt `danger` (the caps still shown). Disabled (a hold gesture: listed, not
 /// editable) the caps' text is `text_disabled` and it ignores clicks. The caller starts and ends
-/// recording on `clicked()`. Registered as `id` (role `button`, active while recording, labelled
-/// by [`key_cell_label`]).
+/// recording on `clicked()`. It is a Tab stop unless `cell.stop` is off. Registered as `id` (role
+/// `button`, active while recording, labelled by [`key_cell_label`]).
 pub fn key_cell(ui: &mut Ui, t: &Tokens, id: &str, cell: &KeyCell<'_>) -> Response {
     let width = if cell.width.is_finite() && cell.width >= 24.0 { cell.width.min(4096.0) } else { KEY_CELL_W };
     let enabled = ui.is_enabled();
-    let r = allocate(ui, id, vec2(width, key_cell_height(t)), enabled);
+    let r = if cell.stop {
+        allocate(ui, id, vec2(width, key_cell_height(t)), enabled)
+    } else {
+        let (_, rect) = ui.allocate_space(vec2(width, key_cell_height(t)));
+        ui.interact(rect, Id::new(id), if enabled { Sense::CLICK } else { Sense::hover() })
+    };
     let rect = r.rect;
     let p = ui.painter();
     let radius = CornerRadius::same(t.radius);

@@ -308,7 +308,8 @@ fn open(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 fn choose_folder(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
     pick_check(app, params).map_err(CmdError::Disabled)?;
-    let request = FolderRequest { title: FOLDER_TITLE, folder: None, command: "import.openSource", params: json!({}), output: false };
+    let request =
+        FolderRequest { title: crate::tl!("Import from Folder"), folder: None, command: "import.openSource", params: json!({}), output: false };
     app.pick_folder_for(request).map_err(CmdError::Disabled)?;
     Ok(json!({ "dialog": crate::menus::FILE_PICKER }))
 }
@@ -562,7 +563,7 @@ fn choose_destination(app: &mut App, params: &Value) -> Result<Value, CmdError> 
     no_params(params)?;
     pick_check(app, params).map_err(CmdError::Disabled)?;
     let folder = place(app, &app.state().import.destination);
-    let request = FolderRequest { title: DESTINATION_TITLE, folder, command: "import.destination", params: json!({}), output: true };
+    let request = FolderRequest { title: crate::tl!("Import To"), folder, command: "import.destination", params: json!({}), output: true };
     app.pick_folder_for(request).map_err(CmdError::Disabled)?;
     Ok(json!({ "dialog": crate::menus::FILE_PICKER }))
 }

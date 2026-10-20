@@ -31,6 +31,13 @@
 //!   records into the Context filter's context, or Global under All.
 //! - A key already taken outlines the cell in red and asks on the bottom line, with [Replace] and
 //!   [Cancel] (Esc cancels too: the cell still records). Reset All asks there too.
+//! - **Keyboard** (`crate::a11y::keyboard`, the WAI-ARIA grid pattern): the list draws only the
+//!   rows in view, so it is one Tab stop, its *current* cell (the cell last focused or clicked,
+//!   else the first row's first key cell), brought into view as it gains the focus. With it
+//!   focused, ↑/↓ go to the row above or below (rows that cannot be changed are skipped), ←/→ to
+//!   the cell beside it (the two key cells, then ↺ when the row has it), Home and End to the
+//!   first and last row; Enter and Space click the cell. While a cell records, every key is the
+//!   recording's.
 //!
 //! Automation ids (`control-protocol.md` §7): the search field `field:shortcuts.search` and its
 //! clear button `button:shortcuts.search/clear`, the Context filter `choice:shortcuts.context`
@@ -58,7 +65,7 @@ use dalica_ui_kit::widgets::{
     list_text, search_field, text_button,
 };
 use dalica_ui_kit::{Tokens, fonts, icons};
-use egui::{Id, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
+use egui::{Id, Rect, RichText, Ui, Vec2, pos2, vec2};
 use serde_json::{Value, json};
 
 use crate::app::{App, UI_COMMANDS};
@@ -468,6 +475,55 @@ fn widths(width: f32) -> [f32; 5] {
     [rest.max(80.0), CONTEXT_W, CELL_W, CELL_W, RESTORE_W]
 }
 
+/// The keyboard's place in the list between frames: the current row (its index and id, the index
+/// checked against the id each frame) and cell (0 and 1 the key cells, 2 the ↺), whether it had
+/// the focus, and the list's scroll offset and height as last drawn.
+#[derive(Clone, Debug, Default)]
+struct Nav {
+    current: Option<(usize, String)>,
+    column: usize,
+    keyed: bool,
+    offset: f32,
+    view_h: f32,
+}
+
+fn nav_id() -> Id {
+    Id::new("dialog:options/shortcuts/nav")
+}
+
+/// How many cells of `row` take the keyboard: none when it cannot be changed, else its key cells
+/// and its ↺ when it is modified.
+fn stops_of(row: &Row) -> usize {
+    if row.editable { usize::from(SHORTCUT_SLOTS.min(2)) + usize::from(row.modified()) } else { 0 }
+}
+
+/// The egui id of `row`'s cell `column` (0, 1: a key cell; 2: the ↺).
+fn stop_id(row: &Row, filter: Option<Context>, column: usize) -> Id {
+    let context = row.cell_context(filter);
+    match u8::try_from(column) {
+        Ok(slot @ 0..=1) => Id::new(cell_id(&row.command, context, slot)),
+        _ => Id::new(restore_id(&row.command, context)),
+    }
+}
+
+/// Where `key` takes the keyboard from cell `column` of row `at`: the row and cell it goes to.
+fn step(rows: &[Row], at: usize, column: usize, key: egui::Key) -> Option<(usize, usize)> {
+    use egui::Key;
+    let n = rows.len();
+    let editable = |i: &usize| rows.get(*i).is_some_and(|r| r.editable);
+    let to = match key {
+        Key::ArrowDown => (at.saturating_add(1)..n).find(editable)?,
+        Key::ArrowUp => (0..at.min(n)).rev().find(editable)?,
+        Key::Home => (0..n).find(editable)?,
+        Key::End => (0..n).rev().find(editable)?,
+        Key::ArrowRight => return (column + 1 < rows.get(at).map_or(0, stops_of)).then_some((at, column + 1)),
+        Key::ArrowLeft => return column.checked_sub(1).map(|c| (at, c)),
+        _ => return None,
+    };
+    let cells = rows.get(to).map_or(0, stops_of);
+    Some((to, column.min(cells.saturating_sub(1))))
+}
+
 /// The column titles, then the rows (only those in sight are drawn).
 fn list(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, rows: &[Row], height: f32, actions: &mut Vec<Action>) {
     let w = widths(ui.available_width());
@@ -493,16 +549,94 @@ fn list(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, rows: &[Row], height: f32, 
         });
         return;
     }
-    area.show_rows(ui, list_row_height(t), rows.len(), |ui, range| {
+    let ctx = ui.ctx().clone();
+    let mut nav = ctx.data(|d| d.get_temp::<Nav>(nav_id())).unwrap_or_default();
+    let key_of = |r: &Row| row_id(&r.command, r.cell_context(e.context));
+    // The current row: the one last current while it is still listed (found by a walk only when
+    // the rows changed under it), else the first that can be changed.
+    let kept = nav
+        .current
+        .as_ref()
+        .and_then(|(i, id)| if rows.get(*i).is_some_and(|r| key_of(r) == *id) { Some(*i) } else { rows.iter().position(|r| key_of(r) == *id) })
+        .filter(|i| rows.get(*i).is_some_and(|r| r.editable));
+    let mut current = kept.or_else(|| rows.iter().position(|r| r.editable));
+    let mut column = current.and_then(|i| rows.get(i)).map_or(0, |r| nav.column.min(stops_of(r).saturating_sub(1)));
+    let egui_id = |i: usize, c: usize| rows.get(i).map(|r| stop_id(r, e.context, c));
+    let keyboard = current.is_some_and(|i| ctx.memory(|m| m.focused()) == egui_id(i, column));
+    // The keys a focused cell takes (`crate::a11y::keyboard` keeps them from egui's focus move and
+    // the shortcuts); a recording cell has had them all already.
+    let mut reveal = keyboard && !nav.keyed;
+    if keyboard && let Some(at) = current {
+        use egui::Key;
+        const KEYS: [Key; 6] = [Key::ArrowDown, Key::ArrowUp, Key::ArrowRight, Key::ArrowLeft, Key::Home, Key::End];
+        if let Some((to, c)) =
+            KEYS.into_iter().find(|k| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, *k))).and_then(|k| step(rows, at, column, k))
+        {
+            (current, column, reveal) = (Some(to), c, true);
+            if let Some(id) = egui_id(to, c) {
+                ctx.memory_mut(|m| m.request_focus(id));
+            }
+        }
+    }
+    // The pitch `show_rows` places its first row at.
+    let pitch = list_row_height(t) + ui.spacing().item_spacing.y;
+    let mut area = area;
+    if reveal && let Some(i) = current {
+        // The least scroll that shows the row whole.
+        let (top, view_h) = (i as f32 * pitch, nav.view_h.max(pitch));
+        let y = if top < nav.offset {
+            top
+        } else if top + pitch > nav.offset + view_h {
+            top + pitch - view_h
+        } else {
+            nav.offset
+        };
+        area = area.vertical_scroll_offset(y.max(0.0));
+    }
+    let mut stop_at = None;
+    let shown = area.show_rows(ui, list_row_height(t), rows.len(), |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
-        for row in rows.get(range).into_iter().flatten() {
-            row_ui(ui, t, e, row, &w, actions);
+        let first = range.start;
+        for (k, row) in rows.get(range).into_iter().flatten().enumerate() {
+            let i = first + k;
+            let stop = (current == Some(i)).then_some(column);
+            let (clicked, at) = row_ui(ui, t, e, row, &w, stop, actions);
+            if let Some(c) = clicked {
+                (current, column) = (Some(i), c);
+            }
+            if at.is_some() {
+                stop_at = at;
+            }
         }
     });
+    let (offset, view_h) = (shown.state.offset.y, shown.inner_rect.height());
+    nav = Nav { current: current.and_then(|i| rows.get(i).map(|r| (i, key_of(r)))), column, keyed: keyboard, offset, view_h };
+    ctx.data_mut(|d| d.insert_temp(nav_id(), nav));
+    if let Some(i) = current
+        && let Some(id) = egui_id(i, column)
+    {
+        let list = shown.inner_rect;
+        let at = stop_at.unwrap_or_else(|| {
+            let y = if i as f32 * pitch < offset { list.min.y } else { list.max.y - pitch };
+            Rect::from_min_size(pos2(list.min.x, y), vec2(list.width(), pitch))
+        });
+        crate::a11y::keyboard::one_stop(&ctx, id, ui.layer_id(), at);
+    }
 }
 
-/// One row: the name, the context, the two key cells and ↺ when modified.
-fn row_ui(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, row: &Row, w: &[f32; 5], actions: &mut Vec<Action>) {
+/// One row: the name, the context, the two key cells and ↺ when modified. Only cell `stop` (when
+/// the row is the list's current one) takes the keyboard's focus. Returns the cell clicked, and the
+/// rect of cell `stop`.
+fn row_ui(
+    ui: &mut Ui,
+    t: &Tokens,
+    e: &ShortcutEditor,
+    row: &Row,
+    w: &[f32; 5],
+    stop: Option<usize>,
+    actions: &mut Vec<Action>,
+) -> (Option<usize>, Option<Rect>) {
+    let (mut clicked, mut stop_at) = (None, None);
     let context = row.cell_context(e.context);
     let cell = |slot: u8| KeySlot { command: row.command.clone(), context, slot };
     let recording_here = e.recording.as_ref().is_some_and(|r| r.command == row.command && r.context == context);
@@ -528,10 +662,27 @@ fn row_ui(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, row: &Row, w: &[f32; 5], 
                 Some(x) => vec![x.key.as_str()],
                 None => row.keys.get(usize::from(slot)).map(String::as_str).into_iter().collect(),
             };
-            let look = KeyCell { keys: &key, mac: mac(), recording, conflict: conflict.is_some(), width: c.rect.width() - widgets::LIST_COLUMN_GAP };
+            let column = usize::from(slot);
+            let look = KeyCell {
+                keys: &key,
+                mac: mac(),
+                recording,
+                conflict: conflict.is_some(),
+                width: c.rect.width() - widgets::LIST_COLUMN_GAP,
+                stop: stop == Some(column),
+            };
             let r = ui.add_enabled_ui(enabled && slot < SHORTCUT_SLOTS, |ui| key_cell(ui, t, &cell_id(&row.command, context, slot), &look)).inner;
+            if stop == Some(column) {
+                stop_at = Some(r.rect);
+            }
+            // A recording cell keeps the focus through Esc (which stops the recording, not the
+            // keyboard's place in the list).
+            if r.has_focus() {
+                ui.memory_mut(|m| m.set_focus_lock_filter(r.id, egui::EventFilter { escape: recording, ..Default::default() }));
+            }
             if r.clicked() {
                 actions.push(Action::Record(here));
+                clicked = Some(column);
             }
         }
         _ if row.modified() && enabled => {
@@ -541,19 +692,25 @@ fn row_ui(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, row: &Row, w: &[f32; 5], 
             } else {
                 tl!("Restore the default: {keys}", keys = defaults.join(", "))
             };
-            if restore_button(ui, t, &restore_id(&row.command, context), &tip).clicked() {
+            let r = restore_button(ui, t, &restore_id(&row.command, context), &tip, stop == Some(2));
+            if stop == Some(2) {
+                stop_at = Some(r.rect);
+            }
+            if r.clicked() {
                 actions.push(Action::Restore(row.command.clone(), context));
             }
         }
         _ => {}
     });
+    (clicked, stop_at)
 }
 
 /// ↺: a 20 × 20 button with the Restore glyph (`icon`, `text` hovered), `hover × 0.7` behind it
-/// hovered. Registered as `id` (role `iconButton`, labelled `tip`).
-fn restore_button(ui: &mut Ui, t: &Tokens, id: &str, tip: &str) -> egui::Response {
+/// hovered, a Tab stop when it is the list's current cell (`stop`). Registered as `id` (role
+/// `iconButton`, labelled `tip`).
+fn restore_button(ui: &mut Ui, t: &Tokens, id: &str, tip: &str, stop: bool) -> egui::Response {
     let (_, rect) = ui.allocate_space(Vec2::splat(20.0));
-    let r = ui.interact(rect, Id::new(id), Sense::click());
+    let r = ui.interact(rect, Id::new(id), crate::a11y::keyboard::row_sense(stop));
     let p = ui.painter();
     if r.hovered() {
         p.rect_filled(rect, egui::CornerRadius::same(t.radius), t.hover.gamma_multiply(0.7));
