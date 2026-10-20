@@ -428,7 +428,7 @@
 ~	Hide controls automatically	ซ่อนตัวควบคุมโดยอัตโนมัติ
 ~	Higher values make fewer, more certain suggestions.	ค่าที่สูงขึ้นจะให้คำแนะนำน้อยลงแต่แม่นยำขึ้น
 ~	Higher values make smaller, more certain groups of unnamed faces.	ค่าที่สูงขึ้นจะทำให้กลุ่มใบหน้าที่ไม่มีชื่อเล็กลงแต่แม่นยำขึ้น
-~	Highlights	ไฮไลต์
+~	Highlights	ส่วนสว่าง
 ~	Histogram & Camera Info	ฮิสโตแกรมและข้อมูลกล้อง
 ~	Hold	พักไว้
 ~	I have read these terms and accept them for my own use	ฉันได้อ่านข้อกำหนดเหล่านี้และยอมรับสำหรับการใช้งานส่วนตัว
@@ -932,7 +932,7 @@
 ~	Set as Person Thumbnail	ตั้งเป็นภาพย่อของบุคคล
 ~	Set the black and white points	ตั้งจุดดำและจุดขาว
 ~	Settings…	การตั้งค่า…
-~	Shadows	เงา
+~	Shadows	ส่วนมืด
 ~	Share of commits	สัดส่วนคอมมิต
 ~	Sharpen	เพิ่มความคมชัด
 ~	Sharpens detail and edges.	เพิ่มความคมชัดของรายละเอียดและขอบ

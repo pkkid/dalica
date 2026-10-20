@@ -1,0 +1,12 @@
+Dalica's interface translation catalogs (the *.tsv files in this folder) are licensed under
+MIT OR Apache-2.0, at your option, like the rest of Dalica's code. The full licence texts are in
+../../../../LICENSE-MIT and ../../../../LICENSE-APACHE.
+
+They are original translations, written from the meaning of Dalica's own English text. No
+localisation file, string table or translated screenshot of the reference organizer, or of any
+other proprietary product, was consulted or copied (docs/localization.md, Clean-room
+translations).
+
+Thai (th.tsv): the Dalica contributors, 2026. A machine-assisted draft, written with an AI
+model (Claude, Anthropic) from Dalica's English text, every entry marked `~` until a fluent
+speaker has reviewed it (docs/localization-th.md).

@@ -697,7 +697,10 @@ mod tests {
             "pub const ENGLISH: Language = Language { code: \"en\", plural: Plural::OneOther, complete_menus: false, catalog: \"\" };\n\
              pub static LANGUAGES: &[Language] = &[\n    ENGLISH,\n    Language { code: \"xx\", plural: Plural::OneOther, complete_menus: true, catalog: include_str!(\"xx.tsv\") },\n];\n",
         );
-        w("crates/ui-kit/src/text.rs", "texts! {\n    May => (\"month\", \"May\"),\n    /// A doc.\n    CloseNamed => (\"room tab\", \"Close {name}\"),\n}\n");
+        w(
+            "crates/ui-kit/src/text.rs",
+            "texts! {\n    May => (\"month\", \"May\"),\n    /// A doc.\n    CloseNamed => (\"room tab\", \"Close {name}\"),\n}\n",
+        );
         w("crates/ui/src/i18n/xx.tsv", catalog);
         w("docs/whats-new.md", "# Dalica 1.0\n\n<!-- - Hidden -->\n## 1.0\n\n- Videos\n- Open\n");
         dir
@@ -770,7 +773,13 @@ mod tests {
         let md = "# What's new\n\n<!-- a comment\n- not shown -->\n## 0.1 — June 2026\n\nIntro that\nwraps.\n\n### Library\n\n- **Star** photos with `photo.star.toggle`\n  and more on the next line\n  - nested [see the guide](docs/x.md)\n";
         assert_eq!(
             release_note_lines(md),
-            ["0.1 — June 2026", "Intro that wraps.", "Library", "Star photos with photo.star.toggle and more on the next line", "nested see the guide"]
+            [
+                "0.1 — June 2026",
+                "Intro that wraps.",
+                "Library",
+                "Star photos with photo.star.toggle and more on the next line",
+                "nested see the guide"
+            ]
         );
         assert_eq!(escape("a\tb\nc\\d"), "a\\tb\\nc\\\\d");
     }

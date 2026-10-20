@@ -10549,7 +10549,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: `cargo xtask bench video_probe`, `video_play`, `camera_import`, `a11y_frame` and
     `i18n_frame` print their numbers (in the PR); `cargo xtask budgets` passes with them and
     `--plant-ms` makes each fail.
-- ⬜ **M15.35 `ui` + docs: the first languages: English and Thai**
+- ✅ **M15.35 `ui` + docs: the first languages: English and Thai**
   - after: M15.1, M15.8, M15.31, M15.32, M15.33, M15.47
   - files: `crates/ui/src/i18n/*.tsv`, `crates/ui/src/i18n/LICENSE-translations.txt`, `crates/ui/src/i18n/languages.rs`, `crates/ui/src/i18n/catalog.rs`, `crates/ui/tests/i18n_languages.rs`, `crates/ui/tests/fingerprints/i18n-*.json`, `xtask/src/i18n.rs`, `xtask/src/ci.rs`, `docs/localization.md`, `docs/localization-*.md`, `ATTRIBUTION.md`
   - scope: the maintainer's answer at M14.R (2026-10-19): **English and Thai for 1.0, if Thai can

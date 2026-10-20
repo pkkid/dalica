@@ -53,6 +53,7 @@ mod heic_hint;
 mod hidden;
 mod i18n;
 mod i18n_dialogs;
+mod i18n_languages;
 mod i18n_views;
 mod i18n_window;
 mod idle_write_back;

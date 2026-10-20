@@ -4,12 +4,14 @@ Adapted from PhotoCraft `docs/localization.md`, `docs/localization-ko.md` and th
 `crates/ui-egui/src/i18n/` catalog format (revision 59684266), and LightCraft
 `docs/localization.md` (revision 88ea1a8); MIT OR Apache-2.0.
 
-> Status: **The core is built (M15.7, parity row `SYS-I18N`); the catalogs are not.** `crates/ui/src/i18n/`
-> has `tl!` and `tln!`, the catalog reader, the plural rules, the language registry (English
-> only), System following the OS's languages, `DALICA_LANGUAGE`, Options ▸ General ▸ Language
-> switching live, the number, size and date formats, the pseudo-locale `qps` and `cargo xtask i18n`.
-> The strings are wrapped by area in M15.31–M15.33; the first catalogs (English and Thai for 1.0,
-> if Thai can be done) come in M15.35.
+> Status: **English and Thai (M15.35, parity row `SYS-I18N`).** `crates/ui/src/i18n/` has `tl!`
+> and `tln!`, the catalog reader, the plural rules, the language registry (English, the source,
+> and Thai), System following the OS's languages, `DALICA_LANGUAGE`, Options ▸ General ▸ Language
+> switching live, the number, size and date formats, the pseudo-locale `qps` and `cargo xtask i18n`
+> (part of `cargo xtask ci`). Every string goes through the catalogs (M15.31–M15.33). The Thai
+> catalog covers every key (`complete_menus`), each entry a machine-assisted **draft** awaiting
+> the fluent review at M15.R ([Draft entries](#draft-entries), [`localization-th.md`](localization-th.md));
+> the release notes stay in English.
 
 Dalica follows the PhotoCraft i18n design (prior art only; our own code, see
 [`architecture.md`](architecture.md) §9): **English source strings are the lookup keys**, UTF-8
@@ -59,6 +61,18 @@ context <TAB> source <TAB> translation
   names the lines; reading a catalog never fails or panics. `cargo xtask i18n` fails on each.
 - Lines starting with `#` and blank lines are ignored. Each file starts with a header comment that
   repeats these rules and the clean-room statement (below).
+- Translations of a script written without spaces between words (Thai) are marked for line
+  breaking once, when the catalog is read (`ui_kit::linebreak::mark`, [`thai-text.md`](thai-text.md)):
+  write them plainly, never with break marks of your own.
+
+### Draft entries
+
+A line that starts with **`~`** (before its context column: `~<context><TAB>source<TAB>translation`)
+is a **draft**: a machine-assisted or otherwise unchecked translation awaiting a fluent reviewer.
+A draft is read and shown like any other entry; the mark only says it has not been reviewed.
+`cargo xtask i18n` prints each language's draft count (never a failure). The reviewer checks the
+translation against the English and the language's style guide, corrects it if needed and deletes
+the `~`; a new or changed machine-assisted entry gets the mark again.
 - Keep the trailing `…` of commands that open a dialog, and keep product and technology names
   (Dalica, JPEG, EXIF, XMP, GPS) in Latin letters.
 
@@ -79,8 +93,10 @@ its `complete_menus` flag, its catalog, and its decimal mark and thousands separ
 | `Polish` | one (1 only) / few (…2–…4, not …12–…14) / many | Polish |
 | `Czech` | one (1) / few (2–4) / other | Czech, Slovak |
 
-The registry holds English until the first catalogs land: the maintainer chose English and Thai
-for 1.0, if Thai can be done (M14.R, 2026-10-19; M15.35).
+The registry holds English (the source, no catalog) and Thai (`th`, endonym ไทย, script `Thai`,
+`Single`, `complete_menus`, `th.tsv`): the maintainer chose English and Thai for 1.0, if Thai can
+be done (M14.R, 2026-10-19); M15.47's spike found it can ([`thai-text.md`](thai-text.md)), and
+M15.35 added the catalog.
 
 ## Choosing the language
 
@@ -145,19 +161,29 @@ are MIT OR Apache-2.0 like the code, with a row in [`ATTRIBUTION.md`](../ATTRIBU
    look at the result.
 
 ```sh
-cargo xtask i18n                                   # the key set, each language's coverage, catalog faults
-cargo test -p dalica-ui --test all i18n::          # the core: catalogs, plurals, tags, the pseudo-locale
-CRAFT_FONTS_DIR=../craft-fonts cargo test -p dalica-ui i18n   # + glyph coverage for CJK scripts
-DALICA_LANGUAGE=de dalica-cli snapshot --demo --script tour.jsonl -o de.png --size 1400x900
+cargo xtask i18n                                   # the key set, each language's coverage and drafts, catalog faults
+cargo xtask i18n --missing th                      # the keys th.tsv lacks, as lines to fill in
+cargo test -p dalica-ui --test all i18n            # the core, the pseudo-locale sweeps, the languages
+CRAFT_FONTS_DIR=../craft-fonts cargo test -p dalica-ui --test all i18n_languages::   # + Thai's glyphs and marks, its fingerprint
+DALICA_LANGUAGE=th dalica-cli snapshot --demo --script tour.jsonl -o th.png --size 1400x900
 ```
 
-The tests fail on an empty entry, a placeholder present in one column only, a malformed plural
-line, a duplicate key, or (for `complete_menus` languages) a missing enforced key. Missing entries
-in other languages are reported, not failed. Render representative views and dialogs (library,
+The key set is every `tl!` literal of the UI crate (test modules aside), every `tln!` plural,
+every command label and menu entry, every Options row's group, label, hint and choice, and every
+text of `ui-kit`'s own table (`ui_kit::text`, with its context). The check fails on an empty
+entry, a placeholder present in one column only, a malformed plural line, a duplicate key, or (for
+`complete_menus` languages) a missing enforced key. Missing entries in other languages are
+reported, not failed, and so are drafts and the release notes' untranslated lines.
+`crates/ui/tests/i18n_languages.rs` draws the library, the edit view and every tab of Options in
+Thai at both sizes and fails on a label cut at the side of its area, a wrapped Thai label broken
+inside a word, and (built with `CRAFT_FONTS_DIR`) a Thai character no face draws or a mark away
+from its consonant. Render representative views and dialogs (library,
 edit view, Folder Manager, Options, Export, About) at 1400 × 900 and 900 × 600 and look for
 missing glyphs and truncated labels.
 
 ## Per-language style guides
+
+Thai: [`localization-th.md`](localization-th.md).
 
 Each language gets `docs/localization-<code>.md`, written in that language or in English, with:
 
@@ -175,5 +201,8 @@ Each language gets `docs/localization-<code>.md`, written in that language or in
 
 Help ▸ Release Notes shows [`whats-new.md`](whats-new.md). Its lines (a heading, or one bullet
 without the `- `) may be looked up like any message (`i18n::release_note`), so a catalog can
-translate the notes line by line. An edited line no longer matches its translation and shows in English until the catalog is
-updated; untranslated release-note lines are reported, never failed.
+translate the notes line by line. A line is what the dialog draws: a heading's text, or a bullet
+(or paragraph) with its wrapped lines joined by one space and its inline marks dropped; `cargo
+xtask i18n` counts them the same way. An edited line no longer matches its translation and shows
+in English until the catalog is updated; untranslated release-note lines are reported, never
+failed.
