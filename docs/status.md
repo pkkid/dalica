@@ -7,6 +7,31 @@ and git.
 
 ## Current
 
+- **Milestone:** M15, video, languages, the OS and Release 1.0, is done: M15.1–M15.54 are merged (53 tasks with 7
+  workers, plus 13 fix PRs during the run and the review's fixes) and `accept M15` passes (7 / 7, 168 s). Videos in the
+  library, the player with trim, Save Frame and Export Clip on a pure-Rust H.264 decoder with AAC sound (HEVC behind the
+  non-default `hevc` feature); English and Thai switched live (Thai as drafts); screen-reader names and keyboard reach
+  for every widget; Locate on Disk, Open With, external editor, clipboard files, drag out, default viewer, one Dalica per
+  user, cameras over USB on Linux; SBOMs and advisories per release, a from-source Flathub manifest. Version 1.0.0:
+  M15.R is the 1.0 release gate, published unsigned once the review PR's runs are green and the maintainer merges it.
+  Next: M16 (release 1.1.0), themes and colour search plus M15.R's follow-ups; its issues open when the M15.R review PR
+  is merged.
+- **M15 review (2026-10-20):** HEVC non-default like HEIC; the decoders' unsafe accepted with fuzz targets as the gate,
+  fuzz run at reviews only (security.md §7.2 rewritten); 1080p30 is the playback bar, 4K60 and HDR best effort; the 12
+  phone clips published to `dalica-corpus`; cameras over USB on Linux only; Wayland without drag out, the macOS default
+  viewer as a how-to, cpal for sound on Windows and macOS confirmed; folder music, the webpki 0.102 copy and the audit's
+  parity fixes to M16; the 0.9.0 legacy-folder bug fixed with release notes only (no migration); the withheld-names path
+  limit accepted; the Flathub manifest required for 1.0; 1.0 ships unsigned; Thai ships marked as drafts; M16 is 1.1.0
+  with the Soft themes; all 50 fingerprint baselines approved; ship after the fixes.
+- **Numbers (M15.R, 3e84c2c3, 2026-10-20):** `cargo xtask ci --full` 20.7 min (i7-13700K, peak 2.3 GB): tests 4 715
+  passed, 1 failed (accept M10, a test broken by the Language option, fixed at the review), 2 ignored on purpose; every
+  milestone's acceptance M0–M15 otherwise passes; release budgets 24 / 24 held (100 k scroll 1.39 ms p95, first screenful
+  767 / 500 ms for 1 k / 10 k, cold start 202 ms, idle 90 MiB, import 29.1 files/s, camera import 20.0 files/s, video 4K
+  decode 6.21 ms, focal-zoom draft 12.82 ms of 16); `edit_preview` all held (open cold 64.4 ms median, drag 6.68 ms p95);
+  parity ✅ 187 · 🟡 47 · ⬜ 16 · 🚫 17 (267 rows, 428 commands, all 113 P0 ✅); workflows 17 / 17; i18n 1 603 keys,
+  English and Thai 100 %; +94 606 / −6 154 lines. Run: 53 tasks with 7 workers from 14:54 on 2026-10-19 to 09:35 on
+  2026-10-20; median claim→merge about 1 h 16 min (long tails while `main` was red); 9 send-backs over 8 tasks; two
+  squash merges reverted siblings' work (restored by #1106); three app crashes from a decoder harness's memory.
 - **Milestone:** M14, collage and legacy sidecars and Release 0.9, is done: M14.1–M14.29 are merged (26 planned
   tasks, three added during the run: M14.27 an exact-name create so a folder's first `.dalica.json` never replaces
   another program's file, M14.28 five loose ends, M14.29 the maintainer's Places bubble fix) and `cargo xtask accept

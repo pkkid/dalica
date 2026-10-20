@@ -10,8 +10,25 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-19, M14.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-20, M15.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-20 (M15.R, the Release 1.0 gate).* M15 is done: 53 tasks merged with 7 workers in about 19 hours, plus 13
+fix PRs during the run. `accept M15` passes (7 / 7, 168 s), the tests on `main` went from 4 329 to 4 715 (`ci --full`
+20.7 min), and the review's full run found one test broken by M15's Language option (accept M10 picked the
+pseudo-locale; fixed before the review closes, with three failures the review's GitHub run found). Every release budget
+held (24 / 24; the closest, the zoom draft, at 12.8 ms of 16). Video: MP4, MOV, M4V and MKV in the library, H.264 played
+by a pure-Rust decoder with AAC sound, trim, Save Frame and Export Clip, videos in slideshows, export and collage; HEVC
+only in builds with the non-default `hevc` feature, like HEIC. Languages: English and Thai switched without a restart,
+Thai shaped and wrapped between words (its 1 621 entries ship as drafts). Accessibility: every widget named for screen
+readers, Tab and F10 reach everything. The desktop: Locate on Disk, Open With, an external editor, files on the
+clipboard, drag out (not on Wayland), the default viewer (set on Linux, guided on Windows and macOS), one Dalica per
+user, cameras over USB on Linux. Release: SBOMs and an advisory check per release, a from-source Flathub manifest, and
+1.0.0 ships unsigned (the maintainer's call: signing turns on with the certificates). Not done: 4K60 and HDR play as
+fast as the computer allows (1080p30 is the bar, M16.14); a folder's own music (M16.15–16); the audit's six parity fixes
+(M16.18–23). The run lost work twice to squash merges reverting a sibling's changes (restored by #1106 after a commit
+audit), and the Claude app crashed three times when a decoder harness used 17 GB. Parity ✅ 187 · 🟡 47 · ⬜ 16 · 🚫 17;
+all 113 P0 rows ✅; workflows 17 / 17. M15.R is the 1.0 release gate (version 1.0.0).
 
 *2026-10-19 (M14.R, the Release 0.9 gate).* M14 is done: `cargo xtask accept M14` passes (130 s; 137 s with the
 release budgets), and the tests on `main` went from 4 158 to 4 329 (`ci --full` 18.7 min, every milestone's
@@ -370,7 +387,7 @@ waits for.)
 | | M12 | Effects | effect tiles, parameter panels and all 27 effects | ✅ |
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ✅ |
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ✅ |
-| Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ⬜ |
+| Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ✅ |
 | After 1.0 | M16 | Post-1.0 enhancements | what comes after the honest 1.0, starting with switchable themes | ⬜ |
 
 ## Milestones
@@ -10858,7 +10875,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
     M16 tasks as planned.
-- ⬜ **M15.R Release 1.0 gate**
+- ✅ **M15.R Release 1.0 gate**
   - after: M15.37
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -10923,7 +10940,13 @@ Improvements the maintainer wants after 1.0, beyond parity with the reference or
 here starts before M15.R closes; the lead details these items into task blocks while M15 runs, and
 the maintainer adds items here as they come up (maintainer decision, 2026-10-11). One milestone in
 2 feature areas (*Themes*, *Colour search*); one `cargo xtask accept M16` covers every *Done when*
-below. Whether its review is a release, and its number, is asked at M15.R (M16.1).
+below. The maintainer answered M16's questions at M15.R (2026-10-20): **M16 is release 1.1.0** (M16.R
+is its release gate, its version and `whats-new.md` section on the review branch), and
+**PhotoCraft's Soft Dark and Soft Light are ported too** (fifteen themes with Dark: M16.7 ports
+them, M16.8 and M16.12 cover fifteen). The same review placed its other answers here as M16.13–
+M16.25: HEVC forwarded as a non-default feature (Q1), the 1080p30 playback bar (Q3), a folder's
+own music (Q9), the `rustls-webpki` 0.102 copy dropped (Q10), the 1.0 audit's six parity fixes
+(Q24) and the review's screenshot findings.
 
 The outline as the maintainer wrote it (2026-10-11; the M9.R answer for colour search):
 
@@ -11059,6 +11082,10 @@ under their own key, and a snapshot without them reads as one with none.
     (2) PhotoCraft added Soft Dark and Soft Light after the outline's pin (30bd8a55): (a) port them
     too, fourteen themes and Dark (recommended: two palettes in a family file M16.7 already
     writes, checked by the same contrast tests), (b) keep the outline's twelve.
+    Also: `crates/ui/src/i18n/th.tsv` is not a shared registration file and Thai has
+    `complete_menus: true`, so a task adding a menu label or `tl!` text must add its Thai line:
+    add `th.tsv` to the `files` of M16.4, M16.5 and M16.10 (they then serialize with M16.21 and
+    M16.25 on it). M16.14's Android clip goes to `pkkid/dalica-corpus` only after asking.
   - done when: `cargo xtask tasks sync --check` parses the fitted blocks and M16's intro records
     both answers with the review's date.
 - ⬜ **M16.2 `core`: the search colours and the colour classifier**
@@ -11255,8 +11282,263 @@ under their own key, and a snapshot without them reads as one with none.
     Classic and of a colour search's results; the checks by hand in `m16.md` (each theme looked at
     in the real window on each OS, the title bar and native dialogs beside it).
   - done when: `cargo xtask accept M16` passes everything in M16's *Done when*.
+- ⬜ **M16.13 `engine` + `thumbs` + `create` + apps: the `hevc` feature forwarded, as `heif` is**
+  - after: M15.R
+  - files: `crates/engine/Cargo.toml`, `crates/thumbs/Cargo.toml`, `crates/create/Cargo.toml`, `apps/dalica/Cargo.toml`, `apps/dalica-cli/Cargo.toml`, `crates/engine/src/video.rs`, `crates/engine/tests/hevc.rs`, `xtask/src/ci.rs`, `docs/formats.md`, `docs/video-decoders.md`, `docs/development.md`
+  - scope: the M15.R answer (Q1): HEVC stays a non-default feature, as HEIC is. `hevc =
+    ["dalica-image/hevc"]` in `dalica-thumbs` and `dalica-create`, `hevc = ["dalica-image/hevc",
+    "dalica-thumbs/hevc", "dalica-create/hevc"]` in `dalica-engine`, and `hevc =
+    ["dalica-engine/hevc"]` in `dalica` and `dalica-cli` (each with the comment the `heif` lines
+    carry), so `cargo build -p dalica --features hevc` plays HEVC in the player, the slideshow,
+    Export and the collage, and the default build keeps "This video can't be played (HEVC support
+    isn't included in this build)"; the engine's unused `video::playable` (it answers "cannot play"
+    whatever the codec; `video::playback` is what the window asks) removed; `ci --full` gains a
+    `test hevc` step beside `test heif` (the engine's `hevc::` tests with `--features hevc`, and
+    `cargo check -p dalica --features hevc` and `-p dalica-cli --features hevc`); a procedural
+    HEVC clip for the test (an `hvc1` MP4 of PCM-coded pictures, its writer adapted from the HEIC
+    writer in `crates/engine/tests/save_formats.rs`, so nothing is fetched); `formats.md`'s Video
+    row and its build line, `video-decoders.md` §8 (Q1 answered, 2026-10-20) and `development.md`
+    §3's step list record it. Release packages stay without it (`releasing.md` unchanged).
+  - done when: `crates/engine/tests/hevc.rs`: built with `--features hevc`, the procedural HEVC
+    clip reports `playable` in `video.inspect`, `video.open` and `video.play` show its frames,
+    its poster becomes its thumbnail, Export writes its frame as a JPEG, a slideshow plays it and
+    a collage places its poster as it does an H.264 clip's; built without, the same clip answers
+    the reason above everywhere and is never decoded; `cargo xtask ci --full` runs `test hevc`
+    green; LIB-LT-VIDEO and VIEW-VIDEO record the answer (HEVC with the `hevc` feature, as HEIC
+    with `heif`) in place of their "not forwarded" notes.
+- ⬜ **M16.14 `engine` + `xtask`: the playback bar: a 1080p30 decoded frame within 16 ms**
+  - after: M15.R
+  - files: `crates/engine/benches/video.rs`, `xtask/src/bench.rs`, `xtask/src/corpus_pins.rs`, `docs/video-decoders.md`, `docs/development.md`
+  - scope: the M15.R answer (Q3): 1080p30 is the real-time bar. `video_play`'s `decode frame h264
+    1080p` p95 judged against `VIDEO_DECODE_CAP_MS` = 16 (its budget becomes the smaller of
+    1.5 × the first measurement and the cap, as the play frame's is), and the phone clips'
+    1080p30 rows (`IMG_6851.MOV`; `IMG_0445.MOV` in an `hevc` build) judged against the same cap
+    when `corpus/video` is fetched (named and skipped when not); 4K60, HDR (HLG tone mapping) and
+    1080p60 printed as best effort, never budgeted. The Android 4K H.264 clip the maintainer
+    records joins `corpus/video` (`corpus_pins.rs`, `video-decoders.md` §9) once he hands it over
+    and approves its publication to `pkkid/dalica-corpus`; until then the procedural `h264 4k`
+    clip stands in and this task does not wait for it. `video-decoders.md` §1 (the bar: 1080p30
+    in real time within 16 ms a decoded frame; 4K60 and HDR best effort, what each machine
+    measured) and `development.md` §8 (the cap, the rows). A miss of the cap is fixed in this
+    task (the player's decode path, the module asked of the lead; before and after numbers in
+    the PR) or blocks with its numbers, never loosened.
+  - done when: `cargo xtask bench video_play` prints the 1080p decoded frame's p95 under 16 ms (in
+    the PR, with the phone rows when fetched); `cargo xtask budgets` passes and `--plant-ms` past
+    the cap fails naming the row; `video-decoders.md` §1 states the bar and the best-effort rows.
+- ⬜ **M16.15 `library` + `sidecar` + `store` + `scan`: a folder's own slideshow music, kept**
+  - after: M15.R
+  - files: `crates/library/src/model.rs`, `crates/library/tests/folder_music.rs`, `crates/library/README.md`, `crates/sidecar/src/fields.rs`, `crates/sidecar/tests/fields.rs`, `crates/store/src/mapping.rs`, `crates/store/tests/fields.rs`, `crates/scan/src/walk.rs`, `crates/scan/src/legacy.rs`, `crates/engine/src/cmd/files.rs`
+  - scope: VIEW-MUSIC's missing half, the data (Q9): `FolderInfo.music`, the folder of music
+    files the folder's slideshows play (a path as the picker gives it, empty for none, at most
+    `MAX_MUSIC` bytes, `clean_music` trimming it; the default not stored); the sidecar's
+    `"folder"` object gains `music` (`FOLDER_KEYS`, `FolderValue::Music`, "" or a missing key
+    for none, a value of the wrong type kept and reported as other fields are); `mapping.rs` places
+    the field (its exhaustive destructuring test names it) and `FolderReading` merges it; the scan
+    reads it with the folder's other fields (`walk.rs`); a legacy folder file has no such field
+    (`legacy.rs` fills none); the New Folder constructor in `cmd/files.rs` gains the empty value.
+    `data-model.md` §3's key list is M16.16's.
+  - done when: `crates/library/tests/folder_music.rs`: set, replaced and cleared through
+    `Op::SetFolderInfo`, one undo step each, a value over the cap cut; `crates/sidecar/tests/fields.rs`:
+    `music` written, read back, removed with "", a number kept verbatim and reported, unknown
+    folder keys kept; `crates/store/tests/fields.rs`: the field survives a sidecar write, a
+    rebuild from the folders and a snapshot; the mapping test passes with the field placed; every
+    existing `library`, `sidecar`, `store` and `scan` test passes unchanged.
+- ⬜ **M16.16 `engine` + `ui`: a folder's music in `folder.info.set`, the slideshow and Folder Properties**
+  - after: M16.15
+  - files: `crates/engine/src/cmd/folder_info.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/folder_info.rs`, `crates/engine/tests/slideshow_sound.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/folder_properties.rs`, `docs/organizing.md`, `docs/viewing.md`, `docs/data-model.md`
+  - scope: `folder.info.set {id, music?}` ("" clears; a path that is not a folder is
+    `bad_params`; one undo step with the other fields); a slideshow of one folder (its Play
+    button, the folder selected) with Play music on plays that folder's music when it has one,
+    else Options ▸ Slideshow's music folder as today; a show of an album, a search or several
+    folders plays the Options folder; a folder's music folder that has gone missing falls back
+    to the Options one with a notice naming it; Folder Properties' Music for slideshows live: the
+    field shows the folder's music (hint "No folder"), Browse… opens the folder picker titled
+    "Music Folder" (as Options ▸ Slideshow's does), the field may be cleared, OK commits it with
+    the other fields; the strings the catalogs already hold are reused, so no catalog entry is
+    added (the greyed reason `FOLDER_MUSIC_LATER` goes); `organizing.md` §10, `viewing.md` §1.5
+    and §1.5.1 (which music plays) and `data-model.md` §3 (the `music` key) record it.
+  - done when: `crates/engine/tests/folder_info.rs`: `music` set, cleared, refused for a file,
+    undone; `crates/engine/tests/slideshow_sound.rs` (the silent output): a folder's show plays its
+    own music's first file, an album's show the Options folder's, a missing folder music falls
+    back with its notice, Play music off plays none; `crates/ui/tests/folder_properties.rs`: the
+    Music row enabled, a picked folder shown and committed by OK, Cancel leaving it unchanged,
+    the field cleared commits ""; `widget_ids` and `panic_hunt` pass; VIEW-MUSIC and
+    ORG-FOLDERPROPS updated.
+- ⬜ **M16.17 `fetch`: the `rustls-webpki` 0.102 copy dropped**
+  - after: M15.R
+  - files: `crates/fetch/Cargo.toml`, `crates/fetch/src/http/wire.rs`, `crates/fetch/src/http/provider.rs`, `crates/fetch/src/http/provider/**`, `crates/fetch/tests/http.rs`, `crates/fetch/README.md`, `docs/security.md`, `xtask/src/advisories.rs`, `NOTICE`
+  - scope: the M15.R answer (Q10). `rustls-rustcrypto` 0.0.2-alpha uses its `rustls-webpki`
+    0.102.8 only for the `alg_id` constants of `src/verify/{rsa,ecdsa,eddsa}.rs`, which
+    `rustls-pki-types` (already in the graph) now exports. First choice: a released
+    `rustls-rustcrypto` on `rustls-webpki` 0.103 or on `pki-types`' constants, if one exists
+    (through `cargo xtask deps`); otherwise its provider ported into `crates/fetch/src/http/provider/`
+    (MIT OR Apache-2.0; header naming the crate and version, a `NOTICE` row) with the constants
+    from `rustls_pki_types::alg_id` and the RustCrypto crates it already pulls as direct
+    dependencies, `wire.rs` building the config with it; either way one `rustls-webpki` left
+    (0.103, rustls's own); `security.md` §8.2 updated and §8.4's record for RUSTSEC-2026-0049,
+    -0098, -0099 and -0104 deleted (the `rsa` record RUSTSEC-2023-0071 stays while `rsa` 0.9 does);
+    `advisories.rs`' test that reads §8.4 asserts the `rsa` record instead of RUSTSEC-2026-0104.
+  - done when: `cargo tree -i rustls-webpki@0.102.8` finds nothing and `Cargo.lock` holds one
+    `rustls-webpki`; `cargo xtask advisories` and `cargo xtask deps` pass without the four records;
+    `crates/fetch/tests/http.rs`: the existing handshakes against the local test server (TLS 1.2
+    and 1.3, each signature scheme the provider offers) pass and an untrusted chain is refused;
+    every existing `dalica-fetch` test passes unchanged.
+- ⬜ **M16.18 `engine`: a RAW's `.xmp` moves, copies and renames with it**
+  - after: M15.R
+  - files: `crates/engine/src/raw_sidecars.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/cmd/rename.rs`, `crates/engine/tests/raw_sidecars.rs`, `docs/xmp-interop.md`
+  - scope: DATA-XMP-RAW's missing half (`xmp-interop.md` §7, last bullet): when a move, copy or
+    rename takes a RAW, its `.xmp` (the name `dalica-meta`'s `Sidecars` resolves for it: `<stem>.xmp`
+    the RAW owns, else `<file>.xmp`, any case) goes in the same item of the file job, right after
+    the RAW, through `fs` (`transfer`; a copy copies it), named after the RAW's new name (a clash
+    that renamed the RAW to `-001` names the sidecar the same); undo and redo take it back with
+    the RAW; a RAW+JPEG pair's stem sidecar goes only with the RAW; a sidecar name already taken
+    at the destination is never overwritten (the source's stays where it was and the item reports
+    it); a folder move needs nothing (the sidecar is inside). Delete leaves the `.xmp` (decision:
+    the trash takes only what the user chose; alternative: trash it with the RAW). `xmp-interop.md`
+    §7 says what landed.
+  - done when: `crates/engine/tests/raw_sidecars.rs`: moving `IMG_0001.CR3` with `IMG_0001.xmp`
+    moves both and undo brings both back; moving only the JPEG of a pair leaves the sidecar;
+    renaming to `trip.CR3` renames `IMG_0001.xmp` to `trip.xmp` and an `IMG_0002.CR3.xmp` to
+    `trip2.CR3.xmp`; a copy gets a byte-identical copy; a clash names both `-001`; a taken name is
+    never overwritten; one fault point per class (before the sidecar's commit, after it, a crash,
+    `crates/fs`' faults) leaves every file readable and the journal repaired; every existing
+    engine file-operation test and `panic_hunt` pass.
+- ⬜ **M16.19 `image`: WebP thumbnails decoded scaled**
+  - after: M15.R
+  - files: `crates/image/src/formats/webp.rs`, `crates/image/src/formats/webp/**`, `crates/image/src/decode.rs`, `crates/image/tests/webp_gif_bmp.rs`, `crates/image/tests/corpus.rs`, `crates/image/README.md`, `docs/formats.md`, `NOTICE`
+  - scope: DATA-FMT-WEBP's missing half (`formats.md` §1: thumbnails by scaled decode). A lossy
+    WebP's thumbnail decoded macroblock row by row and reduced to 1/2, 1/4 or 1/8 (the largest
+    that still covers the long side asked) as the rows come, so its peak memory is the reduced
+    picture and a few macroblock rows, never the full frame: a WebP over
+    `THUMBNAIL_SOURCE_MAX_PIXELS` (WebP allows 16 383 × 16 383) gets a thumbnail instead of
+    `TooLarge`. Through `image-webp` if its API gives rows; else its VP8 decoder ported into
+    `formats/webp/` (MIT OR Apache-2.0; header naming `image-webp` 0.2.4, a `NOTICE` row) with a
+    row sink, every read bounded and its budget charged as today. Lossless (`VP8L`) and animated
+    files keep the full decode under the existing cap (decision: VP8L's transforms read whole
+    rows of the picture; alternative: stream it too, a later row). Lossy measured beyond the flat
+    frame: the hand-built writer of the tests gains macroblocks of different DC values (a
+    picture with content), and the two corpus WebPs' thumbnails are compared with their full
+    decode fitted. `formats.md` §1's WebP row and the README say what landed.
+  - done when: `crates/image/tests/webp_gif_bmp.rs`: the scaled thumbnail of a multi-macroblock
+    lossy frame matches the full decode fitted within 1 dB of the fit's own PSNR (the bound
+    written in the test); a 16 000 × 12 000 lossy file gives its 256 thumbnail with the budget's
+    peak under 1/16 of the full frame's; damaged and cut rows give the damaged-file error, never a
+    panic; lossless and animated files unchanged; `crates/image/tests/corpus.rs`: both corpus WebPs'
+    thumbnails within the bound; a 24 MP WebP's 256 thumbnail time and peak memory before and
+    after in the PR.
+- ⬜ **M16.20 `ui`: the side pane slides in and out**
+  - after: M15.R
+  - files: `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/tests/tree_status_pane.rs`
+  - scope: LIB-PANES' missing half (`ui-layout.md` §7): opening the side pane slides it in over
+    0.2 s, ease-out, and closing slides it out, the light table following its edge each frame;
+    switching panes and the « large width change at once (decision: the spec names only in and
+    out; alternative: ease the width too); a narrowing window that closes the pane closes it at
+    once; `ui.inspect` reports the width drawn; the headless frame loop keeps painting until the
+    slide ends (as it does for `section.scrollTo`'s ease), so a script or test that toggles and
+    then inspects sees it settled.
+  - done when: `crates/ui/tests/tree_status_pane.rs` (headless, stepped frames): 0.1 s after a
+    toggle the pane is more than half and less than all of its 280 width and the light table's
+    edge meets it; at 0.2 s it is 280; closing is the reverse; a switch of pane and « change at
+    once; the narrowing order of `layout.rs` unchanged; every existing `ui` test and fingerprint
+    passes unchanged.
+- ⬜ **M16.21 `ui-kit` + `ui`: the date field in the language's order**
+  - after: M15.R
+  - files: `crates/ui-kit/src/widgets/datetime.rs`, `crates/ui-kit/src/text.rs`, `crates/ui-kit/tests/datetime.rs`, `crates/ui/src/i18n/th.tsv`, `crates/ui/tests/adjust_date.rs`, `docs/localization.md`, `docs/localization-th.md`
+  - scope: ORG-ADJDATE's missing half: `ui-kit`'s text table gains `DateField` (context `date
+    field`, English `{year}-{month}-{day}`): the field writes and reads a date in the order and
+    with the separators of its language's template (Thai `{day}/{month}/{year}`, the Christian
+    Era as the formats give it), ↑ / ↓ stepping the part under the cursor in that order, a day
+    that does not exist refused as today; English stays ISO (decision: the field's text today,
+    never ambiguous between month and day; alternative: month/day/year); the time field stays
+    `HH:MM:SS`, 24 hours, in every language (decision: a typed field; the 12-hour words are the
+    long date's); Adjust Date and Folder Properties take it with no change at their call sites;
+    th.tsv's entry; `localization.md` (the template and what a language may change) and
+    `localization-th.md`'s Formats.
+  - done when: `crates/ui-kit/tests/datetime.rs`: with a table whose template is
+    `{day}/{month}/{year}`, `31/12/2026` gives 2026-12-31, ↑ in the first part steps the day,
+    `31/02/2026` is refused and the text goes back, a template missing a part or holding one
+    twice falls back to ISO (never a panic); English unchanged; `crates/ui/tests/adjust_date.rs`
+    in Thai: the field shows the first photo's date day first and OK sets the typed date;
+    `cargo xtask i18n` passes with the entry.
+- ⬜ **M16.22 `engine` + `ui`: the toolbar says when the folders are being rescanned**
+  - after: M15.R
+  - files: `crates/engine/src/scanning.rs`, `crates/engine/tests/file_types.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/activity.rs`, `crates/ui/tests/activity.rs`
+  - scope: PREF-FILETYPES' missing half: the session tells the rescan an applied File Types
+    change started from other scans (`Session::rescanning_for_file_types()`, set by
+    `rescan_for_file_types` and cleared when that scan ends, is let go or restarted); the
+    toolbar's activity indicator names itself (tooltip and AccessKit name) "Rescanning your
+    folders…" while it runs, "Working in the background" for any other work, "No background work"
+    at rest, and the activity popover's row for that scan reads the same; both strings are in the
+    catalogs already.
+  - done when: `crates/engine/tests/file_types.rs`: `options.set` turning PNG off reports the
+    rescan until its job ends, a plain scan or a rescan from the watcher does not; a second
+    change restarting it keeps it reported; `crates/ui/tests/activity.rs`: PNG off applied from
+    Options, the indicator's name is "Rescanning your folders…" until the scan ends, then "No
+    background work"; a scan from Add Folder reads "Working in the background".
+- ⬜ **M16.23 `engine` + `dalica` + `ui`: Open With ▸ draws the applications' icons**
+  - after: M15.R
+  - files: `crates/engine/src/os.rs`, `crates/engine/src/handler_icons.rs`, `crates/engine/src/cmd/os.rs`, `crates/engine/tests/os.rs`, `apps/dalica/src/os.rs`, `apps/dalica/src/os/icons.rs`, `apps/dalica/tests/os.rs`, `crates/ui/src/commands/os.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/viewer/bar.rs`, `crates/ui/tests/os_menus.rs`, `docs/menus-and-shortcuts.md`
+  - scope: FILE-LOCATE's missing half: `Handler.icon` (M15.24) drawn. `Os::icon_file(icon, px)`:
+    the file holding a handler's icon at about `px`, found by the system half (Linux: an absolute
+    `Icon=` file, else the name under each `$XDG_DATA_DIRS/icons/<theme>/<size>/apps/` for the
+    hicolor theme and `/usr/share/pixmaps`, PNG only; Windows: an `.ico` file, or the icon group
+    `index` of an `.exe` or `.dll`'s resources read by a bounded reader of our own; macOS: none,
+    as `Handler.icon` is none there); the engine's `handler_icons.rs` reads and decodes it off the
+    owner thread through `dalica-image` under small limits (PNG; an ICO's PNG or BMP entry nearest
+    the size), caches it by icon string, never reading a file twice per session, a missing,
+    damaged or oversized icon answered as none; the UI draws each Open With ▸ row's 16 pt icon left
+    of its name once it is ready (the photo menu, the tray menu, the viewer's ⋯ menu and the
+    video's Open With popup), a row without one keeping the space; SVG-only icons show none
+    (decision: no SVG rasteriser in the product; alternative: `resvg` through `cargo xtask deps`);
+    `menus-and-shortcuts.md`'s Open With ▸ entry records it.
+  - done when: `crates/engine/tests/os.rs` (the recording `Os`): a planted 32 px PNG comes back as
+    a 16 px picture off the owner thread and once only; a damaged or 50 MB file is none, never a
+    panic; `apps/dalica/tests/os.rs`: under a temporary `XDG_DATA_DIRS` a desktop entry's
+    `Icon=name` finds `hicolor/16x16/apps/name.png`, an absolute `Icon=` file is read, an SVG-only
+    one is none; a hand-built PE's icon group by index and an `.ico` are read (pure code, run on
+    every OS) and a cut PE is refused; `crates/ui/tests/os_menus.rs`: the submenu's row draws its
+    icon's pixels at the icon slot, a row without one keeps its name aligned; at 900 × 600 the
+    submenu stays inside the window.
+- ⬜ **M16.24 `ui-kit`: M15.R's text findings: Thai break marks and a sub-second trim**
+  - after: M15.R
+  - files: `crates/ui-kit/src/linebreak.rs`, `crates/ui-kit/src/widgets/scrubber.rs`, `crates/ui-kit/tests/thai_text.rs`, `crates/ui-kit/tests/video_widgets.rs`, `docs/thai-text.md`
+  - scope: two findings of the M15.R screenshots. (1) Thai "Search results for" (ผลการค้นหาสำหรับ
+    "{text}") is marked for a break inside a word: find where (ICU4X's dictionary splitting a
+    compound the catalog uses, or a mark beside the quote or the filled placeholder) and fix it in
+    `linebreak::mark` (a short table of the catalog's compounds kept whole, or the quote joined
+    to its word), never with marks written into the catalog; `thai-text.md` records the rule.
+    (2) The player's readout shows whole seconds, so a 0.64 s trim reads "(trimmed to
+    00:00:00)": a trimmed length under 10 s shows tenths ("00:00:00.6"), never zero for a trim
+    that keeps something; whole seconds otherwise, as today.
+  - done when: `crates/ui-kit/tests/thai_text.rs`: the marked Thai search title holds marks only
+    between ผล, การ, ค้นหา and สำหรับ, and wrapped at the width the screenshot broke it never breaks
+    inside a word; every existing Thai case passes; `crates/ui-kit/tests/video_widgets.rs`: a
+    640 ms trim reads "(trimmed to 00:00:00.6)", 9 950 ms "00:00:09.9" or "00:00:10" by the rule
+    written in the test, 21 000 ms "00:00:21" as before; the gallery fingerprint unchanged.
+- ⬜ **M16.25 `ui` + `library`: M15.R's screenshot findings: focus, fit and words**
+  - after: M15.R
+  - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/edit/basic.rs`, `crates/ui/src/panels/import/destination.rs`, `crates/ui/src/i18n/th.tsv`, `crates/library/src/tree.rs`, `crates/library/tests/tree.rs`, `crates/ui/tests/keyboard_only.rs`, `crates/ui/tests/i18n_languages.rs`, `crates/ui/tests/search_ui.rs`, `crates/ui/tests/import_camera.rs`
+  - scope: four findings of the M15.R screenshots. (1) A light-table cell focused with Tab shows
+    no focus ring, though `ui-layout.md` §12 says "the focus is always shown" (so it is not
+    intended): the focused cell draws `widgets::focus_ring` outside its frame while the light table
+    holds the keyboard focus, gone on Esc or a click elsewhere. (2) Thai "Auto Contrast"
+    (ปรับคอนทราสต์อัตโนมัติ) is cut with an ellipsis at 900 × 600 in the edit view: a Basic Fixes
+    tool's label wraps onto a second line (at the Thai break marks) before it ellipsizes. (3) With
+    the Videos filter on and no text the search album reads `Search results for ""`: with no text
+    the library names it "Search results" and the light table and tree draw it translated.
+    (4) "After copying:" reads "card" for every source: "Leave files on the camera" / "Delete
+    copied files from the camera" for a camera or phone, "… the drive" for a drive, "… the card"
+    for a card (ids unchanged), with their th.tsv entries.
+  - done when: `crates/ui/tests/keyboard_only.rs`: Tab to the light table paints the focus colour
+    1 pt outside the focused cell and Esc removes it; `crates/ui/tests/i18n_languages.rs`: in Thai
+    at 900 × 600 every Basic Fixes label is drawn whole, no "…"; `crates/library/tests/tree.rs`: a
+    search with no text and a filter names the album "Search results"; `crates/ui/tests/search_ui.rs`:
+    the Videos filter alone titles the album "Search results"; `crates/ui/tests/import_camera.rs`:
+    the in-memory camera's strip reads "Leave files on the camera", a card's "… the card";
+    `cargo xtask i18n` passes; `widget_ids` passes and changed fingerprints re-blessed with their
+    images on the PR.
 - ⬜ **M16.R M16 review**
-  - after: M16.12
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; a plain review unless M16.1
@@ -11280,14 +11562,26 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 
 ```text
 wave 1   M16.1 lead: M15.R's answers  ‖  M16.2 search colours + classifier  ‖  M16.3 ui-kit theme ground
-         ‖  M16.4 engine Theme setting + commands
+         ‖  M16.4 engine Theme setting + commands  ‖  M16.13 hevc forwarded  ‖  M16.15 folder music kept
+         ‖  M16.20 side pane slide  ‖  M16.22 rescan label  ‖  M16.23 Open With icons  ‖  M16.25 screenshot findings (ui)
          (once M15.R is closed)
 wave 2   M16.5 switching in the window  ‖  M16.6 Pro, Studio, Classic palettes
-         ‖  M16.7 Adwaita, Solarized, Breeze (+ Soft) palettes (after M16.1)  ‖  M16.9 colours in model, index, store
+         ‖  M16.7 Adwaita, Solarized, Breeze + Soft palettes (after M16.1)  ‖  M16.9 colours in model, index, store
+         ‖  M16.14 1080p30 playback bar  ‖  M16.16 folder music live (after M16.15)  ‖  M16.18 a RAW's .xmp follows it
+         ‖  M16.19 WebP scaled thumbnails  ‖  M16.21 localized date field  ‖  M16.24 ui-kit text findings
 wave 3   M16.8 the window in every theme  ‖  M16.10 summaries with each sketch + Search for ▸
+         ‖  M16.17 rustls-webpki 0.102 dropped
 wave 4   M16.11 M16 budgets
 wave 5   M16.12 accept M16 → M16.R
 ```
+
+Why the placements (the overlaps that decide them): M16.14 shares `video-decoders.md` and
+`development.md` with M16.13; M16.16 waits on M16.15 and shares `data-model.md` with M16.4;
+M16.18 shares `cmd/files.rs` with M16.15; M16.19 and M16.17 share `NOTICE` with M16.3 and each
+other; M16.21 and M16.24 share `crates/ui-kit/src/widgets/**` with M16.3, and M16.21 shares
+`th.tsv` with M16.25; every `ui` panel or dialog block finishes before M16.8, whose
+`crates/ui/src/panels/**` and `dialogs/**` cover them. 18 of the 23 non-review tasks run in
+waves 1–2, at most ten at once (the machine runs eight agents; `next` picks by order).
 
 ## Reserved decisions (the maintainer's, not the agents')
 

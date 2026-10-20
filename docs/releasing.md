@@ -46,8 +46,10 @@ steps 1's version and notes; after the maintainer merges it and signs off, the l
    pushed commit, with every artifact, the four SBOMs (`*.cdx.json`) and `SHA256SUMS.txt`. The
    notes are generated from the merged PRs.
 4. **Check it.** Download an installer or two, install them, open the procedural demo library,
-   and read the job summaries. Any `::warning::` there means a signing secret was missing and that
-   artifact is unsigned. The `SBOMs and advisories` summary lists the recorded advisories and the
+   and read the job summaries. With `RELEASE_SIGNING: unsigned` each signing job posts a notice that it
+   shipped the build job's own set (the macOS build's "ad hoc signing" warning is expected) and the
+   draft's notes start with `packaging/release-notes-unsigned.md`; with `signed` a missing secret
+   fails the run. The `SBOMs and advisories` summary lists the recorded advisories and the
    informational ones (unmaintained crates) to review.
 5. **Add the honest deltas** to the draft's notes: what moved in [`parity.md`](parity.md) and the
    workflow-acceptance pass rate since the previous release, and any budget in
@@ -82,8 +84,8 @@ action to a full commit hash, builds with the pinned toolchain (`1.98`, as `ci.y
 | `build Linux x86_64`, `aarch64` | ubuntu-22.04, ubuntu-22.04-arm | `packaging/linux/package.sh` | runs |
 | `build Windows x64` | windows-latest | `packaging/windows/package.ps1 -Arch x64` (static C runtime) | runs |
 | `build macOS universal` | macos-latest | `packaging/macos/package.sh` (both architectures, `lipo`) | runs |
-| `sign Windows x64` (M15.10) | windows-latest, **`release` environment** | `package.ps1 -FromStage`: signs both programs from the build job's stage, builds the MSI around them and signs it, zips the portable set again, checks every signature (`test-sign.ps1`); the `.pfx` or Azure Trusted Signing, a `::warning::` naming each unsigned file without either | runs without the environment; signs with a throwaway certificate (`sign.ps1 -Throwaway`) |
-| `sign macOS universal` (M15.13) | macos-latest, **`release` environment** | `import-cert.sh` imports the Developer ID certificate into a temporary keychain; `package.sh --from-stage` assembles and signs `Dalica.app`, the DMG and the CLI zip from the build job's stage, notarizes all three (`notarize.sh`), staples the app and the DMG, and runs `verify.sh`; a `::warning::` and ad hoc signatures without the certificate, a warning and no notarization without all three Apple secrets; the keychain is deleted at the end whatever happened | runs without the environment; signs with a throwaway identity (`import-cert.sh --throwaway`); notarization, stapling and Gatekeeper's checks skipped and named |
+| `sign Windows x64` (M15.10) | windows-latest, **`release` environment** | `package.ps1 -FromStage`: signs both programs from the build job's stage, builds the MSI around them and signs it, zips the portable set again, checks every signature (`test-sign.ps1`); the `.pfx` or Azure Trusted Signing (a missing one fails a `signed` run); with `RELEASE_SIGNING: unsigned` no environment, a notice, and the build job's `-NoSign` set ships | runs without the environment; signs with a throwaway certificate (`sign.ps1 -Throwaway`) |
+| `sign macOS universal` (M15.13) | macos-latest, **`release` environment** | `import-cert.sh` imports the Developer ID certificate into a temporary keychain; `package.sh --from-stage` assembles and signs `Dalica.app`, the DMG and the CLI zip from the build job's stage, notarizes all three (`notarize.sh`), staples the app and the DMG, and runs `verify.sh`; a missing Apple secret fails a `signed` run; with `RELEASE_SIGNING: unsigned` no environment, a notice, and the build job's ad hoc set ships; the keychain is deleted at the end whatever happened | runs without the environment; signs with a throwaway identity (`import-cert.sh --throwaway`); notarization, stapling and Gatekeeper's checks skipped and named |
 | `SBOMs and advisories` (M15.40) | ubuntu-latest | `cargo xtask sbom --out dist/release`: one CycloneDX 1.5 SBOM per release package, `dalica-<v>-<package>.cdx.json` for `linux-x86_64`, `linux-aarch64`, `windows-x64` and `macos-universal`, each listing every crate the package's targets compile with its licence, purl, `.crate` SHA-256 and edges (nothing is built: `cargo metadata` and `cargo tree` resolve each target); then `cargo xtask advisories --fetch` checks those crates against the RustSec database fetched now, and an advisory `security.md` §8.4 does not record fails the run before any checksum is written; both results go to the job summary | runs, the same |
 | `checksums` | ubuntu-latest | downloads the whole set (the SBOMs included) and writes `SHA256SUMS.txt` (`packaging/checksums.sh create`) | runs over the throwaway-signed set |
 | `verify checksums` | ubuntu, Windows and macOS | on a fresh runner each: re-downloads the set and `SHA256SUMS.txt`, runs the script's planted-mismatch test (`checksums.sh self-test`) and `checksums.sh verify` | runs |
@@ -301,7 +303,8 @@ with `MACOSX_DEPLOYMENT_TARGET=11.0`, joins them with `lipo`, and assembles `Dal
 with Dalica as their Viewer at Alternate rank, HEIC left out while release builds lack `heif`;
 the user makes Dalica the default in Finder's Get Info ▸ Open with ▸ Change All…, which Options ▸
 Photo Viewer ▸ File Types explains, `viewing.md` §3.3). Finder's Open With
-sends the file as an Apple Event, which Dalica does not handle yet: the app starts and ignores it.
+sends the file as an open-documents Apple Event, which opens it in the viewer: in a new Dalica, or
+handed to the running one (M15.18).
 
 - **Signing** (M15.13) inside-out with the hardened runtime and a secure timestamp, no `--deep`:
   the executable, then `Dalica.app`, then the DMG, and `dalica-cli` (identifier
@@ -353,9 +356,14 @@ sends the file as an Apple Event, which Dalica does not handle yet: the app star
 
 All secrets live in the repository's **`release` environment**, whose deployment branches are
 restricted to `release`. Only the signing jobs declare `environment: release`; the draft job runs
-without it and cannot be reached from another branch, because it needs the signing jobs. **Every
-secret is optional:** if one is missing, that platform's artifacts are unsigned and the run shows a
-`::warning::`. Configure only what you need.
+without it and cannot be reached from another branch, because it needs the signing jobs. Whether a
+release is signed is the checked-in setting `RELEASE_SIGNING` in `release.yml` (M15.R, #1109):
+**`unsigned`** (1.0.0, maintainer decision at M15.R, 2026-10-20: no certificate or Apple Developer ID
+yet) runs the signing jobs without the environment, reads no secret and ships the build jobs' sets
+(Windows built with `-NoSign`, macOS signed ad hoc and not notarized), and the draft says so;
+**`signed`** needs every secret of both platforms (the `.pfx` and its password, or all six Azure
+secrets; the Apple certificate, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`) and fails the run if
+one is missing, so a half-signed set is never drafted.
 
 | Secret | Used for |
 |---|---|
