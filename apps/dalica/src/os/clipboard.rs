@@ -8,25 +8,29 @@
 //! One thread owns the clipboard: on Linux what was copied is served from the process that copied
 //! it, so the `arboard::Clipboard` must live on, and the calls never run on the UI thread.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use dalica_engine::os::{Clip, OsError};
 
+#[cfg(target_os = "linux")]
 use super::launch::file_uri;
 
 /// How long a caller waits for the clipboard thread.
 const ANSWER_WITHIN: Duration = Duration::from_secs(10);
 
-/// The `text/uri-list` of `paths` (RFC 2483: one URI per line, CRLF).
-pub fn uri_list(paths: &[PathBuf]) -> String {
+/// The `text/uri-list` of `paths` (RFC 2483: one URI per line, CRLF). Linux only: Wayland's
+/// data-control copy; elsewhere arboard writes the OS's own file list.
+#[cfg(target_os = "linux")]
+pub fn uri_list(paths: &[std::path::PathBuf]) -> String {
     paths.iter().map(|p| format!("{}\r\n", file_uri(p))).collect()
 }
 
-/// The `x-special/gnome-copied-files` of `paths`: `copy`, then one URI per line.
-pub fn gnome_copied_files(paths: &[PathBuf]) -> String {
+/// The `x-special/gnome-copied-files` of `paths`: `copy`, then one URI per line (Linux only).
+#[cfg(target_os = "linux")]
+pub fn gnome_copied_files(paths: &[std::path::PathBuf]) -> String {
     let mut out = String::from("copy");
     for p in paths {
         out.push('\n');
@@ -133,7 +137,7 @@ fn failed(e: arboard::Error) -> OsError {
 /// it: `text/uri-list` and `x-special/gnome-copied-files`. `Err` off Wayland or when the
 /// compositor has no data-control protocol (arboard then copies them through XWayland).
 #[cfg(target_os = "linux")]
-fn wayland_files(paths: &[PathBuf]) -> Result<(), String> {
+fn wayland_files(paths: &[std::path::PathBuf]) -> Result<(), String> {
     use wl_clipboard_rs::copy::{MimeSource, MimeType, Options, Source};
     if std::env::var_os("WAYLAND_DISPLAY").is_none_or(|d| d.is_empty()) {
         return Err("not on Wayland".into());

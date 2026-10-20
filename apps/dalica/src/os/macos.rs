@@ -19,10 +19,10 @@ pub fn handlers(path: &Path, max: usize) -> Result<Vec<PathBuf>, String> {
         if out.len() >= max {
             break;
         }
-        if let Some(p) = app.to_file_path() {
-            if !out.contains(&p) {
-                out.push(p);
-            }
+        if let Some(p) = app.to_file_path()
+            && !out.contains(&p)
+        {
+            out.push(p);
         }
     }
     Ok(out)

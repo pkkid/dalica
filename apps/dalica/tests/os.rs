@@ -409,10 +409,8 @@ fn stub(path: &Path, record: &Path) {
 /// with the file, each a stub on `PATH` that records its arguments.
 #[test]
 fn reveal_and_open_with_start_the_right_program() {
-    if cfg!(windows) {
-        eprintln!("skipped on Windows: a stub there would be a .cmd, which only cmd.exe starts (the vectors are checked above)");
-        return;
-    }
+    #[cfg(windows)]
+    eprintln!("skipped on Windows: a stub there would be a .cmd, which only cmd.exe starts (the vectors are checked above)");
     #[cfg(unix)]
     {
         let dir = tempfile::tempdir().unwrap();
