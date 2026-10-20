@@ -21,6 +21,103 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 1.0.0 — October 2026
+
+Dalica 1.0 plays your videos, speaks Thai as well as English, works with a screen reader and the
+keyboard alone, and fits into your desktop: locate a photo on disk, open it with another program,
+drag it out, and make Dalica the program that opens your pictures.
+
+### Videos
+
+- MP4, MOV, M4V and MKV videos now show in the library as video cells with a sprocket edge and their
+  length. The Videos filter shows only them.
+- Videos in H.264 show their first real frame as a thumbnail, play in the edit view and step a frame
+  at a time with `,` and `.`. Space plays and pauses; the bar has a scrubber, volume and Full Screen.
+- Trim a clip with its start and end handles or Set Start and Set End; the trim is kept and undoes
+  like any edit. Rotate works on videos; other photo edits don't apply to them.
+- Save Frame as Picture writes the frame you see into Pictures/Dalica/Video Frames, which appears
+  under Projects. Export Clip writes the trimmed part as a new file without re-encoding.
+- Videos Dalica can't play (HEVC in this build, ProRes, older codecs) show a video tile and
+  "This video can't be played" with Open With ▸ to open them elsewhere. A clip whose sound can't be
+  played plays muted and says why.
+- Videos up to 1080p at 30 frames a second play at full speed. 4K, 60-frame and HDR videos play as
+  fast as your computer allows: on a slower one they may drop frames, but the picture keeps moving
+  and stays with the sound.
+
+### Viewing
+
+- Slideshows play videos to their end, muted unless Play video sound is on, and can play music
+  from a folder you choose in Options ▸ Slideshow (MP3, Ogg Vorbis, FLAC and WAV).
+- Dalica can be the program that opens your pictures: Options ▸ Photo Viewer ▸ File Types, or the
+  question after the first run. On Linux Dalica sets it for you and gives your previous choice back
+  when you turn it off; on Windows it opens Default apps with what to pick; on macOS it tells you how
+  to choose it in Finder.
+- Opening a picture while Dalica is already running shows it in that Dalica's viewer; Esc returns
+  to where you were.
+
+### Folders
+
+- Locate on Disk (Ctrl+Enter) shows a photo or folder in your file manager. Open With ▸ lists the
+  programs that open the file. Open in External Editor (Ctrl+Shift+O) uses the program you set in
+  Options ▸ General, or your system's editor.
+- Ctrl+C also puts the photos on the system clipboard, so you can paste them into a file manager or
+  an email; Copy Path copies their locations.
+- Drag photos out of Dalica into other programs. What leaves is the file on disk: unsaved edits stay
+  in Dalica, and the drag says so.
+
+### Import
+
+- Cameras and phones connected by USB appear in the Import room on Linux, with their pictures and
+  dates. Copies are checked after writing, and pictures are removed from the camera only if you ask,
+  after they are safely copied.
+
+### Languages
+
+- Dalica speaks Thai. Choose it in Options ▸ General ▸ Language; the window switches at once and
+  keeps your place. Thai text is shaped and wrapped between words. The Thai translation is a first
+  draft that a native speaker has not reviewed yet, so some wording may read oddly; the release notes
+  stay in English.
+
+### Accessibility
+
+- Every control has a name for screen readers. Tab moves through the window and each dialog in
+  reading order with a visible focus ring; F10 or Alt opens the menu bar; trees and the light table
+  are one stop each, walked with the arrow keys.
+- The window fits at 150 % scale with the Large font.
+
+### Reliability
+
+- Fixed: in 0.9.0, turning "Read photo data left by the previous organizer" off and on could write
+  a Dalica file into a folder that should keep only the previous organizer's data. If you did that
+  while a photo there had changed, the folder's captions, people and albums could disappear from
+  view; deleting that folder's `.dalica.json` brings them back. Nothing was lost.
+- The command-line tool ends quietly when its output is closed early (`dalica-cli commands | head`).
+- Every release now lists its components and is checked against known security advisories.
+- The Windows and macOS packages are not signed yet, so the first start asks you to trust Dalica.
+  On Windows, if SmartScreen says "Windows protected your PC", click More info, then Run anyway. On
+  macOS, open Dalica once, click Done, then System Settings ▸ Privacy & Security ▸ Open Anyway (on
+  macOS 14 and earlier, Control-click Dalica in Applications and choose Open). You do this once.
+
+### Agents
+
+- Videos over MCP and the control channel: `video.inspect`, playback, trim, `video.saveFrame` and
+  `video.exportClip`, and Export's videos mode. Video outputs are written only inside the folders
+  automation may write to.
+- Locate on Disk, Open With and Open in External Editor are never available to automation.
+- With names withheld, automation no longer sees a person's name through search suggestions or
+  failed-export messages. A folder's own name, which you chose, still shows in photo paths.
+
+### Not in this release yet
+
+- HEVC videos (most iPhone videos) play only in builds made with HEVC support; in this build they
+  show a video tile. Other codecs, WebM and older formats (AVI, WMV, MPG, 3GP, MTS) are not played.
+- Cameras over USB work on Linux only; on Windows and macOS, import the device as a card or drive.
+- Dragging out doesn't work under Wayland (use Copy); macOS can't be set as the default viewer from
+  Dalica.
+- A folder's own slideshow music (Folder Properties ▸ Music) isn't here yet; the music folder from
+  Options plays for every show.
+- The release notes and some messages that carry numbers or names stay in English in Thai.
+
 ## 0.9.0 — October 2026
 
 Dalica can now make collages, and it reads the photo data your previous organizer left in your
