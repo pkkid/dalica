@@ -10671,7 +10671,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     `taskset -c 0` and the PR says what the race was (the review's Windows run confirms it); (3)
     a test of the launcher's environment (or an assertion in `m11_live`) fails without
     `USERPROFILE` inside the test's home; the review's Windows run passes `accept M11`.
-- ⬜ **M15.50 `engine` + `store`: a write into a legacy-only folder after the legacy option is turned off and on**
+- ✅ **M15.50 `engine` + `store`: a write into a legacy-only folder after the legacy option is turned off and on**
   - after: M14.R, M15.42
   - files: `crates/engine/src/legacy.rs`, `crates/engine/src/session.rs`, `crates/engine/src/scanning.rs`, `crates/store/src/writer.rs`, `crates/store/src/legacy.rs`, `crates/engine/tests/legacy.rs`, `tests/acceptance/m14_legacy.rs`
   - scope: data safety, before any feature work (`AGENTS.md` §3, legacy files are read-only and

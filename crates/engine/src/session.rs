@@ -143,6 +143,12 @@ pub(crate) struct SidecarQueue {
     folders: BTreeMap<FolderId, u64>,
     /// Each folder of a carry sent and not yet carried: how many such carries name it.
     carrying: BTreeMap<FolderId, u64>,
+    /// The folders of `folders` whose pending change includes one of the user's (a command's,
+    /// sent from inside `execute`): only such a write lets a scan's op into a legacy-only folder
+    /// (`legacy.rs`, [`Session::keep_legacy_unwritten`]).
+    user: BTreeSet<FolderId>,
+    /// No write pass runs ([`Session::hold_sidecar_writes`], tests only).
+    held: bool,
 }
 
 impl SidecarQueue {
@@ -171,20 +177,32 @@ impl SidecarQueue {
         self.folders.keys().chain(self.carrying.keys()).copied().collect()
     }
 
-    /// The session is sending `list`: its folders count until their writes are committed; a
-    /// folder that left the library (no state) has nothing left to write.
-    fn sending(&mut self, list: &[(FolderId, Option<FolderState>)]) {
+    /// The folders whose pending write includes a change of the user's.
+    fn pending_user(&self) -> BTreeSet<FolderId> {
+        self.user.clone()
+    }
+
+    /// The session is sending `list` (`user`: a command's change): its folders count until their
+    /// writes are committed; a folder that left the library (no state) has nothing left to write.
+    fn sending(&mut self, list: &[(FolderId, Option<FolderState>)], user: bool) {
         self.sent = self.sent.saturating_add(1);
         for (folder, state) in list {
             match state {
                 Some(_) => {
                     self.folders.insert(*folder, self.sent);
+                    if user {
+                        self.user.insert(*folder);
+                    }
                 }
-                None => {
-                    self.folders.remove(folder);
-                }
+                None => self.forget(*folder),
             }
         }
+    }
+
+    /// Folder `f` has no write pending any more.
+    fn forget(&mut self, f: FolderId) {
+        self.folders.remove(&f);
+        self.user.remove(&f);
     }
 
     /// The worker's writer just tried to write `tried`, and took in every change up to `seen` (by
@@ -196,7 +214,7 @@ impl SidecarQueue {
         for f in tried {
             let committed = self.folders.get(&f).is_some_and(|n| seen.get(&f).copied().unwrap_or(0) >= *n);
             if committed && !writer.is_dirty(f) {
-                self.folders.remove(&f);
+                self.forget(f);
             }
         }
     }
@@ -608,6 +626,7 @@ impl Session {
         let before = self.all_folder_ids();
         let owned_before = crate::metadata::snapshot(&self.library, &crate::metadata::candidates(&self.library, &op));
         let recipes_before = crate::history::recipes_before(&self.library, &op);
+        let rev_before = self.library.revision();
         let inverse = self.library.apply(op.clone()).map_err(|e| match e {
             dalica_library::Error::UnknownFolder(_) | dalica_library::Error::UnknownPhoto(_) => CmdError::NotFound(e.to_string()),
             other => CmdError::BadParams(other.to_string()),
@@ -620,8 +639,16 @@ impl Session {
         self.albums_applied(&op);
         self.search_applied(&op);
         self.send(Msg::Journal(vec![op]));
+        // The folders this op touched carry the revision it made. A derived op (`Op::is_derived`:
+        // a folder's sidecar in effect, synced hashes …) makes none and touches no folder; matching
+        // on the revision then would name the folders the op before it touched (M15.50: a rescan's
+        // fact-only op sent a write for a legacy-only folder another op had just read again).
         let rev = self.library.revision();
-        let touched: BTreeSet<FolderId> = self.all_folder_ids().into_iter().filter(|f| self.library.folder_revision(*f) == rev).collect();
+        let touched: BTreeSet<FolderId> = if rev == rev_before {
+            BTreeSet::new()
+        } else {
+            self.all_folder_ids().into_iter().filter(|f| self.library.folder_revision(*f) == rev).collect()
+        };
         // An op from the files writes nothing into a legacy-only folder (`legacy.rs`, M14.13).
         let touched = if self.collected.is_none() { self.keep_legacy_unwritten(touched, &inverse) } else { touched };
         let mut states: Vec<(FolderId, Option<FolderState>)> =
@@ -754,7 +781,9 @@ impl Session {
         }
         // Counted before it is sent, so no `pendingWrites` read in between misses it.
         match &msg {
-            Msg::Dirty(list) => self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).sending(list),
+            // Inside `execute` (a command, its undo or redo, a file operation's results) the
+            // change is the user's.
+            Msg::Dirty(list) => self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).sending(list, self.collected.is_some()),
             Msg::Carry { from, to, .. } => {
                 self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).carry_sent(from.iter().chain(to).copied())
             }
@@ -872,6 +901,14 @@ impl Session {
         self.apply_sketches();
     }
 
+    /// Holds every sidecar write pass while `held`, as if each folder were inside the writer's
+    /// debounce: what the session sends is taken in and counted as pending, and written once
+    /// released (tests: a write sent and not yet made, with no timing involved).
+    #[doc(hidden)]
+    pub fn hold_sidecar_writes(&mut self, held: bool) {
+        self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).held = held;
+    }
+
     /// Waits for running scans, applies the sketches already made (it does not wait for thumbnails
     /// still being made: they are a cache), then waits until every journal record and sidecar write
     /// has landed. `Err(Unsaved)` lists writes that failed (they stay pending and are retried).
@@ -893,6 +930,12 @@ impl Session {
     /// sent, debounced, being made, failed and retried, or waiting for their volume.
     pub(crate) fn queued_sidecars(&self) -> BTreeSet<FolderId> {
         self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).pending()
+    }
+
+    /// Of [`Session::queued_sidecars`], the folders whose pending write includes a change of the
+    /// user's (sent by a command), not only the files' (a scan's, the watcher's).
+    pub(crate) fn queued_user_sidecars(&self) -> BTreeSet<FolderId> {
+        self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).pending_user()
     }
 
     /// Whether this session writes nothing (`--read-only`; see the module's notes).
@@ -1260,6 +1303,9 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, shared: &Sh
             tried
         };
     let write = |writer: &mut SidecarWriter, states: &HashMap<FolderId, Option<FolderState>>, seen: &HashMap<FolderId, u64>, all: bool| {
+        if shared.queue.lock().unwrap_or_else(PoisonError::into_inner).held {
+            return;
+        }
         let state_of = |f: FolderId| states.get(&f).cloned().flatten();
         let tried = report(if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) }, states);
         shared.note_legacy(writer);
@@ -1285,7 +1331,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, shared: &Sh
                         // `states` and is no pending write.
                         let mut q = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
                         if q.folders.get(&folder).is_some_and(|n| *n <= received) {
-                            q.folders.remove(&folder);
+                            q.forget(folder);
                         }
                         continue;
                     }

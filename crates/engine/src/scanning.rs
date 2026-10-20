@@ -1101,6 +1101,7 @@ impl Session {
                 let target = job.fresh.as_ref().unwrap_or(&self.library);
                 let defs = Defs { albums: job.albums.as_ref(), people: job.people.as_ref() };
                 if let Some(op) = crate::legacy::transition(target, found, reread, defs) {
+                    crate::legacy::after_transition(&op, &mut ops);
                     ops.insert(0, op);
                 }
             }
