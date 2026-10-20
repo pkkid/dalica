@@ -10244,7 +10244,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     deletes exactly those 40 handles after the question; an unplug at picture 12 keeps 11 and says
     why; `crates/ui/tests/import_camera.rs` (headless, by id): the camera shows in Import from with
     its name and its pictures fill the tray; the owner thread made no `fs` call.
-- ⬜ **M15.20 `thumbs` + `engine` (reserved decision 2): poster frames**
+- ✅ **M15.20 `thumbs` + `engine` (reserved decision 2): poster frames**
   - after: M15.15, M15.16, M5.16, M15.46
   - files: `crates/thumbs/src/video.rs`, `crates/thumbs/src/ladder.rs`, `crates/thumbs/tests/video.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/preview.rs`, `crates/engine/src/preview/jobs.rs`, `crates/engine/src/faces_scan.rs`, `crates/engine/tests/video_posters.rs`
   - scope: for the codecs `docs/video-decoders.md` (M15.46) passes and M15.15 decodes: a video's

@@ -23,9 +23,11 @@
 //!   (named, unnamed or ignored) is that face, never a second one; a face the user removed is not
 //!   found again because the photo stays searched.
 //! - **Which photos, in which order** ([`Session::poll_face_scan`], every [`Session::poll`]): photos with named faces first
-//!   (they seed suggestions), then the newest folders first, newest photos first. Videos, folders
-//!   with "Find faces in this folder" off, hidden folders and folders on offline volumes are
-//!   skipped: their files are never read. Find Faces Again (`faces.reset`) and `faces.detect` put
+//!   (they seed suggestions), then the newest folders first, newest photos first. A video is read
+//!   through its poster frame (M15.20, `dalica_thumbs::video::poster`: faces are found on the
+//!   frame its thumbnail shows); a video this build cannot play, folders with "Find faces in this
+//!   folder" off, hidden folders and folders on offline volumes are skipped: their files are never
+//!   read. Find Faces Again (`faces.reset`) and `faces.detect` put
 //!   their photos at the front and search them again.
 //! - **Pace** ([`Pace`]): while the user drags, types or scrolls no new photo is started; while the
 //!   pointer moves, one photo at a time; idle for three seconds, about half the cores; the window
@@ -339,6 +341,8 @@ struct Item {
     record: bool,
     /// Forget what the cache held for the photo first (Find Faces Again).
     forget: bool,
+    /// A video: its poster frame is the picture.
+    video: bool,
     limits: dalica_image::Limits,
 }
 
@@ -418,7 +422,11 @@ struct Worked {
 
 /// Decodes, searches and embeds one photo.
 fn work(item: &Item, engine: &Engine) -> Result<Worked, String> {
-    let image = dalica_thumbs::thumbnail_with(&item.path, EDGE, &dalica_image::DecodeOptions::default(), &item.limits).map_err(|e| e.to_string())?;
+    let image = if item.video {
+        dalica_thumbs::video::poster(&item.path, Some(EDGE), &item.limits).map_err(|e| e.to_string())?
+    } else {
+        dalica_thumbs::thumbnail_with(&item.path, EDGE, &dalica_image::DecodeOptions::default(), &item.limits).map_err(|e| e.to_string())?
+    };
     let (w, h) = (usize::try_from(image.width).unwrap_or(0), usize::try_from(image.height).unwrap_or(0));
     let rgb: Vec<u8> = image.data.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
     drop(image);
@@ -1008,10 +1016,17 @@ impl Session {
         self.folder_rules().faces(&f.path) && !self.library.is_folder_hidden(folder) && !self.is_folder_offline(folder)
     }
 
-    /// Whether the scan may read photo `id`'s file: a photo (not a video) in a folder it may read.
+    /// Whether the scan may read photo `id`'s file: a photo, or a video with a poster frame
+    /// ([`crate::thumbs::has_poster`]), in a folder it may read.
     pub(crate) fn face_scan_may_read(&self, id: PhotoId) -> bool {
         let Some(photo) = self.library.photo(id) else { return false };
-        !self.library.facts(id).video && self.face_folder_readable(photo.folder)
+        self.face_readable_kind(id) && self.face_folder_readable(photo.folder)
+    }
+
+    /// Whether photo `id` is one the scan reads by its kind: a still, or a video whose poster
+    /// frame this build decodes.
+    fn face_readable_kind(&self, id: PhotoId) -> bool {
+        !(self.library.facts(id).video || crate::video::is_video(&self.library, id)) || crate::thumbs::has_poster(&self.library, id)
     }
 
     /// Whether `photo` (one the scan may read) needs it: it did not fail as it is, and it is to be
@@ -1053,6 +1068,7 @@ impl Session {
             detect,
             record: !self.face_scan.dry.contains(&id),
             forget: self.face_scan.forget.contains(&id),
+            video: crate::video::is_video(lib, id),
             limits,
         })
     }
@@ -1094,7 +1110,7 @@ impl Session {
         }
         let mut list: Vec<(bool, _, FolderId, _, PhotoId)> = Vec::new();
         for p in lib.photos() {
-            let may = readable.get(&p.folder).copied().unwrap_or(false) && !lib.facts(p.id).video;
+            let may = readable.get(&p.folder).copied().unwrap_or(false) && self.face_readable_kind(p.id);
             if busy.contains(&p.id) || !may || !self.face_needs(p, &engine) {
                 continue;
             }

@@ -19,6 +19,9 @@
 //!   holds its recipe hash and the versions of the operations it uses ([`Source::key_edited`]), so
 //!   a new version of one operation remakes only the photos that use it.
 //!
+//! - **Videos** (M15.20): a clip's entries are its poster frame, made by [`crate::video`]'s
+//!   `scan` and `fetch` through the same cache, keys and sketch (`scan_by`, `fetch_by`).
+//!
 //! Both jobs run on pool workers, never on the thread that owns the session. Entries are JPEG at
 //! [`QUALITY`] (fastest to decode); the [`Key`] of a photo is content-addressed (§6.4), and the
 //! screen-size entry's key also holds the screen size, so a different display never reads a
@@ -74,6 +77,10 @@ pub enum Error {
     Cache(String),
     #[error("cancelled")]
     Cancelled,
+    /// A video Dalica cannot play (its codec, or a profile its decoder refuses): its cell keeps
+    /// the video tile. The text is the clip's reason ("This video can't be played (…)").
+    #[error("{0}")]
+    Unplayable(String),
 }
 
 impl From<crate::pack::Error> for Error {
@@ -327,6 +334,19 @@ pub fn scan_edited(
     cancel: &AtomicBool,
 ) -> Result<Scanned, Error> {
     let key = source.key_edited(render, edits);
+    scan_by(cache, key, want_sketch, limits, cancel, |long_side| picture(source, render, edits, long_side, limits))
+}
+
+/// The scan job for the entries of `key`, drawn by `picture` (the picture fitted to a long side)
+/// when they are not all cached: [`scan_edited`]'s and [`crate::video::scan`]'s shared work.
+pub(crate) fn scan_by(
+    cache: &Cache,
+    key: Key,
+    want_sketch: bool,
+    limits: &dalica_image::Limits,
+    cancel: &AtomicBool,
+    picture: impl FnOnce(u32) -> Result<Rgba8, Error>,
+) -> Result<Scanned, Error> {
     if SCAN_SIZES.iter().all(|&s| cache.contains(s, key)) {
         if !want_sketch {
             return Ok(Scanned { images: Vec::new(), sketch: None, decoded: false });
@@ -339,7 +359,7 @@ pub fn scan_edited(
     if cancel.load(Ordering::Relaxed) {
         return Err(Error::Cancelled);
     }
-    let large = picture(source, render, edits, 256, limits)?;
+    let large = picture(256)?;
     let small = dalica_image::resize::fit(&large, 128).map_err(|e| Error::Photo(e.into()))?;
     let sketch = if want_sketch { Some(sketch::encode(&small).map_err(|e| Error::Encode(e.to_string()))?) } else { None };
     let mut images = Vec::with_capacity(2);
@@ -390,14 +410,30 @@ pub fn fetch_edited(
     limits: &dalica_image::Limits,
     cancel: &AtomicBool,
 ) -> Result<Fetched, Error> {
-    let key = entry_key(source.key_edited(render, edits), size, screen);
+    let key = source.key_edited(render, edits);
+    fetch_by(cache, key, size, screen, limits, cancel, |long_side| picture(source, render, edits, long_side, limits))
+}
+
+/// The fetch job for `size` of the photo whose key is `photo`, drawn by `picture` (the picture
+/// fitted to a long side) when the cache does not have it: [`fetch_edited`]'s and
+/// [`crate::video::fetch`]'s shared work.
+pub(crate) fn fetch_by(
+    cache: &Cache,
+    photo: Key,
+    size: Size,
+    screen: u32,
+    limits: &dalica_image::Limits,
+    cancel: &AtomicBool,
+    picture: impl FnOnce(u32) -> Result<Rgba8, Error>,
+) -> Result<Fetched, Error> {
+    let key = entry_key(photo, size, screen);
     if let Some(image) = load(cache, size, key, limits)? {
         return Ok(Fetched { image, decoded: false });
     }
     if cancel.load(Ordering::Relaxed) {
         return Err(Error::Cancelled);
     }
-    let image = picture(source, render, edits, pixels(size, screen), limits)?;
+    let image = picture(pixels(size, screen))?;
     Ok(Fetched { image: store(cache, size, key, &image, limits)?, decoded: true })
 }
 

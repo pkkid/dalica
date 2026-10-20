@@ -39,9 +39,16 @@
 //!   (path, size, modification time) and not tried again until the file changes. A photo whose
 //!   folder cannot be reached (an offline volume) is not a failure: it keeps its cached entries,
 //!   draws what it has, and is never made again until its folder is back.
-//! - **A video** ([`crate::video::is_video`]) is never tracked, read or decoded here: its cell is
-//!   the video tile (M15.16; its poster frame follows with M15.20), so it answers
-//!   [`Thumb::NotScanned`] and never a failure, and Refresh Thumbnails leaves it out.
+//! - **A video** ([`crate::video::is_video`], M15.20): one whose codec this build decodes
+//!   ([`has_poster`]: `dalica_thumbs::video::plays` on the codec its scan read) has its poster
+//!   frame as its thumbnails (`dalica_thumbs::video`), made by the same jobs, cache and keys as a
+//!   photo's (made again when the file changes), but below the photos: its scan runs a step under
+//!   a photo's at the same priority, so a folder's photos fill first. It takes no embedded
+//!   thumbnail and no edits (its rotation is the cell's, its trim playback's). While its poster is
+//!   made, and for good when it cannot be (a profile the decoder refuses, a damaged clip), it
+//!   answers [`Thumb::NotScanned`]: the video tile, never the error badge. A video whose codec
+//!   this build does not decode (or whose codec the scan has not read yet) is never tracked, read
+//!   or decoded here, and Refresh Thumbnails leaves it out.
 //! - **Upkeep** ([`dalica_thumbs::upkeep`]): after scans settle, a background job compacts packs
 //!   past 25 % dead; at start and whenever a worker sees the cache past its size (the cache size
 //!   setting, 2 GiB by default), a pruning job takes it down to 80 %, largest sizes and oldest
@@ -91,6 +98,12 @@ const STALL: Duration = Duration::from_secs(120);
 pub const UNAVAILABLE_RETRY: Duration = Duration::from_secs(30);
 /// The embedded-thumbnail job runs just above the visible cells' scans.
 const QUICK: Priority = Priority(Priority::VISIBLE.0 + 5);
+
+/// A video's poster scan at `priority`: a step below a photo's, so photos asked for at the same
+/// priority go first (and still above the next priority down).
+fn below(priority: Priority) -> Priority {
+    Priority(priority.0.saturating_sub(1))
+}
 /// Changed recipes [`Session::update_thumbnail_recipes`] remakes at the visible priority at once;
 /// past it (a batch edit), the rest go in the background until a cell asks for them.
 pub const RECIPES_VISIBLE: usize = 64;
@@ -294,6 +307,8 @@ struct PhotoState {
     revision: u64,
     /// Its recipe changed since its sketch was made: the next scan makes it again.
     sketch_due: bool,
+    /// A video: its images are its poster frame, and it never shows the error badge.
+    video: bool,
 }
 
 impl PhotoState {
@@ -310,6 +325,7 @@ impl PhotoState {
             sig: read.sig,
             revision: read.revision,
             sketch_due: false,
+            video: read.video,
         }
     }
 
@@ -367,6 +383,8 @@ struct Read {
     edits: Option<Arc<Edits>>,
     sig: u64,
     revision: u64,
+    /// It is a video (its edits never reach its pixels).
+    video: bool,
 }
 
 impl Thumbs {
@@ -493,14 +511,17 @@ impl Thumbs {
         self.quick = Lru::new(QUICK_MEMORY);
     }
 
-    /// Photo `id`'s recipe as the library has it now.
+    /// Photo `id`'s recipe as the library has it now (none for a video: its rotation is the
+    /// cell's and its trim playback's).
     fn read(&self, library: &Library, id: PhotoId) -> Read {
         let text = &library.info(id).edits;
+        let video = crate::video::is_video(library, id);
         let edits = match self.versions {
+            _ if video => None,
             Some(v) => Edits::with_versions(text, v),
             None => Edits::of(text),
         };
-        Read { edits: edits.map(Arc::new), sig: recipe_sig(text), revision: library.revision() }
+        Read { edits: edits.map(Arc::new), sig: recipe_sig(text), revision: library.revision(), video }
     }
 
     /// Brings photo `id`'s key up to date: to the current rendering, if it was switched since the
@@ -616,7 +637,7 @@ impl Thumbs {
             // The recipe is read again only when it changed (or the rendering did).
             let read = match self.photos.get(&photo.id) {
                 Some(st) if st.epoch == epoch && st.sig == recipe_sig(&library.info(photo.id).edits) => {
-                    Read { edits: st.edits.clone(), sig: st.sig, revision: library.revision() }
+                    Read { edits: st.edits.clone(), sig: st.sig, revision: library.revision(), video: st.video }
                 }
                 _ => self.read(library, photo.id),
             };
@@ -714,6 +735,8 @@ impl Thumbs {
         let (limits, in_flight, render, screen) = (self.limits, Arc::clone(&self.in_flight), self.render, self.screen);
         let (over, budget) = (Arc::clone(&self.over), Arc::clone(&self.budget));
         let hook = self.scan_hook.clone();
+        let video = self.photos.get(&id).is_some_and(|st| st.video);
+        let priority = if video { below(priority) } else { priority };
         self.submit(Job::Scan(id), priority, move |cancel| {
             if let Some(hook) = &hook {
                 hook(&source.path);
@@ -728,7 +751,12 @@ impl Thumbs {
                     return Done::Scanned { key, result: Err(e.into()), in_flight: 0, unavailable: false };
                 }
             }
-            let mut result = ladder::scan_edited(&cache, &source, &render, edits.as_deref(), want_sketch || refresh, &limits, cancel);
+            let want_sketch = want_sketch || refresh;
+            let mut result = if video {
+                dalica_thumbs::video::scan(&cache, &source, &render, want_sketch, &limits, cancel)
+            } else {
+                ladder::scan_edited(&cache, &source, &render, edits.as_deref(), want_sketch, &limits, cancel)
+            };
             let unavailable = is_unreachable(&result, &source);
             let mut bytes = 0;
             if let Ok(s) = &mut result {
@@ -749,11 +777,16 @@ impl Thumbs {
         let source = library.photo(id).and_then(|p| source(library, p))?;
         let cache = self.cache.clone()?;
         let edits = self.photos.get(&id).and_then(|st| st.edits.clone());
+        let video = self.photos.get(&id).is_some_and(|st| st.video);
         let (limits, screen, render) = (self.limits, self.screen, self.render);
         let (over, budget) = (Arc::clone(&self.over), Arc::clone(&self.budget));
         self.submit(job, priority, move |cancel| {
             let key = source.key_edited(&render, edits.as_deref());
-            let result = ladder::fetch_edited(&cache, &source, &render, edits.as_deref(), size, screen, &limits, cancel);
+            let result = if video {
+                dalica_thumbs::video::fetch(&cache, &source, &render, size, screen, &limits, cancel)
+            } else {
+                ladder::fetch_edited(&cache, &source, &render, edits.as_deref(), size, screen, &limits, cancel)
+            };
             let unavailable = is_unreachable(&result, &source);
             if let Ok(f) = &result {
                 note_budget(&cache, &budget, &over, f.decoded);
@@ -764,10 +797,10 @@ impl Thumbs {
     }
 
     /// Queues the embedded thumbnail of a photo on screen, once; never for a photo with edits (the
-    /// file's own small copy does not show them).
+    /// file's own small copy does not show them) nor for a video (it has none).
     fn submit_quick(&mut self, library: &Library, id: PhotoId, need: u32) {
         let Some(source) = library.photo(id).and_then(|p| source(library, p)) else { return };
-        if self.cache.is_none() || self.photos.get(&id).is_some_and(|st| st.edits.is_some()) {
+        if self.cache.is_none() || self.photos.get(&id).is_some_and(|st| st.edits.is_some() || st.video) {
             return;
         }
         let (limits, render) = (self.limits, self.render);
@@ -827,7 +860,7 @@ impl Thumbs {
         }
         self.fresh(library, id, Some(Priority::VISIBLE));
         let Some(st) = self.photos.get(&id) else { return fallback(library, id) };
-        let (key, scanned, askable, quick_asked) = (st.key, st.scanned, st.askable(), st.quick_asked || st.edits.is_some());
+        let (key, scanned, askable, quick_asked) = (st.key, st.scanned, st.askable(), st.quick_asked || st.edits.is_some() || st.video);
         let (edits, sketch_due) = (st.edits.clone(), st.sketch_due);
         let want = ladder::covering(need, self.screen);
         let found = self.best(id, key, need);
@@ -1243,8 +1276,10 @@ impl Thumbs {
         std::mem::take(&mut self.sketches)
     }
 
+    /// Why photo `id` cannot be shown (its error badge); never for a video, which keeps the video
+    /// tile when its poster cannot be made (and is not tried again until its file changes).
     pub(crate) fn failure(&self, id: PhotoId) -> Option<&str> {
-        self.photos.get(&id).and_then(|s| s.failed.as_deref())
+        self.photos.get(&id).filter(|s| !s.video).and_then(|s| s.failed.as_deref())
     }
 
     pub(crate) fn set_screen(&mut self, screen: u32) {
@@ -1324,6 +1359,7 @@ fn reason(e: &ladder::Error) -> String {
     match e {
         ladder::Error::Photo(dalica_thumbs::Error::Image(i)) => i.reason(),
         ladder::Error::Photo(dalica_thumbs::Error::Io(_)) => dalica_image::Error::Io(String::new()).reason(),
+        ladder::Error::Unplayable(why) => why.clone(),
         ladder::Error::Encode(_) | ladder::Error::Render(_) | ladder::Error::Cache(_) | ladder::Error::Cancelled => {
             "The thumbnail could not be made".into()
         }
@@ -1386,10 +1422,17 @@ fn fallback(library: &Library, id: PhotoId) -> Thumb {
     library.sketch(id).map_or(Thumb::NotScanned, |s| Thumb::Sketch(*s))
 }
 
-/// The file of `photo` as its cache key sees it; `None` for a video, which the thumbnailer never
-/// reads (its cell is the video tile until its poster frame is made, M15.20).
+/// Whether photo `id` is a video whose poster frame this build decodes: the codec its scan read
+/// is one `dalica_thumbs::video::plays` (H.264; HEVC with the `hevc` feature). A video whose
+/// codec is not known yet has none until its scan reads it.
+pub(crate) fn has_poster(library: &Library, id: PhotoId) -> bool {
+    crate::video::is_video(library, id) && library.video_facts(id).is_some_and(|f| dalica_thumbs::video::plays(&f.video_codec))
+}
+
+/// The file of `photo` as its cache key sees it; `None` for a video without a poster frame
+/// ([`has_poster`]), which the thumbnailer never reads (its cell is the video tile).
 fn source(library: &Library, photo: &Photo) -> Option<Source> {
-    if crate::video::is_video(library, photo.id) {
+    if crate::video::is_video(library, photo.id) && !has_poster(library, photo.id) {
         return None;
     }
     let folder = library.folder(photo.folder)?;
