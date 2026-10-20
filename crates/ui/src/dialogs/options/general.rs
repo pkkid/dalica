@@ -14,14 +14,18 @@
 //!           UI font size:  [Small ▾]
 //!               Language:  [System ▾]
 //!  ───────────────────────────────────────────────────────────
-//!                  Files:  [x] Detect duplicates while importing
+//!                  Files:  [x] Read photo data left by the previous organizer
+//!                          [x] Detect duplicates while importing
 //!                          [ ] Delete from disk without asking
 //!                          …
 //!  ───────────────────────────────────────────────────────────
 //! Save imported pictures in:  [/home/ana/Pictures       ] [Browse…]
 //! ```
 //!
-//! Each group's on/off options are checkboxes under the group's label, every other option a row of
+//! Each group's on/off options are checkboxes under the group's label (in the catalogue's order,
+//! but for [`LEADS`]: "Read photo data left by the previous organizer" heads the Files group, so a
+//! person coming from the previous organizer sees it without scrolling at 1400 × 900 and
+//! 900 × 600; last in the group it sat below the fold), every other option a row of
 //! its own labelled with its name: UI scale and font size and Language as dropdowns, a folder as
 //! its path and Browse…. The import folder shows the folder stored, else the Pictures folder as
 //! the field's hint (the folder the Import room's "Import to:" starts from); Browse… opens the
@@ -64,6 +68,9 @@ use crate::tl;
 
 /// The tab's groups, in order.
 pub const GROUPS: [&str; 3] = ["Interface", "Files", "Import"];
+
+/// The options drawn first in their group, ahead of the catalogue's order.
+pub const LEADS: [&str; 1] = ["files.readLegacyData"];
 
 /// The settings keys whose choice previews live.
 pub const UI_SCALE: &str = "interface.uiScale";
@@ -247,7 +254,9 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: 
     let mut browse = None;
     let mut first = true;
     for group in GROUPS {
-        let in_group: Vec<(usize, &Row)> = rows.iter().enumerate().filter(|(_, r)| r.group == group).collect();
+        let mut in_group: Vec<(usize, &Row)> = rows.iter().enumerate().filter(|(_, r)| r.group == group).collect();
+        // Stable: the leads first, everything else in the catalogue's order.
+        in_group.sort_by_key(|(_, r)| !LEADS.contains(&r.key.as_str()));
         if in_group.is_empty() {
             continue;
         }

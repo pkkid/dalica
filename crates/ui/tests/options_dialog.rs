@@ -78,9 +78,15 @@ fn click(d: &mut Driver, id: &str) {
     d.settle(FRAMES).unwrap();
 }
 
-/// Brings widget `id` into the tab's view (the body scrolls when the dialog is shorter than it).
+/// Brings widget `id` into the tab's view (the body scrolls when the dialog is shorter than it);
+/// a row not found further down is looked for again from the top (rows are not drawn in the
+/// catalogue's order: `general::LEADS`).
 fn reveal(d: &mut Driver, id: &str) {
-    for _ in 0..40 {
+    for i in 0..80 {
+        if i == 40 {
+            d.scroll(Some(DIALOG), egui::vec2(0.0, 4000.0)).unwrap();
+            d.settle(FRAMES).unwrap();
+        }
         let body = widget(d, DIALOG).rect;
         let (top, bottom) = (body[1] + 80.0, body[1] + body[3] - 60.0);
         // A row scrolled out of view is not drawn: further down.
@@ -331,4 +337,24 @@ fn the_duplicates_checkbox_stores_import_detect_duplicates() {
     click(d, id);
     click(d, APPLY);
     assert_eq!(saved(d, "import.detectDuplicates"), json!(false));
+}
+
+/// "Read photo data left by the previous organizer" heads the Files group: on the tab as it opens,
+/// unscrolled, it is drawn whole inside the body at 1400 × 900 and at 900 × 600 (M14.R's
+/// screenshots: last in the group, it sat below the fold).
+#[test]
+fn reading_the_previous_organizers_data_is_in_view_without_scrolling() {
+    const LEGACY: &str = "check:option.files.readLegacyData";
+    let mut fx = open();
+    for (w, h) in [LARGE, SMALL] {
+        fx.d.resize(w, h);
+        fx.d.settle(FRAMES).unwrap();
+        shot(&fx.d, &format!("dialog-options-general-legacy-{w}x{h}"));
+        let body = widget(&fx.d, DIALOG).rect;
+        let ok = widget(&fx.d, "button:dialog.ok").rect;
+        let r = try_widget(&fx.d, LEGACY).unwrap_or_else(|| panic!("{LEGACY} is not drawn at {w} × {h} until scrolled to")).rect;
+        assert!(r[1] >= body[1] && r[1] + r[3] <= ok[1], "{LEGACY} at {r:?} is outside the body above OK at {ok:?} ({w} × {h})");
+        let files = widget(&fx.d, "check:option.import.detectDuplicates").rect;
+        assert!(r[1] < files[1], "it heads the Files group");
+    }
 }

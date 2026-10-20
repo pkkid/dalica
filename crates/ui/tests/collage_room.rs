@@ -2,9 +2,9 @@
 //! automation id on a library of eight scenes photos: the tray's six photos open the room with six
 //! clips on the page; each style greys the options it lacks; the eyedropper on the canvas sets the
 //! background colour; portrait turns the page; Get More then Back to Collage adds the selection;
-//! Create Collage opens the new photo in the edit view and Close with changes asks, Save Draft
-//! writing a draft; at 900 × 600 the room fits; the left panel's two tabs are fingerprinted at
-//! 1400 × 900 (the canvas is M14.19's, fingerprinted there).
+//! Create Collage opens the new photo in the edit view (the window titled with its Collages folder)
+//! and Close with changes asks, Save Draft writing a draft; at 900 × 600 the room fits; the left
+//! panel's two tabs are fingerprinted at 1400 × 900 (the canvas is M14.19's, fingerprinted there).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -116,6 +116,23 @@ fn the_trays_photos_open_the_room_with_their_clips_and_each_style_greys_what_it_
     assert!(widget(&d, settings::BORDER_IDS[2]).active);
 }
 
+/// At 900 × 600 the bottom bar folds Export, Collage and Slideshow behind More… (`ui-layout.md`
+/// §6.5 and §11: the action row overflows below 1100; checked and kept after M14.R's look review):
+/// More… ▸ Collage opens the room on the tray's photos as the button does.
+#[test]
+fn at_900_by_600_more_holds_collage_and_it_opens_the_room() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, ids) = driver(dir.path(), SMALL);
+    run(&mut d, "select.set", json!({ "ids": &ids[..3] }));
+    d.settle(FRAMES).unwrap();
+    assert!(try_widget(&d, "action:collage").is_none(), "Collage is folded into More…");
+    click(&mut d, "action:more");
+    shot(&d, "bottom-more-collage-900x600");
+    click(&mut d, "action:collage");
+    assert_eq!(d.state().room, Room::Collage);
+    assert_eq!(inspect(&mut d)["placements"].as_array().unwrap().len(), 3, "the tray's three photos on the page");
+}
+
 #[test]
 fn the_eyedropper_sets_the_background_and_portrait_turns_the_page() {
     let dir = tempfile::tempdir().unwrap();
@@ -191,6 +208,10 @@ fn create_collage_opens_the_new_photo_and_close_with_changes_asks() {
     let photo = d.state().edit.photo.expect("the new collage in the edit view");
     assert!(!ids.contains(&photo), "a new photo");
     assert_eq!(d.state().room, Room::Library);
+    // The window title names the new photo's own folder, not the folder left selected in the tree
+    // (M14.R's screenshots).
+    shot(&d, "collage-created-edit-1400x900");
+    assert_eq!(widget(&d, "titlebar:drag").label, "Collages — Dalica");
     run(&mut d, "room.select", json!({ "room": "collage" }));
     d.settle(FRAMES).unwrap();
     // A change, then Close asks Save Draft, Discard or Cancel; Cancel keeps the room.

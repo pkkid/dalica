@@ -378,3 +378,34 @@ fn with_a_scan_too_the_scan_field_goes_first() {
     d.wait(100).unwrap();
     assert_eq!(status(&d), several, "both gone");
 }
+
+/// The Collage room in front: the line describes the room's selection, a picture selected on the
+/// canvas reading as that photo and two as two pictures, not "No selection" for the library's
+/// tray, which the room's selection does not touch (M14.R's screenshots); back on the Library tab
+/// it describes the tray again.
+#[test]
+fn the_collage_room_describes_its_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), LARGE);
+    let all = ids(&d);
+    let three: Vec<u64> = ["IMG_0361.jpg", "IMG_0362.jpg", "IMG_0363.jpg"].iter().map(|n| all[*n].get()).collect();
+    assert_eq!(d.run("collage.open", &json!({ "ids": three })).unwrap(), json!({ "room": "collage" }));
+    d.run("collageCanvas.selectNone", &json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(status(&d), "No selection", "nothing selected in the room");
+    let c = d.app_mut().session_mut().unwrap().execute("collage.inspect", &json!({})).unwrap();
+    let placed: Vec<u64> = c["placements"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
+    let names: BTreeMap<u64, String> = ids(&d).into_iter().map(|(n, id)| (id.get(), n)).collect();
+    d.run("collageCanvas.select", &json!({ "items": [0] })).unwrap();
+    d.settle(FRAMES).unwrap();
+    crate::common::shot(&d, "status-collage-one-1400x900");
+    let text = status(&d);
+    assert!(text.starts_with(&format!("{}     June ", names[&placed[0]])) && text.ends_with("400 × 300     100.0 KB"), "one picture: {text}");
+    d.run("collageCanvas.select", &json!({ "items": [0, 1] })).unwrap();
+    d.settle(FRAMES).unwrap();
+    let text = status(&d);
+    assert!(text.starts_with("2 pictures     ") && text.ends_with("200.0 KB on disk"), "two pictures: {text}");
+    d.run("room.select", &json!({ "room": "library" })).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(status(&d), "No selection", "the library's tray, empty");
+}
