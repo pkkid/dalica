@@ -294,7 +294,7 @@ fn keys(app: &mut App, ctx: &egui::Context) {
             })
             .sum()
     });
-    if steps == 0 || ctx.egui_wants_keyboard_input() || !app.state().dialogs.is_empty() {
+    if steps == 0 || ctx.text_edit_focused() || !app.state().dialogs.is_empty() {
         return;
     }
     let Some((_, d)) = soften_draft(app) else { return };

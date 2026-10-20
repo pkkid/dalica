@@ -341,7 +341,9 @@ pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
             })
             .collect()
     });
-    let text_input = ctx.egui_wants_keyboard_input();
+    // A text field with the focus, not any control: a button or a cell reached with Tab keeps the
+    // view's shortcuts (its own Enter, Space and arrows are held back for it, `a11y::keyboard`).
+    let text_input = ctx.text_edit_focused();
     // While a text field has the focus, the view's shortcuts are off (Ctrl+8, Ctrl+A, Ctrl+Z are
     // the field's or nothing): Text input, then Global.
     let view = if text_input { Context::Global } else { context };

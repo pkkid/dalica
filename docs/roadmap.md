@@ -10463,7 +10463,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     codec is left out with the notice; `crates/ui/tests/export_video.rs` (headless): the row is
     live with a video held and disabled without. If the record passes no video codec, the PR names
     `OUT-EXPORT`'s first frames and `OUT-COLLAGE`'s videos as leaving for M15.R.
-- ⬜ **M15.29 `ui`: the window's AccessKit tree, keyboard-only use and scaling**
+- ✅ **M15.29 `ui`: the window's AccessKit tree, keyboard-only use and scaling**
   - after: M15.14, M15.21, M15.22
   - files: `crates/ui/src/a11y.rs`, `crates/ui/src/a11y/**`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/panels/menubar.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/folders/model.rs`, `crates/ui/tests/accessibility.rs`, `crates/ui/tests/keyboard_only.rs`, `crates/ui/tests/scaling.rs`, `docs/ui-layout.md`, `docs/design-system.md`
   - scope: `SYS-A11Y`, with LightCraft's audit ported (`crates/ui-egui/tests/accessibility.rs` at

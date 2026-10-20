@@ -633,7 +633,7 @@ fn minus_key(app: &mut App, ctx: &egui::Context) {
     let presses = ctx.input(|i| {
         i.events.iter().filter(|e| matches!(e, egui::Event::Key { key: egui::Key::Minus, pressed: true, modifiers, .. } if lost(modifiers))).count()
     });
-    if presses == 0 || ctx.egui_wants_keyboard_input() || !app.state().dialogs.is_empty() {
+    if presses == 0 || ctx.text_edit_focused() || !app.state().dialogs.is_empty() {
         return;
     }
     let steps = i32::try_from(presses).unwrap_or(MAX_STEPS).min(MAX_STEPS);

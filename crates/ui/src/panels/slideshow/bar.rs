@@ -283,8 +283,9 @@ fn zoom_slider(ui: &mut Ui, t: &Tokens, zoom: f32) -> Option<f32> {
     let knob = if r.hovered() || r.dragged() { t.overlay_text } else { t.overlay_icon };
     p.circle_filled(pos2(knob_x, y), 6.0, knob);
     widgets::focus_ring(p, t, &r, rect, t.radius);
-    widgets::register(ui.ctx(), ZOOM_SLIDER_ID, Role::Other, "Zoom", Target::Widget(&r), r.dragged());
     r.widget_info(|| egui::WidgetInfo::slider(true, f64::from(zoom), "Zoom"));
+    widgets::access_range(&r, f64::from(zoom), 1.0, f64::from(SLIDE_ZOOM_MAX), 0.1, &format!("{:.0} %", zoom * 100.0));
+    widgets::register(ui.ctx(), ZOOM_SLIDER_ID, Role::Other, "Zoom", Target::Widget(&r), r.dragged());
     let pointer = r.interact_pointer_pos().filter(|_| r.dragged() || r.clicked())?;
     let f = if track.width() > 0.0 { ((pointer.x - track.min.x) / track.width()).clamp(0.0, 1.0) } else { 0.0 };
     let z = 1.0 + f * span;

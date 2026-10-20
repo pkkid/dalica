@@ -171,14 +171,19 @@ pub enum Target<'a> {
 
 /// Registers the automation id `id` for this pass (`control-protocol.md` §7): the one helper every
 /// widget and panel uses, never [`registry::register`] by hand. The rect is clipped to what is
-/// visible; a widget scrolled entirely out of sight is not listed. `active` is the toggled, selected
-/// or open state.
+/// visible; a widget scrolled entirely out of sight is not listed (one that gains the keyboard focus
+/// is scrolled into view). `active` is the toggled, selected or open state.
 ///
 /// For a [`Target::Widget`] it also fills in the AccessKit node of the widget (see the module
 /// docs): call it after `Response::widget_info`, whose finer role and state it keeps.
 pub fn register(ctx: &Context, id: &str, role: Role, label: &str, target: Target<'_>, active: bool) {
     let info = match target {
         Target::Widget(r) => {
+            // The keyboard's focus is always shown: a widget scrolled out of sight that gains it
+            // (Tab into a dialog body's lower rows) is scrolled into view.
+            if r.gained_focus() {
+                r.scroll_to_me(None);
+            }
             if !r.interact_rect.is_positive() {
                 return;
             }

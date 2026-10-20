@@ -346,7 +346,10 @@ fn picker<V: Parts>(ui: &mut Ui, t: &Tokens, id: &str, hint: &str, width: f32, v
             state.store(ui.ctx(), focus);
         }
     }
-    let field = TextField::new(id, hint, width).show(ui, t, &mut text);
+    // Wide enough for a date or time in the font in use (the widths are the Small font's).
+    let digits: String = hint.chars().map(|c| if c.is_alphabetic() { '0' } else { c }).collect();
+    let fits = ui.painter().layout_no_wrap(digits, crate::fonts::regular(t.body), t.text).size().x + 18.0;
+    let field = TextField::new(id, hint, width.max(fits)).show(ui, t, &mut text);
     let read = V::read(&text);
     if field.response.changed()
         && let Some(v) = read

@@ -410,8 +410,10 @@ fn slider(ui: &mut Ui, t: &Tokens, rect: Rect, angle: f32) -> Option<f32> {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         widgets::tooltip_now(&resp, t, &angle_text(shown), None);
     }
-    widgets::register(ui.ctx(), SLIDER_ID, Role::Other, "Straighten angle", Target::Widget(&resp), resp.dragged());
     resp.widget_info(|| egui::WidgetInfo::slider(true, f64::from(shown), "Straighten angle"));
+    let max = f64::from(STRAIGHTEN_MAX);
+    widgets::access_range(&resp, f64::from(shown), -max, max, f64::from(STEP), &angle_text(shown));
+    widgets::register(ui.ctx(), SLIDER_ID, Role::Other, "Straighten angle", Target::Widget(&resp), resp.dragged());
     out
 }
 

@@ -428,6 +428,21 @@ underneath, pushed up by the next header).
   - **Keys**: Tab moves the focus in the order widgets are drawn and reaches every one that takes
     it; Enter and Space activate the focused widget that takes clicks. Click-catching surfaces (an
     overlay bar, a popup's body, a dialog's backdrop) take no focus.
+- **The window** (M15.29, `ui-layout.md` §12; `crates/ui/tests/accessibility.rs`,
+  `keyboard_only.rs`, `scaling.rs`): what the widgets give is reshaped into the window's tree at
+  the end of each pass (`ui::a11y`, an egui plugin; no work while AccessKit is off): each region a
+  named landmark, the light table's visible cells list items with their state in a named group per
+  section, the tree's rows with their level, open state and count, the canvases named images. The
+  audit (adapted from LightCraft's) runs over the library, the edit view on a photo and on a clip,
+  a slideshow, the viewer, both rooms and every dialog. Tab follows reading order region by region
+  (not egui's drawing order: a dialog draws its buttons right to left); F10 and a lone Alt open the
+  in-window menu bar. A painted slider of the window that is no `ui-kit` slider still gives its
+  range and value as text (`access_range`: the Straighten angle, the slideshow's zoom). A widget
+  that gains the keyboard focus out of sight is scrolled into view (`register`); the view's
+  shortcuts go quiet only while a text field has the focus, never for a focused button or cell.
+- **Scaling**: at UI scale 150 % with the Large font nothing in the window, the edit view or a
+  dialog is cut at its side at 1400 × 900 pixels; a field or label sized in points for the Small
+  font must grow with its text (the date and time fields widen to fit a date in the font in use).
 - **The texts `ui-kit` says itself** (month and weekday names, the colour picker's labels, the text
   menu, the names of the small buttons inside widgets) come from one table, `ui_kit::text`
   (`Text`, `Texts`), set per `egui::Context` by the app (`text::set`), English until it is.

@@ -134,6 +134,17 @@ impl Row {
         }
     }
 
+    /// Its level for a screen reader (AccessKit counts from 1): its tree depth plus one.
+    pub fn level(&self) -> usize {
+        self.depth.saturating_add(1)
+    }
+
+    /// Whether its rows below are shown, for a row that has rows below it (tree mode); `None`
+    /// for a row with none, which a screen reader announces as neither.
+    pub fn expanded_state(&self) -> Option<bool> {
+        self.has_children.then_some(self.expanded)
+    }
+
     /// The person of a person's row.
     pub fn person(&self) -> Option<crate::state::PersonKey> {
         match self.album {
@@ -485,6 +496,13 @@ mod tests {
             ],
             sections: vec![],
         }
+    }
+
+    #[test]
+    fn a_row_says_its_level_from_one_and_whether_it_is_expanded_only_with_rows_below() {
+        let m = Model::build(&tree(), Heights::default());
+        let rows: Vec<(usize, Option<bool>)> = (0..m.items.len()).filter_map(|i| m.row(i)).map(|r| (r.level(), r.expanded_state())).collect();
+        assert_eq!(rows, [(1, Some(true)), (2, Some(true)), (3, Some(true)), (4, None), (2, None)]);
     }
 
     #[test]
