@@ -181,12 +181,30 @@ impl Fx {
     }
 }
 
+/// Frames until every cell the light table draws shows its own thumbnail (none scaled up, sketched,
+/// a placeholder or failed), at most a minute: a fingerprint whose rect reaches over cells then
+/// never catches one still loading (macOS's runner did, M15.R).
+fn every_cell_covered(d: &mut Driver) {
+    let end = Instant::now() + Duration::from_secs(60);
+    loop {
+        d.settle(FRAMES).unwrap();
+        let c = d.app().panels().unwrap().thumbnails.counts();
+        if c.covered_cells > 0 && c.upscaled_cells + c.sketch_cells + c.placeholder_cells + c.failed_cells == 0 {
+            return;
+        }
+        assert!(Instant::now() < end, "the cells never all showed their thumbnails: {c:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 /// The notice gives the number of folders once, stays until OK, and is not given again, not even
 /// after a restart; it matches its fingerprint at 1400 × 900 and fits 900 × 600.
 #[test]
 fn the_notice_shows_once_with_the_count_and_not_after_a_restart() {
     let mut fx = fixture();
     let id = fx.notice().expect("the notice shows after the first scan");
+    // The notice's rect reaches over the cells drawn under it: their thumbnails in first.
+    every_cell_covered(&mut fx.d);
     check_region(&fx.d, &id, "legacy-notice-1400x900");
     check_small_and_back(&mut fx.d, &id);
     fx.small_shot("legacy-notice-900x600");
