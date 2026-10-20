@@ -246,6 +246,8 @@ fn view_library(app: &mut App, params: &Value) -> Result<Value, CmdError> {
         let table = Table::of(app)?;
         table.reveal(table.section_of(id)?, id)
     });
+    // Back to one photo too: A│B's compared photo never outlives the photo it is compared with.
+    super::compare::one_photo(app);
     let state = app.state_mut();
     state.view = View::Library;
     state.edit.close_tools();

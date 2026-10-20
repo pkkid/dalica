@@ -479,4 +479,19 @@ mod tests {
         assert_eq!(app.run("edit.showOriginal", &json!({ "on": false })).unwrap(), json!({ "showOriginal": false }));
         assert!(matches!(app.run("edit.compare", &json!({ "mode": "two" })), Err(CmdError::Disabled(m)) if m == NO_SECOND));
     }
+
+    /// Leaving A│B for the library (Esc, Ctrl+1, a notice's Show Folder) goes back to one photo:
+    /// no compared photo is left without the photo it was compared with.
+    #[test]
+    fn leaving_two_photos_for_the_library_drops_the_compared_photo() {
+        let (_dir, mut app, ids) = editing_app(3);
+        app.run("edit.compare", &json!({ "mode": "two" })).unwrap();
+        assert!(app.state().edit.second.is_some());
+        app.run("view.library", &json!({})).unwrap();
+        let edit = &app.state().edit;
+        assert_eq!((edit.photo, edit.second, edit.compare, edit.focus), (None, None, Compare::One, Side::Left));
+        assert_eq!(edit.check(), Ok(()));
+        app.run("view.edit", &json!({ "id": ids[1] })).unwrap();
+        assert_eq!((app.state().edit.compare, app.state().edit.second), (Compare::One, None), "the edit view opens on one photo");
+    }
 }
