@@ -279,10 +279,41 @@ fn tab_walks_the_windows_controls_region_by_region_in_reading_order_and_shift_ta
     assert_eq!(reversed, forward, "Shift+Tab is Tab backwards");
 }
 
+/// Plants `home` with `folders` empty folders as the session's home (its only standard place
+/// that exists), so the Folder Manager's tree does not depend on the machine's folders.
+fn plant_home(d: &mut Driver, home: &Path, folders: usize) {
+    for i in 0..folders {
+        std::fs::create_dir_all(home.join(format!("Folder {i:03}"))).unwrap();
+    }
+    d.app_mut().session_mut().unwrap().set_places(dalica_scan::Places::under(home), Vec::new());
+}
+
+/// Expands the open Folder Manager's Home root and waits until its `folders` folders are listed.
+fn expand_home(d: &mut Driver, home: &Path, folders: usize) {
+    use dalica_ui::dialogs::folder_manager::{expand_id, row_id};
+    d.click(&expand_id(home, home)).unwrap();
+    let rows = |d: &Driver| d.widgets().iter().filter(|w| w.role == Role::TreeRow).count();
+    for _ in 0..400 {
+        if rows(d) > 10 {
+            break;
+        }
+        d.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    d.settle(FRAMES).unwrap();
+    assert!(rows(d) > 10, "Home's {folders} folders are listed");
+    let last = home.join(format!("Folder {:03}", folders - 1));
+    assert!(d.widgets().iter().all(|w| w.id != row_id(home, &last)), "the tree is taller than its well");
+}
+
 #[test]
 fn tab_cycles_every_dialogs_controls_in_reading_order_without_leaving_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut d = demo(dir.path());
+    // The Folder Manager's tree taller than its well, whatever folders the machine has: a planted
+    // home of 300 folders, expanded once the dialog opens.
+    let home = dir.path().join("home");
+    plant_home(&mut d, &home, 300);
     let first = d.app().session().unwrap().library().photos().next().unwrap().id;
     d.run("select.set", &json!({ "ids": [first.get()] })).unwrap();
     let mut problems = Vec::new();
@@ -296,6 +327,9 @@ fn tab_cycles_every_dialogs_controls_in_reading_order_without_leaving_it() {
         d.settle(FRAMES).unwrap();
         if d.state().dialogs.last().map(|x| x.kind) != Some(kind) {
             continue;
+        }
+        if kind == DialogKind::FolderManager {
+            expand_home(&mut d, &home, 300);
         }
         let Some(dialog) = d.widgets().into_iter().find(|w| w.id == format!("dialog:{}", kind.name())) else {
             problems.push(format!("{kind:?}: not drawn"));
@@ -480,4 +514,132 @@ fn in_the_edit_view_a_focused_control_keeps_the_views_shortcuts() {
     d.settle(FRAMES).unwrap();
     assert!(d.app().session().unwrap().library().photo(first).unwrap().star, "Ctrl+8 starred the photo with a tool button focused");
     assert_eq!(focused(&d), "tool:crop");
+}
+
+/// The library tree's row with photos that Home (`first`) or End goes to, by automation id.
+fn end_row(d: &Driver, first: bool) -> String {
+    let model = dalica_ui::panels::folders::current_model(d.ctx());
+    model.step(None, first).and_then(|i| model.row(i)).map(|r| r.id.clone()).unwrap()
+}
+
+/// Whether the widget `id` is drawn whole inside the tree pane.
+fn in_pane(d: &Driver, id: &str) -> bool {
+    let pane = widget(d, "region:tree").rect;
+    d.widgets().iter().any(|w| w.id == id && w.rect[1] >= pane[1] - 0.5 && w.rect[1] + w.rect[3] <= pane[1] + pane[3] + 0.5)
+}
+
+#[test]
+fn a_tree_taller_than_its_pane_is_one_tab_stop_whose_arrows_reach_every_row() {
+    use dalica_engine::synthetic::{self, Spec};
+    let dir = tempfile::tempdir().unwrap();
+    let s = synthetic::open(dir.path(), &Spec::new(1_500, 150, synthetic::SEED), Arc::new(dalica_core::SystemClock)).unwrap();
+    let mut d = new_driver(App::new(Some(s)), LARGE.0, LARGE.1, 1.0);
+    d.settle(FRAMES).unwrap();
+    let info = dalica_ui::panels::folders::info(d.ctx());
+    assert!(info.height > 3.0 * info.view_h, "the tree is taller than its pane: {info:?}");
+    let is_row = |d: &Driver, id: &str| d.widgets().iter().any(|w| w.id == id && w.role == Role::TreeRow);
+
+    // Tab enters the tree once, and comes round.
+    let stops = walk(&mut d, "Tab");
+    let rows: Vec<&str> = stops.iter().map(|s| s.0.as_str()).filter(|s| is_row(&d, s)).collect();
+    assert_eq!(rows.len(), 1, "the tree's rows are one stop: {rows:?}");
+    let first = end_row(&d, true);
+    assert_eq!(rows[0], first, "nothing selected: the first row");
+
+    // Into the tree: End and Home reach its last and first rows, scrolled into view.
+    for _ in 0..80 {
+        press(&mut d, "Tab");
+        if focused(&d) == first {
+            break;
+        }
+    }
+    assert_eq!(focused(&d), first);
+    press(&mut d, "End");
+    let last = end_row(&d, false);
+    assert_eq!(focused(&d), last, "End: the last row");
+    assert!(in_pane(&d, &last), "the last row is scrolled into view");
+    assert!(dalica_ui::panels::folders::info(d.ctx()).offset > 0.0);
+    press(&mut d, "Home");
+    assert_eq!(focused(&d), first, "Home: the first row");
+    assert_eq!(dalica_ui::panels::folders::info(d.ctx()).offset, 0.0);
+    press(&mut d, "Down");
+    let model = dalica_ui::panels::folders::current_model(d.ctx());
+    let second = model.step(model.step(None, true), true).and_then(|i| model.row(i)).unwrap();
+    assert_eq!(focused(&d), second.id, "Down: the next row");
+    assert_eq!(d.state().selection.section, second.section, "the selection follows the focus");
+    for _ in 0..40 {
+        press(&mut d, "Down");
+    }
+    let deep = focused(&d);
+    assert!(is_row(&d, &deep) && in_pane(&d, &deep), "Down walks past the pane's first screen: {deep}");
+
+    // Tab leaves the tree; with the tree scrolled back to the top, Shift+Tab comes back to the
+    // row, scrolled into view again.
+    press(&mut d, "Tab");
+    assert!(!is_row(&d, &focused(&d)), "Tab left the tree for {}", focused(&d));
+    d.scroll(Some("region:tree"), egui::vec2(0.0, 20_000.0)).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(dalica_ui::panels::folders::info(d.ctx()).offset, 0.0);
+    assert!(!in_pane(&d, &deep), "{deep} is scrolled out of sight");
+    press(&mut d, "Shift+Tab");
+    assert_eq!(focused(&d), deep, "Shift+Tab: back to the tree's row");
+    assert!(in_pane(&d, &deep), "brought into view");
+}
+
+#[test]
+fn the_folder_managers_tree_is_one_tab_stop_whose_arrows_walk_and_fold_it() {
+    use crate::common::try_widget;
+    use dalica_ui::dialogs::folder_manager::row_id;
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = demo(dir.path());
+    let home = dir.path().join("home");
+    plant_home(&mut d, &home, 300);
+    dalica_ui::dialogs::open(d.app_mut(), Dialog::new(DialogKind::FolderManager)).unwrap();
+    d.settle(FRAMES).unwrap();
+    expand_home(&mut d, &home, 300);
+    let root = row_id(&home, &home);
+    let folder = |i: usize| row_id(&home, &home.join(format!("Folder {i:03}")));
+    for _ in 0..40 {
+        press(&mut d, "Tab");
+        if focused(&d) == root {
+            break;
+        }
+    }
+    assert_eq!(focused(&d), root, "Tab reaches the tree at its first row");
+    press(&mut d, "Down");
+    assert_eq!(focused(&d), folder(0));
+    press(&mut d, "End");
+    assert_eq!(focused(&d), folder(299), "End: the last folder, scrolled into view");
+    assert!(try_widget(&d, &folder(299)).is_some());
+    press(&mut d, "Left");
+    assert_eq!(focused(&d), root, "Left on a closed folder: its parent");
+    press(&mut d, "Left");
+    assert!(try_widget(&d, &folder(0)).is_none(), "Left on an open folder collapses it");
+    assert_eq!(focused(&d), root);
+    press(&mut d, "Right");
+    d.settle(FRAMES).unwrap();
+    assert!(try_widget(&d, &folder(0)).is_some(), "Right expands it again");
+    press(&mut d, "Right");
+    assert_eq!(focused(&d), folder(0), "Right on an open folder: its first subfolder");
+    let selected = d.state().dialogs.last().map(|x| dalica_ui::dialogs::folder_manager::draft::Draft::read(&x.fields).selected);
+    assert_eq!(selected, Some(Some(home.join("Folder 000").to_string_lossy().into_owned())), "the selection follows the focus");
+    // A screen reader is told the focused row: a tree item in the tree, with its level, place and
+    // state.
+    let t = crate::accessibility::tree(&mut d);
+    let (id, node) = t.widget(&d, &folder(0)).unwrap();
+    assert_eq!(t.update.focus, id, "the focused row is the focused node");
+    assert_eq!(
+        (node.role(), node.level(), node.position_in_set(), node.size_of_set()),
+        (egui::accesskit::Role::TreeItem, Some(2), Some(1), Some(300))
+    );
+    assert_eq!(node.is_selected(), Some(true));
+    assert_eq!(t.ancestor(id, egui::accesskit::Role::Tree).and_then(|n| n.label()), Some("Folders"));
+    let (_, root_node) = t.widget(&d, &root).unwrap();
+    assert_eq!((root_node.level(), root_node.is_expanded()), (Some(1), Some(true)));
+    // Tab leaves the tree for the radios; Shift+Tab comes back to the same row.
+    press(&mut d, "Tab");
+    assert!(!focused(&d).starts_with("choice:dialog.folder/"), "Tab left the tree for {}", focused(&d));
+    press(&mut d, "Shift+Tab");
+    assert_eq!(focused(&d), folder(0));
+    d.app_mut().state_mut().dialogs.clear();
 }

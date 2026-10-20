@@ -12,8 +12,12 @@
 //!   video's duration and the whole caption as the description; selected), inside a named group per
 //!   section (the section's title). Cells off screen are never drawn, so never in the tree: the tree
 //!   grows with the window, never with the library.
-//! - **The tree**: its visible rows say their level, whether they are expanded (rows with rows
-//!   below) and their photo count.
+//! - **The trees**: the library tree's visible rows are tree items inside a tree per group (named
+//!   after the group), the Folder Manager's inside one tree; each row says its level, whether it is
+//!   expanded (rows with rows below), its place among its siblings (position and set size: the
+//!   rows out of view are not in the tree) and, in the library tree, its photo count. The tree is
+//!   one Tab stop: the focused row is the item a screen reader announces
+//!   ([`keyboard`]).
 //! - **Canvases**: the edit view's photo, the other photo of a comparison, the collage, the
 //!   slideshow's and the viewer's photo are images named after what they show, with their state
 //!   (zoom, the open tool, the photo's place in the show). The map keeps `ui-kit`'s group with its
@@ -84,9 +88,10 @@ pub fn describe(app: &App, ctx: &Context) {
     });
     let mut shape = Shape::default();
     cells(app, &widgets, &mut shape);
-    tree_rows(ctx, &widgets, &mut shape);
+    let trees = tree_rows(ctx, &widgets, &mut shape);
     canvases(app, &widgets, &mut shape);
-    let sections = sections(app, &widgets);
+    let mut sections = sections(app, &widgets);
+    sections.extend(trees);
     let landmarks = landmarks(app, ctx, &widgets, &background);
     shape.batches = vec![sections, landmarks];
     ctx.data_mut(|d| d.insert_temp(shape_key(), Arc::new(shape)));
@@ -153,24 +158,59 @@ fn cells(app: &App, widgets: &[WidgetInfo], shape: &mut Shape) {
     }
 }
 
-/// The tree pane's visible rows: level, expanded, and the photo count.
-fn tree_rows(ctx: &Context, widgets: &[WidgetInfo], shape: &mut Shape) {
+/// The tree pane's visible rows: level, expanded, their place among their siblings and the photo
+/// count; and the trees round them: one per group of the library tree, one for the Folder
+/// Manager's (whose rows set their own state as they are drawn).
+fn tree_rows(ctx: &Context, widgets: &[WidgetInfo], shape: &mut Shape) -> Vec<Wrap> {
     use crate::panels::folders::{self, model::Kind as Item};
-    let rows: HashMap<&str, Id> = widgets.iter().filter(|w| w.role == Kind::TreeRow).filter_map(|w| Some((w.id.as_str(), w.egui_id?))).collect();
+    let rows: HashMap<&str, (Id, Rect)> =
+        widgets.iter().filter(|w| w.role == Kind::TreeRow).filter_map(|w| Some((w.id.as_str(), (w.egui_id?, rect_of(w))))).collect();
     if rows.is_empty() {
-        return;
+        return Vec::new();
     }
     let model = folders::current_model(ctx);
     let info = folders::info(ctx);
+    let mut groups: Vec<(dalica_library::Group, Vec<NodeId>, Rect)> = Vec::new();
     for i in model.visible(info.offset, info.view_h) {
         let Some(Item::Row(r)) = model.items.get(i).map(|it| &it.kind) else { continue };
-        let Some(id) = rows.get(r.id.as_str()) else { continue };
+        let Some((id, rect)) = rows.get(r.id.as_str()) else { continue };
         let mut p = Patch::new(node(*id));
         p.level = Some(r.level());
         p.expanded = r.expanded_state();
+        p.set = model.set_of(i);
         p.description = Some(tln!(r.count, "{n} photo", "{n} photos"));
         shape.patches.push(p);
+        let Some(group) = model.group_of(i) else { continue };
+        match groups.iter_mut().find(|g| g.0 == group) {
+            Some(g) => {
+                g.1.push(node(*id));
+                g.2 = g.2.union(*rect);
+            }
+            None => groups.push((group, vec![node(*id)], *rect)),
+        }
     }
+    let mut out: Vec<Wrap> = groups
+        .into_iter()
+        .map(|(group, members, rect)| Wrap {
+            id: node(Id::new(("dalica.a11y.tree", group))),
+            role: Role::Tree,
+            label: folders::model::group_name(group),
+            bounds: Some(bounds(rect)),
+            members,
+        })
+        .collect();
+    let (members, rects): (Vec<NodeId>, Vec<Rect>) =
+        rows.iter().filter(|(id, _)| id.starts_with(crate::dialogs::folder_manager::ROW_PREFIX)).map(|(_, (id, r))| (node(*id), *r)).unzip();
+    if let Some(rect) = rects.into_iter().reduce(Rect::union) {
+        out.push(Wrap {
+            id: node(Id::new("dalica.a11y.tree.folderManager")),
+            role: Role::Tree,
+            label: tl!("Folders"),
+            bounds: Some(bounds(rect)),
+            members,
+        });
+    }
+    out
 }
 
 fn zoom_text(zoom: Zoom) -> String {

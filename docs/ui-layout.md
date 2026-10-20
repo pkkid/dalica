@@ -529,6 +529,17 @@ Every part of the window is usable without a pointer and described to a screen r
   regions), and within a region in reading order: rows top to bottom, each left to right. They
   wrap round. Under a dialog they cycle the dialog's controls only, in reading order (a field,
   then the options under it, then the buttons left to right), never the window under it.
+- **A tree or a list is one Tab stop** (the library tree's rows, the Folder Manager's tree and
+  its watched folders; the light table's cells): only the rows in view are drawn, so each row
+  cannot be a stop of its own. Tab lands on the *current* row (the selected one, else the row last
+  focused, else the first), scrolling it into view; the group headers of the library tree and the
+  disclosure triangles' clicks stay as they are, the triangles are no stops. In a focused tree ↑/↓
+  move to the previous or next row, Home and End to the first and last, → expands a row (an
+  expanded one: goes to its first row below), ← collapses it (a collapsed one: goes to its
+  parent), Enter and Space act on it (the library tree: as a click; the Folder Manager: expand or
+  collapse); the selection follows the focus. Tab goes on to the next control, Shift+Tab back.
+  The light table's stop is the focused cell, else the first selected one in view, else the first
+  in view.
 - **A focused control** takes its own Enter and Space (a button presses, a toggle flips) and its
   arrows (a slider moves, a row group steps); the view's shortcuts keep working (Ctrl+8 stars),
   except while a text field has the focus. **A focused cell** of the light table leaves the
@@ -544,8 +555,10 @@ Every part of the window is usable without a pointer and described to a screen r
   the photo viewer one main landmark each. The light table's visible cells are list items named by
   the file name, selected or not, with "Starred", "Edited", "Video, 1:23" and the whole caption (a
   long one is elided under the cell, never in the description), inside a group per section named by
-  its title. The tree's rows say their level, whether they are open (rows with rows below) and
-  "20 photos". The edit view's photo, the compared photo, the collage, the slideshow's photo and
+  its title. The library tree's rows are tree items inside a tree per group named after it, the
+  Folder Manager's inside a tree named Folders; a row says its level, whether it is open (rows with
+  rows below), its place among its siblings ("3 of 40": the rows out of view are not in the tree)
+  and, in the library tree, "20 photos"; the focused row is the focused item. The edit view's photo, the compared photo, the collage, the slideshow's photo and
   the viewer's photo are images named by what they show, with their zoom, the open tool or the
   photo's place in the show; the map is a group with its zoom (its markers are controls inside
   it). Dialogs are modal dialogs titled as they are drawn. Cells and rows off screen are never

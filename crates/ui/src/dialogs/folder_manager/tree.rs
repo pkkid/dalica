@@ -1,6 +1,14 @@
 //! The Folder Manager's folder tree: its rows, flattened from the roots and the expanded folders'
 //! listings, and drawn in a well that scrolls with the wheel (only the rows in view are laid out).
 //! Each row: disclosure triangle, state icon, folder icon (a root's own icon), name.
+//!
+//! **Keyboard** (`crate::a11y::keyboard`): the tree is one Tab stop, its *current* row (the row
+//! last focused or clicked, else the selected one, else the first), brought into view as it gains
+//! the focus. With it focused, ↑/↓ go to the previous or next folder, Home and End to the first and
+//! last, → expands a folder (expanded: goes to its first subfolder), ← collapses it (collapsed:
+//! goes to its parent), Enter and Space expand or collapse it; the selection follows the focus.
+//! For a screen reader each row is a tree item with its level, whether it is expanded and its place
+//! among its siblings.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -11,7 +19,7 @@ use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
 use dalica_ui_kit::{Icon, Tokens, fonts};
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Align2, Color32, CornerRadius, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Id, Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 use super::draft::Draft;
 use super::listing::{self, Listing, Root};
@@ -120,6 +128,86 @@ impl Walk<'_> {
     }
 }
 
+/// The keyboard's place in the tree between frames: the current row (its index and id, the index
+/// checked against the id each frame) and the well's scroll offset and height as last drawn.
+#[derive(Clone, Debug, Default)]
+struct Nav {
+    current: Option<(usize, String)>,
+    keyed: bool,
+    offset: f32,
+    view_h: f32,
+}
+
+fn nav_id() -> Id {
+    Id::new("dialog:folderManager/tree/nav")
+}
+
+/// Forgets the keyboard's place: the dialog has just opened.
+pub fn clear(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<Nav>(nav_id()));
+}
+
+fn is_folder(rows: &[Row], i: usize) -> bool {
+    rows.get(i).is_some_and(|r| matches!(r.kind, Kind::Folder { .. }))
+}
+
+/// Where `key` takes the keyboard from row `at`: the row it goes to, and whether it expands or
+/// collapses `at`.
+fn step(rows: &[Row], at: usize, key: Key) -> (Option<usize>, bool) {
+    let n = rows.len();
+    let Some(row) = rows.get(at) else { return (None, false) };
+    let (open, leaf) = match row.kind {
+        Kind::Folder { open, leaf } => (open, leaf),
+        _ => (false, true),
+    };
+    match key {
+        Key::ArrowDown => ((at.saturating_add(1)..n).find(|i| is_folder(rows, *i)), false),
+        Key::ArrowUp => ((0..at.min(n)).rev().find(|i| is_folder(rows, *i)), false),
+        Key::Home => ((0..n).find(|i| is_folder(rows, *i)), false),
+        Key::End => ((0..n).rev().find(|i| is_folder(rows, *i)), false),
+        Key::ArrowRight if !open && !leaf => (None, true),
+        Key::ArrowRight if open => (Some(at + 1).filter(|i| is_folder(rows, *i) && rows.get(*i).is_some_and(|c| c.depth > row.depth)), false),
+        Key::ArrowLeft if open => (None, true),
+        Key::ArrowLeft => ((0..at.min(n)).rev().find(|i| is_folder(rows, *i) && rows.get(*i).is_some_and(|p| p.depth < row.depth)), false),
+        Key::Enter | Key::Space => (None, !leaf),
+        _ => (None, false),
+    }
+}
+
+/// Each row's place among its siblings (1-based position, set size): the folders at its depth under
+/// the same parent. Spinner and message rows are in no set.
+fn sibling_sets(rows: &[Row]) -> Vec<(usize, usize)> {
+    let mut out = vec![(0, 0); rows.len()];
+    let mut open: Vec<Vec<usize>> = Vec::new();
+    let close = |out: &mut Vec<(usize, usize)>, set: Vec<usize>| {
+        let size = set.len();
+        for (k, i) in set.into_iter().enumerate() {
+            if let Some(p) = out.get_mut(i) {
+                *p = (k + 1, size);
+            }
+        }
+    };
+    for (i, row) in rows.iter().enumerate() {
+        if !matches!(row.kind, Kind::Folder { .. }) {
+            continue;
+        }
+        let depth = row.depth.min(MAX_DEPTH);
+        while open.len() > depth + 1 {
+            if let Some(set) = open.pop() {
+                close(&mut out, set);
+            }
+        }
+        open.resize_with(depth + 1, Vec::new);
+        if let Some(set) = open.get_mut(depth) {
+            set.push(i);
+        }
+    }
+    for set in open {
+        close(&mut out, set);
+    }
+    out
+}
+
 /// What the user did in the tree this frame (indices into the rows).
 #[derive(Debug, Default)]
 pub struct Out {
@@ -169,12 +257,62 @@ pub fn show(
         .max_height(inner.height())
         .auto_shrink([false, false])
         .scroll_source(egui::scroll_area::ScrollSource::MOUSE_WHEEL);
+    let ctx = ui.ctx().clone();
+    let mut nav = ctx.data(|d| d.get_temp::<Nav>(nav_id())).unwrap_or_default();
+    // The current row: the one last current while it is still there, else the selected one, else
+    // the first folder. (Found by a walk only when the rows changed under it.)
+    let kept = nav
+        .current
+        .as_ref()
+        .and_then(|(i, id)| if rows.get(*i).is_some_and(|r| r.id() == *id) { Some(*i) } else { rows.iter().position(|r| r.id() == *id) });
+    let picked = || selected.and_then(|s| rows.iter().position(|r| matches!(r.kind, Kind::Folder { .. }) && r.path.to_string_lossy() == s));
+    let mut current = scroll_to.or(kept).or_else(picked).or_else(|| (0..rows.len()).find(|i| is_folder(rows, *i)));
+    let row_egui_id = |i: usize| rows.get(i).map(|r| Id::new(r.id()));
+    let keyboard = current.is_some() && ctx.memory(|m| m.focused()) == current.and_then(row_egui_id);
+    // Where the keyboard goes: the keys a focused row takes (`crate::a11y::keyboard` keeps them
+    // from the shortcuts and the dialog's buttons).
+    let mut reveal = keyboard && !nav.keyed;
+    if keyboard && let Some(at) = current {
+        const KEYS: [Key; 8] = [Key::ArrowDown, Key::ArrowUp, Key::Home, Key::End, Key::ArrowRight, Key::ArrowLeft, Key::Enter, Key::Space];
+        for key in KEYS {
+            if !ui.input_mut(|i| i.consume_key(Modifiers::NONE, key)) {
+                continue;
+            }
+            let (to, toggle) = step(rows, at, key);
+            if toggle {
+                out.toggled = Some(at);
+            }
+            if let Some(to) = to {
+                current = Some(to);
+                out.clicked = Some(to);
+                reveal = true;
+                if let Some(id) = row_egui_id(to) {
+                    ctx.memory_mut(|m| m.request_focus(id));
+                }
+            }
+            break;
+        }
+    }
     if let Some(i) = scroll_to {
         let y = (i as f32 * row_h - (inner.height() - row_h) / 2.0).max(0.0);
         area = area.vertical_scroll_offset(y);
+    } else if reveal && let Some(i) = current {
+        // The least scroll that shows the row whole.
+        let (top, view_h) = (i as f32 * row_h, nav.view_h.max(row_h));
+        let y = if top < nav.offset {
+            top
+        } else if top + row_h > nav.offset + view_h {
+            top + row_h - view_h
+        } else {
+            nav.offset
+        };
+        area = area.vertical_scroll_offset(y.max(0.0));
     }
+    nav.keyed = keyboard;
+    let sets = if crate::a11y::on(&ctx) { sibling_sets(rows) } else { Vec::new() };
+    let mut stop_at = None;
     let time = ui.input(|i| i.time) as f32;
-    area.show_rows(&mut child, row_h, rows.len(), |ui, range| {
+    let shown = area.show_rows(&mut child, row_h, rows.len(), |ui, range| {
         let w = ui.available_width();
         for i in range {
             let Some(row) = rows.get(i) else { break };
@@ -184,7 +322,12 @@ pub fn show(
             match &row.kind {
                 Kind::Folder { open, leaf } => {
                     let id = row.id();
-                    let r = ui.interact(rect, Id::new(&id), Sense::click());
+                    // Only the current row takes the focus: the tree is one Tab stop.
+                    let is_current = current == Some(i);
+                    let r = ui.interact(rect, Id::new(&id), crate::a11y::keyboard::row_sense(is_current));
+                    if is_current {
+                        stop_at = Some(rect);
+                    }
                     let path_key = row.path.to_string_lossy();
                     let is_selected = selected == Some(path_key.as_ref());
                     if is_selected {
@@ -196,7 +339,8 @@ pub fn show(
                     if !leaf {
                         let glyph = Rect::from_center_size(disc.center(), vec2(DISCLOSURE, DISCLOSURE));
                         icons::paint(p, glyph, if *open { Icon::ChevronDown } else { Icon::ChevronRight }, t.icon);
-                        let d = ui.interact(disc, Id::new(expand_id(&row.root, &row.path)), Sense::click());
+                        // A click expands; the keyboard expands with → and ← on the row.
+                        let d = ui.interact(disc, Id::new(expand_id(&row.root, &row.path)), Sense::CLICK);
                         let label = if *open { "Collapse" } else { "Expand" };
                         widgets::register(ui.ctx(), &expand_id(&row.root, &row.path), Role::Button, label, Target::Widget(&d), *open);
                         if d.clicked() {
@@ -216,11 +360,27 @@ pub fn show(
                     let color = if is_selected { t.text } else { t.text_label };
                     let g = one_line(ui, &row.name, fonts::regular(t.body), color, rect.max.x - tx - LEFT);
                     p.galley(pos2(tx, rect.center().y - g.size().y / 2.0).round(), g, color);
+                    widgets::focus_ring(p, t, &r, rect.shrink(2.0), 0);
+                    let set = sets.get(i).copied().filter(|s| s.1 > 0);
+                    widgets::access(&r, |node| {
+                        node.set_role(egui::accesskit::Role::TreeItem);
+                        node.clear_toggled();
+                        node.set_selected(is_selected);
+                        if !leaf {
+                            node.set_expanded(*open);
+                        }
+                        node.set_level(row.depth.saturating_add(1));
+                        if let Some((position, size)) = set {
+                            node.set_position_in_set(position);
+                            node.set_size_of_set(size);
+                        }
+                    });
                     widgets::register(ui.ctx(), &id, Role::TreeRow, &row.name, Target::Widget(&r), is_selected);
                     if r.double_clicked() && !leaf {
                         out.toggled = Some(i);
                     } else if r.clicked() {
                         out.clicked = Some(i);
+                        current = Some(i);
                     }
                 }
                 Kind::Loading => {
@@ -240,5 +400,19 @@ pub fn show(
             }
         }
     });
+    nav.offset = shown.state.offset.y;
+    nav.view_h = shown.inner_rect.height();
+    nav.current = current.and_then(|i| Some((i, rows.get(i)?.id())));
+    // The tree's one Tab stop, where it reads: its row, or the edge of the well it is scrolled past.
+    if let Some(i) = current
+        && let Some(id) = row_egui_id(i)
+    {
+        let at = stop_at.unwrap_or_else(|| {
+            let y = if (i as f32) * row_h < nav.offset { inner.min.y } else { inner.max.y - row_h };
+            Rect::from_min_size(pos2(inner.min.x, y), vec2(inner.width(), row_h))
+        });
+        crate::a11y::keyboard::one_stop(&ctx, id, ui.layer_id(), at);
+    }
+    ctx.data_mut(|d| d.insert_temp(nav_id(), nav));
     out
 }

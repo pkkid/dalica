@@ -32,11 +32,14 @@ pub struct Patch {
     pub selected: Option<bool>,
     pub level: Option<usize>,
     pub expanded: Option<bool>,
+    /// Its place among its siblings: the 1-based position and the set's size (a tree's row, whose
+    /// siblings are not all drawn).
+    pub set: Option<(usize, usize)>,
 }
 
 impl Patch {
     pub fn new(node: NodeId) -> Patch {
-        Patch { node, role: None, label: None, value: None, description: None, selected: None, level: None, expanded: None }
+        Patch { node, role: None, label: None, value: None, description: None, selected: None, level: None, expanded: None, set: None }
     }
 
     fn apply(&self, n: &mut Node) {
@@ -60,6 +63,10 @@ impl Patch {
         }
         if let Some(expanded) = self.expanded {
             n.set_expanded(expanded);
+        }
+        if let Some((position, size)) = self.set {
+            n.set_position_in_set(position);
+            n.set_size_of_set(size);
         }
     }
 }
