@@ -75,6 +75,11 @@ file and revision in its first lines:
   packaging/macos/verify.sh                  PhotoCraft packaging/macos/verify.sh @ 77221725
                                              LightCraft packaging/macos/package.sh @ 9978dc73
   packaging/macos/import-cert.sh             PhotoCraft packaging/macos/import-cert.sh @ 77221725
+                                             craft-common-actions .github/workflows/release.yml @ d7bf8f06
+                                             (github.com/storytold/craft-common-actions, MIT OR Apache-2.0;
+                                             M15.13)
+  packaging/macos/notarize.sh                PhotoCraft packaging/macos/package.sh @ 77221725
+                                             LightCraft packaging/macos/package.sh @ 9978dc73 (M15.13)
   packaging/macos/Info.plist.in              PhotoCraft packaging/macos/Info.plist.in @ 77221725
   packaging/macos/entitlements.plist         PhotoCraft packaging/macos/entitlements.plist @ 77221725
   packaging/macos/dmg/generate.py            PhotoCraft packaging/macos/dmg/generate.py @ 77221725
@@ -83,7 +88,7 @@ file and revision in its first lines:
   packaging/windows/dalica.wxs               PhotoCraft packaging/windows/photocraft.wxs @ 0d6e658e
   packaging/windows/dalica.en-us.wxl         PhotoCraft packaging/windows/photocraft.en-us.wxl @ 0d6e658e
   packaging/windows/sign.ps1                 LightCraft packaging/windows/sign.ps1 @ 453f97b5
-                                             PhotoCraft packaging/windows/sign.ps1 @ 1f1ddb2a
+                                             PhotoCraft packaging/windows/sign.ps1 @ 1f1ddb2a (M15.10)
   apps/dalica/build.rs                       PhotoCraft apps/photocraft/build.rs @ 1f1ddb2a
                                              PhotoCraft apps/photocraft-cli/build.rs @ b885173d
   crates/ui-kit/src/widgets/field/edit.rs    LightCraft crates/ui-egui/src/text_field.rs @ 76b53778
@@ -200,6 +205,10 @@ file and revision in its first lines:
   crates/ui/src/i18n.rs                      PhotoCraft crates/ui-egui/src/i18n/mod.rs @ d95fdf31 (M15.7)
   crates/ui/src/i18n/catalog.rs              PhotoCraft crates/ui-egui/src/i18n/catalog.rs @ d95fdf31 (M15.7)
   crates/ui/src/i18n/system.rs               PhotoCraft crates/ui-egui/src/i18n/system.rs @ d95fdf31 (M15.7)
+  crates/ui/src/i18n/languages.rs            PhotoCraft crates/ui-egui/src/i18n/mod.rs @ d95fdf31, the
+                                             script field after LightCraft crates/ui-egui/src/i18n.rs
+                                             @ d999e382 (M15.7)
+  crates/ui/src/i18n/plural.rs               PhotoCraft crates/ui-egui/src/i18n/mod.rs @ d95fdf31 (M15.7)
   xtask/src/i18n.rs                          PhotoCraft xtask/src/i18n_coverage.rs @ d95fdf31 (M15.7)
   crates/ui-kit/build.rs                     LightCraft crates/engine/build.rs @ d999e382 (M15.8)
   crates/ui-kit/src/fonts.rs (fallbacks)     LightCraft crates/engine/src/fonts.rs and the script table of
@@ -207,7 +216,7 @@ file and revision in its first lines:
   crates/ui-kit/tests/fonts.rs (tests)       LightCraft crates/engine/build.rs, crates/engine/src/fonts.rs
                                              @ d999e382 (M15.8)
   apps/dalica/src/os/** (reveal)             LightCraft apps/lightcraft/src/main.rs (the reveal service)
-                                             @ d999e382 (M15.12)
+                                             @ d999e382 (M15.12; with apps/dalica/src/os.rs)
   apps/dalica/src/os/** (external editor)    LightCraft apps/lightcraft/src/editors.rs @ d999e382 (M15.12)
   apps/dalica/src/os/** (clipboard)          PhotoCraft apps/photocraft/src/services.rs @ 5b087699 and
                                              d95fdf31 (M15.12)
@@ -215,6 +224,8 @@ file and revision in its first lines:
                                              (M15.18; with apps/dalica/src/instance/**)
   crates/ui/tests/accessibility.rs (tests)   LightCraft crates/ui-egui/tests/accessibility.rs @ 4f0b110b
                                              (M15.29)
+  crates/ui-kit/src/widgets/key_cell.rs (macOS shortcut text)
+                                             LightCraft crates/ui-egui/src/menubar.rs @ b3d392b4 (M10.3)
   crates/ui-kit/tests/accessibility.rs (tests)
                                              LightCraft crates/ui-egui/tests/accessibility.rs @ d999e382
                                              (M15.14)

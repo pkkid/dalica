@@ -10721,7 +10721,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     planted fault leaves no path into the folder in `ui.inspect`'s `toasts`; headless MCP's
     `jobs.list` after a person export has `result.folder`, `result.name` and `result.written`
     `null` (`crates/mcp/tests/command_tools.rs`); M15.42's tests pass unchanged.
-- ⬜ **M15.54 `engine` + docs: small follow-ups from M15's PRs: camera thumbnails, NOTICE and three indexes**
+- ✅ **M15.54 `engine` + docs: small follow-ups from M15's PRs: camera thumbnails, NOTICE and three indexes**
   - after: M14.R, M15.10, M15.14, M15.19, M15.46, M15.47
   - files: `crates/engine/src/import/thumbs.rs`, `crates/engine/src/import/worker.rs`, `crates/engine/tests/import_camera.rs`, `NOTICE`, `crates/ui-kit/README.md`, `docs/README.md`
   - scope: what M15's tasks left outside their files: (1) the import tray's in-memory thumbnail

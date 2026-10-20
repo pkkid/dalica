@@ -2,10 +2,12 @@
 //! in-memory responder as the camera: its 40 pictures land with their bytes and the camera's dates
 //! as their times; a second listing finds them all duplicates and its import copies nothing; the
 //! removal asks first and then deletes exactly the 40 handles copied; a camera unplugged after
-//! picture 11 stops the import with 11 kept and the reason. The owner thread is marked as the UI
+//! picture 11 stops the import with 11 kept and the reason; a thumbnail the tray's cache dropped is
+//! made again from the camera, and never asked of one that went. The owner thread is marked as the UI
 //! thread while the commands run: it never touches the disk.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -15,7 +17,7 @@ use dalica_engine::Session;
 use dalica_engine::camera::Opener;
 use dalica_scan::devices::{Camera, CameraAccess, CameraStorage};
 use dalica_scan::ptp::codes::op;
-use dalica_scan::ptp::responder::{self, MemoryCamera};
+use dalica_scan::ptp::responder::{self, MemoryCamera, MemoryTransport};
 use dalica_scan::ptp::{Limits, PtpError, Transport, TransportError};
 use serde_json::{Value, json};
 
@@ -46,12 +48,34 @@ fn camera(n: u64) -> (MemoryCamera, u32, Vec<(String, Vec<u8>)>) {
     (cam, storage, pictures)
 }
 
+/// A transport that counts what is sent through it.
+struct Counted(MemoryTransport, Arc<AtomicUsize>);
+
+impl Transport for Counted {
+    fn send(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), TransportError> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        self.0.send(bytes, timeout)
+    }
+    fn receive(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError> {
+        self.0.receive(buf, timeout)
+    }
+}
+
 /// Makes `cam` the session's one camera (listed as connected, its session opened on the first
 /// call from a worker); the handle to change it and read its log.
 fn attach(s: &mut Session, cam: MemoryCamera, storage: u32) -> Arc<Mutex<MemoryCamera>> {
+    attach_counted(s, cam, storage).0
+}
+
+/// [`attach`], and the count of requests made of the camera: each command sent and each session
+/// opened (or tried).
+fn attach_counted(s: &mut Session, cam: MemoryCamera, storage: u32) -> (Arc<Mutex<MemoryCamera>>, Arc<AtomicUsize>) {
     let (transport, handle) = cam.connect();
-    let slot = Mutex::new(Some(transport));
+    let requests = Arc::new(AtomicUsize::new(0));
+    let slot = Mutex::new(Some(Counted(transport, Arc::clone(&requests))));
+    let opened = Arc::clone(&requests);
     let opener: Opener = Arc::new(move |_id: &str| {
+        opened.fetch_add(1, Ordering::SeqCst);
         let t = slot.lock().unwrap().take().ok_or(PtpError::Transport(TransportError::Disconnected))?;
         dalica_scan::ptp::Session::open(Box::new(t) as Box<dyn Transport>, Limits::default())
     });
@@ -64,7 +88,7 @@ fn attach(s: &mut Session, cam: MemoryCamera, storage: u32) -> Arc<Mutex<MemoryC
         access: CameraAccess::Open,
     };
     s.set_camera_backend(Some((Box::new(move || vec![listed.clone()]), opener)), REFRESH);
-    handle
+    (handle, requests)
 }
 
 /// Opens the camera's storage (once the camera list shows it) and waits for its listing; the
@@ -216,4 +240,59 @@ fn a_camera_unplugged_at_picture_twelve_keeps_eleven_and_says_why() {
     assert_eq!(s.undo_stack().undo_label(), Some("Import"), "what was copied is one undo step");
     let event = s.file_job_events().last().unwrap();
     assert_eq!(event.message, format!("Import stopped: 11 of 40 pictures copied. {why}."));
+}
+
+#[test]
+fn a_dropped_camera_thumbnail_is_made_again_from_the_camera_and_never_asked_of_one_that_went() {
+    let _faults = shared();
+    let lib = tempfile::tempdir().unwrap();
+    let mut s = open(lib.path());
+    let (cam, storage, _) = camera(40);
+    let (handle, requests) = attach_counted(&mut s, cam, storage);
+    // The pictures are 64 × 48: room for ten of the forty thumbnails.
+    s.set_import_thumbnail_cap(Some(10 * 64 * 48 * 4));
+    // Handle 3 is the first picture (candidate 0): the reads of its bytes.
+    let reads = |cam: &Mutex<MemoryCamera>| {
+        let read = |code| code == op::GET_OBJECT || code == op::GET_PARTIAL_OBJECT;
+        responder::lock(cam).log.iter().filter(|c| read(c.code) && c.params.first() == Some(&3)).count()
+    };
+
+    let ui = dalica_fs::mark_ui_thread();
+    assert_eq!(open_camera(&mut s, storage)["total"], 40);
+    let listed = reads(&handle);
+    assert!(s.import_session().thumbnail(0).is_none(), "the first thumbnail was dropped past the cap");
+    // Scrolling the tray back to it asks for it on every frame until it is there again.
+    let start = Instant::now();
+    let thumb = loop {
+        if let Some(t) = s.import_session().thumbnail(0) {
+            break t;
+        }
+        assert!(start.elapsed() < PATIENCE, "the dropped thumbnail was never made again");
+        std::thread::sleep(Duration::from_millis(2));
+    };
+    assert_eq!((thumb.width, thumb.height), (64, 48));
+    assert!(reads(&handle) > listed, "made again from the camera's object, read again");
+
+    // The camera goes: one asking finds it gone, and no dropped thumbnail asks it again.
+    responder::lock(&handle).faults.unplugged = true;
+    let before = requests.load(Ordering::SeqCst);
+    assert!(s.import_session().thumbnail(1).is_none());
+    while requests.load(Ordering::SeqCst) == before {
+        assert!(start.elapsed() < PATIENCE, "the camera was never asked");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    let settled = requests.load(Ordering::SeqCst);
+    assert!(settled <= before + 2, "at most the two thumbnails being made asked: {before} → {settled}");
+    let asked = Instant::now();
+    while asked.elapsed() < Duration::from_millis(300) {
+        for id in 1..40 {
+            let _ = s.import_session().thumbnail(id);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0, "the owner thread made no file call");
+    assert_eq!(requests.load(Ordering::SeqCst), settled, "a camera that went is never asked again");
+    assert!((1..40).filter(|id| s.import_session().thumbnail(*id).is_none()).count() >= 29, "the dropped ones stay the placeholder tile");
 }

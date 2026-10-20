@@ -307,9 +307,14 @@ impl CameraSource {
 /// thumbnail; then the objects whose bytes the duplicate check needs (a library photo, or another
 /// object, of the same size), and those without a thumbnail of the camera's, are read (at most
 /// [`camera::READ_CAP`] each) to make their digest and thumbnail. A camera lost on the way ends the
-/// listing with its reason as a warning.
+/// listing with its reason as a warning. Each listed object is kept in the thumbnail cache, so a
+/// thumbnail dropped later is made again from the device ([`super::thumbs::remake_camera`]).
 pub(crate) fn run_camera(source: CameraSource, plan: Plan, shared: Arc<Mutex<Shared>>, thumbs: Arc<Mutex<ThumbCache>>) {
+    lock(&thumbs).set_camera(Arc::clone(&source.link));
     let outcome = catch_unwind(AssertUnwindSafe(|| list_camera(&source, plan, &shared, &thumbs)));
+    if matches!(&outcome, Ok(Err(e)) if camera::lost(e)) {
+        lock(&thumbs).camera_gone();
+    }
     let mut s = lock(&shared);
     match outcome {
         Ok(Ok(true)) => s.state = ListState::Done,
@@ -508,8 +513,12 @@ fn list_object(
         thumbnail: None,
         problem: None,
     };
-    if let Some(t) = thumbnail {
-        lock(thumbs).insert(index as u64, Arc::new(t));
+    {
+        let mut cache = lock(thumbs);
+        cache.add_camera_object(index as u64, object.clone(), kind.has_thumb);
+        if let Some(t) = thumbnail {
+            cache.insert(index as u64, Arc::new(t));
+        }
     }
     s.found.push(Found { candidate, duplicate: None, camera: Some(object) });
     s.batches = s.batches.saturating_add(1);

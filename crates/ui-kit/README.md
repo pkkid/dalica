@@ -102,6 +102,10 @@
     the table `Texts` (`english`, `translated`, `with`, `get`, `month`, `weekday`, `long_date`), set
     per context by the app (`set`, `texts`, `get`), English until it is; `fill` for `{name}`
     templates, `weekday_of`.
+  - `linebreak` (M15.47, `docs/thai-text.md`): Thai line breaks for shown text, `mark` (a
+    `MARK`, U+2009 drawn with no width, at each dictionary word boundary between two Thai
+    letters; text without Thai borrowed unchanged), `MARK`, `has_thai`, `is_thai`. Never mark a
+    field's value or text that is saved, compared or sent.
   - `raster`: `Rasterizer`, `Image`, `RasterError`, `MAX_SIDE`, `MAX_PIXELS`; and at the root
     `snapshot`, `raw_input`, `paint` for headless frames.
 - **Test it alone:** `cargo test -p dalica-ui-kit` (no window, GPU, network or personal photos needed).
