@@ -160,7 +160,7 @@ fn save_as_to_a_new_path_writes_it_and_the_photo_appears() {
     // The picker suggests the photo's name, numbered since the library knows that name there, in
     // its folder, as a JPEG.
     let first = save_as::request(t.d.app(), photo).unwrap();
-    assert_eq!((first.title, first.name.as_str(), first.folder.as_deref()), (TITLE, "IMG_0001-001.jpg", Some(lisbon.as_path())));
+    assert_eq!((first.title.as_str(), first.name.as_str(), first.folder.as_deref()), (TITLE, "IMG_0001-001.jpg", Some(lisbon.as_path())));
     assert_eq!(first.filters.first().map(|f| f.name), Some("JPEG"));
 
     t.picker.push_save(lisbon.join("Lisbon Bridge.jpg"));
@@ -212,7 +212,7 @@ fn a_taken_name_is_refused_and_the_picker_returns() {
     t.until_done();
     assert_eq!(std::fs::read(&taken).unwrap(), before, "never replaced");
     let asked = t.picker.last_save().unwrap();
-    assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (ANOTHER_NAME, "IMG_0002.jpg", Some(lisbon.as_path())));
+    assert_eq!((asked.title.as_str(), asked.name.as_str(), asked.folder.as_deref()), (ANOTHER_NAME, "IMG_0002.jpg", Some(lisbon.as_path())));
     assert_eq!(asked.params, json!({ "id": photo }));
     assert!(lisbon.join("Second Try.jpg").is_file());
     assert!(t.toasts().iter().any(|m| m.contains("already exists")), "the toast says why: {:?}", t.toasts());
@@ -235,7 +235,7 @@ fn a_taken_name_is_refused_and_the_picker_returns() {
     t.click(&["File", "Save As…"]);
     t.until_done();
     let asked = t.picker.last_save().unwrap();
-    assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (TITLE, "x.jpg", Some(lisbon.as_path())));
+    assert_eq!((asked.title.as_str(), asked.name.as_str(), asked.folder.as_deref()), (TITLE, "x.jpg", Some(lisbon.as_path())));
     assert!(!t.dir.path().join("Gone").exists());
 
     // A TIFF name is refused by the command: asked again where it was tried.
@@ -243,7 +243,7 @@ fn a_taken_name_is_refused_and_the_picker_returns() {
     t.click(&["File", "Save As…"]);
     t.until_done();
     let asked = t.picker.last_save().unwrap();
-    assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (TITLE, "a.tif", Some(lisbon.as_path())));
+    assert_eq!((asked.title.as_str(), asked.name.as_str(), asked.folder.as_deref()), (TITLE, "a.tif", Some(lisbon.as_path())));
     assert_eq!(files(&lisbon), ["IMG_0001.jpg", "IMG_0002.jpg", "Second Try.jpg"]);
 }
 
@@ -388,12 +388,12 @@ fn the_stub_picker_asks_again_for_a_taken_name() {
     t.d.run("photo.saveAs", &json!({ "id": photo })).unwrap();
     t.until("the stub", |_| stub.waiting().is_some());
     let waiting = stub.waiting().unwrap();
-    assert_eq!((waiting.command, waiting.title), ("photo.saveTo", TITLE));
+    assert_eq!((waiting.command, waiting.title.as_str()), ("photo.saveTo", TITLE));
     stub.answer(None);
     t.d.app_mut().run(waiting.command, &json!({ "id": photo, "path": taken })).unwrap();
     t.until("the stub again", |_| stub.waiting().is_some());
     let again = stub.waiting().unwrap();
-    assert_eq!((again.title, again.name.as_deref(), again.folder.as_deref()), (ANOTHER_NAME, Some("IMG_0002.jpg"), Some(lisbon.as_path())));
+    assert_eq!((again.title.as_str(), again.name.as_deref(), again.folder.as_deref()), (ANOTHER_NAME, Some("IMG_0002.jpg"), Some(lisbon.as_path())));
     stub.answer(None);
     t.until_done();
     assert!(stub.waiting().is_none());

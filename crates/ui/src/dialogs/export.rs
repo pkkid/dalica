@@ -256,7 +256,7 @@ fn can_browse(app: &App) -> bool {
 pub fn browse_request(draft: &ExportDraft) -> FolderRequest {
     let typed = PathBuf::from(draft.location.trim());
     FolderRequest {
-        title: BROWSE_TITLE,
+        title: tl!("Export Location"),
         folder: typed.is_absolute().then_some(typed),
         command: "output.export.location",
         params: json!({}),

@@ -865,7 +865,7 @@ mod tests {
             "result": {
                 "total": 2, "done": 0, "folder": "/x/Ana", "name": "Ana", "written": [],
                 "failed": [{ "file": "/p/IMG_0001.jpg", "reason": "cannot write /x/Ana/IMG_0001.jpg" }],
-                "skipped": [{ "file": "/p/clip.mp4", "reason": "/x/Ana: videos are not exported yet" }],
+                "skipped": [{ "file": "/p/clip.mp4", "reason": "cannot copy to /x/Ana/clip.mp4" }],
             },
         });
         let held = withhold_export_folder(entry).to_string();

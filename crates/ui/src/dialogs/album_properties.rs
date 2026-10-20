@@ -133,8 +133,9 @@ pub fn draft_of(library: &Library, id: &AlbumId) -> Option<AlbumDraft> {
 /// A new album's draft for `ids`: "New Album", dated by its newest photo.
 pub fn new_draft(library: Option<&Library>, ids: Vec<PhotoId>) -> AlbumDraft {
     let date = library.and_then(|l| newest_date(l, &ids)).map(|d| d.to_string()).unwrap_or_default();
-    // The name it offers, in the language in effect.
-    AlbumDraft { ids, date, name: tl!("New Album"), ..AlbumDraft::default() }
+    // The name it offers, in the language in effect; saved as it is unless changed, so without
+    // the catalog's line-break marks.
+    AlbumDraft { ids, date, name: crate::i18n::user_text(tl!("New Album")), ..AlbumDraft::default() }
 }
 
 /// The date the draft gives: `Ok(None)` for the newest photo's (the box on) or none typed,
@@ -325,6 +326,23 @@ mod tests {
 
     use super::*;
     use crate::dialogs;
+
+    #[test]
+    fn a_new_albums_translated_name_is_saved_without_line_break_marks() {
+        use dalica_ui_kit::linebreak::{self, MARK};
+        // In the pseudo-locale the offered name is the translated one, and OK saves it as shown.
+        let draft = crate::i18n::with_language(&crate::i18n::languages::PSEUDO, || new_draft(None, vec![PhotoId::new(2)]));
+        assert_eq!(draft.name, crate::i18n::pseudo::translate("New Album"));
+        assert!(!run_params(&draft).1["name"].as_str().unwrap().contains(MARK));
+        // The Thai catalog's text carries marks between its words (placed at load); the name OK
+        // saves keeps none of them.
+        let thai = crate::i18n::languages::by_code("th").unwrap();
+        let (shown, draft) = crate::i18n::with_language(thai, || (tl!("New Album"), new_draft(None, vec![PhotoId::new(2)])));
+        assert!(shown.contains(MARK), "{shown:?}");
+        assert_eq!(draft.name, linebreak::unmark(&shown));
+        assert_eq!(draft.name, "อัลบั้มใหม่");
+        assert!(!run_params(&draft).1["name"].as_str().unwrap().contains(MARK));
+    }
 
     #[test]
     fn ok_creates_a_new_album_or_sets_an_existing_ones_information() {

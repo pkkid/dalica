@@ -40,9 +40,8 @@ use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::i18n::format::long_date_with_weekday;
 use crate::panels::light_table::cell::letterbox;
-use crate::panels::light_table::header::weekday;
 use crate::panels::thumbnails::{recipe_orientation, turn_point};
-use crate::status_text::date_time;
+use crate::status_text::date_time_with_weekday;
 use crate::{tl, tln};
 
 /// The title for one photo; several add " — N pictures".
@@ -154,7 +153,7 @@ pub fn shift_note(secs: i64, n: usize) -> String {
 
 /// "Thursday, June 4, 2026 10:00 AM".
 fn long(d: DateTime) -> String {
-    tl!(ctx = "date", "{weekday}, {date}", weekday = weekday(d.date()), date = date_time(d))
+    date_time_with_weekday(d)
 }
 
 pub fn look(_app: &App, d: &Dialog) -> Look {

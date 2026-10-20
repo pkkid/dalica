@@ -94,6 +94,9 @@ revision), never per frame.
 - Mark user data only for display, where a view wraps it (captions, tags, folder names), cached
   with the text's revision. Never mark the value of a text field, or text that is saved, compared,
   searched or sent: the marks are for wrapping only.
+- Where a translated text becomes user data (a default name offered in a field and saved as it
+  is, such as a new album's "New Album"), pass it through `i18n::user_text`, which takes the marks
+  out (`linebreak::unmark`).
 - `crates/ui-kit/tests/thai_text.rs` is the pattern for Thai checks in `crates/ui`: the glyph and
   mark checks with the fonts, the wrap check without them.
 

@@ -1241,7 +1241,7 @@ mod tests {
             // The answer adds the folder chosen, so the test sees that it has run.
             let opened = if save {
                 let request = SaveRequest {
-                    title: "Save As",
+                    title: "Save As".into(),
                     name: "a.jpg".into(),
                     folder: None,
                     filters: &[],
@@ -1250,8 +1250,13 @@ mod tests {
                 };
                 d.app_mut().pick_save(request)
             } else {
-                let request =
-                    FolderRequest { title: "Export Location", folder: None, command: "folders.add", params: serde_json::json!({}), output: true };
+                let request = FolderRequest {
+                    title: "Export Location".into(),
+                    folder: None,
+                    command: "folders.add",
+                    params: serde_json::json!({}),
+                    output: true,
+                };
                 d.app_mut().pick_folder_for(request)
             };
             opened.unwrap();

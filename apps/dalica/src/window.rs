@@ -52,7 +52,7 @@ impl Picker for RfdPicker {
     }
 
     fn pick_folder_for(&self, request: &dalica_ui::picker::FolderRequest) -> Option<PathBuf> {
-        let mut dialog = rfd::FileDialog::new().set_title(request.title);
+        let mut dialog = rfd::FileDialog::new().set_title(&request.title);
         if let Some(folder) = &request.folder {
             dialog = dialog.set_directory(folder);
         }
@@ -60,7 +60,7 @@ impl Picker for RfdPicker {
     }
 
     fn pick_save(&self, request: &dalica_ui::picker::SaveRequest) -> Option<PathBuf> {
-        let mut dialog = rfd::FileDialog::new().set_title(request.title).set_file_name(&request.name);
+        let mut dialog = rfd::FileDialog::new().set_title(&request.title).set_file_name(&request.name);
         if let Some(folder) = &request.folder {
             dialog = dialog.set_directory(folder);
         }
@@ -71,7 +71,7 @@ impl Picker for RfdPicker {
     }
 
     fn pick_file(&self, request: &dalica_ui::picker::OpenRequest) -> Option<PathBuf> {
-        let mut dialog = rfd::FileDialog::new().set_title(request.title);
+        let mut dialog = rfd::FileDialog::new().set_title(&request.title);
         for f in request.filters {
             dialog = dialog.add_filter(f.name, f.extensions);
         }

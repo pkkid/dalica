@@ -8,7 +8,8 @@
 //! `thin_space_width` to 0). Text without Thai is returned as it is, without a copy.
 //!
 //! Mark text that is only shown: catalog text, and captions, tags and folder names where a view
-//! wraps them. Never mark the value of a text field, or text that is saved, compared or sent.
+//! wraps them. Never mark the value of a text field, or text that is saved, compared or sent;
+//! where shown text becomes such a value (a translated default name), [`unmark`] it first.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -73,4 +74,11 @@ pub fn mark(text: &str) -> Cow<'_, str> {
         }
         None => Cow::Borrowed(text),
     }
+}
+
+/// `text` without its [`MARK`]s: the text [`mark`] was given. Borrowed (unchanged) when it has
+/// none. For a marked text (catalog text) that becomes a value the user keeps, such as a default
+/// name.
+pub fn unmark(text: &str) -> Cow<'_, str> {
+    if text.contains(MARK) { Cow::Owned(text.chars().filter(|&c| c != MARK).collect()) } else { Cow::Borrowed(text) }
 }

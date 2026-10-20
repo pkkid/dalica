@@ -414,6 +414,7 @@ fn key_caps_read_ctrl_shift_s_on_linux_and_the_glyphs_on_macos() {
         ("button:key.recording".to_string(), vec!["Ctrl+8"], KeyCell { recording: true, ..base }, true),
         ("button:key.conflict".to_string(), vec!["Ctrl+1"], KeyCell { conflict: true, ..base }, true),
         ("button:key.hold".to_string(), vec!["Ctrl+Alt"], base, false),
+        ("button:key.roving".to_string(), vec!["F2"], KeyCell { stop: false, ..base }, true),
     ];
     let mut rig = Rig::new((440, 440), Tokens::default(), KeyScene { cells, clicks: vec![] }, key_scene);
     check_ids("keys", &rig.widgets, &registry::unregistered(&rig.ctx));
@@ -469,6 +470,11 @@ fn key_caps_read_ctrl_shift_s_on_linux_and_the_glyphs_on_macos() {
     rig.click("button:key.hold");
     assert_eq!(rig.state.clicks, ["button:key.linux"]);
     assert!(!rig.info("button:key.hold").enabled);
+    // A cell that is not its list's current one still clicks, but takes no Tab stop.
+    let focusable = |rig: &Rig<KeyScene>, id: &str| rig.ctx.viewport(|v| v.prev_pass.widgets.get(egui::Id::new(id)).map(|w| w.sense.is_focusable()));
+    assert_eq!((focusable(&rig, "button:key.linux"), focusable(&rig, "button:key.roving")), (Some(true), Some(false)));
+    rig.click("button:key.roving");
+    assert_eq!(rig.state.clicks, ["button:key.linux", "button:key.roving"]);
 }
 
 // ---- List rows ----

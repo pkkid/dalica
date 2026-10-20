@@ -102,7 +102,7 @@ const BROWSE_W: f32 = 90.0;
 pub fn browse_request(key: &str, value: &Value, default: Option<&std::path::Path>) -> FolderRequest {
     let shown = value.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute());
     let folder = shown.or_else(|| default.filter(|p| p.is_absolute()).map(std::path::Path::to_path_buf));
-    FolderRequest { title: BROWSE_TITLE, folder, command: FOLDER_COMMAND, params: json!({ "key": key }), output: true }
+    FolderRequest { title: tl!("Save Imported Pictures In"), folder, command: FOLDER_COMMAND, params: json!({ "key": key }), output: true }
 }
 
 /// One option of the tab, as `options.list` gives it.

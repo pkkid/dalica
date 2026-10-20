@@ -35,6 +35,7 @@
 ~	Add	เพิ่ม
 ~	Add Custom Ratio	เพิ่มอัตราส่วนแบบกำหนดเอง
 ~	Add Custom Ratio…	เพิ่มอัตราส่วนแบบกำหนดเอง…
+~	Add Folder	เพิ่มโฟลเดอร์
 ~	Add Folder…	เพิ่มโฟลเดอร์…
 ~	Add Model	เพิ่มโมเดล
 ~	Add Tags	เพิ่มแท็ก
@@ -135,6 +136,7 @@
 ~	Change Location	เปลี่ยนตำแหน่ง
 ~	Change this collage in the Collage room	เปลี่ยนภาพปะติดนี้ในห้องภาพปะติด
 ~	Changed in another application; Dalica's value kept	มีการเปลี่ยนในแอปพลิเคชันอื่น เก็บค่าของ Dalica ไว้
+~	Choose Another Name	เลือกชื่ออื่น
 ~	Choose Folder	เลือกโฟลเดอร์
 ~	Choose a Folder…	เลือกโฟลเดอร์…
 ~	Choose a folder	เลือกโฟลเดอร์
@@ -246,6 +248,7 @@
 ~	Darkens the edges, or takes them toward a colour.	ทำให้ขอบมืดลง หรือเปลี่ยนขอบเป็นสีที่เลือก
 ~	Date	วันที่
 ~	Date taken (YYYY-MM-DD)	วันที่ถ่าย (YYYY-MM-DD)
+~	Default Export Location	ตำแหน่งส่งออกเริ่มต้น
 ~	Default Viewer	โปรแกรมดูเริ่มต้น
 ~	Default export location	ตำแหน่งส่งออกเริ่มต้น
 ~	Default watermark text	ข้อความลายน้ำเริ่มต้น
@@ -450,6 +453,8 @@
 ~	Import Selected ({n})	นำเข้ารายการที่เลือก ({n})
 ~	Import Sources	แหล่งนำเข้า
 ~	Import Status	สถานะการนำเข้า
+~	Import To	นำเข้าไปยัง
+~	Import from Folder	นำเข้าจากโฟลเดอร์
 ~	Import from:	นำเข้าจาก:
 ~	Import to:	นำเข้าไปยัง:
 ~	Import tray	ถาดนำเข้า
@@ -560,6 +565,7 @@
 ~	Mouse wheel zooms (hold Ctrl to navigate)	ล้อเมาส์ซูม (กด Ctrl ค้างเพื่อเลื่อนดู)
 ~	Move	ย้าย
 ~	Move Files	ย้ายไฟล์
+~	Move Folder	ย้ายโฟลเดอร์
 ~	Move Folder…	ย้ายโฟลเดอร์…
 ~	Move Picture	ย้ายรูปภาพ
 ~	Move the Map	เลื่อนแผนที่
@@ -579,6 +585,7 @@
 ~	Move…	ย้าย…
 ~	Multiple Exposure	ซ้อนภาพหลายชั้น
 ~	Museum Matte	กรอบพิพิธภัณฑ์
+~	Music Folder	โฟลเดอร์เพลง
 ~	Music folder	โฟลเดอร์เพลง
 ~	Music for slideshows	เพลงสำหรับสไลด์โชว์
 ~	Name	ชื่อ
@@ -868,6 +875,7 @@
 ~	Save As…	บันทึกเป็น…
 ~	Save Draft	บันทึกฉบับร่าง
 ~	Save Frame as Picture	บันทึกเฟรมเป็นรูปภาพ
+~	Save Imported Pictures In	บันทึกรูปภาพที่นำเข้าไว้ใน
 ~	Save Search Results…	บันทึกผลการค้นหา…
 ~	Save a Copy	บันทึกสำเนา
 ~	Save edited photos to disk	บันทึกรูปภาพที่แก้ไขลงดิสก์
@@ -1352,10 +1360,14 @@
 ~date	None	ไม่มี
 ~date	YYYY-MM-DD	YYYY-MM-DD
 ~date	{date} {time}	{date} {time}
-~date	{first} to {last}	{first} ถึง {last}
+~date	{first_month} {first_day}, {first_year} to {last_month} {last_day}, {last_year}	{first_day} {first_month} {first_year} ถึง {last_day} {last_month} {last_year}
 ~date	{month} {day}, {year}	{day} {month} {year}
+~date	{month} {day}, {year} {hour}:{minute} AM	{day} {month} {year} {hour}:{minute} ก่อนเที่ยง
+~date	{month} {day}, {year} {hour}:{minute} PM	{day} {month} {year} {hour}:{minute} หลังเที่ยง
 ~date	{start} – {end}	{start} – {end}
-~date	{weekday}, {date}	{weekday}ที่ {date}
+~date	{weekday}, {month} {day}, {year}	{weekday}ที่ {day} {month} {year}
+~date	{weekday}, {month} {day}, {year} {hour}:{minute} AM	{weekday}ที่ {day} {month} {year} {hour}:{minute} ก่อนเที่ยง
+~date	{weekday}, {month} {day}, {year} {hour}:{minute} PM	{weekday}ที่ {day} {month} {year} {hour}:{minute} หลังเที่ยง
 ~duration	{hours} h	{hours} ชม.
 ~duration	{minutes} min	{minutes} นาที
 ~duration	{seconds} s	{seconds} วินาที

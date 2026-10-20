@@ -31,8 +31,9 @@ pub const IMAGE_FILTERS: &[Filter] = &[Filter { name: "JPEG", extensions: &["jpg
 /// A save dialog: what it shows and what its answer runs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SaveRequest {
-    /// The dialog's title ("Save As").
-    pub title: &'static str,
+    /// The dialog's title ("Save As"), in the language in effect where the request is made (the
+    /// dialog runs on a thread of its own, which draws in English).
+    pub title: String,
     /// The file name suggested ("IMG_0041.jpg").
     pub name: String,
     /// The folder it opens in, when known.
@@ -56,8 +57,8 @@ pub const MODEL_FILTERS: &[Filter] = &[Filter { name: "ONNX model", extensions: 
 /// An open dialog (Add a Model File…): what it shows and what its answer runs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpenRequest {
-    /// The dialog's title ("Add a Model File").
-    pub title: &'static str,
+    /// The dialog's title ("Add a Model File"), translated as [`SaveRequest::title`] is.
+    pub title: String,
     pub filters: &'static [Filter],
     /// The command the chosen file runs (`faceModel.addFile`), with `params` plus `path`.
     pub command: &'static str,
@@ -75,8 +76,8 @@ impl OpenRequest {
 /// its answer runs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FolderRequest {
-    /// The dialog's title ("Export Location").
-    pub title: &'static str,
+    /// The dialog's title ("Export Location"), translated as [`SaveRequest::title`] is.
+    pub title: String,
     /// The folder it opens in, when known.
     pub folder: Option<PathBuf>,
     /// The command the chosen folder runs (`output.export.location`), with `params` plus `path`.
@@ -288,7 +289,7 @@ mod tests {
 
     fn request() -> SaveRequest {
         SaveRequest {
-            title: "Save As",
+            title: "Save As".into(),
             name: "IMG_0041.jpg".into(),
             folder: Some(PathBuf::from("/photos")),
             filters: IMAGE_FILTERS,

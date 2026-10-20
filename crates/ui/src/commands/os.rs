@@ -451,7 +451,7 @@ fn reveal_outside(session: &Session, path: &Path) -> Result<(), CmdError> {
 /// The program picker Browse… opens for the External editor: any file (a program); its answer
 /// runs [`EDITOR_COMMAND`].
 pub fn editor_request() -> crate::picker::OpenRequest {
-    crate::picker::OpenRequest { title: EDITOR_TITLE, filters: &[], command: EDITOR_COMMAND, params: json!({}) }
+    crate::picker::OpenRequest { title: tl!("Choose the External Editor"), filters: &[], command: EDITOR_COMMAND, params: json!({}) }
 }
 
 /// Whether the app may let automation choose a program it starts: always for the person's own
