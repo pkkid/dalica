@@ -11,6 +11,11 @@ publish = false
 # One test binary (tests/all.rs) instead of one per file: one link, the tests run in parallel.
 autotests = false
 
+[features]
+# The camera USB transport (`dalica-engine`'s `camera-usb`), on by default; `fuzz/` leaves it out.
+default = ["camera-usb"]
+camera-usb = ["dalica-engine/camera-usb"]
+
 [dependencies]
 dalica-core.workspace = true
 dalica-create.workspace = true

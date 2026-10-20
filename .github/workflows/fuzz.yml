@@ -322,11 +322,9 @@ jobs:
           workspaces: crates/ui/fuzz
       - name: Install cargo-fuzz
         run: cargo +nightly install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
-      # Without `--cfg fuzzing`: the UI links `dalica-scan`'s USB transport, and `nusb` does not
-      # build under it; no Dalica crate reads that cfg.
       - name: Build every target
         working-directory: crates/ui/fuzz
-        run: cargo +nightly fuzz build --no-cfg-fuzzing
+        run: cargo +nightly fuzz build
       - name: Run every target
         working-directory: crates/ui/fuzz
         env:
@@ -335,7 +333,7 @@ jobs:
           for target in $(cargo +nightly fuzz list); do
             echo "::group::$target"
             mkdir -p "corpus/$target"
-            cargo +nightly fuzz run --no-cfg-fuzzing "$target" "corpus/$target" "seeds/$target" -- -max_total_time="$SECONDS_PER_TARGET" -rss_limit_mb=2048
+            cargo +nightly fuzz run "$target" "corpus/$target" "seeds/$target" -- -max_total_time="$SECONDS_PER_TARGET" -rss_limit_mb=2048
             echo "::endgroup::"
           done
       - name: Keep crash inputs

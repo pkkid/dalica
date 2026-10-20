@@ -27,9 +27,13 @@ dalica-faces = { path = "crates/faces" }
 dalica-library = { path = "crates/library" }
 dalica-thumbs = { path = "crates/thumbs" }
 dalica-store = { path = "crates/store" }
-dalica-scan = { path = "crates/scan" }
+# No default features: the USB camera transport (`usb`, `nusb`) comes through `dalica-engine`'s
+# `camera-usb` feature, so a cargo-fuzz workspace above it can leave it out (M15.52).
+dalica-scan = { path = "crates/scan", default-features = false }
 dalica-create = { path = "crates/create" }
-dalica-engine = { path = "crates/engine" }
+# No default features: each crate that needs the camera USB transport asks for `camera-usb` (the
+# apps; `dalica-ui` and `dalica-mcp` forward it, on by default).
+dalica-engine = { path = "crates/engine", default-features = false }
 dalica-ui-kit = { path = "crates/ui-kit" }
 dalica-ui = { path = "crates/ui" }
 dalica-mcp = { path = "crates/mcp" }

@@ -223,8 +223,20 @@ fn camera_json(c: &Camera) -> Value {
     })
 }
 
-/// Whether this build reaches cameras over USB on this system (`crates/scan/README.md`).
-pub const USB_REACHABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+/// Whether this build reaches cameras over USB on this system (`crates/scan/README.md`): only with
+/// the `camera-usb` feature (on by default; the fuzz workspaces leave it out), and only on Linux
+/// and Windows.
+pub const USB_REACHABLE: bool = cfg!(all(feature = "camera-usb", any(target_os = "linux", target_os = "windows")));
+
+/// Why a camera that is not listed cannot be opened: none is connected, or this build has no USB
+/// transport at all.
+fn not_connected(id: &str) -> String {
+    if cfg!(feature = "camera-usb") {
+        format!("no camera {id} is connected (camera.list lists them)")
+    } else {
+        format!("no camera {id} is connected: cameras over USB are not available in this build of Dalica (built without the `camera-usb` feature)")
+    }
+}
 
 impl Session {
     /// The camera sources.
@@ -251,7 +263,7 @@ impl Session {
     pub(crate) fn camera_link(&mut self, id: &str) -> Result<(Camera, Arc<Link>), String> {
         let listed = self.cameras.list();
         let Some(camera) = listed.iter().find(|c| c.id == id).cloned() else {
-            return Err(format!("no camera {id} is connected (camera.list lists them)"));
+            return Err(not_connected(id));
         };
         if let Some(why) = unreachable_reason(&camera.access) {
             return Err(why);
@@ -475,5 +487,19 @@ mod tests {
         let secs = t.duration_since(UNIX_EPOCH).unwrap().as_secs();
         assert_eq!(DateTime::from_unix_secs(secs as i64).unwrap().to_string(), "2026-06-04T08:00:00");
         assert!(at(1969, 12, 31, 23, 59, 59) < UNIX_EPOCH);
+    }
+
+    /// Without the `camera-usb` feature (`cargo test -p dalica-engine --no-default-features --lib
+    /// camera::`), the build has no USB transport: `camera.list` answers no camera and `usb: false`,
+    /// as on a system without USB access, and `camera.open` is refused with the reason.
+    #[cfg(not(feature = "camera-usb"))]
+    #[test]
+    fn a_build_without_the_usb_transport_lists_no_camera() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Session::open(dir.path(), Arc::new(dalica_core::SystemClock)).unwrap();
+        assert!(!USB_REACHABLE);
+        assert_eq!(s.execute("camera.list", &json!({})).unwrap(), json!({ "cameras": [], "usb": false }));
+        let refused = s.execute("camera.open", &json!({ "id": "usb-1-4" })).unwrap_err().to_string();
+        assert!(refused.contains("not available in this build"), "{refused}");
     }
 }

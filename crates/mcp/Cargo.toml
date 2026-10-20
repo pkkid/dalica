@@ -12,6 +12,11 @@ publish = false
 # the workflow acceptance tests that `cargo xtask stats` runs alone (`tests/workflows/`, `mcp.md` §9).
 autotests = false
 
+[features]
+# The camera USB transport (`dalica-engine`'s `camera-usb`), on by default.
+default = ["camera-usb"]
+camera-usb = ["dalica-engine/camera-usb"]
+
 [dependencies]
 dalica-core.workspace = true
 # The headless backend's session, its command registry and jobs, and the demo library.

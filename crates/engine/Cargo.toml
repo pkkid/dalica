@@ -12,6 +12,11 @@ publish = false
 autotests = false
 
 [features]
+# Cameras and phones over USB (`camera.rs`, M15.19; `dalica-scan`'s `usb`, `nusb`), on by default.
+# Without it `camera.list` answers no camera and `usb: false`; the cargo-fuzz workspaces above the
+# engine leave it out, because `nusb` does not build under `--cfg fuzzing` (M15.52).
+default = ["camera-usb"]
+camera-usb = ["dalica-scan/usb"]
 # HEIF/HEIC decoding (formats.md §3), off by default; with it `tests/save_formats.rs` runs its HEIC
 # case: `cargo test -p dalica-engine --features heif --test all save_formats::`.
 heif = ["dalica-image/heif"]
@@ -56,7 +61,7 @@ thiserror.workspace = true
 # Fault points, to plant a Save stopped at an exact step before a session reopens (M8.18).
 dalica-fs = { workspace = true, features = ["faults"] }
 # The engine's own planted failures (`tests/rename.rs`).
-dalica-engine = { path = ".", features = ["faults"] }
+dalica-engine = { path = ".", default-features = false, features = ["faults"] }
 proptest.workspace = true
 tempfile.workspace = true
 
