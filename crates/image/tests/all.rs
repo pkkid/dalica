@@ -9,6 +9,7 @@
 
 mod common;
 
+mod audio;
 mod color;
 mod decode;
 mod encode;

@@ -507,19 +507,19 @@ folders.
 ### Slideshow
 
 As [`viewing.md`](viewing.md) §1.5. The slideshow's bar changes the transition, the display time
-and the captions too, and they persist here. Playing sound needs an audio library Dalica does not
-include yet, so the music and video sound options are drawn disabled ("Arrives with sound
-support") until it does.
+and the captions too, and they persist here. The Sound group (music, its folder, video sound) is
+live since M15.27; on a system without a sound output its three rows are greyed with "No sound
+output on this system".
 
 | Group | Option | Key | Default |
 |---|---|---|---|
 | Slideshow | Loop slideshow | `slideshow.loop` | off |
-| | Play music during slideshows (arrives with sound support) | `slideshow.music` | off |
-| | Music folder [Browse…] (arrives with sound support) | `slideshow.musicFolder` | none |
+| Sound | Play music during slideshows | `slideshow.music` | off |
+| | Music folder [Browse…] (every MP3, OGG, FLAC and WAV file in it, in name order, looping) | `slideshow.musicFolder` | none |
 | | Display time (1–60 s) | `slideshow.displayTime` | 3 s |
 | | Transition (Cut, Pan and Zoom, Dissolve, Wipe, Circle, Push, Rectangle) | `slideshow.transition` | Dissolve |
 | | Show captions | `slideshow.captions` | on |
-| | Play video sound (arrives with sound support) | `slideshow.videoSound` | off |
+| | Play video sound | `slideshow.videoSound` | off |
 
 ### Network
 

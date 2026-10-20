@@ -101,6 +101,24 @@ heic-rs = { version = "=0.1.1", default-features = false, features = ["std"] }
 altc264 = "=0.1.1"
 rusty_h265 = { version = "=0.6.2", default-features = false, features = ["simd"] }
 rusty_aac = { version = "=1.1.1", default-features = false }
+# Slideshow music (dalica-image `formats::audio`, M15.27), the decoders M15.46's record passes, each
+# pinned exactly: MP3 through `nanomp3` (MIT OR Apache-2.0, `std` only: no `wide` SIMD), Ogg Vorbis
+# through `lewton` (MIT OR Apache-2.0, its Ogg reader only), FLAC through `claxon` and WAV through
+# `hound` (both Apache-2.0).
+nanomp3 = { version = "=0.2.0", default-features = false, features = ["std"] }
+lewton = { version = "=0.10.2", default-features = false, features = ["ogg"] }
+claxon = "=0.4.3"
+hound = "=3.5.1"
+# Ogg Vorbis files made by the music tests (dev-dependency only): the pure-Rust encoder, without its
+# AVX2 kernels.
+rusty_vorbis = { version = "=0.1.1", default-features = false }
+# The app's sound output (apps/dalica `sound`, M15.27; reserved decision 2: pure-Rust output per OS).
+# Linux: a PulseAudio-protocol client of our own over `pulseaudio`'s message types (MIT; served by
+# PulseAudio and PipeWire's pulse server). Windows and macOS: `cpal` (Apache-2.0) without its
+# defaults, only its WASAPI (the `windows` crate) and CoreAudio (`objc2-core-audio`) hosts, which keep
+# those APIs' `unsafe` out of this workspace; never on Linux, where it would link ALSA's C library.
+pulseaudio = "=0.3.2"
+cpal = { version = "=0.18.2", default-features = false }
 moxcms = "0.9"
 fast_image_resize = "6"
 # The export watermark's glyphs (dalica-create, M8.11; as LightCraft): Inter outlines and their

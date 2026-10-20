@@ -82,6 +82,7 @@ mod search;
 mod settings;
 mod sidecar_people_places;
 mod slideshow;
+mod slideshow_sound;
 mod suggestions;
 mod synthetic;
 mod tags;

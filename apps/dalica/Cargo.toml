@@ -38,16 +38,20 @@ wgpu.workspace = true
 # The clipboard (`os`, M15.12).
 arboard.workspace = true
 
-# Locate on Disk's D-Bus call and the Wayland copy of files (`os`, M15.12).
+# Locate on Disk's D-Bus call and the Wayland copy of files (`os`, M15.12); the sound output's
+# PulseAudio-protocol messages (`sound`, M15.27).
 [target.'cfg(target_os = "linux")'.dependencies]
+pulseaudio.workspace = true
 wl-clipboard-rs.workspace = true
 zbus.workspace = true
 # Photos dragged out on X11: the XDND source (`drag_out`, M15.23).
 x11rb.workspace = true
 
 # Photos dragged out on Windows and macOS (`drag_out`, M15.23): the OS's drag of files, its image a PNG.
+# The sound output through WASAPI and CoreAudio (`sound`, M15.27).
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 drag.workspace = true
+cpal.workspace = true
 png.workspace = true
 
 # The system menu bar, generated from the menu model (design-system.md §11.1), and the applications

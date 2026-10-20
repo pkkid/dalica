@@ -101,6 +101,7 @@ mod shortcut_editor;
 mod shutdown;
 mod slideshow;
 mod slideshow_bar;
+mod slideshow_video;
 mod soften_brush;
 mod stand_in;
 mod status_line;

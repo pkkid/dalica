@@ -17,6 +17,7 @@ mod native_menu;
 mod os;
 mod paths;
 mod preflight;
+mod sound;
 mod viewer;
 mod window;
 

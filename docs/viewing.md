@@ -18,7 +18,7 @@ zoom and compare modes) is in [`editing.md`](editing.md).
 - The section's folder/album, starting at the selected photo if one is selected in it (else the
   first). From the edit view: the current folder/album starting at the current photo. From a search:
   the results. Videos are included and play to the end before advancing (muted unless "Play video
-  sound in slideshows" is on).
+  sound in slideshows" is on; §1.5.1).
 - Order = the section's display order.
 
 ### 1.2 Presentation
@@ -88,12 +88,33 @@ centre).
 **Loop slideshow** (off) · **Play music during slideshows** (off) + music folder [Browse…] (every
 MP3/OGG/FLAC/WAV in the folder plays in name order, looping) · **Display time** · **Transition** ·
 **Show captions** (on) · **Play video sound** (off). A folder's own music (Folder Properties →
-Music) overrides the global music folder.
+Music) is meant to override the global music folder; Dalica does not keep it yet (the row is
+greyed and says so), so the global music folder plays for every show.
 
-Until Dalica plays sound, Play music, the music folder, Play video sound and Folder Properties'
-Music are drawn disabled with the reason "Arrives with sound support". The tab groups them under
-**Sound**, below Loop, Show captions, Display time (a 1–60 s slider with its number field) and
-Transition.
+The tab groups Play music, the music folder and Play video sound under **Sound**, below Loop, Show
+captions, Display time (a 1–60 s slider with its number field) and Transition. On a system with no
+sound output (no sound server or output device) the three are greyed with the reason "No sound
+output on this system".
+
+### 1.5.1 Sound (M15.27)
+
+- **The output** is pure Rust on each OS (reserved decision 2): a PulseAudio-protocol client on
+  Linux (served by PulseAudio and by PipeWire's pulse server; the default sink, which the server
+  follows when the user changes it), WASAPI on Windows and CoreAudio on macOS through `cpal`'s
+  hosts (the default output device at its own format; our samples resampled to it). It runs on
+  threads of its own; an output that fails (a device unplugged, the server restarted) is opened
+  again on the default output up to three times. Tests never play anything but silence.
+- **Videos** play to their end (their trim respected) before the show moves on, whatever the
+  display time: the show holds the video from the moment it is shown, its first frame (the poster
+  until then) in the photo's place, and the change after it starts as soon as it ends. Pausing
+  the show pauses the video. Without Play video sound it plays muted; with it, its sound plays at
+  the video volume (`editing.md` §11) when Dalica decodes it (AAC), and a clip whose sound it cannot
+  decode plays muted and says why. A video Dalica cannot play shows its tile for the display time.
+- **Music** starts with the show: the music folder's files in name order (case aside), looping,
+  decoded on a worker (MP3, Ogg Vorbis, FLAC, WAV; a file Dalica cannot play is skipped, with
+  "This music file can't be played (…)" in the log). It pauses while the show is paused and while
+  a video's sound plays (one sound at a time), and fades out over 1 s when the show ends (at its
+  last photo without Loop, or on Exit); Play at the end starts it again from the first file.
 
 ### 1.6 Decisions (M11.4, M11.11, M11.21, M13.23)
 

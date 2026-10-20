@@ -103,6 +103,8 @@ pub struct Show {
     frozen: Option<Duration>,
     change: Option<Change>,
     bar_until: Timestamp,
+    /// The photo shown is held ([`Show::set_held`]): its display time does not count.
+    held: bool,
 }
 
 impl std::fmt::Debug for Show {
@@ -139,6 +141,7 @@ impl Show {
             frozen: (len == 0).then_some(Duration::ZERO),
             change: None,
             bar_until: now.saturating_add(BAR_AT_START),
+            held: false,
         }
     }
 
@@ -187,7 +190,7 @@ impl Show {
     /// what to draw.
     pub fn tick(&mut self) -> View {
         let now = self.clock.now();
-        if self.state == State::Playing && self.len > 0 {
+        if self.state == State::Playing && !self.held && self.len > 0 {
             let display = ms(self.display()).max(1);
             let steps = ms(now.since(self.shown_at)) / display;
             if steps > 0 {
@@ -275,6 +278,9 @@ impl Show {
 
     /// The show playing again from where the display time was frozen.
     fn thaw(&mut self, now: Timestamp) {
+        if self.held {
+            return;
+        }
         if let Some(spent) = self.frozen.take() {
             self.shown_at = now.saturating_sub(spent);
         }
@@ -297,6 +303,7 @@ impl Show {
         }
         self.index = to;
         self.shown_at = now;
+        self.held = false;
         self.frozen = (self.state != State::Playing).then_some(Duration::ZERO);
         true
     }
@@ -385,6 +392,7 @@ impl Show {
                 self.state = State::Playing;
                 self.shown_at = now;
                 self.frozen = None;
+                self.held = false;
             }
         }
         true
@@ -439,6 +447,33 @@ impl Show {
             None if now.since(self.shown_at) > display => self.shown_at = now.saturating_sub(display),
             None => {}
         }
+    }
+
+    /// Holds the photo shown (`true`; a video playing to its end, M15.27) or lets it go: while held
+    /// its display time does not count, as when paused, but the show's state is unchanged (Pause
+    /// and Play still toggle it); letting go counts on from the time already spent. Moving to
+    /// another photo lets go.
+    pub fn set_held(&mut self, held: bool) {
+        if held == self.held {
+            return;
+        }
+        let now = self.clock.now();
+        if held {
+            if self.state == State::Playing {
+                self.freeze(now);
+            }
+            self.held = true;
+        } else {
+            self.held = false;
+            if self.state == State::Playing {
+                self.thaw(now);
+            }
+        }
+    }
+
+    /// Whether the photo shown is held ([`Show::set_held`]).
+    pub fn held(&self) -> bool {
+        self.held
     }
 
     /// The transition for the next change.

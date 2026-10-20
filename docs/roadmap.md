@@ -10404,7 +10404,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     at 900 × 600 the bar fits; fingerprints of the bar playing and trimmed at 1400 × 900 (of the
     unplayable bar if the record passes no video codec, the PR then naming `VIEW-VIDEO` as leaving
     for M15.R).
-- ⬜ **M15.27 `image` + `engine` + `ui` + `dalica` (reserved decision 2): sound on each OS, videos and music in the slideshow**
+- ✅ **M15.27 `image` + `engine` + `ui` + `dalica` (reserved decision 2): sound on each OS, videos and music in the slideshow**
   - after: M15.25, M11.21, M15.46
   - files: `crates/image/src/formats/audio.rs`, `crates/image/src/formats/audio/**`, `crates/image/src/formats/mod.rs`, `crates/image/tests/audio.rs`, `crates/engine/src/sound.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow_sound.rs`, `apps/dalica/src/sound.rs`, `apps/dalica/src/sound/**`, `apps/dalica/src/main.rs`, `apps/dalica/tests/sound.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/slideshow_video.rs`, `docs/viewing.md`, `docs/menus-and-shortcuts.md`
   - scope: `viewing.md` §1.1 and §1.5 with the maintainer's answers (M11.R ties music to video

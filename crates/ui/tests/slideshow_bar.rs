@@ -246,13 +246,8 @@ fn options_slideshow_loop_wraps_the_show() {
     let mut f = setup(3, (96, 64));
     f.d.run("app.preferences", &json!({ "tab": "slideshow" })).unwrap();
     f.d.settle(FRAMES).unwrap();
-    for id in [
-        "check:option.slideshow.music",
-        "field:option.slideshow.musicFolder",
-        "button:option.slideshow.musicFolder/browse",
-        "check:option.slideshow.videoSound",
-    ] {
-        assert!(!widget(&f.d, id).enabled, "{id} waits for sound support");
+    for id in ["check:option.slideshow.music", "check:option.slideshow.videoSound"] {
+        assert!(widget(&f.d, id).enabled, "{id} is live now that Dalica plays sound (M15.27)");
     }
     check_sizes(&mut f.d, "dialog:options", "dialog-options-slideshow");
     f.d.click("check:option.slideshow.loop").unwrap();

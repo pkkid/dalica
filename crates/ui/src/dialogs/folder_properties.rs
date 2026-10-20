@@ -8,7 +8,7 @@
 //!                        [x] Use the date of the oldest photo
 //! Place:                 [Lisbon, Portugal               ]
 //! Description:           [A weekend of trams             ]
-//! Music for slideshows:  [                     ] [Browse…]  (disabled: Arrives with sound support)
+//! Music for slideshows:  [                     ] [Browse…]  (disabled: not kept per folder yet)
 //! Photo data:            Kept in Dalica's file in this folder.
 //!                                                   [Cancel] [OK]
 //! ```
@@ -41,8 +41,10 @@
 //!
 //! Widget ids (`control-protocol.md` §7, the dialog row): `field:dialog.name`,
 //! `field:dialog.date`, `check:dialog.useOldest`, `field:dialog.place`, `field:dialog.description`,
-//! `field:dialog.music` and `button:dialog.browse` (both disabled, with Options ▸ Slideshow's reason
-//! for its music, [`music_reason`]), `button:dialog.cancel`,
+//! `field:dialog.music` and `button:dialog.browse` (both disabled with [`music_reason`]: Dalica
+//! plays slideshow music since M15.27, but a folder's own music needs a field of the folder's data
+//! that is not kept yet, so Options ▸ Slideshow's music folder plays for every folder),
+//! `button:dialog.cancel`,
 //! `button:dialog.ok`.
 
 use dalica_core::{Date, DateTime, FolderId};
@@ -69,13 +71,12 @@ const GAP: f32 = 8.0;
 pub const USE_OLDEST: &str = "Use the date of the oldest photo";
 /// What the Music field says while it is empty.
 pub const MUSIC_HINT: &str = "No folder";
-/// Why the Music row is greyed when the options catalogue gives no reason.
-const NO_SOUND: &str = "Arrives with sound support";
+/// Why the Music row is greyed: a folder's own music is not kept yet (M15.27).
+pub const FOLDER_MUSIC_LATER: &str = "A folder's own music isn't kept yet: the music folder in Options › Slideshow plays";
 
-/// Why the Music row is greyed: the reason Options ▸ Slideshow greys its music with (one reason for
-/// both, until Dalica plays sound).
+/// Why the Music row is greyed ([`FOLDER_MUSIC_LATER`]).
 pub fn music_reason() -> &'static str {
-    dalica_engine::options::find("slideshow.music").and_then(|o| o.unavailable).unwrap_or(NO_SOUND)
+    FOLDER_MUSIC_LATER
 }
 /// Why OK is disabled when the draft's date does not read as a day.
 pub const BAD_DATE: &str = "Type the date as YYYY-MM-DD.";
@@ -279,7 +280,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     row(ui, &t, "Place:", |ui| field(ui, &t, fields, "place", PLACE_ID, "Where these photos were taken", full));
     row(ui, &t, "Description:", |ui| field(ui, &t, fields, "description", DESCRIPTION_ID, "Add a description", full));
     row(ui, &t, "Music for slideshows:", |ui| {
-        // Slideshow music waits for sound support: the row is there, disabled with its reason.
+        // A folder's own music is not kept yet: the row is there, disabled with its reason.
         ui.add_enabled_ui(false, |ui| {
             let browse = "Browse…";
             let bw = (ui.painter().layout_no_wrap(browse.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
