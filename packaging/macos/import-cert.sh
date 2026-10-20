@@ -20,7 +20,8 @@
 # machine only (admin trust settings, so it needs sudo), so the release workflow's dry runs sign
 # with the hardened runtime and a timestamp exactly as a release does. Its signatures are never
 # notarized or published. It refuses to run outside GitHub Actions, so it never changes the trust
-# settings of a developer's Mac; --delete removes the trust again.
+# settings of a developer's Mac; --delete deletes the keychain and removes the trust again (bounded
+# in time: a trust setting it cannot remove without a prompt stays on the discarded runner).
 #
 # Adapted from PhotoCraft packaging/macos/import-cert.sh @ 77221725 (MIT OR Apache-2.0) and the
 # keychain removal step of craft-common-actions .github/workflows/release.yml @ d7bf8f06
@@ -47,18 +48,47 @@ case "${1:-}" in
   *) echo "unknown argument: $1" >&2; exit 2 ;;
 esac
 
+# bounded SECONDS CMD...: CMD, stopped after SECONDS (macOS has no timeout(1)); status 124 then.
+# The cleanup must never hang on a prompt, whatever state the job left the keychain in.
+bounded() {
+  local secs="$1" pid waited=0
+  shift
+  "$@" </dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$secs" ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      return 124
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid"
+}
+
 if [ "$MODE" = delete ]; then
-  if [ -f "$THROWAWAY_PEM" ]; then
-    sudo security remove-trusted-cert -d "$THROWAWAY_PEM" || warn "could not remove the throwaway certificate's trust setting"
-    rm -f "$THROWAWAY_PEM"
-    echo "removed the throwaway certificate's trust setting"
-  fi
   if [ -e "$KEYCHAIN" ]; then
-    # delete-keychain also takes it off the search list.
-    security delete-keychain "$KEYCHAIN" || rm -f "$KEYCHAIN"
-    echo "deleted $KEYCHAIN"
+    # delete-keychain also takes it off the search list; the throwaway's key and certificate go
+    # with it.
+    if bounded 60 security delete-keychain "$KEYCHAIN"; then
+      echo "deleted $KEYCHAIN"
+    else
+      rm -f "$KEYCHAIN"
+      warn "security delete-keychain failed or hung; removed the file $KEYCHAIN"
+    fi
   else
     echo "no temporary keychain to delete"
+  fi
+  if [ -f "$THROWAWAY_PEM" ]; then
+    # Removing an admin trust setting can ask for authorization: never wait for that. A setting
+    # left behind names a deleted certificate that expires within a day, on a discarded runner.
+    if bounded 30 sudo -n security remove-trusted-cert -d "$THROWAWAY_PEM"; then
+      echo "removed the throwaway certificate's trust setting"
+    else
+      warn "the throwaway certificate's trust setting stays on this runner (its certificate is deleted and expires within a day)"
+    fi
+    rm -f "$THROWAWAY_PEM"
   fi
   rm -f "$CERT"
   exit 0
@@ -116,7 +146,7 @@ security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user
 
 if [ "$MODE" = throwaway ]; then
   # Trusted for code signing in the admin domain: valid for codesign on this runner, nowhere else.
-  sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$KEYCHAIN" "$THROWAWAY_PEM"
+  sudo -n security add-trusted-cert -d -r trustRoot -p codeSign -k "$KEYCHAIN" "$THROWAWAY_PEM"
   pattern="\"$THROWAWAY_NAME\""
 else
   pattern='"Developer ID Application:'

@@ -258,7 +258,8 @@ sends the file as an Apple Event, which Dalica does not handle yet: the app star
   the keychain.
 - **The dry run's identity:** `import-cert.sh --throwaway` (GitHub Actions only) makes an RSA key
   and a self-signed code-signing certificate valid for one day, imports it the same way and trusts
-  it for code signing on that runner (admin trust settings, removed again by `--delete`), and sets
+  it for code signing on that runner (admin trust settings; `--delete` removes them when it can do so
+  without a prompt, in bounded time), and sets
   `MACOS_SIGN_THROWAWAY=1`, so the dry run signs with the hardened runtime and Apple's timestamp
   exactly as a release does. A throwaway signature is never notarized: `package.sh` refuses
   notarization credentials beside it, and says what it skips by name (notarization of the app, the
