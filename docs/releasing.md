@@ -3,11 +3,14 @@
 Adapted from LightCraft `docs/releasing.md` (revision 88ea1a8) and PhotoCraft `docs/releasing.md`
 and `docs/release-playbook.md` (revision 59684266); MIT OR Apache-2.0.
 
-> Status: **The pipeline runs (M6.13) and builds every package (M6.21–M6.23); signing and
-> notarization arrive in M15.** `.github/workflows/release.yml` and `packaging-lint.yml` run as
-> described under *What runs now*, and `packaging/` builds the installers of *What gets built*,
-> copied in shape from the Craft apps' release pipeline ([`process.md`](process.md) §7). Until
-> M15 every artifact is unsigned (ad hoc on macOS). Update this page as the pieces land.
+> Status: **The pipeline runs (M6.13), builds every package (M6.21–M6.23) and signs the Windows
+> (M15.10) and macOS (M15.13) packages.** `.github/workflows/release.yml` and `packaging-lint.yml`
+> run as described under *What runs now*, and `packaging/` builds the installers of *What gets
+> built*, copied in shape from the Craft apps' release pipeline ([`process.md`](process.md) §7).
+> Every dry run signs both platforms with throwaway identities; the real certificates, Apple's
+> notarization and the stapled tickets need the maintainer's secrets and are first checked on the
+> 1.0 release run (M15.R). Linux packages are not code-signed (*Secrets*). Update this page as the
+> pieces land.
 
 Every push to the `release` branch runs `.github/workflows/release.yml`. The workflow builds
 installers for Linux, Windows and macOS, signs what it has credentials for, and creates or updates a
@@ -57,11 +60,13 @@ After the draft is published, the workflow refuses to touch that version again, 
 **Test runs:** *Actions → Release → Run workflow* runs the whole pipeline by hand, with an optional
 `version` input (such as `0.2.0-rc.1`) that overrides `Cargo.toml` for that run only (applied with
 `cargo xtask version set` before building, so the binaries report it too). Only a run on the
-`release` branch signs and drafts; a run on any other branch, and every pull request that touches
-`packaging/`, `.github/workflows/` or `assets/app-icon/`, is a **dry run**: it builds, checksums
-and verifies every platform, while the signing jobs are skipped (the `release` environment, limited
-to the `release` branch, would refuse them anyway) and the draft job, which needs them, is skipped
-too. A pull request's own checks are therefore a dry run of the release.
+`release` branch signs with the real certificates and drafts; a run on any other branch, and every
+pull request that touches `packaging/`, `.github/workflows/` or `assets/app-icon/`, is a **dry
+run**: it builds, signs, checksums and verifies every platform, but the signing jobs run without the
+`release` environment, never read its secrets and sign with throwaway self-signed identities they
+make themselves (trusted on that runner only); macOS notarization and stapling are skipped and named
+in the log and the job summary; the draft job is skipped. A pull request's own checks are therefore
+a dry run of the release, signing path included.
 
 ## What runs now
 
@@ -75,16 +80,21 @@ action to a full commit hash, builds with the pinned toolchain (`1.98`, as `ci.y
 | `build Linux x86_64`, `aarch64` | ubuntu-22.04, ubuntu-22.04-arm | `packaging/linux/package.sh` | runs |
 | `build Windows x64` | windows-latest | `packaging/windows/package.ps1 -Arch x64` (static C runtime) | runs |
 | `build macOS universal` | macos-latest | `packaging/macos/package.sh` (both architectures, `lipo`) | runs |
-| `sign Windows x64`, `sign macOS universal` | windows-latest, macos-latest, **`release` environment** | reports which signing secrets are set (a `::warning::` for each missing group), writes every artifact's signature state to the job summary, passes the set on | skipped |
-| `checksums` | ubuntu-latest | downloads the whole set and writes `SHA256SUMS.txt` (`packaging/checksums.sh create`) | runs over the unsigned set |
+| `sign Windows x64` (M15.10) | windows-latest, **`release` environment** | `package.ps1 -FromStage`: signs both programs from the build job's stage, builds the MSI around them and signs it, zips the portable set again, checks every signature (`test-sign.ps1`); the `.pfx` or Azure Trusted Signing, a `::warning::` naming each unsigned file without either | runs without the environment; signs with a throwaway certificate (`sign.ps1 -Throwaway`) |
+| `sign macOS universal` (M15.13) | macos-latest, **`release` environment** | `import-cert.sh` imports the Developer ID certificate into a temporary keychain; `package.sh --from-stage` assembles and signs `Dalica.app`, the DMG and the CLI zip from the build job's stage, notarizes all three (`notarize.sh`), staples the app and the DMG, and runs `verify.sh`; a `::warning::` and ad hoc signatures without the certificate, a warning and no notarization without all three Apple secrets; the keychain is deleted at the end whatever happened | runs without the environment; signs with a throwaway identity (`import-cert.sh --throwaway`); notarization, stapling and Gatekeeper's checks skipped and named |
+| `checksums` | ubuntu-latest | downloads the whole set and writes `SHA256SUMS.txt` (`packaging/checksums.sh create`) | runs over the throwaway-signed set |
 | `verify checksums` | ubuntu, Windows and macOS | on a fresh runner each: re-downloads the set and `SHA256SUMS.txt`, runs the script's planted-mismatch test (`checksums.sh self-test`) and `checksums.sh verify` | runs |
 | `draft GitHub Release` | ubuntu-latest, **`contents: write`** | verifies the set once more, refuses a published version, then creates the draft `Dalica v<version>` tagged `v<version>` on the pushed commit with generated notes (or replaces an existing draft's assets), every artifact and `SHA256SUMS.txt` | skipped |
 
 Every build job sets `DALICA_BUILD_SHA` (the commit) and `DALICA_BUILD_DATE` (the `version` job's
 UTC date), and each script fails unless both binaries' `--version` reports the version and that
 commit. The build jobs read no secrets and run without the `release` environment; the signing jobs
-alone use it; only the draft job may write. Signing and notarization themselves arrive in M15:
-until then every artifact is unsigned, which the signing jobs' warnings and summaries say.
+alone use it, and only in a release run (each secret is passed as
+`real && secrets.X || ''`, so a dry run's environment holds empty strings); only the draft job may
+write. The build jobs for Windows and macOS upload their tested programs and licence files as a
+stage (`stage-<platform>-<arch>`, outside the `release-*` set the checksum and draft jobs take),
+and the signing jobs package the signed set from it, so the checksums are written over what is
+signed.
 
 What each platform job uploads (sizes from the pull requests' dry runs of 0.0.0):
 
@@ -205,9 +215,15 @@ console program.
 - **Portable zip** ships a marker file named `portable` beside `dalica.exe` (a text file
   explaining itself; its contents are ignored) that keeps the library, thumbnail cache and log in
   `data\` next to the exe instead of `%LOCALAPPDATA%`. Sidecars still live in the photo folders.
-- **Signing** goes through one script (`packaging/windows/sign.ps1`) that signs both `.exe` files
-  and the `.msi` with SHA-256 and an RFC 3161 timestamp, using either a `.pfx` certificate or
-  Azure Trusted Signing, whichever is configured.
+- **Signing** (M15.10) goes through one script (`packaging/windows/sign.ps1`) that signs both
+  `.exe` files and the `.msi` with SHA-256 and an RFC 3161 timestamp (three tries for a busy
+  timestamp server), using either a `.pfx` certificate or Azure Trusted Signing, whichever is
+  configured. The build job runs `package.ps1 -NoSign` and uploads its stage; the
+  `sign Windows x64` job runs `package.ps1 -FromStage`, which signs the programs, builds the MSI
+  around them, signs it and zips the portable set again, and `test-sign.ps1` checks every
+  signature (valid, the expected certificate, a timestamp, the programs inside the MSI). Without
+  signing material each unsigned file is named in a warning. A dry run signs with
+  `sign.ps1 -Throwaway`: a self-signed certificate valid for a day, trusted on that runner only.
 
 Tools: Rust with the MSVC target and the Windows SDK (`rc.exe`, `signtool.exe`), and WiX 5.0.2 with
 its UI and Util extensions. In CI (or with `-InstallTools`) the script installs WiX itself;
@@ -229,12 +245,32 @@ with `MACOSX_DEPLOYMENT_TARGET=11.0`, joins them with `lipo`, and assembles `Dal
 as Alternate handler only, HEIC left out while release builds lack `heif`). Finder's Open With
 sends the file as an Apple Event, which Dalica does not handle yet: the app starts and ignores it.
 
-- **Signing** inside-out with the hardened runtime and a secure timestamp, no `--deep`; empty
-  entitlements unless a feature proves it needs one. Without `MACOS_SIGN_IDENTITY` everything is
-  signed ad hoc, with a warning. `import-cert.sh` imports the Developer ID certificate for the
-  signing job (wired in M15).
-- **Notarization** with `xcrun notarytool submit --wait`, then the ticket is stapled to the app
-  and to the DMG. The CLI zip is notarized too (a bare binary cannot hold a stapled ticket).
+- **Signing** (M15.13) inside-out with the hardened runtime and a secure timestamp, no `--deep`:
+  the executable, then `Dalica.app`, then the DMG, and `dalica-cli` (identifier
+  `org.dalica.Dalica.cli`) before it is zipped. `entitlements.plist` is empty (pure Rust, no JIT,
+  no unsigned code, not sandboxed) until a feature proves it needs one. Without
+  `MACOS_SIGN_IDENTITY` everything is signed ad hoc, with a warning. In the release workflow the
+  build job signs ad hoc and uploads its stage; the `sign macOS universal` job runs
+  `package.sh --from-stage` on that stage. `import-cert.sh` puts the identity into a temporary
+  keychain (`$RUNNER_TEMP/dalica-signing.keychain-db`, unlocked for six hours, on the search list,
+  the key usable by `codesign` without a prompt) and exports `MACOS_SIGN_IDENTITY` (its SHA-1) and
+  `MACOS_KEYCHAIN`; `import-cert.sh --delete`, the job's last step under `if: always()`, deletes
+  the keychain.
+- **The dry run's identity:** `import-cert.sh --throwaway` (GitHub Actions only) makes an RSA key
+  and a self-signed code-signing certificate valid for one day, imports it the same way and trusts
+  it for code signing on that runner (admin trust settings; `--delete` removes them when it can do so
+  without a prompt, in bounded time), and sets
+  `MACOS_SIGN_THROWAWAY=1`, so the dry run signs with the hardened runtime and Apple's timestamp
+  exactly as a release does. A throwaway signature is never notarized: `package.sh` refuses
+  notarization credentials beside it, and says what it skips by name (notarization of the app, the
+  DMG and the CLI zip; the stapled tickets; the Developer ID and Gatekeeper checks).
+- **Notarization** (`notarize.sh`, with a Developer ID identity and all three of `APPLE_ID`,
+  `APPLE_PASSWORD`, `APPLE_TEAM_ID`; one or two of them is a warning, never a partial run):
+  `xcrun notarytool submit --wait` for each file, Apple's log printed on a rejection; the app is
+  zipped for the upload and notarized before the DMG is made, so the copy on the DMG carries its
+  ticket; the ticket is stapled to the app and to the DMG (retried while it reaches Apple's CDN)
+  and validated. The CLI zip is notarized too (a bare binary cannot hold a stapled ticket;
+  Gatekeeper looks it up online).
 - **DMG** built with `hdiutil create -srcfolder` (bounded retries), with an `Applications` link
   and a Finder window layout generated at every build by `packaging/macos/dmg/generate.py`
   (standard-library Python: the `.DS_Store` and a background drawn from the app icon, generated
@@ -243,10 +279,15 @@ sends the file as an Apple Event, which Dalica does not handle yet: the app star
   version.
 - **`verify.sh`**, run last, checks the artifacts as users download them: mounts the DMG
   read-only and checks the volume name, the `Applications` link, the layout against a fresh
-  generator run, both architectures, `Info.plist`, strict signatures (also after a `ditto` copy as
-  an install makes) and runs the app's `--version`; the CLI zip likewise. With credentials the
-  Developer ID, `stapler validate` and `spctl` checks are strict; without them they are warnings,
-  which is enough to check the bundle locally.
+  generator run, both architectures, `Info.plist`, strict signatures with the hardened runtime
+  (also after a `ditto` copy as an install makes) and runs the app's `--version`; the CLI zip
+  likewise. What the signatures must show follows the signing mode: with any real identity the
+  expected certificate (its SHA-1) and a secure timestamp on the app, the CLI and the DMG; with a
+  Developer ID also its authority and team; with the notarization credentials also
+  `stapler validate` on the app and the DMG and Gatekeeper's `spctl --assess` on all three. With
+  the throwaway identity the notarization checks are skipped and named; ad hoc, the certificate
+  checks are warnings, which is enough to check the bundle locally. The result goes to the job
+  summary.
 - **`test.sh`** runs the template and layout checks on any OS in seconds (`package.sh` runs it
   first).
 
@@ -260,11 +301,17 @@ secret is optional:** if one is missing, that platform's artifacts are unsigned 
 
 | Secret | Used for |
 |---|---|
-| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` | base64 Developer ID Application `.p12` and its password |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` | base64 Developer ID Application `.p12` (identity and private key) and its password |
 | `KEYCHAIN_PASSWORD` | temporary CI keychain (random if unset) |
-| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | notarization (app-specific password); all three or none |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | notarization: the Apple ID, an app-specific password for it, the team id of the certificate; all three or none |
 | `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | base64 `.pfx` code-signing certificate and its password |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_CERT_PROFILE` | Azure Trusted Signing, an alternative to the `.pfx` |
+
+Dry runs never read any of them: the signing jobs pass each secret as
+`real && secrets.X || ''` and make their own throwaway identities. What a release run's secrets
+produce is checked first on the 1.0 release run (M15.R): the Windows signatures name the real
+certificate, the macOS ones the Developer ID with the team, and `verify.sh` passes strict with the
+stapled tickets and Gatekeeper's assessment.
 
 `GITHUB_TOKEN` creates the release; only the final job gets `contents: write`. Linux artifacts are
 not code-signed: the release job computes SHA-256 checksums for the complete artifact set and

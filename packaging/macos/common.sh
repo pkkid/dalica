@@ -3,8 +3,9 @@
 #
 # Sets: ROOT, HERE (packaging/macos), VERSION, SHORT_VERSION (numeric X.Y.Z for CFBundleVersion),
 # APP_ID (crates/core/src/app_id.rs), DIST, TARGET_DIR, WORK, DMG, CLI_ZIP, CLI_DIR_NAME, and
-# exports DALICA_BUILD_SHA, DALICA_BUILD_DATE and MACOSX_DEPLOYMENT_TARGET. Defines warn,
-# render_info_plist and copy_licences. Needs nothing beyond bash, awk and sed, so the template
+# exports DALICA_BUILD_SHA, DALICA_BUILD_DATE and MACOSX_DEPLOYMENT_TARGET; resolves the signing
+# mode (IDENTITY, SIGN_MODE, NOTARY_SET, NOTARIZE; see below). Defines warn, render_info_plist,
+# copy_licences and NOT_NOTARIZED. Needs nothing beyond bash, awk and sed, so the template
 # rendering also runs on Linux (test.sh).
 #
 # Adapted from PhotoCraft packaging/env.sh @ 77221725 and LightCraft packaging/env.sh @ 25ef65c8
@@ -61,6 +62,31 @@ WORK="$TARGET_DIR/macos-package"
 DMG="$DIST/dalica-$VERSION-macos-universal.dmg"
 CLI_DIR_NAME="dalica-cli-$VERSION-macos-universal"
 CLI_ZIP="$DIST/$CLI_DIR_NAME.zip"
+
+# The signing mode, one rule for package.sh, notarize.sh and verify.sh:
+#   IDENTITY    MACOS_SIGN_IDENTITY (a codesign identity, name or SHA-1), "-" (ad hoc) when unset
+#   SIGN_MODE   adhoc | throwaway (MACOS_SIGN_THROWAWAY=1: the dry run's self-signed identity from
+#               import-cert.sh --throwaway) | developer-id (any other identity)
+#   NOTARY_SET  how many of APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID are set (0-3; never their values)
+#   NOTARIZE    1 for a Developer ID identity with all three, else 0
+# A throwaway identity is never notarized: Apple would refuse it, and a dry run has no secrets.
+IDENTITY="${MACOS_SIGN_IDENTITY:--}"
+if [ "$IDENTITY" = "-" ]; then
+  SIGN_MODE=adhoc
+elif [ "${MACOS_SIGN_THROWAWAY:-0}" = 1 ]; then
+  SIGN_MODE=throwaway
+else
+  SIGN_MODE=developer-id
+fi
+NOTARY_SET=0
+for s in "${APPLE_ID:-}" "${APPLE_PASSWORD:-}" "${APPLE_TEAM_ID:-}"; do
+  if [ -n "$s" ]; then NOTARY_SET=$((NOTARY_SET + 1)); fi
+done
+unset s
+NOTARIZE=0
+if [ "$SIGN_MODE" = developer-id ] && [ "$NOTARY_SET" = 3 ]; then NOTARIZE=1; fi
+# What a build that is not notarized leaves out, named in the logs and the job summary.
+NOT_NOTARIZED="notarization (notarytool submit of Dalica.app, the DMG and the CLI zip), the stapled tickets (Dalica.app, the DMG), the Developer ID check and Gatekeeper's assessment (spctl)"
 
 # render_info_plist OUT: Info.plist.in with the version, commit and application id filled in.
 render_info_plist() {
