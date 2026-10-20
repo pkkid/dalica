@@ -1424,6 +1424,20 @@ fn a_persons_export_job_keeps_her_folder_name_from_automation_without_the_people
     }
 }
 
+/// Runs frames until no file job (an export) and no scan is pending, however long they take under
+/// load: [`Driver::settle`] counts no file job, so it can be quiet before an export ends and before
+/// the scan that brings its folder into the library has started.
+fn settle_jobs(t: &mut T, at: &str) {
+    let mut settled = t.d.settle_for(600, true);
+    for _ in 0..200 {
+        if settled.settled {
+            return;
+        }
+        settled = t.d.settle_for(600, true);
+    }
+    panic!("{at}: still busy: {:?}", settled.busy);
+}
+
 /// An export of Ana's section into the watched folder, started over automation or by a click no
 /// control request saw (§6.4, §6.13): the folder it makes ("Ana") joins the library. Without
 /// `--automation-allow-people` no job (the export's nor the scan's), no part of `ui.inspect`, no
@@ -1451,7 +1465,8 @@ fn a_persons_export_folder_in_the_library_keeps_her_name_from_automation_without
             ok(&mut t, "ui.set", json!({ "export": { "location": location } }));
             ok(&mut t, "ui.dialog.confirm", json!({}));
         }
-        t.d.settle(600).unwrap();
+        // The export's job and the scan that brings its folder in, then what they name.
+        settle_jobs(&mut t, &at);
         let made = t.folder.join("Ana");
         assert!(t.d.app().session().unwrap().library().folder_by_path(&made).is_some(), "{at}: the folder joined the library");
 
@@ -1497,21 +1512,14 @@ fn a_persons_export_folder_stays_out_of_the_status_line_and_a_failed_exports_toa
                 ok(t, "ui.set", json!({ "export": { "location": location } }));
                 ok(t, "ui.dialog.confirm", json!({}));
             }
-            t.d.settle(600).unwrap();
         };
 
         // Into the watched folder: "Ana" joins the library; the edit view on its photo.
         let watched = t.folder.clone();
         export(&mut t, &watched);
         // The export's job and the scan that brings its folder in, however long they take.
+        settle_jobs(&mut t, &at);
         let made = t.folder.join("Ana");
-        let joined = |app: &App| app.session().is_some_and(|s| s.library().folder_by_path(&made).is_some());
-        for _ in 0..50 {
-            if joined(t.d.app()) {
-                break;
-            }
-            t.d.settle_for(600, true);
-        }
         let session = t.d.app().session().unwrap();
         let made = session.library().folder_by_path(&made).expect("the folder joined the library");
         let photo = session.library().photos().find(|p| p.folder == made).expect("her photo in it").id;
