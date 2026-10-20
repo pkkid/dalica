@@ -409,6 +409,18 @@ impl FrameSource {
         after.saturating_sub(1)
     }
 
+    /// The first frame at or after `index` that decoding can start at (a sync sample's), in
+    /// display order: asking [`FrameSource::frame`] for it decodes from there, not from the sync
+    /// sample before. `None` when no sync sample's frame lies at or after `index`.
+    pub fn key_after(&self, index: usize) -> Option<usize> {
+        self.syncs
+            .iter()
+            .filter_map(|&s| self.rank.get(s as usize).copied())
+            .filter(|&r| r != HIDDEN && r as usize >= index)
+            .min()
+            .map(|r| r as usize)
+    }
+
     /// The poster frame: the first whose mean luma clears [`POSTER_LUMA`] within the first
     /// [`POSTER_WINDOW_MS`], else the first frame.
     pub fn poster(&mut self) -> FrameResult<Frame> {

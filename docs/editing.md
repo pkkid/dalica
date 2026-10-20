@@ -464,8 +464,12 @@ skipped, and Save and Batch Edit treat it as not yet available.
   clock says has been heard, so the pictures follow the sound and wait for it when it stalls. With
   no sound output on the system the session's clock is used instead.
 - **Frames are decoded ahead** on a worker of the player's own (at most 8 frames, at most 1920
-  pixels on the long side), never on the window's thread. The frame shown is the last one due;
-  when decoding falls behind, a frame whose successor is already due is dropped, never shown late.
+  pixels on the long side), never on the window's thread. The frame shown is the last one due.
+  When decoding is slower than the clip, every frame decoded is still shown as it comes, so the
+  picture moves at the rate the decoder manages, and a decoder more than 0.1 s behind skips ahead
+  to a key frame (one already due, or one due by the time it is decoded; once it is a second
+  behind, the next one): the picture catches up with the sound at each key frame, and the sound
+  is never held back for it.
 - **The trim** is `trim(start,end)` in whole milliseconds from the clip's start, the start before
   the end (`trim(500,1500)`); a recipe's last readable trim counts. Play starts at the trim's start
   when the position is outside it and stops, paused, at its end. **Set Start** and **Set End** set

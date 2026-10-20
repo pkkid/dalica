@@ -479,6 +479,8 @@ fn the_frame_at_a_time_and_stepping_both_ways() {
     let mut fresh = open(clip(50, IDENTITY, None, b"avc1")).unwrap();
     assert_eq!(fresh.frame(12).unwrap(), again);
     assert_eq!(frame_of(&again.image), Some(12));
+    // The key frames (every tenth) at or after a frame.
+    assert_eq!([0, 1, 10, 41].map(|i| src.key_after(i)), [Some(0), Some(10), Some(10), None]);
     // The ends.
     assert_eq!(src.frame_at(0).unwrap().index, 0);
     assert!(src.previous_frame().unwrap().is_none());
