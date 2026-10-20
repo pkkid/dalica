@@ -44,6 +44,8 @@ dalica-store.workspace = true
 # Sketches of synthetic libraries (`synthetic.rs`) and the thumbnail ladder (`thumbs.rs`).
 dalica-thumbs.workspace = true
 log.workspace = true
+# The digest of what a camera sends, read back from its copy (`camera.rs`, M15.19).
+md5.workspace = true
 # The preview halves its sources in parallel bands (`preview/jobs.rs`).
 rayon.workspace = true
 serde.workspace = true

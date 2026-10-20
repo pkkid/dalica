@@ -1101,6 +1101,7 @@ dependencies = [
  "dalica-store",
  "dalica-thumbs",
  "log",
+ "md5",
  "proptest",
  "rayon",
  "serde",
