@@ -90,7 +90,7 @@ struct Fill {
     /// The device's.
     device_rate: u32,
     device_channels: u16,
-    /// Source frames (stereo or mono after the mix-down) taken and not yet passed.
+    /// Source frames (stereo after the mix-down) taken and not yet passed.
     frames: VecDeque<[f32; 2]>,
     /// Where between the first two of `frames` the next device frame falls (0 ..= 1).
     at: f64,
@@ -120,7 +120,7 @@ impl Fill {
         }
         let Some(samples) = self.core.take(self.stream, need.saturating_sub(self.frames.len()).max(256)) else { return };
         let stereo = downmix(&samples, self.channels, 2);
-        self.frames.extend(stereo.chunks_exact(2).map(|f| [f.first().copied().unwrap_or(0.0), f.get(1).copied().unwrap_or(0.0)]));
+        self.frames.extend(stereo.as_chunks::<2>().0.iter().copied());
     }
 
     fn fill<T: Sample + FromSample<f32>>(&mut self, out: &mut [T]) {
@@ -129,10 +129,12 @@ impl Fill {
         let frames = out.len() / channels;
         self.refill(((frames as f64 * step).ceil() as usize).saturating_add(2));
         for frame in out.chunks_mut(channels) {
-            let (Some(a), Some(b)) = (self.frames.front().copied(), self.frames.get(1).copied()) else {
+            // The last frame waiting plays as it is (its successor, if one comes, is not here yet).
+            let Some(a) = self.frames.front().copied() else {
                 frame.iter_mut().for_each(|v| *v = <T as Sample>::from_sample(0.0f32));
                 continue;
             };
+            let b = self.frames.get(1).copied().unwrap_or(a);
             let t = self.at as f32;
             let lr = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
             for (c, v) in frame.iter_mut().enumerate() {
