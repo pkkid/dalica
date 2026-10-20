@@ -31,6 +31,11 @@
 //! - **Closing** is the window's to carry out: the viewer's UI calls [`Session::close_viewer`]
 //!   (Esc, ×) or [`Session::open_in_dalica`], and the app reads [`Viewer::closed`] to quit, or to
 //!   turn the viewer's window into the main window on the edit view of that photo.
+//! - **Handed in** ([`Session::hand_viewer`], M15.18): a later launch of Dalica handed its file to
+//!   this one, whose window was the library's. Esc and × then close the viewer with
+//!   [`Closed::Back`]: the window returns to where it was instead of quitting. A file handed to a
+//!   viewer that is open already (`dalica --view` in the window) replaces the file shown and keeps
+//!   how that viewer closes.
 //!
 //! What may be read: `viewer.list` lists the folder of the file the viewer was opened with (the
 //! user's own choice on the command line) or a folder the library indexes; any other folder is
@@ -67,6 +72,9 @@ pub const NOT_OPEN: &str = "The photo viewer is not open: give a `path`.";
 pub enum Closed {
     /// Esc or ×: the app quits.
     Quit,
+    /// Esc or × on a viewer handed in to the running Dalica ([`Session::hand_viewer`]): the
+    /// window returns to where it was.
+    Back,
     /// Open in Dalica: the window becomes the main window, on the edit view of this photo.
     OpenInDalica(PhotoId),
 }
@@ -227,6 +235,8 @@ pub struct Viewer {
     /// A read that could not run, given once.
     failed: Option<(PathBuf, String)>,
     closed: Option<Closed>,
+    /// Handed in to the running Dalica ([`Session::hand_viewer`]): Esc goes back, not out.
+    handed: bool,
     /// Pixels decoded by path (made at the first ask).
     images: Option<Images>,
 }
@@ -256,6 +266,12 @@ impl Viewer {
     pub fn closed(&self) -> Option<Closed> {
         self.closed
     }
+
+    /// Whether the viewer was handed in by a later launch ([`Session::hand_viewer`]): closing it
+    /// goes back to where the window was.
+    pub fn handed(&self) -> bool {
+        self.handed
+    }
 }
 
 impl Session {
@@ -267,6 +283,7 @@ impl Session {
         let v = &mut self.viewer;
         v.file = Some(file.clone());
         v.closed = None;
+        v.handed = false;
         v.listing = None;
         v.failed = None;
         self.start_listing(file);
@@ -286,10 +303,22 @@ impl Session {
         Ok(s)
     }
 
-    /// Esc and ×: the viewer closes, and the app quits ([`Viewer::closed`]).
+    /// A later launch handed `file` to this Dalica (`viewing.md` §3.4): the viewer opens on it as
+    /// [`Session::open_viewer`] does. When no viewer was open, closing it goes back to where the
+    /// window was ([`Closed::Back`]); a viewer that is open already shows `file` and closes as it
+    /// would have. `BadParams` as [`Session::open_viewer`].
+    pub fn hand_viewer(&mut self, file: &Path) -> Result<(), CmdError> {
+        let handed = !self.viewer.is_open() || self.viewer.handed;
+        self.open_viewer(file)?;
+        self.viewer.handed = handed;
+        Ok(())
+    }
+
+    /// Esc and ×: the viewer closes ([`Viewer::closed`]): the app quits, or, for a viewer handed
+    /// in, the window goes back to where it was.
     pub fn close_viewer(&mut self) {
         if self.viewer.file.is_some() {
-            self.viewer.closed = Some(Closed::Quit);
+            self.viewer.closed = Some(if self.viewer.handed { Closed::Back } else { Closed::Quit });
         }
     }
 
@@ -635,4 +664,48 @@ fn read_listing(file: &Path, options: &dalica_scan::Options) -> Listing {
         })
     };
     Listing { file: file.to_path_buf(), folder, found, photos, refused }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dalica_core::SystemClock;
+
+    fn session() -> (tempfile::TempDir, Session) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Session::open(&dir.path().join("library"), Arc::new(SystemClock)).unwrap();
+        (dir, s)
+    }
+
+    /// A file handed in by a later launch opens the viewer; Esc on it goes back, not out
+    /// (`viewing.md` §3.4).
+    #[test]
+    fn a_handed_viewer_closes_back_and_a_launched_one_quits() {
+        let (dir, mut s) = session();
+        let file = dir.path().join("Photos").join("a.jpg");
+        s.hand_viewer(&file).unwrap();
+        assert!(s.viewer().is_open() && s.viewer().handed());
+        assert_eq!(s.viewer().file(), Some(file.as_path()));
+        // A second hand-off while it is open shows that file and still goes back.
+        let other = dir.path().join("Photos").join("b.jpg");
+        s.hand_viewer(&other).unwrap();
+        assert_eq!(s.viewer().file(), Some(other.as_path()));
+        s.close_viewer();
+        assert_eq!(s.viewer().closed(), Some(Closed::Back));
+        // Handed in again after it closed: handed again.
+        s.hand_viewer(&file).unwrap();
+        assert_eq!(s.viewer().closed(), None);
+        s.close_viewer();
+        assert_eq!(s.viewer().closed(), Some(Closed::Back));
+        // `dalica --view`'s viewer quits, even when a file is handed to it while it is open.
+        s.open_viewer(&file).unwrap();
+        assert!(!s.viewer().handed());
+        s.hand_viewer(&other).unwrap();
+        assert!(!s.viewer().handed());
+        s.close_viewer();
+        assert_eq!(s.viewer().closed(), Some(Closed::Quit));
+        // A path the viewer cannot take is refused and changes nothing.
+        assert!(matches!(s.hand_viewer(Path::new("relative.jpg")), Err(CmdError::BadParams(_))));
+        assert_eq!(s.viewer().closed(), Some(Closed::Quit));
+    }
 }

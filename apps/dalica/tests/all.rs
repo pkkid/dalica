@@ -4,6 +4,7 @@
 mod common;
 mod control_headless;
 mod control_security;
+mod instance;
 mod os;
 mod startup;
 mod view;

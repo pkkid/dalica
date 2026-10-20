@@ -25,9 +25,10 @@ const BUSY_TICK: Duration = Duration::from_millis(16);
 const QUIT_REPLY_WAIT: Duration = Duration::from_secs(2);
 
 /// Serves requests until `app.quit` (or until the transport is gone), then closes the app as the
-/// window does ([`App::shutdown`]).
+/// window does ([`App::shutdown`]). Files later launches hand over (`receiver`) open in the viewer
+/// (`crate::instance::receive`).
 /// Returns whether everything was written.
-pub fn run(hub: &Hub, control: &Control, session: Session) -> bool {
+pub fn run(hub: &Hub, control: &Control, session: Session, mut receiver: Option<crate::instance::Receiver>) -> bool {
     let mut d = Driver::new(App::with_picker(Some(session), control.picker()), SIZE.0, SIZE.1, 1.0);
     let mut conns: HashMap<u64, Connection> = HashMap::new();
     let ui = dalica_fs::mark_ui_thread();
@@ -35,6 +36,9 @@ pub fn run(hub: &Hub, control: &Control, session: Session) -> bool {
         // `dalica --view`: the viewer closed with Esc or × quits, as `app.quit` does.
         if viewer_quit(d.app()) {
             break None;
+        }
+        if let Some(r) = &mut receiver {
+            r.step(d.app_mut(), None);
         }
         let tick = if d.app().idle() { IDLE_TICK } else { BUSY_TICK };
         match hub.rx.recv_timeout(tick) {

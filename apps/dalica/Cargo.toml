@@ -48,6 +48,8 @@ zbus.workspace = true
 muda.workspace = true
 objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
+# Finder's and the Dock's open-documents events, for the viewer (`instance`, M15.18).
+fmv-macos-events.workspace = true
 
 # The icon and VERSIONINFO of dalica.exe (build.rs; only used when targeting Windows).
 [build-dependencies]

@@ -60,6 +60,10 @@ wl-clipboard-rs = { version = "0.9", default-features = false }
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
+# macOS's open-documents Apple events (Finder's Open With, the Dock), M15.18: a small audited crate
+# (objc2 only) that keeps the Objective-C class declaration, and its `unsafe`, out of this workspace;
+# pinned, as PhotoCraft pins it.
+fmv-macos-events = "=0.1.0"
 
 # Decoding, encoding, colour, resampling
 image = { version = "0.25.10", default-features = false, features = ["png", "tiff", "webp", "gif", "bmp"] }

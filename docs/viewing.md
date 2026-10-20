@@ -235,12 +235,35 @@ viewer follows the options at once (M11.17).
   and `viewer.adopt {path}` (Open in Dalica); a later change is an ordinary change of a library
   photo. A delete is a file job with an undo step of its own: there the adding is a library step
   just before it.
-- **Another Dalica holds the library:** the viewer opens on an empty read-only library of its own in
-  a temporary folder (removed when the app ends): every photo is shown from its file and sidecar,
-  edits included, and the changes and Open in Dalica are disabled with "Dalica is already open".
-  Handing the file to the running Dalica instead is a question for the milestone's review.
+- **One Dalica per user (M15.18, the maintainer's answer at M11.R).** A later launch hands its
+  file to the user's running Dalica instead of opening a second copy:
+  - **Who takes part:** a launch on the per-user settings folder (the platform's library folder:
+    not `--library`, `--demo`, `DALICA_HOME` or a portable copy, which may be shared or meant as a
+    separate Dalica), headless ones included, whose file names fit the request below.
+  - **The first** takes an OS lock on `instance.lock` in that folder (released when the process
+    ends, however it ends), listens on 127.0.0.1 only and writes its port and a fresh 256-bit token
+    to `instance.json` (through `fs`, `0600` on Unix, the folder's per-user ACL on Windows).
+  - **A later one** that finds the lock taken sends its paths with the token in one request (at most
+    64 absolute paths of at most 4 KiB each, one line within 5 s; the token compared in constant
+    time; anything else refused whole, nothing opens; at most 8 launches served at once) and exits 0
+    once the first says its window took them. Hearing anything else (the first is opening, hung or
+    quitting) it tries the lock and the first again, and after 10 s starts on its own as before:
+    a file is never acknowledged and then dropped. A plain launch without a file only brings the
+    window forward.
+  - **The running Dalica,** once its library is open, brings its window forward and opens the viewer
+    on the first file, borderless and full screen as `--view` (the window stays opaque: a window
+    made opaque cannot turn transparent). Esc and × close it with `Session::close_viewer` knowing it
+    was handed in: the window returns to where it was (its view, full screen, frame and maximized
+    state) instead of quitting; Open in Dalica leaves it on the edit view with its frame back. A
+    file handed to `--view`'s own viewer window replaces the photo shown, and Esc there still quits.
+  - **macOS:** Finder's Open With, a double-click and a file dropped on the Dock icon arrive as an
+    open-documents event (no command line) and open the viewer the same way.
+- **Another Dalica holds the library** (another user's, or a separate one on the same library): the
+  viewer opens on an empty read-only library of its own in a temporary folder (removed when the app
+  ends): every photo is shown from its file and sidecar, edits included, and the changes and Open in
+  Dalica are disabled with "Dalica is already open".
 - **Closing.** Esc and × close the viewer in the engine (`Session::close_viewer`) and the app
-  quits. Open in Dalica (`Session::open_in_dalica`) turns the same window into the main window: out
+  quits (a viewer handed in returns the window to where it was, above). Open in Dalica (`Session::open_in_dalica`) turns the same window into the main window: out
   of full screen and opaque, the frame's decorations, its saved size and place, on the edit view of
   that photo. The viewer's UI (§3.1–§3.3) starts on the viewer view when the session holds an open
   viewer.
