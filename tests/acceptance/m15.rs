@@ -143,11 +143,23 @@ fn the_crate_suites_the_workflows_parity_panic_hunt_and_the_budgets() {
         checks::workflows()
     };
     let suites = secs(started);
+    // The catalogs, parity and the SBOMs are the same on every system: inside `cargo xtask ci` its
+    // own static steps check them (in the Linux run only), and a standalone run checks them here.
+    // Parity's `KEY-*` rows are the keymap of Linux and Windows (macOS binds Redo to Cmd+Shift+Z),
+    // so it is left out on macOS, as the review's macOS run leaves it out.
     let t = Instant::now();
-    checks::catalogs();
-    checks::parity();
-    let sbom = tempfile::tempdir().unwrap();
-    checks::sbom(sbom.path());
+    if in_ci {
+        println!("(the catalogs, parity and the SBOMs: run by the ci static steps)");
+    } else {
+        checks::catalogs();
+        if cfg!(target_os = "macos") {
+            println!("(parity: its KEY rows are Linux's and Windows' keymap; checked in the Linux run)");
+        } else {
+            checks::parity();
+        }
+        let sbom = tempfile::tempdir().unwrap();
+        checks::sbom(sbom.path());
+    }
     let tools = secs(t);
     let t = Instant::now();
     checks::panic_hunt();

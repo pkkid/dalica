@@ -111,10 +111,20 @@ fn is_user_data(text: &str, data: &BTreeSet<String>) -> bool {
     data.contains(bare) || counted.is_some_and(|n| data.contains(n)) || elided || path
 }
 
-/// A keyboard shortcut as the shortcut editor writes it ("Ctrl+Shift+R", "F11", "Delete").
+/// A keyboard shortcut as the shortcut editor writes it ("Ctrl+Shift+R", "F11", "Delete"; on macOS
+/// with the modifier symbols `Key::pretty` writes, "⇧⌘E").
 fn is_shortcut(text: &str) -> bool {
     let text = text.trim();
-    !text.is_empty() && !text.contains(' ') && (Key::parse(text).is_ok() || Key::parse(&text.replace("Cmd+", "Ctrl+")).is_ok())
+    !text.is_empty()
+        && !text.contains(' ')
+        && (Key::parse(text).is_ok() || Key::parse(&text.replace("Cmd+", "Ctrl+")).is_ok() || (!text.is_ascii() && Key::parse_lenient(text).is_ok()))
+}
+
+/// A path: user data, which a one-line field shows cut at its side when it is longer than the
+/// field (the Export dialog's location on a system whose home is long).
+fn is_path(text: &str) -> bool {
+    let bare = text.trim();
+    bare.starts_with('/') || bare.starts_with('~') || bare.get(1..3) == Some(":\\")
 }
 
 /// The texts the next frame draws that went through no catalog and are not user data, each with
@@ -149,13 +159,14 @@ fn texts(shapes: &[ClippedShape]) -> Vec<(String, Rect, Rect)> {
     out
 }
 
-/// The labels the next frame cuts at the side of the area they are drawn in, or past the window.
+/// The labels the next frame cuts at the side of the area they are drawn in, or past the window
+/// (paths, user data, left out: [`is_path`]).
 fn clipped(d: &mut Driver, place: &str, out: &mut BTreeSet<String>) {
     let shapes = crate::accessibility::frame(d, Vec::new()).shapes;
     let screen = d.ctx().content_rect();
     for (text, r, clip) in texts(&shapes) {
-        if !r.intersect(clip).is_positive() {
-            continue; // scrolled out of sight
+        if !r.intersect(clip).is_positive() || is_path(&text) {
+            continue; // scrolled out of sight, or user data
         }
         if r.left() < clip.left() - 0.5 || r.right() > clip.right() + 0.5 || r.right() > screen.right() + 0.5 {
             out.insert(format!("{place}: {text:?} cut at the side: {r:?} in {clip:?}"));

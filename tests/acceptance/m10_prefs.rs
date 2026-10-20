@@ -77,6 +77,9 @@ fn other(r: &Value, folder: &Path) -> Option<Value> {
             Some(json!(if default == &json!(min) { max } else { min }))
         }
         "scale" => Some(json!(150)),
+        // The language: English (not its default, System), so the window the test reads stays in
+        // English; the last choice would be the pseudo-locale (M15.7).
+        "choice" if r["key"] == "interface.language" => Some(json!("en")),
         "choice" => r["choices"].as_array().unwrap().iter().map(|c| c["id"].clone()).rfind(|id| id != default),
         "text" => Some(json!("© Ana Lima")),
         "folder" => Some(json!(folder)),
