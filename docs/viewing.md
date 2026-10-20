@@ -205,9 +205,40 @@ Tabs: **File Types** — radio "Use Dalica as the default viewer for these file 
 checkbox per type showing the current handler ("JPEG (Image Viewer)"), [Current] [Select All]
 [Select None]; radio "Don't use Dalica as a viewer". **Interface** — "Mouse wheel zooms (hold Ctrl
 to navigate)" / "Mouse wheel moves through photos (hold Ctrl to zoom)", "Hide controls
-automatically", "Translucent background". [OK] [Cancel]. The dialog opens on Interface (File
-Types needs the OS integration and is drawn disabled until then); OK sets what changed, and the
-viewer follows the options at once (M11.17).
+automatically", "Translucent background". [OK] [Cancel]. The dialog opens on Interface; OK sets
+what changed, and the viewer follows the options at once (M11.17).
+
+**Default viewer (decided, M15.24).** The File Types tab lists the types Dalica can be the default
+viewer for (the engine's `viewer.fileTypes`: every still type this build shows, so HEIC only with
+`heif` and not AVIF), each with the application that opens it now as the system says it, and checks
+the types last chosen (`viewer.defaultViewer`). [Current] checks the types Dalica opens now,
+[Select All] every one, [Select None] none; "Don't use Dalica as a viewer" is none. OK (or Options'
+Apply) runs `viewer.setDefault {types}` when the types changed; it changes the system's settings,
+so automation runs it only with `--automation-allow-external`. Dalica sets a default only where the
+OS lets an application do it:
+
+- **Linux:** the user's `$XDG_CONFIG_HOME/mimeapps.list` gets
+  `<mime>=org.dalica.Dalica.desktop;` in `[Default Applications]` for each MIME type of the types
+  chosen. Every other line is kept byte for byte (groups, keys, comments, line endings); the file
+  is read whole (at most 256 KiB, a larger one refused), written through `fs` over the version read,
+  and never through a link. One that is not UTF-8 is kept aside (`.corrupt-<time>Z`) and replaced
+  by Dalica's lines. What a key said before is remembered in `$XDG_CONFIG_HOME/dalica/default-viewer.json`
+  (written first), and a type no longer chosen gets it back (or loses the key if there was none);
+  a key the user changed since is left alone. Dalica's desktop entry must be installed, else it
+  says so and changes nothing.
+- **Windows:** only the user may choose (Settings ▸ Default apps). Dalica registers for the user
+  (`reg.exe`, never a shell): the ProgID `Dalica.Image` with its icon and `--view "%1"` command,
+  the types' `OpenWithProgids`, its Capabilities and `RegisteredApplications` entry; then opens
+  Default apps on Dalica's page and a toast says what to choose. None takes the Capabilities away.
+- **macOS:** no safe binding sets the role handler in this build, so nothing is set: the bundle
+  declares Dalica a Viewer of the types, and a toast says how to choose it in Finder (Get Info ▸
+  Open with ▸ Change All…).
+
+After the first-run panel's Continue, a question asks once, nothing chosen: "Use Dalica as the
+default viewer for these file types:" with the same types and handlers, [Use Dalica] and [Not
+Now] (`dialog:defaultViewer`; not asked where the system cannot). Open With ▸ gets each
+application's icon as the system gives it (`photo.openWithList`'s `icon`: a theme icon's name or a
+file on Linux, `file,index` on Windows, none on macOS).
 
 ### 3.4 The viewer's session and `dalica --view` (decided, M11.12)
 

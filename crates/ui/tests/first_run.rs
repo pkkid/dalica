@@ -122,7 +122,8 @@ fn first_run_with_the_default_choice_adds_the_standard_places_and_folders_appear
     assert!(!try_widget(&d, "choice:dialog.start/choose").unwrap().active);
     assert!(tree_rows(&d).is_empty());
     d.click("button:dialog.continue").unwrap();
-    assert!(d.state().dialogs.is_empty(), "Continue closes the panel: {:?}", d.state().status);
+    // Continue closes the panel; the default-viewer question follows (M15.24).
+    assert_eq!(d.state().dialogs.iter().map(|d| d.kind).collect::<Vec<_>>(), [DialogKind::DefaultViewer], "{:?}", d.state().status);
     let s = d.app().session().unwrap();
     let watched: Vec<PathBuf> =
         s.folder_rules().iter().filter(|(_, r)| r.mode.map(|m| m.id()) == Some("always")).map(|(p, _)| p.to_path_buf()).collect();
@@ -163,7 +164,7 @@ fn choose_folders_opens_the_folder_manager() {
     assert!(try_widget(&d, "choice:dialog.start/choose").unwrap().active);
     assert_eq!(d.state().dialogs[0].fields["choice"], "choose");
     d.click("button:dialog.continue").unwrap();
-    assert_eq!(d.state().dialogs.iter().map(|d| d.kind).collect::<Vec<_>>(), [DialogKind::FolderManager]);
+    assert_eq!(d.state().dialogs.iter().map(|d| d.kind).collect::<Vec<_>>(), [DialogKind::DefaultViewer, DialogKind::FolderManager]);
     assert!(d.app().session().unwrap().folder_rules().is_empty());
     d.settle(FRAMES).unwrap();
     assert!(has(&d, "dialog:folderManager"));

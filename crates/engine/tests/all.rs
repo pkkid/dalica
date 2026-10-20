@@ -17,6 +17,7 @@ mod crop_commands;
 mod dates;
 mod dates_undo_written;
 mod day_in_the_life;
+mod default_viewer;
 mod delete;
 mod duplicates;
 mod edit_keys;

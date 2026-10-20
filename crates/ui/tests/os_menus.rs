@@ -151,7 +151,7 @@ fn open_with_lists_the_systems_applications_and_opens_the_photo_with_one() {
     let mut t = setup(LARGE);
     let a = t.s[0][0];
     let ext = t.path(a).extension().unwrap().to_string_lossy().into_owned();
-    let handler = |id: &str, name: &str| Handler { id: id.into(), name: name.into() };
+    let handler = |id: &str, name: &str| Handler::new(id, name);
     t.os.set_handlers(
         &ext,
         vec![handler("gimp.desktop", "GIMP"), handler("org.dalica.Dalica.desktop", "Dalica"), handler("eog.desktop", "Image Viewer")],
@@ -261,7 +261,7 @@ fn at_900_by_600_the_open_with_submenu_stays_inside_the_window() {
     t.d.run("section.scrollTo", &json!({ "section": Section::Folder(t.folders[1]) })).unwrap();
     t.d.settle(FRAMES).unwrap();
     let ext = t.path(last).extension().unwrap().to_string_lossy().into_owned();
-    let apps: Vec<Handler> = (0..12).map(|n| Handler { id: format!("app{n}.desktop"), name: format!("Application {n}") }).collect();
+    let apps: Vec<Handler> = (0..12).map(|n| Handler::new(format!("app{n}.desktop"), format!("Application {n}"))).collect();
     t.os.set_handlers(&ext, apps);
     t.open_menu(last);
     t.d.click("submenu:Photo/Open With").unwrap();

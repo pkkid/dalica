@@ -26,6 +26,7 @@ mod control_inspect;
 mod control_wait;
 mod crop_tool;
 mod damaged_sidecar;
+mod default_viewer;
 mod delete_dialogs;
 mod dialogs;
 mod drag;

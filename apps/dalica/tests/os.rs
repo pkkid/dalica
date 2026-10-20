@@ -8,7 +8,7 @@
 
 #[allow(dead_code)]
 #[path = "../src/os.rs"]
-mod native;
+pub mod native;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -245,7 +245,7 @@ fn handler_lists_come_from_desktop_entries_and_mimeapps_lists() {
     let ids = |p: &str| os.handlers(Path::new(p)).unwrap().into_iter().map(|h| h.id).collect::<Vec<_>>();
     assert_eq!(ids("/x/IMG_1.JPG"), ["editor.desktop", "viewer.desktop", "quiet.desktop", "aaa.desktop"]);
     let all = os.handlers(Path::new("/x/a.jpg")).unwrap();
-    assert_eq!(all[1], Handler { id: "viewer.desktop".into(), name: "Visionneuse".into() }, "the user's language");
+    assert_eq!(all[1], Handler::new("viewer.desktop", "Visionneuse"), "the user's language");
     assert_eq!(all[3].name, "Aaa (mine)", "the user's entry shadows the system's");
     assert_eq!(ids("/x/a.png"), ["editor.desktop", "viewer.desktop"]);
     assert_eq!(ids("/x/a.cr2"), ["kde-raw.desktop"], "through the parent type");

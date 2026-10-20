@@ -79,9 +79,10 @@
     </dict>
   </array>
 
-  <!-- The image formats Dalica shows (docs/formats.md §1), offered under Open With only:
-       Alternate rank, so Dalica never takes over the default viewer. HEIC is left out while
-       release builds leave out the heif feature; AVIF and video are not shown yet. -->
+  <!-- The image formats Dalica shows (docs/formats.md §1), Dalica declared as their Viewer:
+       Alternate rank, so Dalica never takes over the default viewer by itself; the user makes it
+       the default in Finder (Get Info, Open with, Change All; docs/viewing.md §3.3). HEIC is left
+       out while release builds leave out the heif feature; AVIF and video are not shown yet. -->
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

@@ -167,9 +167,16 @@ pub fn apply(app: &mut App) -> Result<Value, CmdError> {
 }
 
 fn run(app: &mut App, draft: &OptionsDraft) -> Result<Value, CmdError> {
-    let options = if draft.values.is_empty() { Value::Null } else { app.run("options.set", &json!({ "values": draft.values }))? };
+    // Photo Viewer ▸ File Types is `viewer.setDefault`'s, not `options.set`'s (M15.24).
+    let mut values = draft.values.clone();
+    let file_types = viewer::apply(app, &mut values)?;
+    let options = if values.is_empty() { Value::Null } else { app.run("options.set", &json!({ "values": values }))? };
     let shortcuts = shortcuts::apply(app, &draft.shortcuts)?;
-    Ok(json!({ "options": options, "shortcuts": shortcuts }))
+    let mut reply = json!({ "options": options, "shortcuts": shortcuts });
+    if let (false, Some(o)) = (file_types.is_null(), reply.as_object_mut()) {
+        o.insert("fileTypes".into(), file_types);
+    }
+    Ok(reply)
 }
 
 /// Apply runs [`apply`] and keeps the dialog open; OK applies what changed and closes.

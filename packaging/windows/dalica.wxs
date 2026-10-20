@@ -12,7 +12,8 @@
   Apache-2.0, there is nothing to accept. `msiexec /qn` installs silently. A Start Menu shortcut,
   both programs, the licence and notice files; Dalica is offered under "Open with" for the image
   formats it reads and never takes over the default viewer of any of them (no `.ext` default value
-  is written, only OpenWithProgids and SupportedTypes). Version is numeric X.Y.Z; same-version
+  is written, only OpenWithProgids and SupportedTypes); its Capabilities and RegisteredApplications
+  entry list it in Settings > Default apps, where only the user may choose it. Version is numeric X.Y.Z; same-version
   upgrades let release candidates of one X.Y.Z replace each other.
 
   Adapted from PhotoCraft packaging/windows/photocraft.wxs (revision 0d6e658e); MIT OR Apache-2.0.
@@ -124,7 +125,15 @@
         </RegistryKey>
         <RegistryKey Root="HKLM" Key="Software\Dalica" ForceDeleteOnUninstall="yes">
           <RegistryValue Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
+          <!-- Capabilities, so Settings > Default apps lists Dalica for these types and the user
+               may choose it there (docs/viewing.md section 3.3); choosing stays the user's. -->
+          <RegistryValue Key="Capabilities" Name="ApplicationName" Value="Dalica" Type="string" />
+          <RegistryValue Key="Capabilities" Name="ApplicationDescription" Value="Organize the photos in your folders and make simple edits" Type="string" />
+          <?foreach Ext in $(var.OpenWithExtensions)?>
+          <RegistryValue Key="Capabilities\FileAssociations" Name=".$(var.Ext)" Value="Dalica.Image" Type="string" />
+          <?endforeach?>
         </RegistryKey>
+        <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="Dalica" Value="Software\Dalica\Capabilities" Type="string" />
       </Component>
 
       <Component Id="DalicaCli">

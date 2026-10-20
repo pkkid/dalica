@@ -1,13 +1,12 @@
 //! The operating system's ways with files (`organizing.md` §9, `viewing.md` §3.3, `security.md`
 //! §5.11; the service is [`crate::os::Os`]): Locate on Disk, Open With, Open in External Editor,
-//! Copy Path and the system clipboard (M15.17); `viewer.fileTypes` and `viewer.setDefault {types}`
-//! follow (M15.24).
+//! Copy Path and the system clipboard (M15.17); Dalica as the default viewer (M15.24).
 //!
 //! - **`photo.locate {id}`, `folder.locate {id}`**: the photo's file (a video's too; an album's
 //!   photo is its file in its folder) or the folder, selected in the system's file manager.
 //! - **`photo.openWithList {id}`**: the applications that open the photo's type, the system's
-//!   default first, Dalica itself left out ([`is_dalica`]). **`photo.openWith {id, handler}`**
-//!   opens it with one of them.
+//!   default first, Dalica itself left out ([`is_dalica`]), each with its icon as the system gives
+//!   it (`icon`, left out where it gives none). **`photo.openWith {id, handler}`** opens it with one of them.
 //! - **`photo.openExternal {ids}`**: the photos in the external editor, `files.externalEditor`, or
 //!   the system's edit verb or default application when it is empty. More than [`ASK_ABOVE`] asks
 //!   first: without `"confirm": true` it refuses (`disabled`) with [`editor_question`].
@@ -15,6 +14,15 @@
 //!   and one photo, its picture with its edits at its edited size (at most [`MAX_PICTURE`] pixels
 //!   on the long side), rendered on a worker as a short job ([`PICTURE_LABEL`]; a video is copied
 //!   as its file). **`photo.copyPath {ids}`**: their paths as text, one per line.
+//! - **`viewer.fileTypes`** (`viewing.md` §3.3): each type Dalica can be the default viewer for
+//!   ([`crate::os::viewer_file_types`]) with the application that opens it now, as the system says
+//!   (`null` when it does not), whether that is Dalica, and the types last chosen
+//!   (`viewer.defaultViewer`). **`viewer.setDefault {types}`** makes Dalica the default viewer for
+//!   `types` and gives every other type it held back to the application it replaced (none: "Don't
+//!   use Dalica as a viewer"), then remembers `types` in `viewer.defaultViewer`. Where only the
+//!   user may choose (Windows, macOS) the reply says what to choose (`set: false`, `message`). It
+//!   changes the system's settings, so it is `Effect::External`: automation runs it only with
+//!   `--automation-allow-external`.
 //!
 //! **Who may run them.** The launching commands (Locate on Disk, Open With, Open in External
 //! Editor) reach outside Dalica (`Effect::External`) and only the person at the window starts
@@ -45,7 +53,7 @@ use serde_json::{Value, json};
 use crate::error::CmdError;
 use crate::filejobs::{Done, FileItem, FileJob, Notice};
 use crate::jobs::JobKind;
-use crate::os::{Clip, Handler, Os, OsError, Service};
+use crate::os::{Clip, DefaultSet, Handler, Os, OsError, Service, type_name, viewer_file_types};
 use crate::registry::{CommandSpec, Context, Disabled, Effect, History, params};
 use crate::session::Session;
 
@@ -115,7 +123,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Open With",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId}: the applications that open the photo's type, the system's default first, Dalica left out: {handlers:[{id, name}]}; a missing file answers why"#,
+            params: r#"{"id":PhotoId}: the applications that open the photo's type, the system's default first, Dalica left out: {handlers:[{id, name, icon?}]} (icon: a theme icon's name or a file on Linux, "file,index" on Windows); a missing file answers why"#,
             effect: Effect::Query,
             history: History::None,
             enabled: |s, _| service(s, Service::OpenWith),
@@ -153,6 +161,28 @@ pub fn specs() -> Vec<CommandSpec> {
             history: History::None,
             enabled: |s, _| service(s, Service::Clipboard),
             run: run_copy,
+        },
+        CommandSpec {
+            id: "viewer.fileTypes",
+            label: "File Types",
+            menu: "",
+            keys: &[],
+            params: r#"{}: the file types Dalica can be the default viewer for, each with the application that opens it now: {types:[{type, name, handler:{id, name, icon?}|null, dalica:bool}], chosen:[type]} (chosen: viewer.defaultViewer)"#,
+            effect: Effect::Query,
+            history: History::None,
+            enabled: |s, _| service(s, Service::DefaultViewer),
+            run: run_file_types,
+        },
+        CommandSpec {
+            id: "viewer.setDefault",
+            label: "Use Dalica as the Default Viewer",
+            menu: "",
+            keys: &[],
+            params: r#"{"types":[string] (ids viewer.fileTypes lists, each once; [] is "Don't use Dalica as a viewer")}: makes Dalica the default viewer for these types and gives the others back to the applications it replaced; where only the user may choose, opens the system's settings. Needs --automation-allow-external over automation. Replies {types, set:bool, message?}"#,
+            effect: Effect::External,
+            history: History::None,
+            enabled: |s, _| service(s, Service::DefaultViewer),
+            run: run_set_default,
         },
         CommandSpec {
             id: "photo.copyPath",
@@ -211,6 +241,16 @@ struct Paths {
     ids: Vec<PhotoId>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Nothing {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Types {
+    types: Vec<String>,
+}
+
 // --- the commands -------------------------------------------------------------------------------
 
 fn run_locate(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
@@ -248,8 +288,71 @@ fn run_list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         present(&path)?;
         os.handlers(&path).map_err(refused)
     })?;
-    let handlers: Vec<Value> = handlers.iter().filter(|h| !is_dalica(h)).map(|h| json!({ "id": h.id, "name": h.name })).collect();
+    let handlers: Vec<Value> = handlers.iter().filter(|h| !is_dalica(h)).map(handler_json).collect();
     Ok(json!({ "handlers": handlers }))
+}
+
+/// A handler as the replies give it: `{id, name, icon?}` (no `icon` where the system gives none).
+fn handler_json(h: &Handler) -> Value {
+    let mut v = json!({ "id": h.id, "name": h.name });
+    if let (Some(icon), Some(o)) = (&h.icon, v.as_object_mut()) {
+        o.insert("icon".into(), json!(icon));
+    }
+    v
+}
+
+fn run_file_types(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
+    let Nothing {} = params(p)?;
+    let types = viewer_file_types();
+    let os = s.os();
+    let asked = types.clone();
+    let defaults = off_owner(move || asked.iter().map(|t| os.default_handler(*t).map_err(refused)).collect::<Result<Vec<_>, _>>())?;
+    let rows: Vec<Value> = types
+        .iter()
+        .zip(&defaults)
+        .map(|(t, h)| {
+            json!({
+                "type": t.id(),
+                "name": type_name(*t),
+                "handler": h.as_ref().map(handler_json),
+                "dalica": h.as_ref().is_some_and(is_dalica),
+            })
+        })
+        .collect();
+    let chosen: Vec<&str> = s.settings().viewer().default_viewer.iter().filter(|t| types.contains(t)).map(|t| t.id()).collect();
+    Ok(json!({ "types": rows, "chosen": chosen }))
+}
+
+fn run_set_default(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
+    let Types { types: names } = params(p)?;
+    let offered = viewer_file_types();
+    if names.len() > offered.len() {
+        return Err(CmdError::BadParams(format!("`types` names at most {} file types", offered.len())));
+    }
+    let mut types = Vec::with_capacity(names.len());
+    for name in &names {
+        let ty = offered.iter().copied().find(|t| t.id() == name).ok_or_else(|| {
+            let ids: Vec<String> = offered.iter().map(|t| format!("\"{}\"", t.id())).collect();
+            CmdError::BadParams(format!("`types` takes {}, not {:?}", ids.join(", "), name.chars().take(32).collect::<String>()))
+        })?;
+        if !types.contains(&ty) {
+            types.push(ty);
+        }
+    }
+    let types = crate::settings::viewer_types(&types);
+    let os = s.os();
+    let asked = types.clone();
+    let outcome = off_owner(move || os.set_default_viewer(&asked).map_err(refused))?;
+    s.change_settings(|st| {
+        let mut v = st.viewer();
+        v.default_viewer = types.clone();
+        st.set_viewer(&v);
+    });
+    let ids: Vec<&str> = types.iter().map(|t| t.id()).collect();
+    Ok(match outcome {
+        DefaultSet::Set => json!({ "types": ids, "set": true }),
+        DefaultSet::SettingsOpened(message) | DefaultSet::Choose(message) => json!({ "types": ids, "set": false, "message": message }),
+    })
 }
 
 fn run_open_with(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
