@@ -175,8 +175,8 @@ offers it under Open with and Options ▸ Photo Viewer ▸ File Types can make i
   `xdg-pictures`**; no network and no home folder. The Folder Manager browses the file system
   itself (no portal file chooser yet), so a folder outside Pictures needs
   `flatpak override --user --filesystem=<folder> org.dalica.Dalica`. Map tiles and other online
-  features stay off inside the sandbox until the user grants the network the same way. A
-  from-source Flathub manifest with the same runtime and permissions follows later.
+  features stay off inside the sandbox until the user grants the network the same way. The
+  from-source manifest for Flathub has the same runtime and permissions (below, *Flathub*).
 
 Tools: nfpm 2.47.0, appimagetool 1.9.1 and the type2 runtime 20251108, each pinned with its
 SHA-256 in `packaging/linux/tools.sh`, plus `zsyncmake`, `flatpak`, `desktop-file-validate` and
@@ -199,6 +199,53 @@ session loads before opening a window and, if one is missing, prints the package
 exits with status 1 instead of crashing. `DALICA_SKIP_LIB_CHECK=1` skips the check;
 `DALICA_LIB_CHECK_ROOT=<dir>` reads the system files under another root (how `package.sh` tests the
 refusal).
+
+#### Flathub
+
+`packaging/linux/flatpak/org.dalica.Dalica.yml` builds Dalica from source for Flathub: the
+freedesktop 26.08 runtime and SDK with the `rust-stable` extension, the same `finish-args` as the
+bundle (the Packaging lint workflow checks the two manifests agree on id, command, runtime, SDK and
+permissions), `cargo --offline build --release --locked -p dalica -p dalica-cli` without the
+network, then both binaries, the desktop entry, the metainfo (version from `Cargo.toml`, the date
+from `DALICA_BUILD_DATE` or today), the hicolor icons and the licences (with the embedded fonts'
+OFL) under `/app`. The craft-fonts families come from a git source at the release's pin
+(`CRAFT_FONTS_REF` in `release.yml`), so the Flathub build embeds the same fonts as the release
+packages.
+
+The crates come from `cargo-sources.json`: one static.crates.io archive per `Cargo.lock` package
+with its lock checksum, vendored into `cargo/vendor`, the layout flatpak-builder-tools'
+`flatpak-cargo-generator` writes. `cargo xtask flatpak` writes it from `Cargo.lock` (our own Rust
+generator: no Python, no network). It is generated, never committed (gitignored), because it would
+go stale with every lock change; `cargo xtask flatpak --check`, in every gate, fails when the lock
+holds a package the generator cannot vendor (a git or other registry dependency) or the manifest's
+craft-fonts commit is not the release's pin. A local build:
+
+```sh
+cargo xtask flatpak
+flatpak-builder --user --install --force-clean --install-deps-from=flathub \
+  target/flatpak-build packaging/linux/flatpak/org.dalica.Dalica.yml
+flatpak run org.dalica.Dalica
+```
+
+**Submitting a release.** `cargo xtask flatpak --flathub v<version> [--out <dir>]` (default
+`target/flathub`) writes the submission files from the tag's own `Cargo.lock` and manifest:
+`org.dalica.Dalica.yml` with the local `dir` source replaced by a git source pinned to the tag and
+its commit (and that commit and its date as `DALICA_BUILD_SHA` and `DALICA_BUILD_DATE`, so
+`--version` names it), and `cargo-sources.json`. The first submission is a pull request to
+`flathub/flathub` (branch `new-pr`) with those two files; each later release is a pull request to
+the app's own `flathub/org.dalica.Dalica` repository with them regenerated. Both are the
+maintainer's to open. Before the first one, the maintainer decides:
+
+- **The application id's domain.** Flathub verifies that the publisher controls the domain an id is
+  built from (`dalica.org` for `org.dalica.Dalica`). Without it the id would change to one under a
+  domain the project controls (for example `io.github.pkkid.Dalica`), which renames the desktop
+  entry, the metainfo, the icons and `crates/core/src/app_id.rs`, everywhere at once.
+- **Screenshots.** Flathub's linter requires `<screenshots>` in the metainfo, with image URLs that
+  stay up (for example from the website); the template has none yet.
+- **Release notes**, optional: a `<description>` per `<release>` shows on the Flathub page.
+- **The network.** Neither manifest grants it, so map tiles and other online features stay off
+  until the user runs `flatpak override`; granting `--share=network` instead is one decision for
+  both manifests.
 
 ### Windows
 

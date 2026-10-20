@@ -549,6 +549,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         // the review gate; the rows and their cited paths in every gate.
         steps.push(("parity".into(), Box::new(move || crate::parity::run(root, false, full))));
         steps.push(("docs".into(), Box::new(|| crate::docs::run(root))));
+        // The from-source Flatpak manifest's crate sources still generate from Cargo.lock, and its
+        // craft-fonts pin is the release's (`releasing.md` → Flathub).
+        steps.push(("flatpak --check".into(), Box::new(|| crate::flatpak::run(root, &["--check".to_string()]))));
         // The catalogs against the key set (`localization.md`): a fault, or a key a
         // `complete_menus` language lacks, fails; coverage and drafts are printed.
         steps.push(("i18n".into(), Box::new(|| crate::i18n::run(root, &[]))));

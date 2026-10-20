@@ -8,7 +8,8 @@
 #
 # The binaries need glibc >= 2.35 and load Wayland or X11, xkbcommon and the Vulkan loader at run
 # time; the freedesktop runtime has them all, and the GPU driver comes from its GL extension.
-# A from-source manifest for Flathub, with the same runtime and permissions, follows later.
+# org.dalica.Dalica.yml (same directory) is the from-source manifest for Flathub, with the same
+# runtime and permissions.
 #
 # Adapted from PhotoCraft packaging/linux/flatpak/ai.storyteller.photocraft.bundle.yml @ 231bf5fe
 # (MIT OR Apache-2.0). Changed for Dalica: its names and permissions, and ${FLATPAK_DEST} in the

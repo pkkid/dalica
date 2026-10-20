@@ -1,0 +1,97 @@
+# The from-source Flatpak manifest, for Flathub (docs/releasing.md → Flathub). It builds `dalica`
+# and `dalica-cli` with the rust-stable SDK extension, offline, from vendored crate sources, on the
+# same runtime and with the same permissions as org.dalica.Dalica.bundle.yml (the .flatpak attached
+# to every release, made from the prebuilt tarball). Keep runtime, runtime-version, sdk, command and
+# finish-args identical in both (the Packaging lint workflow checks it).
+#
+# Flatpak builds have no network, so the crates come from cargo-sources.json, generated from
+# Cargo.lock and never committed (it would go stale with every lock change):
+#
+#   cargo xtask flatpak                         # writes packaging/linux/flatpak/cargo-sources.json
+#   flatpak-builder --user --install --force-clean --install-deps-from=flathub \
+#     target/flatpak-build packaging/linux/flatpak/org.dalica.Dalica.yml
+#   flatpak run org.dalica.Dalica
+#
+# For a Flathub submission, `cargo xtask flatpak --flathub v<version>` writes this manifest with the
+# local `dir` source (between the source markers below) replaced by a git source pinned to the tag's
+# commit, that commit and its date filled in for --version, and cargo-sources.json beside it.
+#
+# Adapted from PhotoCraft packaging/linux/flatpak/ai.storyteller.photocraft.yml @ 46e538b3
+# (MIT OR Apache-2.0). Changed for Dalica: its names and permissions, both binaries, the craft-fonts
+# source the release builds embed, and the provenance variables.
+id: org.dalica.Dalica
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: dalica
+finish-args:
+  # Display: Wayland first; X11 only when no Wayland compositor runs.
+  - --socket=wayland
+  - --socket=fallback-x11
+  # X11 shared memory (MIT-SHM); without it the X11 fallback is slow or fails.
+  - --share=ipc
+  # The GPU, for wgpu (Vulkan).
+  - --device=dri
+  # Read and write access to Pictures: the library is the user's own photo folders, which Dalica
+  # reads and keeps its sidecars in. Folders elsewhere are added through the file-chooser portal
+  # (rfd's XDG portal backend), which grants each one through the document portal.
+  - --filesystem=xdg-pictures
+  # Deliberately not granted: the network (map tiles and other online features stay off until the
+  # user runs `flatpak override --user --share=network org.dalica.Dalica`), and the home folder.
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: dalica
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/dalica/cargo
+        CARGO_NET_OFFLINE: 'true'
+        # The release builds embed the craft-fonts families (docs/releasing.md → What gets built).
+        CRAFT_FONTS_DIR: /run/build/dalica/craft-fonts
+        CRAFT_FONTS_REQUIRED: '1'
+        # Provenance for --version and About (crates/core/src/build.rs); empty means not recorded.
+        # `cargo xtask flatpak --flathub` fills both from the release tag.
+        DALICA_BUILD_SHA: ''
+        DALICA_BUILD_DATE: ''
+    build-commands:
+      - cargo --offline build --release --locked -p dalica -p dalica-cli
+      - install -Dm755 target/release/dalica /app/bin/dalica
+      - install -Dm755 target/release/dalica-cli /app/bin/dalica-cli
+      - install -Dm644 packaging/linux/org.dalica.Dalica.desktop /app/share/applications/org.dalica.Dalica.desktop
+      # The metainfo template gets the version ([workspace.package] in Cargo.toml) and the date, as
+      # packaging/linux/package.sh does.
+      - >-
+        version=$(awk '/^\[/{p=($0=="[workspace.package]");next} p&&$1=="version"{gsub(/[" ]/,"",$3);print $3;exit}' Cargo.toml);
+        date=${DALICA_BUILD_DATE:-$(date -u +%Y-%m-%d)};
+        install -d /app/share/metainfo;
+        sed -e "s/@VERSION@/$version/g" -e "s/@DATE@/$date/g"
+        packaging/linux/org.dalica.Dalica.metainfo.xml.in > /app/share/metainfo/org.dalica.Dalica.metainfo.xml
+      # hicolor 16-512 px and the scalable SVG, named by the application id.
+      - mkdir -p /app/share/icons && cp -R assets/app-icon/hicolor /app/share/icons/
+      # The licences, as every package ships them, with the embedded fonts' OFL.
+      - install -Dm644 -t /app/share/doc/dalica LICENSE-MIT LICENSE-APACHE NOTICE ATTRIBUTION.md README.md assets/fonts/OFL-Inter.txt
+      - for lic in craft-fonts/fonts/*/OFL.txt; do install -Dm644 "$lic" "/app/share/doc/dalica/OFL-$(basename "$(dirname "$lic")").txt"; done
+    sources:
+      # BEGIN local source (cargo xtask flatpak --flathub replaces this block)
+      - type: dir
+        path: ../../..
+        skip:
+          - target
+          - dist
+          - corpus
+          - notes
+          - log
+          - .flatpak-builder
+          - .git
+          - .claude
+      # END local source
+      # The craft-fonts pin, the same as CRAFT_FONTS_REF in .github/workflows/release.yml
+      # (cargo xtask flatpak --check compares them).
+      - type: git
+        url: https://github.com/storytold/craft-fonts.git
+        commit: 3d9ab3a132ed0eff457e424226a435a901da30d3
+        dest: craft-fonts
+      - cargo-sources.json
