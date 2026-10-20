@@ -880,12 +880,14 @@ fn rows(ui: &mut Ui, nodes: &[Node], clicked: &mut Option<ItemNode>, depth: usiz
 /// a render must not depend on the OS it runs on.
 pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
     close_on_right_click(ui.ctx());
+    close_on_other_title(ui.ctx());
     let platform = Platform::Other;
     let top = ui.max_rect().bottom();
     let mut clicked: Option<ItemNode> = None;
     {
         let app: &App = app;
         let kind = section_kind(app);
+        let mut titles = BarTitles::default();
         egui::MenuBar::new().ui(ui, |ui| {
             for m in bar_menus(platform) {
                 let shown = crate::panels::menubar::menu_title(title(m, kind));
@@ -893,9 +895,11 @@ pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
                     let model = menu(app, m, platform);
                     level(ui, 1, top, |ui| rows(ui, &model.children, &mut clicked, 1, top, None));
                 });
+                titles.0.push((r.response.rect, egui::Popup::default_response_id(&r.response)));
                 widgets::register(ui.ctx(), &format!("menu:{}", m.key), Role::Menu, &shown, Target::Widget(&r.response), r.inner.is_some());
             }
         });
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(BAR_TITLES), titles));
     }
     let item = clicked?;
     let _ = activate(app, &item, &Value::Null);
@@ -913,6 +917,30 @@ fn close_on_right_click(ctx: &egui::Context) {
     let Some(pos) = ctx.input(|i| if i.pointer.secondary_clicked() { i.pointer.interact_pos() } else { None }) else { return };
     let on_menu = ctx.layer_id_at(pos).is_some_and(|l| l.order == egui::Order::Foreground);
     if !on_menu && egui::Popup::is_any_open(ctx) {
+        egui::Popup::close_all(ctx);
+    }
+}
+
+/// Where the bar's titles were in the last frame: each title's rect and its menu's popup id.
+#[derive(Clone, Default)]
+struct BarTitles(Vec<(egui::Rect, egui::Id)>);
+
+/// The temp-data key of [`BarTitles`].
+const BAR_TITLES: &str = "dalica.menus.barTitles";
+
+/// One menu open at a time, when switching menus on the bar: a click on another menu's title while
+/// a menu is open (File open, a click on Tools) closes the open one now, before the bar is drawn.
+/// egui would close it only after drawing it once more, in the frame the click opens the other one,
+/// and both menus would be drawn and the rows they share (`menuitem:folders.manager` is File ▸ Add
+/// Folder… and Tools ▸ Folder Manager…) registered twice in that frame. A click on the open menu's
+/// own title is left to egui, which closes it (closing it here would let the click open it again).
+fn close_on_other_title(ctx: &egui::Context) {
+    let Some(pos) = ctx.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None }) else { return };
+    if !egui::Popup::is_any_open(ctx) || ctx.layer_id_at(pos).is_some_and(|l| l.order == egui::Order::Foreground) {
+        return;
+    }
+    let titles: BarTitles = ctx.data(|d| d.get_temp(egui::Id::new(BAR_TITLES))).unwrap_or_default();
+    if titles.0.iter().any(|(rect, popup)| rect.contains(pos) && !egui::Popup::is_id_open(ctx, *popup)) {
         egui::Popup::close_all(ctx);
     }
 }

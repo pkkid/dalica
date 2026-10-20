@@ -1,7 +1,8 @@
 //! One menu open at a time (`menus.rs`): with a menu of the bar open (Picture, which holds View
 //! and Edit), a right-click on a photo or on a tray item closes the bar's menu before its context
 //! menu opens, in the same frame. No frame draws two menus, so no row of one is registered twice
-//! (both menus have `menuitem:view.edit`), and the context menu is the one left open.
+//! (both menus have `menuitem:view.edit`), and the context menu is the one left open. Likewise a
+//! click on another title of the bar (File open, Tools clicked) switches menus without drawing both.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
@@ -92,4 +93,27 @@ fn a_right_click_with_a_bar_menu_open_leaves_exactly_one_menu() {
     let most = count_menus(&d);
     right_click_with_picture_open(&mut d, &most, &thumb);
     right_click_with_picture_open(&mut d, &most, &format!("tray:item:{}", photo.get()));
+}
+
+/// With File open, a click on Tools switches to Tools: exactly one menu is drawn in every frame and
+/// no id is registered twice (both have `menuitem:folders.manager`). A click on the open menu's own
+/// title still closes it.
+#[test]
+fn a_click_on_another_title_switches_menus_without_drawing_both() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = setup(dir.path());
+    let most = count_menus(&d);
+    d.click("menu:File").unwrap();
+    assert!(try_widget(&d, "menuitem:folders.manager").is_some(), "File holds Add Folder…");
+    take(&most);
+    d.click("menu:Tools").unwrap();
+    assert_eq!(d.id_breach(), None, "File to Tools");
+    assert_eq!(take(&most), 1, "one menu drawn at a time while switching from File to Tools");
+    d.settle(FRAMES).unwrap();
+    assert!(try_widget(&d, "menu:File").is_some_and(|w| !w.active), "File closed");
+    assert!(try_widget(&d, "menu:Tools").is_some_and(|w| w.active), "Tools is open");
+    d.click("menu:Tools").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(try_widget(&d, "menu:Tools").is_some_and(|w| !w.active), "a click on its own title closes Tools");
+    assert!(try_widget(&d, "menuitem:folders.manager").is_none(), "no menu open");
 }
