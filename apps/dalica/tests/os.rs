@@ -474,7 +474,9 @@ fn files_and_text_round_trip_through_the_clipboard() {
     for f in &files {
         std::fs::write(f, b"x").unwrap();
     }
-    let files: Vec<PathBuf> = files.iter().map(|f| f.canonicalize().unwrap()).collect();
+    // What a paste gets: the final path in its ordinary form (on Windows without the `\\?\`
+    // prefix `canonicalize` gives, as the clipboard's file list never carries it).
+    let files: Vec<PathBuf> = files.iter().map(|f| plain(&f.canonicalize().unwrap())).collect();
     let os = Native::new();
     os.put_on_clipboard(&Clip::Files(files.clone())).unwrap();
     // A paste may take a moment to see the new owner.
@@ -482,12 +484,12 @@ fn files_and_text_round_trip_through_the_clipboard() {
     let back = loop {
         let got: Vec<PathBuf> =
             reader.get().file_list().unwrap_or_default().into_iter().map(|p| PathBuf::from(p.to_string_lossy().trim_end_matches('\r'))).collect();
-        if got == files || Instant::now() > until {
+        if same_files(&got, &files) || Instant::now() > until {
             break got;
         }
         std::thread::sleep(Duration::from_millis(50));
     };
-    assert_eq!(back, files);
+    assert!(same_files(&back, &files), "{back:?} is not {files:?}");
     let text = "/p/a b.jpg\n/p/été.png";
     os.put_on_clipboard(&Clip::Text(text.into())).unwrap();
     let until = Instant::now() + Duration::from_secs(5);
@@ -502,4 +504,34 @@ fn files_and_text_round_trip_through_the_clipboard() {
     if let Some(before) = before {
         let _ = os.put_on_clipboard(&Clip::Text(before));
     }
+}
+
+/// `p` without Windows' verbatim prefix (`\\?\C:\…` → `C:\…`, `\\?\UNC\h\s` → `\\h\s`).
+fn plain(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    match (s.strip_prefix(r"\\?\UNC\"), s.strip_prefix(r"\\?\")) {
+        (Some(unc), _) => PathBuf::from(format!(r"\\{unc}")),
+        (None, Some(rest)) => PathBuf::from(rest),
+        (None, None) => p.to_path_buf(),
+    }
+}
+
+/// The same files in the same order: the same path, or (on Unix) the same folder and the same
+/// file by device and inode, as macOS gives a name back in its decomposed form (`e\u{301}te\u{301}.png`
+/// for `été.png`).
+fn same_files(got: &[PathBuf], want: &[PathBuf]) -> bool {
+    got.len() == want.len()
+        && got.iter().zip(want).all(|(g, w)| {
+            if g == w {
+                return true;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let id = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.dev(), m.ino()));
+                g.parent() == w.parent() && id(g).is_some() && id(g) == id(w)
+            }
+            #[cfg(not(unix))]
+            false
+        })
 }
