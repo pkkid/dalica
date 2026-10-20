@@ -16,6 +16,7 @@
 //! bottom area with its own content ([`compute_room`]); the menu bar, the strip and the status line
 //! stay.
 
+use crate::tl;
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
@@ -429,7 +430,7 @@ pub fn splitter(ui: &mut Ui, t: &Tokens, layout: &Layout, state: &mut UiState) {
     let grip = Rect::from_center_size(rect.center(), GRIP);
     let color = if response.dragged() || response.hovered() { t.hover } else { t.divider };
     painter.rect_filled(grip.shrink2(vec2(3.0, 0.0)), 1, color);
-    widgets::register(ui.ctx(), "splitter:tree", Role::Other, "Resize the library tree", Target::Widget(&response), response.dragged());
+    widgets::register(ui.ctx(), "splitter:tree", Role::Other, &tl!("Resize the library tree"), Target::Widget(&response), response.dragged());
 }
 
 #[cfg(test)]

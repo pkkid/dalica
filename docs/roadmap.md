@@ -10826,7 +10826,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
   - done when: `cargo xtask sbom` lists every crate of the product graph with its licence for each
     target; the advisory check passes on `main` with the recorded exception and fails on a planted
     unrecorded advisory; a release dry run attaches the SBOMs.
-- ⬜ **M15.37 `accept M15`**
+- ✅ **M15.37 `accept M15`**
   - after: M15.23, M15.24, M15.30, M15.34, M15.35, M15.36, M15.39, M15.40, M15.41, M15.42, M15.44, M15.45, M15.48, M15.49, M15.50, M15.51, M15.52, M15.53, M15.54
   - files: `tests/acceptance/m15.rs`, `tests/acceptance/m15_*.rs`, `tests/acceptance/m15.md`, `tests/acceptance/fingerprints/m15-*.json`
   - scope: every *Done when* of M15's four areas in the real `dalica --headless` over the control

@@ -438,8 +438,15 @@ fn bar_paint(ui: &Ui, t: &Tokens, f: &Bar, strip: Rect, view_h: f32, content_h: 
     if pill.is_positive() {
         painter.rect_filled(pill, CornerRadius::same(3), if active { t.thumb } else { t.track });
     }
-    widgets::register(ui.ctx(), TRACK_ID, Role::ScrollTrack, "Scroll the import tray", Target::Widget(&f.track), f.track.is_pointer_button_down_on());
-    widgets::register(ui.ctx(), THUMB_ID, Role::ScrollThumb, "Import tray position", Target::Widget(&f.thumb), f.thumb.dragged());
+    widgets::register(
+        ui.ctx(),
+        TRACK_ID,
+        Role::ScrollTrack,
+        &tl!("Scroll the import tray"),
+        Target::Widget(&f.track),
+        f.track.is_pointer_button_down_on(),
+    );
+    widgets::register(ui.ctx(), THUMB_ID, Role::ScrollThumb, &tl!("Import tray position"), Target::Widget(&f.thumb), f.thumb.dragged());
 }
 
 /// A row of the tray's context menu.
