@@ -14,6 +14,7 @@ autotests = false
 [dependencies]
 dalica-core.workspace = true
 egui.workspace = true
+icu_segmenter.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

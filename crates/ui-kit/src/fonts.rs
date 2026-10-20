@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use egui::{Context, FontData, FontDefinitions, FontFamily, FontId, Id};
+use egui::{Context, FontData, FontDefinitions, FontFamily, FontId, FontTweak, Id};
 
 const REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
@@ -148,10 +148,10 @@ pub fn definitions() -> FontDefinitions {
 /// (Regular faces preferred for the first two, Bold for SemiBold).
 pub fn definitions_for(craft: &'static [CraftFont], script: &str) -> FontDefinitions {
     let mut defs = FontDefinitions::empty();
-    defs.font_data.insert(INTER_REGULAR.into(), Arc::new(FontData::from_static(REGULAR)));
-    defs.font_data.insert(INTER_SEMIBOLD.into(), Arc::new(FontData::from_static(SEMIBOLD)));
+    defs.font_data.insert(INTER_REGULAR.into(), Arc::new(face(REGULAR)));
+    defs.font_data.insert(INTER_SEMIBOLD.into(), Arc::new(face(SEMIBOLD)));
     for font in craft {
-        defs.font_data.insert(font.name(), Arc::new(FontData::from_static(font.bytes)));
+        defs.font_data.insert(font.name(), Arc::new(face(font.bytes)));
     }
     let names = |style: &str| ui_fallback(craft, script, style).into_iter().map(CraftFont::name).collect::<Vec<_>>();
     let mut regular = vec![INTER_REGULAR.to_string()];
@@ -162,6 +162,12 @@ pub fn definitions_for(craft: &'static [CraftFont], script: &str) -> FontDefinit
     defs.families.insert(FontFamily::Monospace, regular);
     defs.families.insert(FontFamily::Name(SEMIBOLD_FAMILY.into()), semibold);
     defs
+}
+
+/// One face with Dalica's tweak: a thin space (U+2009, and U+202F) has no width, since it is
+/// [`crate::linebreak::MARK`], the break between two Thai words egui's wrapping honours.
+fn face(bytes: &'static [u8]) -> FontData {
+    FontData::from_static(bytes).tweak(FontTweak { thin_space_width: 0.0, ..FontTweak::default() })
 }
 
 fn script_key() -> Id {

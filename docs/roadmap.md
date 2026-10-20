@@ -10025,7 +10025,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     at least two real phone files of each kind were run, or the record says which kind found no
     public original and the question it raises; the PR attaches the harness's source and its
     output; `cargo xtask ci` passes (no product code changes).
-- ⬜ **M15.47 Spike: Thai shaping and line breaking in our text path**
+- ✅ **M15.47 Spike: Thai shaping and line breaking in our text path**
   - after: M15.8
   - files: `crates/ui-kit/src/linebreak.rs`, `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/tests/thai_text.rs`, `crates/ui-kit/tests/fingerprints/thai-*.json`, `docs/thai-text.md`
   - scope: the maintainer's answer at M14.R (2026-10-19): Thai ships with 1.0 only if both are
