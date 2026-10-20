@@ -206,7 +206,7 @@ fn enter_opens_the_clip_with_the_video_tab_and_the_tools_greyed() {
     assert!(w.enabled(video::OPEN_WITH_ID));
     w.d.click(video::OPEN_WITH_ID).unwrap();
     assert!(
-        w.d.widgets().iter().any(|wi| wi.id.starts_with("menuitem:photo.openWith")),
+        w.d.widgets().iter().any(|wi| wi.id.starts_with("menuitem:photo.openWith") || wi.id.starts_with("menuitem:openWith.list/")),
         "Open With ▸ lists the photo menu's rows: {:?}",
         w.d.widgets().iter().map(|wi| wi.id.clone()).collect::<Vec<_>>()
     );

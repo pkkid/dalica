@@ -18,6 +18,8 @@
 //!                          [x] Detect duplicates while importing
 //!                          [ ] Delete from disk without asking
 //!                          …
+//!        External editor:  [System default ▾] [Browse…]
+//!                          The program Open in External Editor starts; empty for the system's editor.
 //!  ───────────────────────────────────────────────────────────
 //! Save imported pictures in:  [/home/ana/Pictures       ] [Browse…]
 //! ```
@@ -27,7 +29,11 @@
 //! person coming from the previous organizer sees it without scrolling at 1400 × 900 and
 //! 900 × 600; last in the group it sat below the fold), every other option a row of
 //! its own labelled with its name: UI scale and font size and Language as dropdowns, a folder as
-//! its path and Browse…. The import folder shows the folder stored, else the Pictures folder as
+//! its path and Browse…, the External editor ([`editor`]) as a dropdown of System default and the
+//! program chosen (by its file name), and Browse…, which opens the file picker off the UI thread;
+//! the program chosen goes into the draft through `app.preferences.editor` (over automation
+//! `ui.filePicker {path}` answers it, and only with `--automation-allow-external` does it, or the
+//! dropdown, change the program: it is what Open in External Editor starts). The import folder shows the folder stored, else the Pictures folder as
 //! the field's hint (the folder the Import room's "Import to:" starts from); Browse… opens the
 //! folder picker off the UI thread in the folder shown, and the folder chosen goes into the draft
 //! through `app.preferences.folder` (over automation `ui.filePicker {path}` answers it). An option whose feature does not exist yet is drawn disabled with its
@@ -49,7 +55,9 @@
 //! (`check:option.interface.tooltips`), a dropdown `choice:option.<key>` and its items
 //! `choice:option.<key>/<value>` (`choice:option.interface.uiScale/150`,
 //! `choice:option.interface.fontSize/large`), a folder's path `field:option.<key>` and its Browse…
-//! `button:option.<key>/browse`.
+//! `button:option.<key>/browse`; the External editor's dropdown `choice:option.files.externalEditor`
+//! with `choice:option.files.externalEditor/system` and `…/program`, and its Browse…
+//! `button:option.files.externalEditor/browse`.
 
 use dalica_engine::Session;
 use dalica_engine::keymap::Platform;
@@ -61,6 +69,7 @@ use egui::Ui;
 use serde_json::{Map, Value, json};
 
 use crate::app::App;
+use crate::commands::os::{EDITOR_EXTERNAL, EDITOR_KEY, editor_change_allowed, editor_request};
 use crate::i18n;
 use crate::picker::FolderRequest;
 use crate::state::{FontChoice, ScaleChoice};
@@ -214,7 +223,7 @@ pub fn body(app: &mut App, ui: &mut Ui) {
     let height = ui.available_height();
     // With no folder stored, `import_folder` is the Pictures folder.
     let env = Env { default_folder: app.session().and_then(Session::import_folder), can_browse: app.can_pick().is_ok() };
-    let mut out: (Vec<(usize, Value)>, Option<usize>) = (Vec::new(), None);
+    let mut out: (Vec<(usize, Value)>, Option<usize>, bool) = (Vec::new(), None, false);
     // A solid bar, shown whenever the tab is taller than the dialog, so the rows below are not
     // missed (egui's floating one shows only on hover).
     ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
@@ -224,11 +233,17 @@ pub fn body(app: &mut App, ui: &mut Ui) {
         .auto_shrink([false, false])
         .scroll_source(egui::scroll_area::ScrollSource::MOUSE_WHEEL)
         .show(ui, |ui| out = form(ui, &t, &rows, &draft, &env));
-    let (changes, browse) = out;
+    let (changes, browse, browse_editor) = out;
     for (i, value) in changes {
-        if let Some(row) = rows.get(i) {
-            set(app, row, value);
+        let Some(row) = rows.get(i) else { continue };
+        if row.key == EDITOR_KEY && !editor_change_allowed() {
+            app.state_mut().status = EDITOR_EXTERNAL.into();
+            continue;
         }
+        set(app, row, value);
+    }
+    if browse_editor && let Err(why) = app.pick_file_for(editor_request()) {
+        app.state_mut().status = why;
     }
     if let Some(row) = browse.and_then(|i| rows.get(i)) {
         let request = browse_request(&row.key, shown(row, &draft), env.default_folder.as_deref());
@@ -243,15 +258,16 @@ fn shown<'a>(row: &'a Row, draft: &'a Map<String, Value>) -> &'a Value {
     draft.get(&row.key).unwrap_or(&row.saved)
 }
 
-/// Draws the groups; returns the values changed this pass, by row, and the folder row whose
-/// Browse… was clicked.
-fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: &Env) -> (Vec<(usize, Value)>, Option<usize>) {
+/// Draws the groups; returns the values changed this pass, by row, the folder row whose Browse…
+/// was clicked, and whether the External editor's Browse… was.
+fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: &Env) -> (Vec<(usize, Value)>, Option<usize>, bool) {
     let group_labels: Vec<String> = GROUPS.iter().map(|g| form_label(&i18n::tr(g))).collect();
     let row_labels: Vec<String> = rows.iter().filter(|r| r.kind != "bool").map(|r| form_label(&i18n::option_label(&r.key, &r.label))).collect();
     let labels: Vec<&str> = group_labels.iter().chain(&row_labels).map(String::as_str).collect();
     let form = Form::new(ui, t, &labels);
     let mut changes = Vec::new();
     let mut browse = None;
+    let mut browse_editor = false;
     let mut first = true;
     for group in GROUPS {
         let mut in_group: Vec<(usize, &Row)> = rows.iter().enumerate().filter(|(_, r)| r.group == group).collect();
@@ -289,6 +305,13 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: 
                             browse = Some(i);
                         }
                     }
+                    "text" if row.key == EDITOR_KEY => {
+                        let (picked, clicked) = editor(ui, t, row, shown(row, draft), env.can_browse);
+                        if let Some(v) = picked {
+                            changes.push((i, v));
+                        }
+                        browse_editor |= clicked;
+                    }
                     _ => {
                         if let Some(v) = choice(ui, t, row, shown(row, draft)) {
                             changes.push((i, v));
@@ -298,7 +321,7 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: 
             });
         }
     }
-    (changes, browse)
+    (changes, browse, browse_editor)
 }
 
 /// A form row's label: `Language:` (the colon as the language writes it).
@@ -368,6 +391,38 @@ fn folder(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value, env: &Env) -> bool 
         browse.clicked()
     })
     .inner
+}
+
+/// The External editor: a dropdown of System default (the empty value: the system's editor) and,
+/// while one is chosen, the program by its file name, then Browse… (enabled while a picker can
+/// open); returns the value picked this pass and whether Browse… was clicked.
+fn editor(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value, can_browse: bool) -> (Option<Value>, bool) {
+    let program = value.as_str().unwrap_or_default();
+    let system = tl!("System default");
+    let name = std::path::Path::new(program).file_name().map_or_else(|| program.to_string(), |n| n.to_string_lossy().into_owned());
+    let text = if program.is_empty() { system.clone() } else { name.clone() };
+    let mut picked = None;
+    let clicked = ui
+        .horizontal(|ui| {
+            let id = control_id("choice", &row.key);
+            let r = dropdown(ui, t, &id, &text, |ui| {
+                if dropdown_item(ui, t, &format!("{id}/system"), &system, "", program.is_empty()).clicked() {
+                    picked = Some(json!(""));
+                }
+                if !program.is_empty() {
+                    dropdown_item(ui, t, &format!("{id}/program"), &name, program, true);
+                }
+            });
+            if !program.is_empty() {
+                tooltip(r, t, program, None);
+            }
+            form_group(ui, can_browse, |ui| text_button(ui, t, &format!("button:option.{}/browse", row.key), &tl!("Browse…"), false)).clicked()
+        })
+        .inner;
+    if !row.hint.is_empty() {
+        hint(ui, t, &i18n::option_hint(&row.key, &row.hint));
+    }
+    (picked.filter(|v| v != value), clicked)
 }
 
 /// A stub tab's lines: its groups, then the draft's changed values (`key: value`), so the draft is

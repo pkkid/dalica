@@ -85,6 +85,7 @@ use super::{Frame, Section};
 use crate::app::App;
 use crate::menus;
 use crate::state;
+use crate::tl;
 
 /// The header's left (and right) padding (points).
 pub const PADDING: f32 = 12.0;
@@ -670,7 +671,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         right = x - 12.0;
     }
 
-    // The icon: Locate on Disk on a click (once the OS integration lands); its tooltip is the path.
+    // The icon: Locate on Disk on a click; its tooltip is the path.
     // An album's icon shows its name; a person's is their thumbnail face, once it has arrived.
     let person = section.id.person();
     let face = person.as_ref().and_then(|id| {
@@ -694,15 +695,24 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
             let r = widgets::tooltip(r, t, &facts.path, None);
             track(&r, &mut out, true);
         }
-    } else if takes_input(icon) {
-        let section_params = || json!({ "section": section.id });
-        let locate = live(f.session, "folder.locate", section_params);
+    } else if let Some(folder) = section.folder.filter(|_| takes_input(icon)) {
+        // Locate on Disk on the section's folder (`folder.locate {id}`), greyed with the reason
+        // when it cannot run (an offline folder, a system without a file manager to show it in).
+        let locate_params = json!({ "id": folder });
+        let ready = match f.session.spec("folder.locate") {
+            Some(spec) => (spec.enabled)(f.session, &locate_params).map_err(|d| d.0),
+            None => Err(tl!("Locate on Disk is not available yet.")),
+        };
+        let locate = ready.is_ok();
         let r = ui.interact(icon, egui_id("icon"), if locate { Sense::click() } else { Sense::hover() });
         widgets::register(ui.ctx(), &part_id("icon"), Role::IconButton, &facts.path, Target::Widget(&r), false);
-        let detail = if locate { "Locate on Disk" } else { "Locate on Disk is not available yet." };
-        let r = widgets::tooltip(r, t, &facts.path, Some(detail));
+        let detail = match &ready {
+            Ok(()) => tl!("Locate on Disk"),
+            Err(why) => why.clone(),
+        };
+        let r = widgets::tooltip(r, t, &facts.path, Some(&detail));
         if r.clicked() {
-            out.commands.push(("folder.locate".to_string(), section_params()));
+            out.commands.push(("folder.locate".to_string(), locate_params));
         }
         track(&r, &mut out, locate);
     }

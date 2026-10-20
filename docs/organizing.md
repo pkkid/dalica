@@ -640,9 +640,9 @@ All act on real files; all are commands with undo where possible (`data-model.md
 | Delete folder | folder context menu → **Delete Folder…** | "Move the folder "%s" and everything in it (including non-picture files) to the trash?" [Move to Trash] [Cancel] |
 | Hide / Unhide | Picture → Hide (context menu) | none; hidden items show only with View → Hidden Pictures (drawn at 40 % opacity) |
 | Hide folder | folder context menu → Hide Folder | folder moves to a **Hidden Folders** group visible with View → Hidden Pictures (no password protection) |
-| Locate on Disk | context menu, Ctrl+Enter, clicking the folder icon in a folder header | opens the system file manager with the item selected *(OS integration)* |
-| Open with | context menu → Open With ▸ (system handlers), Open in External Editor (Ctrl+Shift+O) | *(OS integration)* |
-| Copy Path | context menu | |
+| Locate on Disk | context menu, Ctrl+Enter, clicking the folder icon in a folder header, the tray menu, the viewer's ⋯ ▸ Show in File Manager, the export notice's Show Folder | opens the system file manager with the item selected (a photo of an album in its folder); greyed with the system's reason where it cannot; an offline folder says so *(OS integration)* |
+| Open with | context menu → Open With ▸ (the applications the system offers, asked when the submenu opens: "Loading…", then each by name, Dalica left out, or "No other applications"), Open in External Editor (Ctrl+Shift+O: the program of Options ▸ General ▸ External editor, else the system's editor) | *(OS integration)* |
+| Copy Path | context menu | the photos' paths on the system clipboard as text, one per line; Edit ▸ Copy also puts the photos there for other applications (one still photo as its picture, else the files) while Cut and Paste stay inside Dalica |
 | Refresh thumbnails | folder context menu | regenerates the folder's thumbnails |
 | Adjust date and time | Tools → **Adjust Date and Time…** | **Adjust Picture Date** (title "… — %d pictures" for several): thumbnail, "Current date:" (read-only), "New date:" date + time pickers; with several: radios **"Shift all dates by the same amount"** (default) / **"Set all pictures to the same date and time"**; [OK] [Cancel] |
 | Batch edit | Picture → Batch Edit ▸ | see `editing.md` → Batch edit |

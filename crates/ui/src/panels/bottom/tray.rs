@@ -406,7 +406,9 @@ pub fn clear_clicked(app: &mut App) {
 
 /// The tray menu (`ui-layout.md` §6.2) for `targets`: View and Edit · Hold · Remove from Tray ·
 /// Rotate Clockwise · Rotate Counterclockwise · Locate on Disk · — · Properties. A row is live when
-/// its command exists and enabled when it accepts `targets`; the others are greyed, never hidden.
+/// its command exists and enabled when it accepts `targets` (Locate on Disk the first of them,
+/// greyed with the system's reason where it cannot show files); the others are greyed, never
+/// hidden.
 pub fn context_nodes(app: &App, targets: &[PhotoId]) -> Vec<Node> {
     const ROWS: [Option<(&str, &str)>; 8] = [
         Some(("View and Edit", "view.edit")),
@@ -425,8 +427,14 @@ pub fn context_nodes(app: &App, targets: &[PhotoId]) -> Vec<Node> {
             Some((label, id)) => {
                 let ui_command = crate::app::UI_COMMANDS.iter().any(|c| c.id == id);
                 let spec = app.session().and_then(|s| s.spec(id));
-                let takes_ids = matches!(id, "tray.hold" | "tray.clear") || spec.is_some_and(|s| s.params.contains("\"ids\""));
-                let params = if takes_ids { ids.clone() } else { Value::Null };
+                // Locate on Disk shows the first of them (`photo.locate` takes one photo).
+                let one = id == "photo.locate";
+                let takes_ids = one || matches!(id, "tray.hold" | "tray.clear") || spec.is_some_and(|s| s.params.contains("\"ids\""));
+                let params = match targets.first() {
+                    Some(first) if one => json!({ "id": first }),
+                    _ if takes_ids && !one => ids.clone(),
+                    _ => Value::Null,
+                };
                 let live = ui_command || spec.is_some();
                 let (enabled, reason) = if !live {
                     (false, Some("Not available yet.".to_string()))

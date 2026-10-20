@@ -24,8 +24,8 @@
 //!
 //! M15.4: Language can be changed and applies at once; its choices are the languages the app gave
 //! the session ([`Settings::languages`], [`OptionSpec::given`]), System first. General ▸ Files'
-//! "External editor" (`files.externalEditor`, [`Settings::external_editor`]) joins the catalogue
-//! with the window's text field (M15.22). The Photo
+//! "External editor" (`files.externalEditor`, [`Settings::external_editor`]) is a text row (a
+//! program's name or path, empty for the system's editor; M15.22 with the window's field). The Photo
 //! Viewer's File Types row (`viewer.defaultViewer`) is a list of file types ([`OptionSpec::many`]:
 //! any of its choices, each once), still waiting on the OS integration (M15.24).
 //!
@@ -40,8 +40,8 @@ use crate::keymap::Platform;
 use crate::map_tiles::{DEFAULT_ATTRIBUTION, DEFAULT_GEOCODER, DEFAULT_TILE_SERVER, PROXY_UNAVAILABLE, TILES_UNAVAILABLE};
 use crate::settings::{
     CONFIDENCE_DEFAULT, CONFIDENCE_RANGE, CONFIDENCE_STEP, CUSTOM_QUALITY_DEFAULT, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE, EXPORT_SIZE_DEFAULT,
-    EXPORT_SIZE_RANGE, MAX_ATTRIBUTION_BYTES, MAX_HOST_BYTES, MAX_TEMPLATE_BYTES, MAX_WATERMARK_BYTES, PROXY_PORT_DEFAULT, PROXY_PORT_RANGE,
-    QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
+    EXPORT_SIZE_RANGE, MAX_ATTRIBUTION_BYTES, MAX_HOST_BYTES, MAX_PATH_BYTES, MAX_TEMPLATE_BYTES, MAX_WATERMARK_BYTES, PROXY_PORT_DEFAULT,
+    PROXY_PORT_RANGE, QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
 };
 
 /// A tab of the Options dialog that has options in the catalogue, in the dialog's order (the
@@ -529,6 +529,10 @@ static CATALOGUE: &[OptionSpec] = &[
     row("files.writeDates", Tab::General, "Files", "Write date changes to files", Kind::Bool, Initial::Bool(true), |s| {
         json!(s.metadata_writes().dates)
     }),
+    row("files.externalEditor", Tab::General, "Files", "External editor", Kind::Text { max_bytes: MAX_PATH_BYTES }, Initial::Str(""), |s| {
+        json!(s.external_editor())
+    })
+    .hint("The program Open in External Editor starts; empty for the system's editor."),
     // General → Import.
     row("import.folder", Tab::General, "Import", "Save imported pictures in", Kind::Folder, Initial::Null, |s| json!(s.import().folder))
         .hint("The Pictures folder unless chosen."),

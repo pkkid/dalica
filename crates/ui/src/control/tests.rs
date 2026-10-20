@@ -1584,3 +1584,30 @@ fn a_click_on_a_widget_under_an_open_dialog_is_refused_naming_the_dialog() {
     ok(&mut t, "ui.clickWidget", json!({ "id": thumb }));
     assert_eq!(t.d.state().selection.ids, [PhotoId::new(t.ids[0])]);
 }
+
+/// A control request's synthetic key or click never starts a launching command (M15.22): Ctrl+Enter
+/// (Locate on Disk) and a click on a folder header's icon are refused with the reason and the
+/// system is never asked; the person's own key, outside any request, still locates the photo.
+#[test]
+fn a_control_requests_key_or_click_never_locates_on_disk() {
+    use dalica_engine::os::{OsCall, Recording};
+    let mut t = setup(2);
+    let os = Arc::new(Recording::windowed());
+    t.d.app_mut().session_mut().unwrap().set_os(os.clone());
+    let id = t.ids[0];
+    ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [id] } }));
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+Enter" }));
+    assert!(t.d.state().status.contains("never runs over automation"), "{}", t.d.state().status);
+    let folder = t.d.app().session().unwrap().library().photo(PhotoId::new(id)).unwrap().folder;
+    let icon = format!("section:{}/icon", crate::state::Section::Folder(folder));
+    let _ = call(&mut t, "ui.clickWidget", json!({ "id": icon }));
+    assert!(os.calls().is_empty(), "nothing reached the system: {:?}", os.calls());
+    // The person's own key.
+    t.d.key("Ctrl+Enter").unwrap();
+    t.d.settle(600).unwrap();
+    assert!(
+        matches!(&os.calls()[..], [OsCall::Reveal(p)] if p.ends_with(&t.d.app().session().unwrap().library().photo(PhotoId::new(id)).unwrap().name)),
+        "{:?}",
+        os.calls()
+    );
+}

@@ -12,8 +12,11 @@
 //! - `photo.paste {folder?}` (Ctrl+V): into the folder named, else the current folder; disabled in
 //!   an album, with nothing cut or copied, and until the engine's move and copy exist.
 //!
-//! Putting paths and images on the system clipboard for other applications is OS integration
-//! (M15).
+//! **The system clipboard** (M15.22): Copy also puts the photos on the system clipboard for other
+//! applications, through the engine's `photo.copyToSystem` ([`to_system`]): one still photo as its
+//! picture with its edits (a short job), several photos or a video as their files. Where there is
+//! no system clipboard (a headless session) or the system refuses, the copy inside Dalica still
+//! happens and the reply says `"system": false`. Cut and Paste stay inside Dalica.
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{CmdError, Context};
@@ -95,7 +98,27 @@ fn cut(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 }
 
 fn copy(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    keep(app, params, ClipOp::Copy)
+    let mut reply = keep(app, params, ClipOp::Copy)?;
+    let ids = app.state().clipboard.as_ref().map(|c| c.ids.clone()).unwrap_or_default();
+    let system = to_system(app, &ids);
+    if let Value::Object(o) = &mut reply {
+        o.insert("system".into(), json!(system));
+    }
+    Ok(reply)
+}
+
+/// The engine's command that puts photos on the system clipboard.
+pub const TO_SYSTEM: &str = "photo.copyToSystem";
+
+/// Puts `ids` on the system clipboard (`photo.copyToSystem`): one photo that is not a video as its
+/// picture, anything else as its files. Whether it did (or started the picture's job); nothing
+/// when the session has no system clipboard or refuses, which leaves Copy inside Dalica as it was.
+fn to_system(app: &mut App, ids: &[PhotoId]) -> bool {
+    let Some(session) = app.session_mut() else { return false };
+    let picture = matches!(ids, [one] if !session.library().is_video(*one));
+    let params = json!({ "ids": ids, "picture": picture });
+    let ready = session.spec(TO_SYSTEM).is_some_and(|spec| (spec.enabled)(session, &params).is_ok());
+    ready && session.execute(TO_SYSTEM, &params).is_ok()
 }
 
 #[derive(Deserialize)]
