@@ -136,6 +136,12 @@ fn export_writes_jpegs_at_the_long_edge() {
 }
 
 /// A cancelled export stops before its next photo: no response, and the files done are complete.
+///
+/// The folder is read only once the export has ended. A `ping` is no such point: the server
+/// answers it while the tool is still running (`mcp.md` §6), as the photos in flight when the
+/// cancel arrives are still being written to their temporary names and renamed into place, so a
+/// listing taken then could name a temporary file gone by the time it is read. Any other request
+/// waits for the tool to return, and the tool returns only once the cancelled job has ended.
 #[test]
 fn a_cancelled_export_leaves_only_complete_files() {
     let (dir, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
@@ -153,11 +159,13 @@ fn a_cancelled_export_leaves_only_complete_files() {
         }
     }
     c.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": 2 } }));
-    c.send(&json!({ "jsonrpc": "2.0", "id": 3, "method": "ping" }));
+    c.send(&json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/list" }));
     let (lines, _) = c.until(&json!(3));
     assert!(lines.iter().all(|l| l.get("id") != Some(&json!(2))), "a cancelled request gets no response: {lines:?}");
     let files = exported(&out.path().join("Out"));
     assert!(!files.is_empty() && files.len() < 40, "{} of 40 written", files.len());
+    let temporary = files.iter().filter(|f| f.file_name().unwrap().to_string_lossy().starts_with('.')).collect::<Vec<_>>();
+    assert!(temporary.is_empty(), "no temporary file is left: {temporary:?}");
     for f in &files {
         let (w, h, _) = rgb(&std::fs::read(f).unwrap());
         assert_eq!((w, h), (1200, 800), "{}", f.display());

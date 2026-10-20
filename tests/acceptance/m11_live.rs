@@ -85,6 +85,26 @@ impl Launch {
     }
 }
 
+/// Every variable a system reads a user folder from (home, profile, settings, cache, data, run,
+/// temporary): each launch checks that it names a folder inside the test's home
+/// ([`assert_contained`]), so a variable left out of [`dalica`] or pointed elsewhere by a
+/// [`Launch`] (`USERPROFILE` once was left out, and on Windows the live app could then reach the
+/// real profile) fails every live test on every system.
+const FOLDER_VARS: [&str; 12] = [
+    "HOME",
+    "USERPROFILE",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_RUNTIME_DIR",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "DALICA_CACHE_DIR",
+];
+
 /// `dalica ARGS` with every folder it could touch inside `home`.
 fn dalica(exe: &Path, home: &Path, args: &[OsString], log: &Path) -> Command {
     let mut c = Command::new(exe);
@@ -95,6 +115,7 @@ fn dalica(exe: &Path, home: &Path, args: &[OsString], log: &Path) -> Command {
     c.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::from(log));
     for (k, v) in [
         ("HOME", home.to_path_buf()),
+        ("USERPROFILE", home.to_path_buf()),
         ("XDG_CONFIG_HOME", home.join("config")),
         ("XDG_CACHE_HOME", home.join("cache")),
         ("DALICA_CACHE_DIR", home.join("dalica-cache")),
@@ -122,6 +143,14 @@ fn dalica(exe: &Path, home: &Path, args: &[OsString], log: &Path) -> Command {
     c
 }
 
+/// Fails unless each of [`FOLDER_VARS`] names a folder inside `home` in `c`'s environment.
+fn assert_contained(c: &Command, home: &Path) {
+    for k in FOLDER_VARS {
+        let v = c.get_envs().find(|(name, _)| *name == OsStr::new(k)).and_then(|(_, v)| v);
+        assert!(v.is_some_and(|v| Path::new(v).starts_with(home)), "{k} is not inside the test's home {}: {v:?}", home.display());
+    }
+}
+
 /// Starts `dalica --headless` on the library `home/library` with automation reading inside
 /// `home`, and connects to it.
 pub fn start(exe: &Path, home: &Path) -> (App, Client) {
@@ -146,6 +175,7 @@ pub fn start_with(exe: &Path, home: &Path, launch: Launch) -> (App, Client) {
         for (k, v) in &launch.env {
             cmd.env(k, v);
         }
+        assert_contained(&cmd, home);
         let mut app = App { child: cmd.spawn().unwrap() };
         match token(&token_file, &mut app, &log, port) {
             Some(token) => {

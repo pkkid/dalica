@@ -4,9 +4,10 @@
 //! else for one that renders); Sepia's click is one "Sepia" step and Ctrl+Shift+B one "B&W" step;
 //! Sharpen's click opens its panel in the grid's place, a modal tool draws the grid disabled, and
 //! Cancel brings it back with nothing recorded; tabs 4 and 5 show 7 and 8 tiles; at 900 × 600
-//! every grid fits the panel; a fingerprint of each tab's grid at 1400 × 900 (the frame the tab
-//! opens, its previews still `gray 38`: what each preview shows is pinned by its effect's own
-//! fingerprint).
+//! every grid fits the panel; a fingerprint of each tab's grid at 1400 × 900 once every preview
+//! has arrived (never the frame the tab opens: whether a preview is already in by then depends on
+//! when the tile worker runs, and a finished photo decode makes the first tiles of the next tab
+//! fast enough to land in that frame on one CPU or under load).
 //!
 //! `DALICA_SHOTS=<dir>` writes the grids' screenshots there too.
 
@@ -259,7 +260,7 @@ fn tabs_four_and_five_show_their_tiles_and_every_grid_fits_the_small_window() {
     }
 }
 
-/// Each tab's grid at 1400 × 900 in the frame the tab opens.
+/// Each tab's grid at 1400 × 900 with every preview in.
 #[test]
 fn each_tabs_grid_matches_its_fingerprint() {
     let mut t = setup(LARGE);
@@ -272,11 +273,11 @@ fn each_tabs_grid_matches_its_fingerprint() {
         show_tab(&mut t, "basic");
         t.d.settle(FRAMES).unwrap();
         show_tab(&mut t, tab);
+        // The state fingerprinted is the one every run reaches: all of the tab's previews drawn.
+        wait_tiles(&mut t);
         let (a, b) = (widget(&t.d, first).rect, widget(&t.d, last).rect);
         // The whole grid: three columns from the first tile's left, down to the last tile's foot.
         let width = 3.0 * a[2] + 2.0 * dalica_ui_kit::widgets::EFFECT_TILE_GAP;
         check_rect(&t.d, &format!("edit-effects-tab{n}-{}x{}", LARGE.0, LARGE.1), [a[0], a[1], width, b[1] + b[3] - a[1]]);
-        wait_tiles(&mut t);
-        shot(&t.d, &format!("effect-tiles-tab{n}-window"));
     }
 }
