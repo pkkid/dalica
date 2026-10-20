@@ -38,11 +38,12 @@ use serde_json::{Map, Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::i18n::format::long_date_with_weekday;
 use crate::panels::light_table::cell::letterbox;
 use crate::panels::light_table::header::weekday;
-use crate::panels::light_table::long_date;
 use crate::panels::thumbnails::{recipe_orientation, turn_point};
 use crate::status_text::date_time;
+use crate::{tl, tln};
 
 /// The title for one photo; several add " — N pictures".
 pub const TITLE: &str = "Adjust Picture Date";
@@ -128,39 +129,39 @@ pub fn amount(secs: i64) -> String {
     let (days, hours, minutes, seconds) = (s / 86_400, s % 86_400 / 3600, s % 3600 / 60, s % 60);
     let mut parts = Vec::with_capacity(4);
     if days > 0 {
-        parts.push(if days == 1 { "1 day".to_string() } else { format!("{days} days") });
+        parts.push(tln!(days, "{n} day", "{n} days"));
     }
     if hours > 0 {
-        parts.push(format!("{hours} h"));
+        parts.push(tl!(ctx = "duration", "{hours} h", hours = hours));
     }
     if minutes > 0 {
-        parts.push(format!("{minutes} min"));
+        parts.push(tl!(ctx = "duration", "{minutes} min", minutes = minutes));
     }
     if seconds > 0 {
-        parts.push(format!("{seconds} s"));
+        parts.push(tl!(ctx = "duration", "{seconds} s", seconds = seconds));
     }
-    if parts.is_empty() { "0 min".to_string() } else { parts.join(" ") }
+    if parts.is_empty() { tl!(ctx = "duration", "{minutes} min", minutes = 0) } else { parts.join(" ") }
 }
 
 /// What a shift of `secs` seconds does to `n` photos, in words.
 pub fn shift_note(secs: i64, n: usize) -> String {
-    let every = if n == 1 { "The picture" } else { "Every picture" };
     match secs {
-        0 => format!("{every} keeps its date."),
-        s if s > 0 => format!("{every} moves {} later.", amount(s)),
-        s => format!("{every} moves {} earlier.", amount(s)),
+        0 => tln!(n, "The picture keeps its date.", "Every picture keeps its date."),
+        s if s > 0 => tln!(n, "The picture moves {amount} later.", "Every picture moves {amount} later.", amount = amount(s)),
+        s => tln!(n, "The picture moves {amount} earlier.", "Every picture moves {amount} earlier.", amount = amount(s)),
     }
 }
 
 /// "Thursday, June 4, 2026 10:00 AM".
 fn long(d: DateTime) -> String {
-    format!("{}, {}", weekday(d.date()), date_time(d))
+    tl!(ctx = "date", "{weekday}, {date}", weekday = weekday(d.date()), date = date_time(d))
 }
 
 pub fn look(_app: &App, d: &Dialog) -> Look {
     let n = ids(&d.fields).len();
-    let title = if n > 1 { format!("{TITLE} — {n} pictures") } else { TITLE.to_string() };
-    let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(new_date(&d.fields).is_some());
+    let title =
+        if n > 1 { tln!(n, "Adjust Picture Date — {n} picture", "Adjust Picture Date — {n} pictures") } else { tl!("Adjust Picture Date") };
+    let ok = Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(new_date(&d.fields).is_some());
     Look { title, width: WIDTH, buttons: vec![Button::cancel(), ok] }
 }
 
@@ -281,8 +282,8 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
             ui.spacing_mut().item_spacing.y = GAP;
             let fields = &mut d.fields;
             let current = date_of(fields, "current");
-            let shown = current.map_or_else(|| NO_DATE.to_string(), long);
-            row(ui, &t, "Current date:", |ui| ui.label(RichText::new(shown).font(fonts::regular(t.body)).color(t.text)));
+            let shown = current.map_or_else(|| tl!(ctx = "date", "None"), long);
+            row(ui, &t, &super::form_label(&tl!("Current date")), |ui| ui.label(RichText::new(shown).font(fonts::regular(t.body)).color(t.text)));
 
             // The fields start from the new date (else the current one, else a fixed day).
             let new = new_date(fields).or(current);
@@ -290,13 +291,13 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
                 new.and_then(|n| PickedDate::new(n.date().year(), n.date().month(), n.date().day())).or_else(|| PickedDate::new(2000, 1, 1));
             let mut time = new.and_then(|n| PickedTime::new(n.hour(), n.minute(), n.second())).unwrap_or_default();
             let mut changed = false;
-            row(ui, &t, "New date:", |ui| {
+            row(ui, &t, &super::form_label(&tl!("New date")), |ui| {
                 if let Some(day) = &mut day {
                     changed |= date_field(ui, &t, DATE_ID, day, DATE_WIDTH).changed;
                 }
                 changed |= time_field(ui, &t, TIME_ID, &mut time, TIME_WIDTH).changed;
                 if let Some(day) = day.and_then(|p| Date::new(p.year(), p.month(), p.day()).ok()) {
-                    ui.label(RichText::new(format!("{}, {}", weekday(day), long_date(day))).font(fonts::regular(t.detail)).color(t.text_dim));
+                    ui.label(RichText::new(long_date_with_weekday(day)).font(fonts::regular(t.detail)).color(t.text_dim));
                 }
             });
             if changed
@@ -310,10 +311,10 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
                 ui.add_space(2.0);
                 let set = sets(fields);
                 // Shifting needs a date to shift from.
-                if radio(ui, &t, SHIFT_ID, SHIFT_LABEL, !set, current.is_some()) {
+                if radio(ui, &t, SHIFT_ID, &tl!("Shift all dates by the same amount"), !set, current.is_some()) {
                     fields.insert("mode".into(), json!("shift"));
                 }
-                if radio(ui, &t, SET_ID, SET_LABEL, set, true) {
+                if radio(ui, &t, SET_ID, &tl!("Set all pictures to the same date and time"), set, true) {
                     fields.insert("mode".into(), json!("set"));
                 }
             }

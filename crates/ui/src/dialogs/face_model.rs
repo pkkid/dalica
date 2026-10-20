@@ -63,6 +63,7 @@ use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::commands::face_model::{self as models, model, starter, text};
 use crate::state::FaceModelDraft;
+use crate::tl;
 
 pub const TITLE: &str = "Face Model";
 /// The licence box's text.
@@ -149,9 +150,9 @@ pub fn look(app: &App, d: &Dialog) -> Look {
     if draft.is_some_and(|f| f.file.is_some()) {
         let usable = inspected(app, d).is_some_and(|r| r.get("refused").is_none_or(Value::is_null));
         return Look {
-            title: TITLE.into(),
+            title: tl!("Face Model"),
             width: WIDTH,
-            buttons: vec![Button::new("install", "Add Model", ButtonKind::Default).enabled(accepted && usable), Button::cancel()],
+            buttons: vec![Button::new("install", tl!("Add Model"), ButtonKind::Default).enabled(accepted && usable), Button::cancel()],
         };
     }
     let list = app.face_models.last();
@@ -159,11 +160,11 @@ pub fn look(app: &App, d: &Dialog) -> Look {
     let all_installed = !ids.is_empty() && list.is_some_and(|l| ids.iter().all(|id| model(l, id).is_some_and(|m| text(m, "state") == "installed")));
     let close = if running || all_installed { Button::close() } else { Button::cancel() };
     Look {
-        title: TITLE.into(),
+        title: tl!("Face Model"),
         width: WIDTH,
         buttons: vec![
-            Button::new("addFile", "Add a Model File…", ButtonKind::Other).enabled(!running && app.can_pick().is_ok()),
-            Button::new("download", "Download", ButtonKind::Default).enabled(accepted && !running).stays_open(),
+            Button::new("addFile", tl!("Add a Model File…"), ButtonKind::Other).enabled(!running && app.can_pick().is_ok()),
+            Button::new("download", tl!("Download"), ButtonKind::Default).enabled(accepted && !running).stays_open(),
             close,
         ],
     }
@@ -219,19 +220,20 @@ pub fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
 
 /// A download-style size: decimal megabytes ("38.7 MB", "232 KB").
 pub fn size_text(bytes: Option<u64>) -> String {
+    use crate::i18n::format::{decimal, number};
     match bytes {
-        Some(b) if b >= 10_000_000 => format!("{} MB", (b as f64 / 1e6).round() as u64),
-        Some(b) if b >= 1_000_000 => format!("{:.1} MB", b as f64 / 1e6),
-        Some(b) => format!("{} KB", (b as f64 / 1e3).round().max(1.0) as u64),
+        Some(b) if b >= 10_000_000 => tl!(ctx = "unit", "{size} MB", size = number((b as f64 / 1e6).round() as u64)),
+        Some(b) if b >= 1_000_000 => tl!(ctx = "unit", "{size} MB", size = decimal(b as f64 / 1e6, 1)),
+        Some(b) => tl!(ctx = "unit", "{size} KB", size = number((b as f64 / 1e3).round().max(1.0) as u64)),
         None => String::new(),
     }
 }
 
 /// "face detector" / "face recogniser".
-pub fn role_text(m: &Value) -> &'static str {
+pub fn role_text(m: &Value) -> String {
     match text(m, "role") {
-        "detector" => "face detector",
-        _ => "face recogniser",
+        "detector" => tl!("face detector"),
+        _ => tl!("face recogniser"),
     }
 }
 
@@ -243,33 +245,34 @@ pub const TRAINED_UNKNOWN: &str = "What it was trained on is not known.";
 pub fn display_name(m: &Value, id: &str) -> String {
     let name = text(m, "name");
     match name {
-        "" => format!("{id} ({})", role_text(m)),
-        n if n.contains('(') => n.to_string(),
-        n => format!("{n} ({})", role_text(m)),
+        "" => tl!("{name} ({role})", name = id, role = role_text(m)),
+        // The engine's name with its role in it, looked up whole by its English.
+        n if n.contains('(') => crate::i18n::tr(n),
+        n => tl!("{name} ({role})", name = n, role = role_text(m)),
     }
 }
 
 /// "Licence: Apache-2.0 · commercial use allowed".
 pub fn licence_text(m: &Value) -> String {
     let licence = m.get("licence").unwrap_or(&Value::Null);
-    let name = licence.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("Unknown licence");
+    let name = licence.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()).map_or_else(|| tl!("Unknown licence"), crate::i18n::tr);
     let commercial = match licence.get("commercial").and_then(Value::as_str) {
-        Some("yes") => "commercial use allowed",
-        Some("no") => "not for commercial use",
-        _ => "commercial use not stated",
+        Some("yes") => tl!("commercial use allowed"),
+        Some("no") => tl!("not for commercial use"),
+        _ => tl!("commercial use not stated"),
     };
-    format!("Licence: {name} · {commercial}")
+    tl!("Licence: {name} · {commercial}", name = name, commercial = commercial)
 }
 
 /// "Installed · in use", "Not downloaded", "Partly downloaded (12.3 MB)", "Downloading…".
 pub fn state_text(m: &Value) -> String {
     let partial = || size_text(m.get("partialBytes").and_then(Value::as_u64));
     match text(m, "state") {
-        "installed" if m.get("inUse") == Some(&Value::Bool(true)) => "Installed · in use".into(),
-        "installed" => "Installed".into(),
-        "downloading" => "Downloading…".into(),
-        "partial" => format!("Partly downloaded ({})", partial()),
-        _ => "Not downloaded".into(),
+        "installed" if m.get("inUse") == Some(&Value::Bool(true)) => tl!("Installed · in use"),
+        "installed" => tl!("Installed"),
+        "downloading" => tl!("Downloading…"),
+        "partial" => tl!("Partly downloaded ({size})", size = partial()),
+        _ => tl!("Not downloaded"),
     }
 }
 
@@ -281,7 +284,7 @@ fn open_page(app: &mut App, ctx: &egui::Context, url: &str) {
     }
     ctx.open_url(egui::OpenUrl::new_tab(url));
     ctx.copy_text(url.to_string());
-    app.state_mut().status = format!("The page's address is on the clipboard: {url}");
+    app.state_mut().status = tl!("The page's address is on the clipboard: {url}", url = url);
 }
 
 /// The tallest the list of files gets in a window `screen_h` points tall: the dialog keeps its
@@ -306,8 +309,10 @@ fn model_row(ui: &mut Ui, t: &Tokens, m: &Value, id: &str, size: Option<u64>, st
         ui.label(RichText::new(display_name(m, id)).font(fonts::semibold(t.body)).color(t.text));
         let size = size_text(size.or_else(|| m.get("sizeBytes").and_then(Value::as_u64)));
         let version = text(m, "version");
-        let what: Vec<String> =
-            [(!version.is_empty()).then(|| format!("version {version}")), (!size.is_empty()).then_some(size)].into_iter().flatten().collect();
+        let what: Vec<String> = [(!version.is_empty()).then(|| tl!("version {version}", version = version)), (!size.is_empty()).then_some(size)]
+            .into_iter()
+            .flatten()
+            .collect();
         ui.label(RichText::new(what.join(" · ")).font(fonts::regular(t.small)).color(t.text_dim));
         if let Some(state) = state {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -318,19 +323,20 @@ fn model_row(ui: &mut Ui, t: &Tokens, m: &Value, id: &str, size: Option<u64>, st
     label(ui, &licence_text(m), t.body, terms);
     let notice = m.get("licence").and_then(|l| l.get("notice")).and_then(Value::as_str).unwrap_or_default();
     if !notice.is_empty() {
-        label(ui, notice, t.small, if caution { t.caution } else { t.text_dim });
+        label(ui, &crate::i18n::tr(notice), t.small, if caution { t.caution } else { t.text_dim });
     }
     let trained = text(m, "trainedOn");
-    label(ui, if trained.is_empty() { TRAINED_UNKNOWN } else { trained }, t.small, t.text_dim);
+    let trained = if trained.is_empty() { tl!("What it was trained on is not known.") } else { crate::i18n::tr(trained) };
+    label(ui, &trained, t.small, t.text_dim);
     let url = m.get("page").and_then(Value::as_str).unwrap_or_default().to_string();
     let site = text(m, "site");
     if !site.is_empty() || !url.is_empty() {
         ui.horizontal(|ui| {
-            let from = if site.is_empty() { url.clone() } else { format!("From {site}") };
+            let from = if site.is_empty() { url.clone() } else { tl!("From {site}", site = site) };
             ui.label(RichText::new(from).font(fonts::regular(t.small)).color(t.text_dim));
             if url.starts_with("https://") {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if text_button(ui, t, &page_id(id), "Open page", false).on_hover_text(url.as_str()).clicked() {
+                    if text_button(ui, t, &page_id(id), &tl!("Open page"), false).on_hover_text(url.as_str()).clicked() {
                         page = Some(url.clone());
                     }
                 });
@@ -350,7 +356,7 @@ fn model_row(ui: &mut Ui, t: &Tokens, m: &Value, id: &str, size: Option<u64>, st
 fn unknown_row(ui: &mut Ui, t: &Tokens, id: &str) {
     let top = ui.cursor().min;
     ui.label(RichText::new(id).font(fonts::semibold(t.body)).color(t.text));
-    label(ui, "Dalica knows no face model by this name.", t.small, t.caution);
+    label(ui, &tl!("Dalica knows no face model by this name."), t.small, t.caution);
     let rect = egui::Rect::from_min_max(top, egui::pos2(ui.max_rect().max.x, ui.cursor().min.y));
     widgets::register(ui.ctx(), &row_id(id), Role::Other, id, Target::Painted { rect, clip: ui.clip_rect() }, false);
 }
@@ -358,7 +364,8 @@ fn unknown_row(ui: &mut Ui, t: &Tokens, id: &str) {
 /// The licence box and the line under it; a refused file's box is disabled.
 fn accept_box(app: &mut App, ui: &mut Ui, t: &Tokens, disabled: Option<&str>, note: &str) {
     let mut accepted = app.state().face_model.as_ref().is_some_and(|f| f.accepted);
-    let r = checkbox_row(ui, t, ACCEPT_ID, ACCEPT, &mut accepted, Some(note), disabled).response;
+    let r =
+        checkbox_row(ui, t, ACCEPT_ID, &tl!("I have read these terms and accept them for my own use"), &mut accepted, Some(note), disabled).response;
     if r.changed()
         && let Some(f) = app.state_mut().face_model.as_mut()
     {
@@ -407,8 +414,13 @@ fn list_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, draft: &Fac
         ids = draft.entry.clone().map_or_else(|| starter(l), |e| vec![e]);
         d.fields.insert(MODELS.into(), json!(ids));
     }
-    label(ui, if draft.entry.is_some() { INTRO_ONE } else { INTRO }, t.body, t.text_label);
-    let problem = list.as_ref().and_then(|l| l.get("problem")).and_then(Value::as_str).map(str::to_string);
+    let intro = if draft.entry.is_some() {
+        tl!("Read this face model's terms before it is downloaded. It stays on this computer.")
+    } else {
+        tl!("To find faces, Dalica needs these model files. Each is downloaded once from its own site and stays on this computer.")
+    };
+    label(ui, &intro, t.body, t.text_label);
+    let problem = list.as_ref().and_then(|l| l.get("problem")).and_then(Value::as_str).map(crate::i18n::tr);
     if let Some(p) = &problem {
         label(ui, p, t.small, t.caution);
     }
@@ -419,7 +431,7 @@ fn list_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, draft: &Fac
     let downloading = app.session().and_then(|s| s.face_models().downloading().map(str::to_string));
     files_area(ui, t, "dialog:faceModel/files", max_h, |ui| {
         if ids.is_empty() {
-            label(ui, "No face models are known here.", t.body, t.text_dim);
+            label(ui, &tl!("No face models are known here."), t.body, t.text_dim);
         }
         for (i, id) in ids.iter().enumerate() {
             if i > 0 {
@@ -429,7 +441,7 @@ fn list_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, draft: &Fac
             }
             match model(l, id) {
                 Some(m) => {
-                    let state = if downloading.as_deref() == Some(id.as_str()) { "Downloading…".to_string() } else { state_text(m) };
+                    let state = if downloading.as_deref() == Some(id.as_str()) { tl!("Downloading…") } else { state_text(m) };
                     if let Some(url) = model_row(ui, t, m, id, None, Some(&state)) {
                         *page = Some(url);
                     }
@@ -439,16 +451,16 @@ fn list_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, draft: &Fac
         }
     });
     if let Some(note) = l.get("commercialNote").and_then(Value::as_str) {
-        label(ui, note, t.small, t.text_dim);
+        label(ui, &crate::i18n::tr(note), t.small, t.text_dim);
     }
     ui.add_space(4.0);
-    accept_box(app, ui, t, None, NOTHING_YET);
+    accept_box(app, ui, t, None, &tl!("Nothing is downloaded until you accept. Your photos and faces never leave this computer."));
     // The download running: its progress and its stop button; the last one's failure.
     let job = d.fields.get(JOB).and_then(Value::as_u64);
     let running = job.and_then(|j| app.session().and_then(|s| s.job(j))).filter(|e| !e.state.is_finished());
     if let Some(entry) = running {
         ui.add_space(4.0);
-        let out = progress_row(ui, t, PROGRESS_ID, &entry.label, draft.progress, Some(STOP_ID), ui.available_width());
+        let out = progress_row(ui, t, PROGRESS_ID, &crate::i18n::tr(&entry.label), draft.progress, Some(STOP_ID), ui.available_width());
         if out.cancel
             && let Some(id) = app.session().and_then(|s| s.face_models().downloading().map(str::to_string))
         {
@@ -456,7 +468,7 @@ fn list_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, draft: &Fac
         }
     }
     if let Some(e) = d.fields.get(ERROR).and_then(Value::as_str).filter(|e| !e.is_empty()) {
-        label(ui, e, t.small, t.danger);
+        label(ui, &crate::i18n::tr(e), t.small, t.danger);
     }
     // A download in progress or a model folder being read: keep the frames coming.
     if app.session().is_some_and(|s| !s.face_models().idle()) {
@@ -466,7 +478,7 @@ fn list_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, draft: &Fac
 
 #[allow(clippy::too_many_arguments)] // the dialog's parts, passed down from `body`
 fn file_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, path: &std::path::Path, max_h: f32, page: &mut Option<String>) {
-    label(ui, INTRO_FILE, t.body, t.text_label);
+    label(ui, &tl!("Read this face model's terms before it is added. The file is copied into Dalica's models folder."), t.body, t.text_label);
     ui.add_space(4.0);
     let job = d.fields.get(INSPECT).and_then(Value::as_u64);
     let entry = job.and_then(|j| app.session().and_then(|s| s.job(j)));
@@ -491,40 +503,46 @@ fn file_body(app: &mut App, ui: &mut Ui, t: &Tokens, d: &mut Dialog, path: &std:
                 r.get("assumptions").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
             if !assumptions.is_empty() {
                 ui.add_space(2.0);
-                label(ui, "Dalica does not know this model, so it assumes:", t.small, t.text_label);
+                label(ui, &tl!("Dalica does not know this model, so it assumes:"), t.small, t.text_label);
                 for a in assumptions {
-                    label(ui, &format!("•  {a}"), t.small, t.text_dim);
+                    label(ui, &format!("•  {}", crate::i18n::tr(a)), t.small, t.text_dim);
                 }
             }
             if r.get("installed") == Some(&Value::Bool(true)) {
-                label(ui, "This model is installed already.", t.small, t.text_dim);
+                label(ui, &tl!("This model is installed already."), t.small, t.text_dim);
             }
             refused = r.get("refused").and_then(Value::as_str).map(str::to_string);
             if let Some(why) = &refused {
-                label(ui, &format!("This file cannot be used: {why}"), t.body, t.caution);
+                label(ui, &tl!("This file cannot be used: {why}", why = crate::i18n::tr(why)), t.body, t.caution);
             }
         }
         Some(e) if e.state.is_finished() => {
             ui.label(RichText::new(&name).font(fonts::semibold(t.body)).color(t.text));
             let why = e.error.clone().unwrap_or_else(|| "it could not be read".into());
-            label(ui, &format!("This file cannot be used: {why}"), t.body, t.caution);
+            let shown = if e.error.is_some() { crate::i18n::tr(&why) } else { tl!("it could not be read") };
+            label(ui, &tl!("This file cannot be used: {why}", why = shown), t.body, t.caution);
             refused = Some(why);
         }
         Some(_) => {
             ui.label(RichText::new(&name).font(fonts::semibold(t.body)).color(t.text));
-            label(ui, "Looking at the file…", t.small, t.text_dim);
+            label(ui, &tl!("Looking at the file…"), t.small, t.text_dim);
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
         None => {
             ui.label(RichText::new(&name).font(fonts::semibold(t.body)).color(t.text));
             let why = d.fields.get(ERROR).and_then(Value::as_str).unwrap_or("The file could not be looked at.");
-            label(ui, why, t.body, t.caution);
+            let shown = match d.fields.get(ERROR).and_then(Value::as_str) {
+                Some(e) => crate::i18n::tr(e),
+                None => tl!("The file could not be looked at."),
+            };
+            label(ui, &shown, t.body, t.caution);
             refused = Some(why.to_string());
         }
     });
     ui.add_space(4.0);
-    let note = "The model is kept on this computer only; Dalica never uploads or shares it.";
-    accept_box(app, ui, t, refused.as_deref().map(|_| "This file cannot be used."), note);
+    let note = tl!("The model is kept on this computer only; Dalica never uploads or shares it.");
+    let cannot = tl!("This file cannot be used.");
+    accept_box(app, ui, t, refused.as_deref().map(|_| cannot.as_str()), &note);
     ui.allocate_space(vec2(0.0, 2.0));
 }
 
@@ -541,7 +559,7 @@ mod tests {
         assert_eq!(size_text(None), "");
         let m = json!({ "licence": { "name": "MIT", "commercial": "yes" }, "role": "detector", "state": "installed", "inUse": false });
         assert_eq!(
-            (licence_text(&m).as_str(), role_text(&m), state_text(&m).as_str()),
+            (licence_text(&m).as_str(), role_text(&m).as_str(), state_text(&m).as_str()),
             ("Licence: MIT · commercial use allowed", "face detector", "Installed")
         );
         let m = json!({ "licence": { "commercial": "no" }, "state": "partial", "partialBytes": 1_500_000 });

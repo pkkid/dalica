@@ -50,7 +50,7 @@ pub mod draft;
 
 use std::sync::Arc;
 
-use dalica_engine::keymap::{CONTEXTS, Platform, context_label};
+use dalica_engine::keymap::{CONTEXTS, Platform};
 use dalica_engine::{CmdError, Context, Key};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{
@@ -63,6 +63,7 @@ use serde_json::{Value, json};
 
 use crate::app::{App, UI_COMMANDS};
 use crate::state::{KeySlot, MAX_DRAFT, SHORTCUT_SLOTS, ShortcutChange, ShortcutEditor};
+use crate::{i18n, tl};
 
 pub const SEARCH_ID: &str = "field:shortcuts.search";
 pub const SEARCH_CLEAR_ID: &str = "button:shortcuts.search/clear";
@@ -153,9 +154,38 @@ pub fn label(app: &App, command: &str) -> String {
     UI_COMMANDS
         .iter()
         .find(|c| c.id == command)
-        .map(|c| c.label.to_string())
-        .or_else(|| app.session().and_then(|s| s.spec(command)).map(|s| s.label.to_string()))
+        .map(|c| i18n::command_label(command, c.label))
+        .or_else(|| app.session().and_then(|s| s.spec(command)).map(|s| i18n::command_label(command, s.label)))
         .unwrap_or_else(|| command.to_string())
+}
+
+/// A keymap context's name (the engine's `context_label`) in the language in effect.
+pub fn context_text(c: Context) -> String {
+    match c {
+        Context::Global => tl!(ctx = "shortcut context", "Global"),
+        Context::Library => tl!(ctx = "shortcut context", "Library"),
+        Context::EditView => tl!(ctx = "shortcut context", "Edit view"),
+        Context::Slideshow => tl!(ctx = "shortcut context", "Slideshow"),
+        Context::PhotoViewer => tl!(ctx = "shortcut context", "Photo viewer"),
+        Context::Import => tl!(ctx = "shortcut context", "Import"),
+        Context::Collage => tl!(ctx = "shortcut context", "Collage"),
+        Context::TextInput => tl!(ctx = "shortcut context", "Text input"),
+    }
+}
+
+/// [`display_name`] in the language in effect: the menu's title and submenus as the menu bar
+/// shows them, the command's label by its id.
+pub fn display_name_shown(command: &str, menu: &str, label: &str) -> String {
+    let english = display_name(menu, label);
+    let mut parts: Vec<&str> = english.split(" › ").collect();
+    let last = parts.pop().unwrap_or_default();
+    let mut shown: Vec<String> = parts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| if i == 0 { crate::panels::menubar::menu_title(p) } else { crate::panels::menubar::submenu_label(p) })
+        .collect();
+    shown.push(if last == label { i18n::command_label(command, label) } else { i18n::tr(last) });
+    shown.join(" › ")
 }
 
 /// The menu path and label as a row shows them: `Picture/Star / Unstar` with the label `Star /
@@ -188,6 +218,8 @@ struct Source {
     context: Option<Context>,
     show_unbound: bool,
     commands: usize,
+    /// The language the names are written in.
+    language: &'static str,
     overrides: Vec<(String, Context, Vec<Key>)>,
     changes: Vec<ShortcutChange>,
     reset_all: bool,
@@ -233,7 +265,7 @@ pub fn rows(app: &mut App, e: &ShortcutEditor) -> Vec<Row> {
             Some(c) => (c.label, c.menu),
             None => (r["label"].as_str().unwrap_or(command), r["menu"].as_str().unwrap_or("")),
         };
-        let name = display_name(menu, label);
+        let name = display_name_shown(command, menu, label);
         let editable = r["editable"].as_bool().unwrap_or(false);
         let row = |context: Option<Context>, keys: Vec<String>, defaults: Vec<String>| Row {
             command: command.to_string(),
@@ -275,6 +307,7 @@ fn cached_rows(app: &mut App, ctx: &egui::Context, e: &ShortcutEditor) -> Arc<Ve
         context: e.context,
         show_unbound: e.show_unbound,
         commands: s.keymap().commands().len(),
+        language: i18n::current().code,
         overrides,
         changes: e.changes.clone(),
         reset_all: e.reset_all,
@@ -343,7 +376,7 @@ pub fn body(app: &mut App, ui: &mut Ui) {
     set_asking(&ctx, asked);
     let mut actions = Vec::new();
     if app.session().is_none() {
-        line(ui, &t, WAITING_ID, WAITING, t.text_label);
+        line(ui, &t, WAITING_ID, &tl!("The library is still opening."), t.text_label);
     } else {
         let rows = cached_rows(app, &ctx, &e);
         let conflict_label = e.conflict.as_ref().map(|c| label(app, &c.command)).unwrap_or_default();
@@ -390,7 +423,7 @@ pub fn body(app: &mut App, ui: &mut Ui) {
     }
     if let Some(o) = app.state_mut().options.as_mut() {
         if full {
-            o.error = Some(draft::FULL.into());
+            o.error = Some(tl!("Too many changed shortcuts: apply them first."));
         }
         if o.shortcuts != e || !captured.is_empty() {
             o.shortcuts = e;
@@ -403,25 +436,27 @@ fn toolbar(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, actions: &mut Vec<Action
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let mut text = e.search.clone();
-        if search_field(ui, t, SEARCH_ID, SEARCH_CLEAR_ID, &mut text, SEARCH_HINT, SEARCH_W).changed {
+        if search_field(ui, t, SEARCH_ID, SEARCH_CLEAR_ID, &mut text, &tl!("Search commands and keys"), SEARCH_W).changed {
             actions.push(Action::Search(text));
         }
         ui.add_space(10.0);
-        ui.add(egui::Label::new(RichText::new("Context:").font(fonts::regular(t.body)).color(t.text_label)));
-        let shown = e.context.map_or(ALL_LABEL, context_label);
-        dropdown(ui, t, CONTEXT_ID, shown, |ui| {
-            if dropdown_item(ui, t, &format!("{CONTEXT_ID}/all"), ALL_LABEL, "", e.context.is_none()).clicked() {
+        let context = crate::dialogs::form_label(&tl!("Context"));
+        ui.add(egui::Label::new(RichText::new(context).font(fonts::regular(t.body)).color(t.text_label)));
+        let all = tl!(ctx = "shortcut context", "All");
+        let shown = e.context.map_or_else(|| all.clone(), context_text);
+        dropdown(ui, t, CONTEXT_ID, &shown, |ui| {
+            if dropdown_item(ui, t, &format!("{CONTEXT_ID}/all"), &all, "", e.context.is_none()).clicked() {
                 actions.push(Action::Filter(None));
             }
             for c in CONTEXTS {
-                if dropdown_item(ui, t, &format!("{CONTEXT_ID}/{}", context_name(c)), context_label(c), "", e.context == Some(c)).clicked() {
+                if dropdown_item(ui, t, &format!("{CONTEXT_ID}/{}", context_name(c)), &context_text(c), "", e.context == Some(c)).clicked() {
                     actions.push(Action::Filter(Some(c)));
                 }
             }
         });
         ui.add_space(10.0);
         let mut on = e.show_unbound;
-        if checkbox(ui, t, UNBOUND_ID, UNBOUND_LABEL, &mut on).changed() {
+        if checkbox(ui, t, UNBOUND_ID, &tl!("Show commands without a shortcut"), &mut on).changed() {
             actions.push(Action::Unbound(on));
         }
     });
@@ -439,8 +474,9 @@ fn list(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, rows: &[Row], height: f32, 
     let header_h = (t.small * 1.25 + 4.0).ceil();
     let (_, header) = ui.allocate_space(vec2(ui.available_width(), header_h));
     let cols = list_columns(header, &w);
-    for (title, col) in HEADERS.iter().zip(&cols) {
-        ui.painter().text(pos2(col.min.x, col.center().y), egui::Align2::LEFT_CENTER, *title, fonts::semibold(t.small), t.text_dim);
+    let headers = [tl!(ctx = "shortcuts column", "Command"), tl!(ctx = "shortcuts column", "Context"), tl!(ctx = "shortcuts column", "Shortcuts")];
+    for (title, col) in headers.iter().zip(&cols) {
+        ui.painter().text(pos2(col.min.x, col.center().y), egui::Align2::LEFT_CENTER, title, fonts::semibold(t.small), t.text_dim);
     }
     ui.add_space(2.0);
     let height = (height - header_h - 2.0).max(list_row_height(t));
@@ -453,7 +489,7 @@ fn list(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, rows: &[Row], height: f32, 
         .scroll_source(egui::scroll_area::ScrollSource::MOUSE_WHEEL);
     if rows.is_empty() {
         area.show(ui, |ui| {
-            ui.add(egui::Label::new(RichText::new(NO_ROWS).font(fonts::regular(t.body)).color(t.text_dim)));
+            ui.add(egui::Label::new(RichText::new(tl!("No shortcuts match.")).font(fonts::regular(t.body)).color(t.text_dim)));
         });
         return;
     }
@@ -471,8 +507,9 @@ fn row_ui(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, row: &Row, w: &[f32; 5], 
     let cell = |slot: u8| KeySlot { command: row.command.clone(), context, slot };
     let recording_here = e.recording.as_ref().is_some_and(|r| r.command == row.command && r.context == context);
     let keys: Vec<String> = row.keys.iter().map(|k| shown_key(k)).collect();
-    let context_text = row.context.map_or("—", context_label);
-    let label = format!("{}, {}: {}", row.name, context_text, if keys.is_empty() { widgets::NO_KEY_TEXT.to_string() } else { keys.join(", ") });
+    let context_text = row.context.map_or_else(|| "—".to_string(), context_text);
+    let keys_text = if keys.is_empty() { widgets::NO_KEY_TEXT.to_string() } else { keys.join(", ") };
+    let label = tl!("{command}, {context}: {keys}", command = row.name, context = context_text, keys = keys_text);
     let id = row_id(&row.command, context);
     let enabled = row.editable;
     list_row(ui, t, &id, &label, w, recording_here, row.modified(), |ui, c: &ListCell| match c.column {
@@ -480,7 +517,7 @@ fn row_ui(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, row: &Row, w: &[f32; 5], 
             list_text(ui, t, c, &row.name, false);
         }
         1 => {
-            list_text(ui, t, c, context_text, true);
+            list_text(ui, t, c, &context_text, true);
         }
         2 | 3 => {
             let slot: u8 = if c.column == 2 { 0 } else { 1 };
@@ -500,9 +537,9 @@ fn row_ui(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, row: &Row, w: &[f32; 5], 
         _ if row.modified() && enabled => {
             let defaults: Vec<String> = row.defaults.iter().map(|k| shown_key(k)).collect();
             let tip = if defaults.is_empty() {
-                "Restore the default: no shortcut".to_string()
+                tl!("Restore the default: no shortcut")
             } else {
-                format!("Restore the default: {}", defaults.join(", "))
+                tl!("Restore the default: {keys}", keys = defaults.join(", "))
             };
             if restore_button(ui, t, &restore_id(&row.command, context), &tip).clicked() {
                 actions.push(Action::Restore(row.command.clone(), context));
@@ -544,7 +581,7 @@ fn question(ui: &mut Ui, t: &Tokens, (id, text, color): (&str, &str, egui::Color
     let room = (ui.available_width() - QUESTION_BUTTONS_W).max(40.0);
     ui.allocate_ui(vec2(room, t.metrics.button_h), |ui| line(ui, t, id, text, color));
     let yes = text_button(ui, t, yes.0, yes.1, false).clicked();
-    let no = text_button(ui, t, no, CANCEL_LABEL, false).clicked();
+    let no = text_button(ui, t, no, &tl!("Cancel"), false).clicked();
     if yes {
         Some(true)
     } else if no {
@@ -560,22 +597,35 @@ fn bottom(ui: &mut Ui, t: &Tokens, e: &ShortcutEditor, asked: bool, conflict_lab
         ui.spacing_mut().item_spacing.x = 8.0;
         if let Some(c) = &e.conflict {
             let text = draft::sentence(&shown_key(&c.key), conflict_label, c.context);
-            match question(ui, t, (CONFLICT_ID, &text, t.danger), (REPLACE_ID, REPLACE_LABEL), CONFLICT_CANCEL_ID) {
+            match question(ui, t, (CONFLICT_ID, &text, t.danger), (REPLACE_ID, &tl!("Replace")), CONFLICT_CANCEL_ID) {
                 Some(true) => actions.push(Action::Replace),
                 Some(false) => actions.push(Action::CancelConflict),
                 None => {}
             }
         } else if asked {
-            match question(ui, t, (RESET_QUESTION_ID, RESET_QUESTION, t.text), (RESET_CONFIRM_ID, RESET_LABEL), RESET_CANCEL_ID) {
+            match question(
+                ui,
+                t,
+                (RESET_QUESTION_ID, &tl!("Restore all default shortcuts?"), t.text),
+                (RESET_CONFIRM_ID, &tl!("Reset All")),
+                RESET_CANCEL_ID,
+            ) {
                 Some(true) => actions.push(Action::ConfirmReset),
                 Some(false) => actions.push(Action::AskReset(false)),
                 None => {}
             }
         } else {
-            if text_button(ui, t, RESET_ID, RESET_LABEL, false).clicked() {
+            if text_button(ui, t, RESET_ID, &tl!("Reset All"), false).clicked() {
                 actions.push(Action::AskReset(true));
             }
-            ui.add(egui::Label::new(RichText::new(HINT).font(fonts::regular(t.small)).color(t.text_dim)).truncate());
+            ui.add(
+                egui::Label::new(
+                    RichText::new(tl!("Click a shortcut to change it: Esc cancels, Backspace removes it."))
+                        .font(fonts::regular(t.small))
+                        .color(t.text_dim),
+                )
+                .truncate(),
+            );
         }
     });
 }

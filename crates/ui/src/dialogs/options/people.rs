@@ -49,6 +49,7 @@ use super::general;
 use crate::app::App;
 use crate::commands::face_model::{self as models, models_of, text};
 use crate::dialogs::face_model::{display_name, size_text, state_text};
+use crate::tl;
 
 /// The settings keys of the tab.
 pub const FIND_FACES: &str = "people.findFaces";
@@ -56,11 +57,6 @@ pub const SUGGEST_NAMES: &str = "people.suggestNames";
 pub const SUGGESTION_CONFIDENCE: &str = "people.suggestionConfidence";
 pub const GROUPING_CONFIDENCE: &str = "people.groupingConfidence";
 pub const STORE_NAMES: &str = "people.storeNamesInPhotos";
-
-/// The form's group labels.
-const FACES: &str = "Faces:";
-const FILES: &str = "Files:";
-const MODEL: &str = "Face model:";
 
 /// Add a Model File…'s id, and the line beside it.
 pub const ADD_FILE_ID: &str = "button:option.people.addFile";
@@ -134,7 +130,7 @@ fn find<'a>(opts: &'a [Opt], key: &str) -> Option<(usize, &'a Opt)> {
 
 /// The label of the form row of option `key` (its name and a colon).
 fn label(opts: &[Opt], key: &str) -> String {
-    find(opts, key).map_or_else(String::new, |(_, o)| format!("{}:", o.row.label))
+    find(opts, key).map_or_else(String::new, |(_, o)| general::form_label_of(&o.row))
 }
 
 /// Draws the form; returns the values changed this pass, by option, and what a model's button
@@ -147,7 +143,12 @@ fn form(
     list: Option<&Value>,
     can_add: bool,
 ) -> (Vec<(usize, Value)>, Option<Asked>) {
-    let labels = [FACES.to_string(), label(opts, SUGGESTION_CONFIDENCE), label(opts, GROUPING_CONFIDENCE), FILES.to_string(), MODEL.to_string()];
+    let (faces, files, model) = (
+        general::form_label(&tl!(ctx = "options group", "Faces")),
+        general::form_label(&tl!(ctx = "options group", "Files")),
+        general::form_label(&tl!("Face model")),
+    );
+    let labels = [faces.clone(), label(opts, SUGGESTION_CONFIDENCE), label(opts, GROUPING_CONFIDENCE), files.clone(), model.clone()];
     let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
     let form = Form::new(ui, t, &labels);
     let mut changes = Vec::new();
@@ -160,7 +161,7 @@ fn form(
             }
         }
     };
-    form.row(ui, t, FACES, |ui| checks(ui, &[FIND_FACES, SUGGEST_NAMES], &mut changes));
+    form.row(ui, t, &faces, |ui| checks(ui, &[FIND_FACES, SUGGEST_NAMES], &mut changes));
     let suggesting = shown_bool(opts, draft, SUGGEST_NAMES);
     for (key, enabled) in [(SUGGESTION_CONFIDENCE, suggesting), (GROUPING_CONFIDENCE, true)] {
         if let Some((i, o)) = find(opts, key) {
@@ -173,10 +174,10 @@ fn form(
     }
     ui.separator();
     ui.add_space(4.0);
-    form.row(ui, t, FILES, |ui| checks(ui, &[STORE_NAMES], &mut changes));
+    form.row(ui, t, &files, |ui| checks(ui, &[STORE_NAMES], &mut changes));
     ui.separator();
     ui.add_space(4.0);
-    let asked = form.row(ui, t, MODEL, |ui| model_rows(ui, t, list, can_add));
+    let asked = form.row(ui, t, &model, |ui| model_rows(ui, t, list, can_add));
     (changes, asked)
 }
 
@@ -198,22 +199,23 @@ fn confidence(ui: &mut Ui, t: &Tokens, opt: &Opt, value: &Value, enabled: bool) 
     let id = slider_id(&opt.row.key);
     let default = opt.spec.default_value().as_f64().unwrap_or(f64::from(max));
     let stops = confidence_stops(min, max, step);
+    let (label, unit) = (general::label_of(&opt.row), if unit.is_empty() { String::new() } else { crate::i18n::tr(unit) });
     let spec = SliderSpec {
         id: &id,
-        label: &opt.row.label,
+        label: &label,
         min: f64::from(min),
         max: f64::from(max),
         default,
         step: f64::from(step.max(1)),
         decimals: 0,
-        unit,
+        unit: &unit,
     };
     let current = value.as_f64().unwrap_or(default);
     let s = StopsSlider { spec, stops: &stops, field: true, track_w: ui.available_width().min(TRACK_MAX) };
     let enabled = enabled && opt.row.reason.is_none();
     let out = form_group(ui, enabled, |ui| stops_slider(ui, t, &s, current));
     if !opt.row.hint.is_empty() {
-        form_group(ui, enabled, |ui| hint(ui, t, &opt.row.hint));
+        form_group(ui, enabled, |ui| hint(ui, t, &general::hint_of(&opt.row)));
     }
     let v = out.value.filter(|v| v.is_finite())?;
     let step = f64::from(step.max(1));
@@ -228,21 +230,23 @@ fn confidence(ui: &mut Ui, t: &Tokens, opt: &Opt, value: &Value, enabled: bool) 
 fn model_rows(ui: &mut Ui, t: &Tokens, list: Option<&Value>, can_add: bool) -> Option<Asked> {
     let mut asked = None;
     let folder = list.and_then(|l| l.get("folder")).is_some_and(|f| !f.is_null());
-    let problem = list.and_then(|l| l.get("problem")).and_then(Value::as_str);
+    let problem = list.and_then(|l| l.get("problem")).and_then(Value::as_str).map(crate::i18n::tr);
     let line = |ui: &mut Ui, s: &str| {
         let r = ui.add(egui::Label::new(RichText::new(s).font(fonts::regular(t.body)).color(t.text_dim)).wrap());
         widgets::register(ui.ctx(), MODELS_ID, Role::Other, s, Target::Painted { rect: r.rect, clip: ui.clip_rect() }, false);
     };
     match list {
-        None => line(ui, READING),
-        Some(_) if !folder => line(ui, problem.unwrap_or(NO_MODELS)),
+        None => line(ui, &tl!("Reading the models folder…")),
+        Some(_) if !folder => {
+            line(ui, &problem.clone().unwrap_or_else(|| tl!("Face models cannot be added here: this session has no models folder.")))
+        }
         Some(l) => {
             for m in models_of(l) {
                 if let Some(a) = model_row(ui, t, m, problem.is_none()) {
                     asked = Some(a);
                 }
             }
-            if let Some(p) = problem {
+            if let Some(p) = &problem {
                 ui.add(egui::Label::new(RichText::new(p).font(fonts::regular(t.small)).color(t.caution)).wrap());
             }
         }
@@ -250,10 +254,10 @@ fn model_rows(ui: &mut Ui, t: &Tokens, list: Option<&Value>, can_add: bool) -> O
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         let live = can_add && folder && problem.is_none();
-        if form_group(ui, live, |ui| text_button(ui, t, ADD_FILE_ID, "Add a Model File…", false)).clicked() {
+        if form_group(ui, live, |ui| text_button(ui, t, ADD_FILE_ID, &tl!("Add a Model File…"), false)).clicked() {
             asked = Some(Asked::AddFile);
         }
-        ui.label(RichText::new(DROP_HINT).font(fonts::regular(t.small)).color(t.text_dim));
+        ui.label(RichText::new(tl!("or drop a .onnx file on the window")).font(fonts::regular(t.small)).color(t.text_dim));
     });
     asked
 }
@@ -278,20 +282,20 @@ fn model_row(ui: &mut Ui, t: &Tokens, m: &Value, live: bool) -> Option<Asked> {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             form_group(ui, live, |ui| match state {
                 "installed" => {
-                    if text_button(ui, t, &model_button(&id, "remove"), "Remove", false).clicked() {
+                    if text_button(ui, t, &model_button(&id, "remove"), &tl!(ctx = "verb", "Remove"), false).clicked() {
                         asked = Some(Asked::Remove(id.clone()));
                     }
                     let recogniser = text(m, "role") == "recogniser";
                     if recogniser
                         && m.get("inUse") != Some(&Value::Bool(true))
-                        && text_button(ui, t, &model_button(&id, "use"), "Use", false).clicked()
+                        && text_button(ui, t, &model_button(&id, "use"), &tl!(ctx = "verb", "Use"), false).clicked()
                     {
                         asked = Some(Asked::Use(id.clone()));
                     }
                 }
                 _ => {
                     let downloadable = text(m, "origin") != "local";
-                    let r = form_group(ui, downloadable, |ui| text_button(ui, t, &model_button(&id, "download"), "Download…", false));
+                    let r = form_group(ui, downloadable, |ui| text_button(ui, t, &model_button(&id, "download"), &tl!("Download…"), false));
                     if r.clicked() {
                         asked = Some(Asked::Download(id.clone()));
                     }

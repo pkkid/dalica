@@ -14,6 +14,7 @@ use egui::{Context, Id};
 use serde_json::{Value, json};
 
 use crate::app::App;
+use crate::tl;
 
 /// The most roots and subfolders kept from one answer (the engine caps them too).
 const MAX_ENTRIES: usize = 4096;
@@ -66,8 +67,9 @@ struct Cache {
     asked: HashSet<Option<PathBuf>>,
 }
 
+/// The cache's key, one per language (the places' names are written in it).
 fn key() -> Id {
-    Id::new("dialog:folderManager/listings")
+    Id::new("dialog:folderManager/listings").with(crate::i18n::current().code)
 }
 
 /// Forgets every listing: the dialog has just opened.
@@ -131,14 +133,15 @@ pub fn roots(v: &Value) -> Vec<Root> {
     let empty = Vec::new();
     for p in v["places"].as_array().unwrap_or(&empty).iter().take(MAX_ENTRIES) {
         let Some(path) = path_of(p) else { continue };
-        let (icon, home) = match p["kind"].as_str() {
-            Some("pictures") => (FolderIcon::Pictures, false),
-            Some("documents") => (FolderIcon::Documents, false),
-            Some("desktop") => (FolderIcon::Desktop, false),
-            _ => (FolderIcon::Home, true),
+        // A standard place by its name in the language in effect (the engine's is English).
+        let (icon, home, name) = match p["kind"].as_str() {
+            Some("pictures") => (FolderIcon::Pictures, false, tl!(ctx = "place", "Pictures")),
+            Some("documents") => (FolderIcon::Documents, false, tl!(ctx = "place", "Documents")),
+            Some("desktop") => (FolderIcon::Desktop, false, tl!(ctx = "place", "Desktop")),
+            _ => (FolderIcon::Home, true, tl!(ctx = "place", "Home")),
         };
         let drive = home || path.parent().is_none();
-        out.push(Root { name: name_of(p, &path), path, icon, place: true, drive });
+        out.push(Root { name, path, icon, place: true, drive });
     }
     for vol in v["volumes"].as_array().unwrap_or(&empty).iter().take(MAX_ENTRIES) {
         let Some(path) = path_of(vol) else { continue };

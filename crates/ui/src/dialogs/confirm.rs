@@ -51,7 +51,7 @@ use serde_json::{Map, Value, json};
 use super::{Button, Dialog, DialogCommand, DialogKind, Look, delete, folder_manager, move_confirm, remove_from_album, revert, save_explain};
 use crate::app::App;
 use crate::commands::{face_model, rooms};
-use crate::tray;
+use crate::{tl, tray};
 
 /// The width of a confirmation (points).
 pub const WIDTH: f32 = 360.0;
@@ -239,6 +239,95 @@ pub fn cancel_label(kind: DialogKind) -> &'static str {
     }
 }
 
+/// A title, question or button label of [`ASKS`] (English constants, which `needs_confirm` answers
+/// over automation) in the language in effect: each listed here as a `tl!` literal, so the key set
+/// holds them; one not listed is looked up whole by its English.
+pub fn text(english: &str) -> String {
+    listed(english).unwrap_or_else(|| crate::i18n::tr(english))
+}
+
+/// [`text`] for the texts listed, `None` for any other.
+fn listed(english: &str) -> Option<String> {
+    Some(match english {
+        "Cancel" => tl!("Cancel"),
+        "OK" => tl!("OK"),
+        "Confirm" => tl!("Confirm"),
+        "Clear Tray" => tl!("Clear Tray"),
+        "Clear all photos from the tray?" => tl!("Clear all photos from the tray?"),
+        "Remove Folder" => tl!("Remove Folder"),
+        "Remove this folder and its subfolders from Dalica? The files stay on your disk." => {
+            tl!("Remove this folder and its subfolders from Dalica? The files stay on your disk.")
+        }
+        "Watch Drive" => tl!("Watch Drive"),
+        "Watching a whole drive can slow down your computer and fill the library with non-photo images. It's usually better to choose a few folders. Watch the whole drive anyway?" =>
+        {
+            tl!(
+                "Watching a whole drive can slow down your computer and fill the library with non-photo images. It's usually better to choose a few folders. Watch the whole drive anyway?"
+            )
+        }
+        "Delete Album" => tl!("Delete Album"),
+        "Delete this album? The pictures in it are not deleted." => tl!("Delete this album? The pictures in it are not deleted."),
+        "Reset Folder Data" => tl!("Reset Folder Data"),
+        "Reset this folder's data? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched." =>
+        {
+            tl!(
+                "Reset this folder's data? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched."
+            )
+        }
+        "Reset" => tl!(ctx = "verb", "Reset"),
+        "Stop Import" => tl!("Stop Import"),
+        "Stop importing?" => tl!("Stop importing?"),
+        "Keep Importing" => tl!("Keep Importing"),
+        "Remove Faces" => tl!("Remove Faces"),
+        "Remove the face rectangles found in these folders? Names you've given stay with the photos that are still scanned." => {
+            tl!("Remove the face rectangles found in these folders? Names you've given stay with the photos that are still scanned.")
+        }
+        "Keep Faces" => tl!("Keep Faces"),
+        "Write People Names" => tl!("Write People Names"),
+        "Write Names" => tl!("Write Names"),
+        "Write the names of the people in the selected picture into the files? Other applications will show them." => {
+            tl!("Write the names of the people in the selected picture into the files? Other applications will show them.")
+        }
+        "Remove Face Model" => tl!("Remove Face Model"),
+        "Remove this face model? Its file and the face data worked out with it are deleted; face rectangles and names stay." => {
+            tl!("Remove this face model? Its file and the face data worked out with it are deleted; face rectangles and names stay.")
+        }
+        "Remove" => tl!(ctx = "verb", "Remove"),
+        "Delete Face Data" => tl!("Delete Face Data"),
+        "Also delete the face data Dalica worked out from your photos? Face rectangles and names stay." => {
+            tl!("Also delete the face data Dalica worked out from your photos? Face rectangles and names stay.")
+        }
+        "Keep" => tl!(ctx = "verb", "Keep"),
+        "Delete" => tl!(ctx = "verb", "Delete"),
+        "Delete Folder" => tl!("Delete Folder"),
+        "Move to Trash" => tl!("Move to Trash"),
+        "Move the selected pictures to the trash?" => tl!("Move the selected pictures to the trash?"),
+        "Move this folder and everything in it (including non-picture files) to the trash?" => {
+            tl!("Move this folder and everything in it (including non-picture files) to the trash?")
+        }
+        "Remove from Album" => tl!("Remove from Album"),
+        "Save" => tl!("Save"),
+        "Saving writes your edits into the photo's file. Dalica first keeps the original, unchanged, in a hidden .dalica-originals folder beside it, so Undo Save and Revert can always bring it back." =>
+        {
+            tl!(
+                "Saving writes your edits into the photo's file. Dalica first keeps the original, unchanged, in a hidden .dalica-originals folder beside it, so Undo Save and Revert can always bring it back."
+            )
+        }
+        "Revert" => tl!(ctx = "verb", "Revert"),
+        "Undo Save" => tl!("Undo Save"),
+        "Revert to the original? Your edits will be lost. To undo only the last save and keep the edits, choose Undo Save." => {
+            tl!("Revert to the original? Your edits will be lost. To undo only the last save and keep the edits, choose Undo Save.")
+        }
+        "Move Files" => tl!("Move Files"),
+        "Move" => tl!(ctx = "verb", "Move"),
+        "Move these files on disk? The files will be moved, not copied." => tl!("Move these files on disk? The files will be moved, not copied."),
+        "Remove the selected pictures from this album? The files are not deleted." => {
+            tl!("Remove the selected pictures from this album? The files are not deleted.")
+        }
+        _ => return None,
+    })
+}
+
 /// The damaged library folder `params.folder` names, by its name: `folder.resetData` asks only
 /// then (an unknown, bad or undamaged folder is the command's to refuse).
 fn reset_folder(app: &App, params: &Value) -> Option<String> {
@@ -255,8 +344,9 @@ fn reset_asks(app: &App, params: &Value) -> bool {
 
 fn reset_text(app: &App, params: &Value) -> Option<String> {
     reset_folder(app, params).map(|name| {
-        format!(
-            "Reset the data of the folder \"{name}\"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched."
+        tl!(
+            "Reset the data of the folder \"{name}\"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.",
+            name = name
         )
     })
 }
@@ -279,7 +369,7 @@ fn album_delete_asks(app: &App, params: &Value) -> bool {
 
 fn album_delete_text(app: &App, params: &Value) -> Option<String> {
     let name = crate::commands::albums::album_name(app, &named_album(params)?)?;
-    Some(format!("Delete the album \"{name}\"? The pictures in it are not deleted."))
+    Some(tl!("Delete the album \"{name}\"? The pictures in it are not deleted.", name = name))
 }
 
 /// `tray.clear` asks when no photos are named and it would empty a tray holding held photos.
@@ -300,7 +390,8 @@ fn folder_remove_asks(app: &App, params: &Value) -> bool {
 }
 
 fn folder_remove_text(app: &App, params: &Value) -> Option<String> {
-    removed_folder(app, params).map(|name| format!("Remove the folder \"{name}\" and its subfolders from Dalica? The files stay on your disk."))
+    removed_folder(app, params)
+        .map(|name| tl!("Remove the folder \"{name}\" and its subfolders from Dalica? The files stay on your disk.", name = name))
 }
 
 /// The row of `kind`.
@@ -338,17 +429,20 @@ pub fn confirmed_params(d: &Dialog, extra: &[(&str, Value)]) -> Result<(String, 
 pub fn look(d: &Dialog) -> Look {
     let (title, action, label) = of(d.kind).map_or(("Confirm", "ok", "OK"), |a| (a.title, a.action, a.label));
     Look {
-        title: title.into(),
+        title: text(title),
         width: WIDTH,
-        buttons: vec![Button::new("cancel", cancel_label(d.kind), ButtonKind::Cancel), Button::new(action, label, ButtonKind::Default)],
+        buttons: vec![Button::new("cancel", text(cancel_label(d.kind)), ButtonKind::Cancel), Button::new(action, text(label), ButtonKind::Default)],
     }
 }
 
-/// The question dialog `d` asks: its row's text, or the one that names what it asks about.
+/// The question dialog `d` asks, in the language in effect: its row's text, or the one that names
+/// what it asks about.
 pub fn question(app: &App, d: &Dialog) -> String {
     let Some(ask) = of(d.kind) else { return String::new() };
     let params = d.command.as_ref().map_or(&Value::Null, |c| &c.params);
-    ask.text_for.and_then(|f| f(app, params)).unwrap_or_else(|| ask.text.to_string())
+    // A question naming what it asks about is written in the language already, or (another
+    // module's, carrying values) stays English.
+    ask.text_for.and_then(|f| f(app, params)).map_or_else(|| text(ask.text), |q| listed(&q).unwrap_or(q))
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
@@ -365,4 +459,19 @@ pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> 
     }
     let (id, params) = confirmed_params(d, &[])?;
     app.run(&id, &params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_text_of_the_table_is_listed_for_the_catalogs() {
+        for ask in ASKS {
+            let extra = ask.extra.iter().map(|(_, label)| *label);
+            for english in [ask.title, ask.text, ask.label, cancel_label(ask.kind)].into_iter().chain(extra) {
+                assert_eq!(listed(english).as_deref(), Some(english), "{:?}: {english:?} is not listed", ask.kind);
+            }
+        }
+    }
 }

@@ -21,10 +21,11 @@ use dalica_ui_kit::widgets::{self, ButtonKind, Form, TextField};
 use egui::{Id, Label, RichText, Ui};
 use serde_json::{Map, Value, json};
 
-use super::new_person::{NAME_ID, NAME_LABEL, NICKNAME_ID, NICKNAME_LABEL, OPTIONAL};
-use super::{Button, Dialog, DialogKind, Look};
+use super::new_person::{NAME_ID, NICKNAME_ID};
+use super::{Button, Dialog, DialogKind, Look, form_label};
 use crate::app::App;
 use crate::state::{MAX_DRAFT, Section};
+use crate::tl;
 
 pub const RENAME_TITLE: &str = "Rename Person";
 pub const MERGE_TITLE: &str = "Merge People";
@@ -45,12 +46,12 @@ pub fn dialog(kind: DialogKind, draft: Map<String, Value>) -> Dialog {
 
 /// "Merge Ana into Rui? Ana's faces become Rui's."
 pub fn merge_text(person: &str, into: &str) -> String {
-    format!("Merge {person} into {into}? {person}'s faces become {into}'s.")
+    tl!("Merge {person} into {into}? {person}'s faces become {into}'s.", person = person, into = into)
 }
 
 /// "Delete Ana? Their faces go back to Unnamed."
 pub fn delete_text(person: &str) -> String {
-    format!("Delete {person}? Their faces go back to Unnamed.")
+    tl!("Delete {person}? Their faces go back to Unnamed.", person = person)
 }
 
 /// The default button of each kind: its action and label.
@@ -78,15 +79,14 @@ fn name_of(app: &App, person: Option<&PersonId>) -> String {
 }
 
 pub fn look(_app: &App, d: &Dialog) -> Look {
-    let title = match d.kind {
-        DialogKind::MergePeople => MERGE_TITLE,
-        DialogKind::DeletePerson => DELETE_TITLE,
-        _ => RENAME_TITLE,
+    let (title, label) = match d.kind {
+        DialogKind::MergePeople => (tl!("Merge People"), tl!(ctx = "verb", "Merge")),
+        DialogKind::DeletePerson => (tl!("Delete Person"), tl!(ctx = "verb", "Delete")),
+        _ => (tl!("Rename Person"), tl!("OK")),
     };
-    let (action, label) = default_button(d.kind);
-    let ok = Button::new(action, label, ButtonKind::Default);
+    let ok = Button::new(default_button(d.kind).0, label, ButtonKind::Default);
     let ok = if d.kind == DialogKind::RenamePerson { ok.enabled(!text(d, "name").trim().is_empty()) } else { ok };
-    Look { title: title.into(), width: WIDTH, buttons: vec![ok, Button::cancel()] }
+    Look { title, width: WIDTH, buttons: vec![ok, Button::cancel()] }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
@@ -114,9 +114,10 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
             if pass.saturating_sub(first) < 2 {
                 widgets::focus_field(&ctx, NAME_ID);
             }
-            let form = Form::new(ui, &t, &[NAME_LABEL, NICKNAME_LABEL]);
+            let (name, nickname, optional) = (form_label(&tl!("Name")), form_label(&tl!("Nickname")), tl!("Optional"));
+            let form = Form::new(ui, &t, &[&name, &nickname]);
             let width = (ui.available_width() - form.label_w - widgets::FORM_GAP).max(40.0);
-            for (label, key, id, hint) in [(NAME_LABEL, "name", NAME_ID, ""), (NICKNAME_LABEL, "nickname", NICKNAME_ID, OPTIONAL)] {
+            for (label, key, id, hint) in [(&name, "name", NAME_ID, ""), (&nickname, "nickname", NICKNAME_ID, optional.as_str())] {
                 let mut value = text(d, key).to_owned();
                 form.row(ui, &t, label, |ui| TextField::new(id, hint, width).show(ui, &t, &mut value));
                 if let Some((at, _)) = value.char_indices().nth(MAX_DRAFT) {

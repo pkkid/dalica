@@ -21,6 +21,7 @@ use serde_json::Value;
 use super::{Button, Dialog, Look, confirm};
 use crate::app::App;
 use crate::state::{FileOp, MoveQuestion};
+use crate::tl;
 
 /// The dialog's title, its default button and its question.
 pub const TITLE: &str = "Move Files";
@@ -48,15 +49,19 @@ pub fn opened(app: &mut App, params: &Value) {
 }
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: TITLE.into(), width: confirm::WIDTH, buttons: vec![Button::cancel(), Button::new("move", MOVE, ButtonKind::Default)] }
+    Look {
+        title: confirm::text(TITLE),
+        width: confirm::WIDTH,
+        buttons: vec![Button::cancel(), Button::new("move", confirm::text(MOVE), ButtonKind::Default)],
+    }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     let t = *app.tokens();
-    ui.add(Label::new(RichText::new(TEXT).font(fonts::regular(t.body)).color(t.text)).wrap());
+    ui.add(Label::new(RichText::new(confirm::text(TEXT)).font(fonts::regular(t.body)).color(t.text)).wrap());
     ui.add_space(10.0);
     let mut ticked = app.state().move_files.as_ref().is_some_and(|q| q.dont_ask);
-    if widgets::checkbox(ui, &t, DONT_ASK_ID, DONT_ASK, &mut ticked).changed()
+    if widgets::checkbox(ui, &t, DONT_ASK_ID, &tl!("Don't ask again"), &mut ticked).changed()
         && let Some(q) = app.state_mut().move_files.as_mut()
     {
         q.dont_ask = ticked;

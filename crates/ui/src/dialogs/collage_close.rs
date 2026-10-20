@@ -16,6 +16,7 @@ use serde_json::Value;
 use super::{Button, Dialog, Look};
 use crate::app::App;
 use crate::state::CollageClose;
+use crate::tl;
 
 pub const TITLE: &str = "Close Collage";
 pub const QUESTION: &str = "Save the changes to this collage?";
@@ -26,18 +27,18 @@ pub const WIDTH: f32 = 420.0;
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
     Look {
-        title: TITLE.into(),
+        title: tl!("Close Collage"),
         width: WIDTH,
         buttons: vec![
-            Button::new(SAVE_DRAFT, "Save Draft", ButtonKind::Default),
-            Button::new("discard", "Discard", ButtonKind::Other),
+            Button::new(SAVE_DRAFT, tl!("Save Draft"), ButtonKind::Default),
+            Button::new("discard", tl!("Discard"), ButtonKind::Other),
             Button::cancel(),
         ],
     }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
-    super::text_lines(app, ui, &[QUESTION.to_string()]);
+    super::text_lines(app, ui, &[tl!("Save the changes to this collage?")]);
 }
 
 pub fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {

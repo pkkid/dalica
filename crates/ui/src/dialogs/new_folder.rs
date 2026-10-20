@@ -37,11 +37,13 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align, Id, Label, Layout, RichText, Ui, vec2};
 use serde_json::{Map, Value, json};
 
-use super::{Button, Dialog, DialogKind, Look};
+use super::folder_properties::shown;
+use super::{Button, Dialog, DialogKind, Look, form_label};
 use crate::app::App;
-use crate::panels::light_table::header::weekday;
-use crate::panels::light_table::{folder_name, long_date};
+use crate::i18n::format::long_date_with_weekday;
+use crate::panels::light_table::folder_name;
 use crate::state::NewFolderDraft;
+use crate::{tl, tln};
 
 /// The dialog's title (a folder still to be made) and width (points).
 pub const TITLE: &str = "New Folder";
@@ -121,7 +123,7 @@ pub fn run_params(draft: &NewFolderDraft) -> Value {
 
 pub fn look(app: &App, _d: &Dialog) -> Look {
     let ok = app.state().new_folder.as_ref().is_some_and(|d| ready(d).is_ok());
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new("ok", "OK", ButtonKind::Default).enabled(ok)] }
+    Look { title: tl!("New Folder"), width: WIDTH, buttons: vec![Button::cancel(), Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(ok)] }
 }
 
 /// One row: `label` in its column, then what `add` draws.
@@ -141,18 +143,22 @@ fn row<R>(ui: &mut Ui, t: &Tokens, label: &str, add: impl FnOnce(&mut Ui) -> R) 
 fn date_note(draft: &NewFolderDraft) -> Result<String, &'static str> {
     chosen_date(draft)?;
     Ok(match draft.date.trim().parse::<Date>() {
-        Ok(day) => format!("{}, {}", weekday(day), long_date(day)),
-        Err(_) if draft.use_oldest => "No photo here has a date.".to_string(),
+        Ok(day) => long_date_with_weekday(day),
+        Err(_) if draft.use_oldest => tl!("No photo here has a date."),
         Err(_) => String::new(),
     })
 }
 
 /// "3 photos move into the new folder beside Lisbon."
 pub fn summary(count: usize, beside: Option<&str>) -> String {
-    let noun = if count == 1 { "1 photo moves".to_string() } else { format!("{count} photos move") };
     match beside {
-        Some(folder) => format!("{noun} into the new folder beside {folder}."),
-        None => format!("{noun} into the new folder."),
+        Some(folder) => tln!(
+            count,
+            "{n} photo moves into the new folder beside {folder}.",
+            "{n} photos move into the new folder beside {folder}.",
+            folder = folder
+        ),
+        None => tln!(count, "{n} photo moves into the new folder.", "{n} photos move into the new folder."),
     }
 }
 
@@ -179,19 +185,20 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     if opening(ui) {
         widgets::focus_field(ui.ctx(), NAME_ID);
     }
-    row(ui, &t, "Name:", |ui| TextField::new(NAME_ID, "Folder name", full).select_on_focus(true).show(ui, &t, &mut d.name));
-    row(ui, &t, "Date:", |ui| {
-        ui.add_enabled_ui(!d.use_oldest, |ui| TextField::new(DATE_ID, DATE_HINT, DATE_W).show(ui, &t, &mut d.date));
+    row(ui, &t, &form_label(&tl!("Name")), |ui| TextField::new(NAME_ID, &tl!("Folder name"), full).select_on_focus(true).show(ui, &t, &mut d.name));
+    row(ui, &t, &form_label(&tl!("Date")), |ui| {
+        ui.add_enabled_ui(!d.use_oldest, |ui| TextField::new(DATE_ID, &tl!(ctx = "date", "YYYY-MM-DD"), DATE_W).show(ui, &t, &mut d.date));
         let (note, color) = match date_note(&d) {
             Ok(note) => (note, t.text_dim),
-            Err(why) => (why.to_string(), t.caution),
+            Err(why) => (shown(why), t.caution),
         };
         ui.label(RichText::new(note).font(fonts::regular(t.detail)).color(color));
     });
     row(ui, &t, "", |ui| {
         let mut on = d.use_oldest;
-        let r = ui.checkbox(&mut on, RichText::new(USE_OLDEST).font(fonts::regular(t.body)));
-        widgets::register(ui.ctx(), USE_OLDEST_ID, Role::Toggle, USE_OLDEST, Target::Widget(&r), on);
+        let label = tl!("Use the date of the oldest photo");
+        let r = ui.checkbox(&mut on, RichText::new(&label).font(fonts::regular(t.body)));
+        widgets::register(ui.ctx(), USE_OLDEST_ID, Role::Toggle, &label, Target::Widget(&r), on);
         if on != d.use_oldest {
             d.use_oldest = on;
             if on {
@@ -201,8 +208,10 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
             }
         }
     });
-    row(ui, &t, "Place:", |ui| TextField::new(PLACE_ID, "Where these photos were taken", full).show(ui, &t, &mut d.place));
-    row(ui, &t, "Description:", |ui| TextField::new(DESCRIPTION_ID, "Add a description", full).show(ui, &t, &mut d.description));
+    row(ui, &t, &form_label(&tl!("Place")), |ui| TextField::new(PLACE_ID, &tl!("Where these photos were taken"), full).show(ui, &t, &mut d.place));
+    row(ui, &t, &form_label(&tl!("Description")), |ui| {
+        TextField::new(DESCRIPTION_ID, &tl!("Add a description"), full).show(ui, &t, &mut d.description)
+    });
     let library = app.session().map(dalica_engine::Session::library);
     let beside = d.ids.first().and_then(|id| library.and_then(|l| l.photo(*id)).and_then(|p| library.and_then(|l| l.folder(p.folder))));
     let text = summary(d.ids.len(), beside.map(|f| folder_name(&f.path)).as_deref());

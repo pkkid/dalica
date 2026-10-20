@@ -55,10 +55,11 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align, Layout, RichText, Ui, vec2};
 use serde_json::{Map, Value, json};
 
-use super::{Button, Dialog, DialogKind, Look};
+use super::{Button, Dialog, DialogKind, Look, form_label};
 use crate::app::App;
-use crate::panels::light_table::header::weekday;
-use crate::panels::light_table::{folder_name, long_date};
+use crate::i18n::format::long_date_with_weekday;
+use crate::panels::light_table::folder_name;
+use crate::tl;
 
 pub const TITLE: &str = "Folder Properties";
 /// The dialog's width (points).
@@ -75,8 +76,8 @@ pub const MUSIC_HINT: &str = "No folder";
 pub const FOLDER_MUSIC_LATER: &str = "A folder's own music isn't kept yet: the music folder in Options › Slideshow plays";
 
 /// Why the Music row is greyed ([`FOLDER_MUSIC_LATER`]).
-pub fn music_reason() -> &'static str {
-    FOLDER_MUSIC_LATER
+pub fn music_reason() -> String {
+    tl!("A folder's own music isn't kept yet: the music folder in Options › Slideshow plays")
 }
 /// Why OK is disabled when the draft's date does not read as a day.
 pub const BAD_DATE: &str = "Type the date as YYYY-MM-DD.";
@@ -96,12 +97,24 @@ pub const SOURCE_ID: &str = "label:dialog.source";
 
 /// What the Photo data row says for a folder's source (`legacy.inspect`'s `dalica`, `legacy`,
 /// `both` or `none`).
-pub fn source_text(source: &str) -> &'static str {
+pub fn source_text(source: &str) -> String {
     match source {
-        "dalica" => "Kept in Dalica's file in this folder.",
-        "legacy" => "Read from the previous organizer's file, which is never changed. Dalica writes its own file on the first change.",
-        "both" => "Kept in Dalica's file. The previous organizer's file is also here; it is no longer read and never changed.",
-        _ => "None saved for this folder yet.",
+        "dalica" => tl!("Kept in Dalica's file in this folder."),
+        "legacy" => tl!("Read from the previous organizer's file, which is never changed. Dalica writes its own file on the first change."),
+        "both" => tl!("Kept in Dalica's file. The previous organizer's file is also here; it is no longer read and never changed."),
+        _ => tl!("None saved for this folder yet."),
+    }
+}
+
+/// A reason of [`chosen_date`] or [`chosen_name`] (English, which a refused OK answers with) in
+/// the language in effect; New Folder and Album Properties show theirs through it too.
+pub fn shown(why: &str) -> String {
+    match why {
+        "Type the date as YYYY-MM-DD." => tl!("Type the date as YYYY-MM-DD."),
+        "Enter the folder's name." => tl!("Enter the folder's name."),
+        "Name the album." => tl!("Name the album."),
+        "Name the folder." => tl!("Name the folder."),
+        other => crate::i18n::tr(other),
     }
 }
 
@@ -184,8 +197,8 @@ pub fn chosen_name(fields: &Map<String, Value>) -> Result<String, &'static str> 
 }
 
 pub fn look(_app: &App, d: &Dialog) -> Look {
-    let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(chosen_date(&d.fields).is_ok() && chosen_name(&d.fields).is_ok());
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), ok] }
+    let ok = Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(chosen_date(&d.fields).is_ok() && chosen_name(&d.fields).is_ok());
+    Look { title: tl!("Folder Properties"), width: WIDTH, buttons: vec![Button::cancel(), ok] }
 }
 
 /// One row: `label` in its column, then what `add` draws.
@@ -235,10 +248,10 @@ fn date_row_field(ui: &mut Ui, t: &Tokens, fields: &mut Map<String, Value>, toda
 /// The long form of the date the Date row shows ("Thursday, June 4, 2026"), or why there is none.
 fn date_note(fields: &Map<String, Value>) -> Result<String, &'static str> {
     match chosen_date(fields)? {
-        Some(day) => Ok(format!("{}, {}", weekday(day), long_date(day))),
+        Some(day) => Ok(long_date_with_weekday(day)),
         None => match text(fields, "date").parse::<Date>() {
-            Ok(day) => Ok(format!("{}, {}", weekday(day), long_date(day))),
-            Err(_) => Ok("No photo here has a date.".to_string()),
+            Ok(day) => Ok(long_date_with_weekday(day)),
+            Err(_) => Ok(tl!("No photo here has a date.")),
         },
     }
 }
@@ -249,21 +262,21 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     ui.spacing_mut().item_spacing.y = GAP;
     let fields = &mut d.fields;
 
-    row(ui, &t, "Name:", |ui| field(ui, &t, fields, "name", NAME_ID, NAME_HINT, full));
+    row(ui, &t, &form_label(&tl!("Name")), |ui| field(ui, &t, fields, "name", NAME_ID, &tl!("Folder name"), full));
 
     let oldest = use_oldest(fields);
     let today = app.session().and_then(|s| DateTime::from_unix_secs(s.clock().now().as_secs())).map(|d| d.date());
-    row(ui, &t, "Date:", |ui| {
+    row(ui, &t, &form_label(&tl!("Date")), |ui| {
         ui.add_enabled_ui(!oldest, |ui| date_row_field(ui, &t, fields, today));
         let (note, color) = match date_note(fields) {
             Ok(note) => (note, t.text_dim),
-            Err(why) => (why.to_string(), t.caution),
+            Err(why) => (shown(why), t.caution),
         };
         ui.label(RichText::new(note).font(fonts::regular(t.detail)).color(color));
     });
     row(ui, &t, "", |ui| {
         let mut on = oldest;
-        checkbox(ui, &t, USE_OLDEST_ID, USE_OLDEST, &mut on);
+        checkbox(ui, &t, USE_OLDEST_ID, &tl!("Use the date of the oldest photo"), &mut on);
         if on != oldest {
             fields.insert("useOldest".into(), Value::Bool(on));
             if on {
@@ -277,26 +290,26 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
             }
         }
     });
-    row(ui, &t, "Place:", |ui| field(ui, &t, fields, "place", PLACE_ID, "Where these photos were taken", full));
-    row(ui, &t, "Description:", |ui| field(ui, &t, fields, "description", DESCRIPTION_ID, "Add a description", full));
-    row(ui, &t, "Music for slideshows:", |ui| {
+    row(ui, &t, &form_label(&tl!("Place")), |ui| field(ui, &t, fields, "place", PLACE_ID, &tl!("Where these photos were taken"), full));
+    row(ui, &t, &form_label(&tl!("Description")), |ui| field(ui, &t, fields, "description", DESCRIPTION_ID, &tl!("Add a description"), full));
+    row(ui, &t, &form_label(&tl!("Music for slideshows")), |ui| {
         // A folder's own music is not kept yet: the row is there, disabled with its reason.
         ui.add_enabled_ui(false, |ui| {
-            let browse = "Browse…";
-            let bw = (ui.painter().layout_no_wrap(browse.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
+            let browse = tl!("Browse…");
+            let bw = (ui.painter().layout_no_wrap(browse.clone(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
             let mut music = String::new();
-            let field = TextField::new(MUSIC_ID, MUSIC_HINT, (full - bw - GAP).max(24.0)).show(ui, &t, &mut music);
-            let browse = widgets::text_button(ui, &t, BROWSE_ID, browse, false);
-            widgets::tooltip(field.response, &t, music_reason(), None);
-            widgets::tooltip(browse, &t, music_reason(), None);
+            let field = TextField::new(MUSIC_ID, &tl!("No folder"), (full - bw - GAP).max(24.0)).show(ui, &t, &mut music);
+            let browse = widgets::text_button(ui, &t, BROWSE_ID, &browse, false);
+            widgets::tooltip(field.response, &t, &music_reason(), None);
+            widgets::tooltip(browse, &t, &music_reason(), None);
         });
     });
     let folder = fields.get("folder").and_then(|v| serde_json::from_value::<FolderId>(v.clone()).ok());
     if let Some(folder) = folder {
         let said = source_text(source(app, ui.ctx(), folder));
-        row(ui, &t, "Photo data:", |ui| {
-            let r = ui.add(egui::Label::new(RichText::new(said).font(fonts::regular(t.detail)).color(t.text_dim)).wrap());
-            widgets::register(ui.ctx(), SOURCE_ID, dalica_ui_kit::registry::Role::Other, said, widgets::Target::Widget(&r), false);
+        row(ui, &t, &form_label(&tl!("Photo data")), |ui| {
+            let r = ui.add(egui::Label::new(RichText::new(&said).font(fonts::regular(t.detail)).color(t.text_dim)).wrap());
+            widgets::register(ui.ctx(), SOURCE_ID, dalica_ui_kit::registry::Role::Other, &said, widgets::Target::Widget(&r), false);
         });
     }
 }

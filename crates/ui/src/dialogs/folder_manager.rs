@@ -51,6 +51,7 @@ use serde_json::{Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::tl;
 use draft::{Change, Draft, key};
 use listing::{Listing, Root};
 
@@ -110,12 +111,12 @@ impl State {
         State::ALL.into_iter().find(|s| s.id() == id)
     }
 
-    /// The radio's label.
-    pub fn label(self) -> &'static str {
+    /// The radio's label, in the language in effect.
+    pub fn label(self) -> String {
         match self {
-            State::Always => "Scan Always",
-            State::Once => "Scan Once",
-            State::Remove => "Remove from Dalica",
+            State::Always => tl!("Scan Always"),
+            State::Once => tl!("Scan Once"),
+            State::Remove => tl!("Remove from Dalica"),
         }
     }
 
@@ -195,9 +196,13 @@ pub fn look(_app: &App, d: &Dialog) -> Look {
     // The draft's width as the grip left it; the host keeps the dialog inside the window.
     let width = d.fields.get("size").and_then(|s| s.get(0)).and_then(Value::as_f64).map(|w| w as f32).filter(|w| w.is_finite());
     Look {
-        title: "Folder Manager".into(),
+        title: tl!("Folder Manager"),
         width: width.unwrap_or(WIDTH).max(MIN_WIDTH),
-        buttons: vec![Button::new("help", "Help", ButtonKind::Other).enabled(false), Button::cancel(), Button::new("ok", "OK", ButtonKind::Default)],
+        buttons: vec![
+            Button::new("help", tl!("Help"), ButtonKind::Other).enabled(false),
+            Button::cancel(),
+            Button::new("ok", tl!("OK"), ButtonKind::Default),
+        ],
     }
 }
 
@@ -367,7 +372,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         ctx.data_mut(|m| m.insert_temp(size_memory(), size));
     }
     if app.session().is_none() {
-        ui.painter().text(rect.left_top(), egui::Align2::LEFT_TOP, "The library is still opening.", fonts::regular(t.body), t.text_dim);
+        ui.painter().text(rect.left_top(), egui::Align2::LEFT_TOP, tl!("The library is still opening."), fonts::regular(t.body), t.text_dim);
         draft.write(&mut d.fields);
         return;
     }
@@ -407,7 +412,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
 
     // Left: the tree.
     let label_h = 20.0;
-    ui.painter().text(left.left_top(), egui::Align2::LEFT_TOP, "Folders", fonts::semibold(t.body), t.text);
+    ui.painter().text(left.left_top(), egui::Align2::LEFT_TOP, tl!("Folders"), fonts::semibold(t.body), t.text);
     let well = Rect::from_min_max(pos2(left.min.x, left.min.y + label_h), left.max);
     let out = {
         let app_ref: &App = app;
@@ -424,9 +429,18 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     // Right: the radios, the faces toggle and the watched folders.
     let mut side = ui.new_child(UiBuilder::new().max_rect(right).layout(Layout::top_down(Align::Min)));
     side.spacing_mut().item_spacing = vec2(0.0, 0.0);
-    side.add(egui::Label::new(RichText::new(INTRO).font(fonts::regular(t.body)).color(t.text_label)).wrap());
+    side.add(
+        egui::Label::new(
+            RichText::new(tl!(
+                "For each folder, choose whether Dalica looks for pictures in it. Watched folders are checked for new pictures automatically."
+            ))
+            .font(fonts::regular(t.body))
+            .color(t.text_label),
+        )
+        .wrap(),
+    );
     side.add_space(12.0);
-    side.label(RichText::new("For the selected folder:").font(fonts::semibold(t.body)).color(t.text));
+    side.label(RichText::new(tl!("For the selected folder:")).font(fonts::semibold(t.body)).color(t.text));
     side.add_space(4.0);
     let selected = draft.selected.as_deref().map(PathBuf::from);
     let current = selected.as_deref().map(|p| effective(app, &draft, p));
@@ -443,13 +457,14 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     side.painter().rect_filled(line, 0, t.divider);
     side.add_space(6.0);
     let mut faces = selected.as_deref().is_some_and(|p| effective_faces(app, &draft, p));
-    let disabled = selected.is_none().then_some(NO_SELECTION);
-    let r = checkbox_row(&mut side, &t, FACES_ID, FACES_LABEL, &mut faces, None, disabled).response;
+    let no_selection = tl!("Select a folder first.");
+    let disabled = selected.is_none().then_some(no_selection.as_str());
+    let r = checkbox_row(&mut side, &t, FACES_ID, &tl!("Find faces in this folder"), &mut faces, None, disabled).response;
     if r.changed() && selected.is_some() {
         asked.faces = Some(faces);
     }
     side.add_space(12.0);
-    side.label(RichText::new("Watched folders").font(fonts::semibold(t.body)).color(t.text));
+    side.label(RichText::new(tl!("Watched folders")).font(fonts::semibold(t.body)).color(t.text));
     side.add_space(4.0);
     let rest = Rect::from_min_max(side.cursor().min, right.max);
     let watched = watched(app, &draft, &roots);
@@ -508,7 +523,7 @@ fn grip(ui: &mut Ui, t: &Tokens, corner: egui::Pos2, size: Vec2) -> Option<Vec2>
     for k in [3.0, 6.5, 10.0] {
         p.line_segment([corner - vec2(k, 0.0), corner - vec2(0.0, k)], Stroke::new(1.0, color));
     }
-    widgets::register(ui.ctx(), GRIP_ID, Role::Other, "Resize", Target::Widget(&r), r.dragged());
+    widgets::register(ui.ctx(), GRIP_ID, Role::Other, &tl!("Resize"), Target::Widget(&r), r.dragged());
     let delta = r.drag_delta();
     (r.dragged() && delta != Vec2::ZERO).then(|| size + 2.0 * delta)
 }
@@ -536,8 +551,9 @@ fn choice(ui: &mut Ui, t: &Tokens, id: &str, s: State, checked: bool, enabled: b
     let color = if enabled { s.color(t) } else { t.text_disabled };
     paint_folder(p, icon, s.icon(), color);
     let text = if enabled { t.text_label } else { t.text_disabled };
-    p.text(pos2(icon.max.x + 6.0, rect.center().y), egui::Align2::LEFT_CENTER, s.label(), fonts::regular(t.body), text);
-    widgets::register(ui.ctx(), id, Role::Toggle, s.label(), Target::Widget(&r), checked);
+    let label = s.label();
+    p.text(pos2(icon.max.x + 6.0, rect.center().y), egui::Align2::LEFT_CENTER, &label, fonts::regular(t.body), text);
+    widgets::register(ui.ctx(), id, Role::Toggle, &label, Target::Widget(&r), checked);
     r
 }
 
@@ -576,7 +592,7 @@ fn watched_list(ui: &mut Ui, t: &Tokens, rect: Rect, watched: &[(PathBuf, String
     child.spacing_mut().item_spacing = vec2(0.0, 0.0);
     if watched.is_empty() {
         let at = pos2(inner.min.x + 8.0, inner.min.y + t.metrics.tree_row_h / 2.0);
-        child.painter().text(at, egui::Align2::LEFT_CENTER, "No folders are watched.", fonts::regular(t.body), t.text_dim);
+        child.painter().text(at, egui::Align2::LEFT_CENTER, tl!("No folders are watched."), fonts::regular(t.body), t.text_dim);
         return None;
     }
     let mut clicked = None;

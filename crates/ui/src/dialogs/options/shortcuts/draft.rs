@@ -22,10 +22,11 @@
 //! (`capture`) at b3d392b4 and PhotoCraft `crates/ui-egui/src/prefs_ui.rs` (`shortcuts_body`) at
 //! 583425b4 (both MIT OR Apache-2.0), rewritten over Dalica's keymap and draft.
 
-use dalica_engine::keymap::{SetError, context_label, overlapping};
+use dalica_engine::keymap::{SetError, overlapping};
 use dalica_engine::{Context, Key, Keymap};
 
 use crate::state::{KeySlot, MAX_SHORTCUT_CHANGES, ShortcutChange, ShortcutConflict, ShortcutEditor};
+use crate::tl;
 
 /// What the editor says when its draft is full (it holds at most [`MAX_SHORTCUT_CHANGES`]).
 pub const FULL: &str = "Too many changed shortcuts: apply them first.";
@@ -71,7 +72,7 @@ pub fn plan(base: &Keymap, e: &ShortcutEditor, label: &dyn Fn(&str) -> String) -
 
 /// "Ctrl+1 is already Small Thumbnails in Library.": `key` as the screen shows it.
 pub fn sentence(key: &str, label: &str, context: Context) -> String {
-    format!("{key} is already {} in {}.", label.trim_end_matches('…'), context_label(context))
+    tl!("{key} is already {command} in {context}.", key = key, command = label.trim_end_matches('…'), context = super::context_text(context))
 }
 
 /// Whether two keymaps have the same bindings in effect.

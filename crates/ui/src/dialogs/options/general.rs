@@ -325,8 +325,33 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: 
 }
 
 /// A form row's label: `Language:` (the colon as the language writes it).
-fn form_label(label: &str) -> String {
-    tl!(ctx = "form label", "{label}:", label = label)
+pub fn form_label(label: &str) -> String {
+    super::super::form_label(label)
+}
+
+/// `row`'s label in the language in effect (by its key first, then its English).
+pub fn label_of(row: &Row) -> String {
+    i18n::option_label(&row.key, &row.label)
+}
+
+/// `row`'s label with its colon, as a form row writes it.
+pub fn form_label_of(row: &Row) -> String {
+    form_label(&label_of(row))
+}
+
+/// `row`'s hint in the language in effect (empty for none).
+pub fn hint_of(row: &Row) -> String {
+    if row.hint.is_empty() { String::new() } else { i18n::option_hint(&row.key, &row.hint) }
+}
+
+/// Why `row` cannot be changed, in the language in effect (looked up whole by its English).
+pub fn reason_of(row: &Row) -> Option<String> {
+    row.reason.as_deref().map(i18n::tr)
+}
+
+/// A group's name with its colon, in the language in effect (the catalogue's groups are English).
+pub fn group_label(group: &str) -> String {
+    form_label(&i18n::tr(group))
 }
 
 /// The text of choice `value` of `row`, whose English label is `english`, in the language in
@@ -336,6 +361,7 @@ pub fn choice_text(row: &Row, value: &Value, english: &str) -> String {
     match (row.key.as_str(), value) {
         (LANGUAGE, Value::String(code)) if code != i18n::SYSTEM => english.to_string(),
         (UI_SCALE, Value::Number(p)) => tl!("{percent} %", percent = p),
+        (UI_SCALE, Value::String(auto)) if auto == "auto" => tl!(ctx = "scale", "Auto"),
         _ => i18n::tr(english),
     }
 }

@@ -39,6 +39,7 @@ use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::panels::tags::quick::ROWS;
 use crate::state::MAX_DRAFT;
+use crate::tl;
 
 pub const TITLE: &str = "Configure Quick Tags";
 /// The dialog's width (points).
@@ -151,21 +152,25 @@ pub fn fill_empty(slots: &mut [String], use_recent: bool, common: &[String]) -> 
 }
 
 pub fn look(_app: &App, d: &Dialog) -> Look {
-    let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(refused(&d.fields).is_none());
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), ok] }
+    let ok = Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(refused(&d.fields).is_none());
+    Look { title: tl!("Configure Quick Tags"), width: WIDTH, buttons: vec![Button::cancel(), ok] }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let t = *app.tokens();
     let gap = 6.0;
     ui.spacing_mut().item_spacing.y = gap;
-    ui.label(RichText::new(INTRO).font(fonts::regular(t.body)).color(t.text_label));
+    let intro = tl!(
+        "Quick tags add a tag to the selected photos with one click, or with Ctrl+Alt+1 … Ctrl+Alt+0. Type the tags you use most below. With the option ticked, the top two buttons show the tags you added most recently instead."
+    );
+    ui.label(RichText::new(intro).font(fonts::regular(t.body)).color(t.text_label));
     ui.add_space(4.0);
 
     let recent = use_recent(&d.fields);
     let mut on = recent;
-    let r = ui.checkbox(&mut on, RichText::new(USE_RECENT).font(fonts::regular(t.body)));
-    widgets::register(ui.ctx(), USE_RECENT_ID, Role::Toggle, USE_RECENT, Target::Widget(&r), on);
+    let label = tl!("Use the top two buttons for recently used tags");
+    let r = ui.checkbox(&mut on, RichText::new(&label).font(fonts::regular(t.body)));
+    widgets::register(ui.ctx(), USE_RECENT_ID, Role::Toggle, &label, Target::Widget(&r), on);
     if on != recent {
         d.fields.insert("useRecent".into(), Value::Bool(on));
     }
@@ -174,13 +179,14 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let before = slots.clone();
     let width = ui.available_width();
     let mut i = 0usize;
+    let recently = tl!("Recently used");
     for (row, &n) in ROWS.iter().enumerate() {
         let w = ((width - gap * n.saturating_sub(1) as f32) / n as f32).floor();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
             for _ in 0..n {
                 let Some(text) = slots.get_mut(i) else { return };
-                let hint = if editable(i, on) { "" } else { "Recently used" };
+                let hint = if editable(i, on) { "" } else { recently.as_str() };
                 ui.add_enabled_ui(editable(i, on), |ui| {
                     TextField::new(&field_id(i + 1), hint, w).select_on_focus(true).show(ui, &t, text);
                 });
@@ -197,7 +203,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
 
     ui.add_space(2.0);
     let can_fill = slots.iter().enumerate().any(|(i, s)| editable(i, on) && s.trim().is_empty());
-    let fill = ui.add_enabled_ui(can_fill, |ui| widgets::text_button(ui, &t, FILL_ID, FILL, false)).inner;
+    let fill = ui.add_enabled_ui(can_fill, |ui| widgets::text_button(ui, &t, FILL_ID, &tl!("Fill Empty with Common Tags"), false)).inner;
     if fill.clicked() {
         let common = common_tags(app);
         fill_empty(&mut slots, on, &common);
@@ -205,8 +211,8 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     if slots != before {
         d.fields.insert("slots".into(), json!(slots));
     }
-    if let Some(why) = refused(&d.fields) {
-        ui.label(RichText::new(why).font(fonts::regular(t.small)).color(t.caution));
+    if refused(&d.fields).is_some() {
+        ui.label(RichText::new(tl!("A tag is at most {max} bytes.", max = MAX_TAG)).font(fonts::regular(t.small)).color(t.caution));
     }
 }
 

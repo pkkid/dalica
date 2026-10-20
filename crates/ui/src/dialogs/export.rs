@@ -42,6 +42,7 @@ use super::{Button, Dialog, Look};
 use crate::app::App;
 use crate::picker::FolderRequest;
 use crate::state::{CUSTOM_DEFAULT, CUSTOM_MAX, CUSTOM_MIN, ExportDraft, Quality, RESIZE_DEFAULT, RESIZE_MAX, RESIZE_MIN, Videos};
+use crate::tl;
 
 /// The dialog's title.
 pub const TITLE: &str = "Export to Folder";
@@ -130,8 +131,32 @@ pub fn preset(q: Quality) -> (&'static str, &'static str) {
 /// What the quality dropdown reads: the preset's title, "Custom (75)" for Custom.
 pub fn quality_text(draft: &ExportDraft) -> String {
     match draft.quality {
-        Quality::Custom => format!("Custom ({})", draft.custom),
-        q => preset(q).0.to_string(),
+        Quality::Custom => tl!("Custom ({quality})", quality = draft.custom),
+        q => shown(preset(q).0),
+    }
+}
+
+/// A text of [`preset`] or [`LABELS`] (English constants, which tests read) in the language in
+/// effect.
+pub fn shown(english: &str) -> String {
+    match english {
+        "Automatic" => tl!(ctx = "quality", "Automatic"),
+        "Keeps the original's quality" => tl!("Keeps the original's quality"),
+        "Normal" => tl!(ctx = "quality", "Normal"),
+        "Balances quality and size" => tl!("Balances quality and size"),
+        "Maximum" => tl!(ctx = "quality", "Maximum"),
+        "Keeps fine detail; large files" => tl!("Keeps fine detail; large files"),
+        "Minimum" => tl!(ctx = "quality", "Minimum"),
+        "Small files with some quality loss" => tl!("Small files with some quality loss"),
+        "Custom" => tl!(ctx = "quality", "Custom"),
+        "Choose the quality yourself" => tl!("Choose the quality yourself"),
+        "Export location:" => super::form_label(&tl!("Export location")),
+        "Name of exported folder:" => super::form_label(&tl!("Name of exported folder")),
+        "Image size:" => super::form_label(&tl!("Image size")),
+        "Image quality:" => super::form_label(&tl!("Image quality")),
+        "Export videos as:" => super::form_label(&tl!("Export videos as")),
+        "Watermark:" => super::form_label(&tl!("Watermark")),
+        other => crate::i18n::tr(other),
     }
 }
 
@@ -183,7 +208,11 @@ pub fn run_params(draft: &ExportDraft) -> Result<Value, CmdError> {
 
 pub fn look(app: &App, _d: &Dialog) -> Look {
     let ready = app.state().export.as_ref().is_some_and(|e| e.ready().is_ok());
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new("export", "Export", ButtonKind::Default).enabled(ready)] }
+    Look {
+        title: tl!("Export to Folder"),
+        width: WIDTH,
+        buttons: vec![Button::cancel(), Button::new("export", tl!(ctx = "action", "Export"), ButtonKind::Default).enabled(ready)],
+    }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
@@ -246,40 +275,42 @@ fn browse_clicked(app: &mut App) {
 
 /// Draws the form for `e` and edits it in place. Returns whether Browse… was clicked.
 fn rows(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft, browse_on: bool, videos_on: bool) -> bool {
-    let form = Form::new(ui, t, &LABELS);
+    let labels: Vec<String> = LABELS.iter().map(|l| shown(l)).collect();
+    let label = |i: usize| labels.get(i).map_or("", String::as_str);
+    let form = Form::new(ui, t, &labels.iter().map(String::as_str).collect::<Vec<_>>());
     let controls_w = (ui.available_width() - form.label_w - FORM_GAP).max(120.0);
     let mut browse = false;
 
-    form.row(ui, t, LABELS[0], |ui| {
+    form.row(ui, t, label(0), |ui| {
         ui.horizontal(|ui| {
             TextField::new(LOCATION_ID, "", (controls_w - BROWSE_W).max(60.0)).show(ui, t, &mut e.location);
-            browse = form_group(ui, browse_on, |ui| text_button(ui, t, BROWSE_ID, "Browse…", false)).clicked();
+            browse = form_group(ui, browse_on, |ui| text_button(ui, t, BROWSE_ID, &tl!("Browse…"), false)).clicked();
         });
     });
 
-    form.row(ui, t, LABELS[1], |ui| {
+    form.row(ui, t, label(1), |ui| {
         TextField::new(FOLDER_NAME_ID, "", controls_w).show(ui, t, &mut e.folder_name);
-        checkbox(ui, t, NUMBERS_ID, "Add numbers to file names to keep the order", &mut e.numbers);
+        checkbox(ui, t, NUMBERS_ID, &tl!("Add numbers to file names to keep the order"), &mut e.numbers);
     });
 
-    form.row(ui, t, LABELS[2], |ui| {
-        if radio(ui, t, ORIGINAL_ID, "Use original size", e.original_size).clicked() {
+    form.row(ui, t, label(2), |ui| {
+        if radio(ui, t, ORIGINAL_ID, &tl!("Use original size"), e.original_size).clicked() {
             e.original_size = true;
         }
         let resize = !e.original_size;
-        let (r, ()) = radio_row(ui, t, RESIZE_ID, "Resize to:", resize, |ui| size_controls(ui, t, e));
+        let (r, ()) = radio_row(ui, t, RESIZE_ID, &super::form_label(&tl!("Resize to")), resize, |ui| size_controls(ui, t, e));
         if r.clicked() {
             e.original_size = false;
         }
     });
 
-    form.row(ui, t, LABELS[3], |ui| {
+    form.row(ui, t, label(3), |ui| {
         ui.horizontal(|ui| {
             let mut picked = None;
             dropdown(ui, t, QUALITY_ID, &quality_text(e), |ui| {
                 for q in Quality::ALL {
                     let (title, description) = preset(q);
-                    if dropdown_item(ui, t, &quality_item_id(q), title, description, q == e.quality).clicked() {
+                    if dropdown_item(ui, t, &quality_item_id(q), &shown(title), &shown(description), q == e.quality).clicked() {
                         picked = Some(q);
                     }
                 }
@@ -287,7 +318,8 @@ fn rows(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft, browse_on: bool, videos_on
             if let Some(q) = picked {
                 e.quality = q;
             }
-            let s = StopsSlider { spec: CUSTOM, stops: &[], field: false, track_w: CUSTOM_TRACK_W };
+            let custom = tl!("Custom quality");
+            let s = StopsSlider { spec: SliderSpec { label: &custom, ..CUSTOM }, stops: &[], field: false, track_w: CUSTOM_TRACK_W };
             let out = form_group(ui, e.quality == Quality::Custom, |ui| stops_slider(ui, t, &s, f64::from(e.custom)));
             if let Some(v) = out.value {
                 e.custom = to_u8(v).clamp(CUSTOM_MIN, CUSTOM_MAX);
@@ -297,26 +329,26 @@ fn rows(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft, browse_on: bool, videos_on
 
     // Live only while a video is among what is exported.
     form_group(ui, videos_on, |ui| {
-        form.row(ui, t, LABELS[4], |ui| {
+        form.row(ui, t, label(4), |ui| {
             ui.horizontal(|ui| {
-                if radio(ui, t, FIRST_FRAME_ID, "First frame", e.videos == Videos::FirstFrame).clicked() {
+                if radio(ui, t, FIRST_FRAME_ID, &tl!("First frame"), e.videos == Videos::FirstFrame).clicked() {
                     e.videos = Videos::FirstFrame;
                 }
-                if radio(ui, t, FULL_VIDEO_ID, "Full video (no resizing)", e.videos == Videos::FullVideo).clicked() {
+                if radio(ui, t, FULL_VIDEO_ID, &tl!("Full video (no resizing)"), e.videos == Videos::FullVideo).clicked() {
                     e.videos = Videos::FullVideo;
                 }
             });
         });
     });
 
-    form.row(ui, t, LABELS[5], |ui| {
+    form.row(ui, t, label(5), |ui| {
         ui.horizontal(|ui| {
-            checkbox(ui, t, WATERMARK_ID, "Add watermark", &mut e.watermark);
+            checkbox(ui, t, WATERMARK_ID, &tl!("Add watermark"), &mut e.watermark);
             let w = ui.available_width().max(60.0);
             let on = e.watermark;
             form_group(ui, on, |ui| TextField::new(WATERMARK_TEXT_ID, "", w).show(ui, t, &mut e.watermark_text));
         });
-        hint(ui, t, WATERMARK_HINT);
+        hint(ui, t, &tl!("Stamp photos with your name, a web address or a copyright notice."));
     });
     browse
 }
@@ -327,10 +359,12 @@ fn rows(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft, browse_on: bool, videos_on
 fn size_controls(ui: &mut Ui, t: &Tokens, e: &mut ExportDraft) {
     TextField::new(SIZE_FIELD_ID, "", SIZE_FIELD_W).select_on_focus(true).show(ui, t, &mut e.resize);
     let color = if ui.is_enabled() { t.text_label } else { t.text_disabled };
-    let galley = ui.painter().layout_no_wrap(SIZE.unit.to_owned(), fonts::regular(t.body), color);
+    let (label, unit) = (tl!("Resize to"), tl!(ctx = "unit", "pixels"));
+    let spec = SliderSpec { label: &label, unit: &unit, ..SIZE };
+    let galley = ui.painter().layout_no_wrap(unit.clone(), fonts::regular(t.body), color);
     let (_, rect) = ui.allocate_space(vec2(galley.size().x.ceil(), t.metrics.text_field_h));
     ui.painter().galley(pos2(rect.min.x, rect.center().y - galley.size().y / 2.0).round(), galley, color);
-    let s = StopsSlider { spec: SIZE, stops: &STOPS, field: false, track_w: f32::INFINITY };
+    let s = StopsSlider { spec, stops: &STOPS, field: false, track_w: f32::INFINITY };
     if let Some(v) = stops_slider(ui, t, &s, f64::from(slider_value(e))).value {
         e.resize = to_u32(v).clamp(RESIZE_MIN, RESIZE_MAX).to_string();
     }

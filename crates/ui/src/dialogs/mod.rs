@@ -142,13 +142,13 @@ impl Button {
 
     /// Cancel: closes the dialog, runs nothing.
     pub fn cancel() -> Button {
-        Button::new("cancel", "Cancel", ButtonKind::Cancel)
+        Button::new("cancel", crate::tl!("Cancel"), ButtonKind::Cancel)
     }
 
     /// Close, the only button of a dialog that edits nothing (About, Release Notes): it is the
     /// Cancel button under another label, so Esc and `ui.dialog.cancel` close the dialog too.
     pub fn close() -> Button {
-        Button::new("cancel", "Close", ButtonKind::Cancel)
+        Button::new("cancel", crate::tl!("Close"), ButtonKind::Cancel)
     }
 
     pub fn enabled(self, enabled: bool) -> Button {
@@ -355,6 +355,12 @@ pub fn text_lines(app: &App, ui: &mut Ui, lines: &[String]) {
         line.retain(|c| !c.is_control());
         ui.label(egui::RichText::new(line).font(dalica_ui_kit::fonts::regular(t.body)).color(t.text_label));
     }
+}
+
+/// A form row's label, `label` (already in the language in effect) with its colon: `Name:` (the
+/// colon as the language writes it).
+pub fn form_label(label: &str) -> String {
+    crate::tl!(ctx = "form label", "{label}:", label = label)
 }
 
 /// The top dialog, the one that takes input.

@@ -39,12 +39,13 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align, Id, Layout, RichText, Ui, vec2};
 use serde_json::{Map, Value, json};
 
-use super::{Button, Dialog, DialogKind, Look};
+use super::folder_properties::shown;
+use super::{Button, Dialog, DialogKind, Look, form_label};
 use crate::app::App;
 use crate::commands::search::SAVE_COMMAND;
-use crate::panels::light_table::header::weekday;
-use crate::panels::light_table::long_date;
+use crate::i18n::format::long_date_with_weekday;
 use crate::state::{AlbumDraft, AlbumKey, AlbumSection, DialogCommand, ScrollAnchor, Section, Selection};
+use crate::tl;
 
 /// The dialog's title and width (points).
 pub const TITLE: &str = "Album Properties";
@@ -132,7 +133,8 @@ pub fn draft_of(library: &Library, id: &AlbumId) -> Option<AlbumDraft> {
 /// A new album's draft for `ids`: "New Album", dated by its newest photo.
 pub fn new_draft(library: Option<&Library>, ids: Vec<PhotoId>) -> AlbumDraft {
     let date = library.and_then(|l| newest_date(l, &ids)).map(|d| d.to_string()).unwrap_or_default();
-    AlbumDraft { ids, date, ..AlbumDraft::default() }
+    // The name it offers, in the language in effect.
+    AlbumDraft { ids, date, name: tl!("New Album"), ..AlbumDraft::default() }
 }
 
 /// The date the draft gives: `Ok(None)` for the newest photo's (the box on) or none typed,
@@ -184,7 +186,11 @@ pub fn run_params(draft: &AlbumDraft) -> (&'static str, Value) {
 
 pub fn look(app: &App, _d: &Dialog) -> Look {
     let ok = app.state().album_properties.as_ref().is_some_and(|d| ready(d).is_ok());
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new("ok", "OK", ButtonKind::Default).enabled(ok)] }
+    Look {
+        title: tl!("Album Properties"),
+        width: WIDTH,
+        buttons: vec![Button::cancel(), Button::new("ok", tl!("OK"), ButtonKind::Default).enabled(ok)],
+    }
 }
 
 /// One row: `label` in its column, then what `add` draws.
@@ -204,8 +210,8 @@ fn row<R>(ui: &mut Ui, t: &Tokens, label: &str, add: impl FnOnce(&mut Ui) -> R) 
 fn date_note(draft: &AlbumDraft) -> Result<String, &'static str> {
     chosen_date(draft)?;
     Ok(match draft.date.trim().parse::<Date>() {
-        Ok(day) => format!("{}, {}", weekday(day), long_date(day)),
-        Err(_) if draft.use_newest => "No photo here has a date.".to_string(),
+        Ok(day) => long_date_with_weekday(day),
+        Err(_) if draft.use_newest => tl!("No photo here has a date."),
         Err(_) => String::new(),
     })
 }
@@ -234,19 +240,20 @@ pub fn body(app: &mut App, ui: &mut Ui, dialog: &mut Dialog) {
     if opening(ui) {
         widgets::focus_field(ui.ctx(), NAME_ID);
     }
-    row(ui, &t, "Name:", |ui| TextField::new(NAME_ID, "Album name", full).select_on_focus(true).show(ui, &t, &mut d.name));
-    row(ui, &t, "Date:", |ui| {
-        ui.add_enabled_ui(!d.use_newest, |ui| TextField::new(DATE_ID, DATE_HINT, DATE_W).show(ui, &t, &mut d.date));
+    row(ui, &t, &form_label(&tl!("Name")), |ui| TextField::new(NAME_ID, &tl!("Album name"), full).select_on_focus(true).show(ui, &t, &mut d.name));
+    row(ui, &t, &form_label(&tl!("Date")), |ui| {
+        ui.add_enabled_ui(!d.use_newest, |ui| TextField::new(DATE_ID, &tl!(ctx = "date", "YYYY-MM-DD"), DATE_W).show(ui, &t, &mut d.date));
         let (note, color) = match date_note(&d) {
             Ok(note) => (note, t.text_dim),
-            Err(why) => (why.to_string(), t.caution),
+            Err(why) => (shown(why), t.caution),
         };
         ui.label(RichText::new(note).font(fonts::regular(t.detail)).color(color));
     });
     row(ui, &t, "", |ui| {
         let mut on = d.use_newest;
-        let r = ui.checkbox(&mut on, RichText::new(USE_NEWEST).font(fonts::regular(t.body)));
-        widgets::register(ui.ctx(), USE_NEWEST_ID, Role::Toggle, USE_NEWEST, Target::Widget(&r), on);
+        let label = tl!("Use the date of the newest photo");
+        let r = ui.checkbox(&mut on, RichText::new(&label).font(fonts::regular(t.body)));
+        widgets::register(ui.ctx(), USE_NEWEST_ID, Role::Toggle, &label, Target::Widget(&r), on);
         if on != d.use_newest {
             d.use_newest = on;
             if on {
@@ -256,8 +263,10 @@ pub fn body(app: &mut App, ui: &mut Ui, dialog: &mut Dialog) {
             }
         }
     });
-    row(ui, &t, "Place:", |ui| TextField::new(PLACE_ID, "Where these photos were taken", full).show(ui, &t, &mut d.place));
-    row(ui, &t, "Description:", |ui| TextField::new(DESCRIPTION_ID, "Add a description", full).show(ui, &t, &mut d.description));
+    row(ui, &t, &form_label(&tl!("Place")), |ui| TextField::new(PLACE_ID, &tl!("Where these photos were taken"), full).show(ui, &t, &mut d.place));
+    row(ui, &t, &form_label(&tl!("Description")), |ui| {
+        TextField::new(DESCRIPTION_ID, &tl!("Add a description"), full).show(ui, &t, &mut d.description)
+    });
     if d != before {
         app.state_mut().album_properties = Some(d.sanitized());
     }

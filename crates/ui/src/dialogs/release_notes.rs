@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::tl;
 
 pub const TITLE: &str = "Release Notes";
 /// The dialog's width (points).
@@ -138,7 +139,7 @@ pub fn dialog() -> Dialog {
 }
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::close()] }
+    Look { title: tl!("Release Notes"), width: WIDTH, buttons: vec![Button::close()] }
 }
 
 /// The height of the notes on a screen `screen_h` points tall.
@@ -151,6 +152,12 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     let notes = crate::credits::baked(ui.ctx()).release_notes;
     let height = notes_height(ui.ctx().content_rect().height());
     let mut list = blocks(notes);
+    // Each heading, bullet and paragraph through the catalogs (`localization.md` → Release notes);
+    // an edited one shows in English until its translation is updated.
+    for b in &mut list {
+        let (Block::Heading { text, .. } | Block::Bullet { text, .. } | Block::Paragraph(text)) = b;
+        *text = crate::i18n::release_note(text);
+    }
     // Menu paths are written with ▸, which the interface fonts may lack: show › (or >) instead of
     // a missing glyph.
     let font = fonts::regular(t.body);
@@ -170,7 +177,7 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             if list.is_empty() {
-                ui.label(RichText::new("There are no release notes in this copy.").font(fonts::regular(t.body)).color(t.text_label));
+                ui.label(RichText::new(tl!("There are no release notes in this copy.")).font(fonts::regular(t.body)).color(t.text_label));
             }
             for (i, block) in list.iter().enumerate() {
                 match block {

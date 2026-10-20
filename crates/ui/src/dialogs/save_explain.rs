@@ -19,6 +19,7 @@ use serde_json::Value;
 use super::{Button, Dialog, Look, confirm};
 use crate::app::App;
 use crate::state::SaveExplain;
+use crate::tl;
 
 /// The dialog's title and default button.
 pub const TITLE: &str = "Save";
@@ -47,15 +48,19 @@ pub fn opened(app: &mut App, _params: &Value) {
 }
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: TITLE.into(), width: confirm::WIDTH, buttons: vec![Button::cancel(), Button::new("save", TITLE, ButtonKind::Default)] }
+    Look {
+        title: confirm::text(TITLE),
+        width: confirm::WIDTH,
+        buttons: vec![Button::cancel(), Button::new("save", confirm::text(TITLE), ButtonKind::Default)],
+    }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     let t = *app.tokens();
-    ui.add(Label::new(RichText::new(TEXT).font(fonts::regular(t.body)).color(t.text)).wrap());
+    ui.add(Label::new(RichText::new(confirm::text(TEXT)).font(fonts::regular(t.body)).color(t.text)).wrap());
     ui.add_space(10.0);
     let mut ticked = app.state().save_explain.is_some_and(|s| s.dont_show);
-    if widgets::checkbox(ui, &t, DONT_SHOW_ID, DONT_SHOW, &mut ticked).changed() {
+    if widgets::checkbox(ui, &t, DONT_SHOW_ID, &tl!("Don't show this again"), &mut ticked).changed() {
         app.state_mut().save_explain = Some(SaveExplain { dont_show: ticked });
     }
 }

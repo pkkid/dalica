@@ -15,6 +15,7 @@ use serde_json::{Map, Value};
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::{tl, tln};
 
 pub const TITLE: &str = "Undo All Edits";
 /// The Remove Edits button.
@@ -40,12 +41,45 @@ pub fn open(app: &mut App, draft: Map<String, Value>) -> Result<Value, CmdError>
 }
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::new("removeEdits", REMOVE, ButtonKind::Default), Button::cancel()] }
+    Look {
+        title: tl!("Undo All Edits"),
+        width: WIDTH,
+        buttons: vec![Button::new("removeEdits", tl!("Remove Edits"), ButtonKind::Default), Button::cancel()],
+    }
+}
+
+/// The most saved pictures the question names (the engine's `cmd::batch::question` names as many).
+const NAMED: usize = 4;
+
+/// The question in the language in effect, worked out again from the photos of the draft as the
+/// engine's `cmd::batch::question` words it (the draft's `question` stays English, for automation):
+/// how many have edits, naming those saved. A draft naming no photo shows its own text.
+pub fn question(app: &App, d: &Dialog) -> String {
+    let english = || d.fields.get("question").and_then(Value::as_str).filter(|q| !q.is_empty()).map(crate::i18n::tr).unwrap_or_default();
+    let ids: Vec<dalica_core::PhotoId> = match (d.fields.get("ids"), d.fields.get("id")) {
+        (Some(ids), _) => serde_json::from_value(ids.clone()).unwrap_or_default(),
+        (None, Some(id)) => serde_json::from_value(id.clone()).map(|id| vec![id]).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let Some(library) = app.session().map(|s| s.library()).filter(|_| !ids.is_empty()) else { return english() };
+    let edited = ids.iter().filter(|id| library.photo(**id).is_some() && !library.info(**id).edits.is_empty()).count();
+    let saved: Vec<String> =
+        ids.iter().filter(|id| library.saved(**id).is_some()).filter_map(|id| library.photo(*id).map(|p| p.name.clone())).collect();
+    let q = tln!(edited, "Remove all edits from {n} picture?", "Remove all edits from {n} pictures?");
+    if saved.is_empty() {
+        return q;
+    }
+    let mut names: Vec<String> = saved.iter().take(NAMED).cloned().collect();
+    if saved.len() > NAMED {
+        names.push(tln!(saved.len() - NAMED, "{n} more", "{n} more"));
+    }
+    let names = names.join(&tl!(ctx = "list", ", "));
+    tl!("{question} Saved pictures keep their saved pixels: {names} (Undo Save gives the original back).", question = q, names = names)
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     let t = *app.tokens();
-    let text = d.fields.get("question").and_then(Value::as_str).unwrap_or_default();
+    let text = question(app, d);
     ui.add(Label::new(RichText::new(text).font(fonts::regular(t.body)).color(t.text)).wrap());
 }
 
@@ -84,6 +118,7 @@ mod tests {
         assert_eq!((o.open)(&mut app, &json!({ "ids": ids })).unwrap(), json!({ "dialog": "undoAllEdits" }));
         let inspect = dialogs::inspect(&app);
         assert_eq!(inspect["fields"]["question"], "Remove all edits from 2 pictures?");
+        assert_eq!(question(&app, dialogs::top(&app).unwrap()), "Remove all edits from 2 pictures?", "the dialog words it as the engine");
         assert_eq!(inspect["default"], "button:dialog.removeEdits");
         dialogs::answer(&mut app, None).unwrap();
         assert!(app.state().dialogs.is_empty());

@@ -16,6 +16,7 @@ use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::commands::places;
 use crate::state::{LatLon, is_lat_lon};
+use crate::{tl, tln};
 
 pub const CHANGE_TITLE: &str = "Change Location";
 pub const CLEAR_TITLE: &str = "Clear Location";
@@ -37,10 +38,9 @@ fn count(d: &Dialog) -> usize {
 /// The question, with the count: "Remove the location from 6 photos?".
 pub fn question(d: &Dialog) -> String {
     let n = count(d);
-    let photos = if n == 1 { "1 photo".to_string() } else { format!("{n} photos") };
     match d.kind {
-        DialogKind::ChangeLocation => format!("Change the location of {photos}?"),
-        _ => format!("Remove the location from {photos}?"),
+        DialogKind::ChangeLocation => tln!(n, "Change the location of {n} photo?", "Change the location of {n} photos?"),
+        _ => tln!(n, "Remove the location from {n} photo?", "Remove the location from {n} photos?"),
     }
 }
 
@@ -53,9 +53,11 @@ fn default_button(kind: DialogKind) -> (&'static str, &'static str) {
 }
 
 pub fn look(_app: &App, d: &Dialog) -> Look {
-    let title = if d.kind == DialogKind::ChangeLocation { CHANGE_TITLE } else { CLEAR_TITLE };
-    let (action, label) = default_button(d.kind);
-    Look { title: title.into(), width: WIDTH, buttons: vec![Button::new(action, label, ButtonKind::Default), Button::cancel()] }
+    let (title, label) = match d.kind {
+        DialogKind::ChangeLocation => (tl!("Change Location"), tl!("Change Location")),
+        _ => (tl!("Clear Location"), tl!("Remove Location")),
+    };
+    Look { title, width: WIDTH, buttons: vec![Button::new(default_button(d.kind).0, label, ButtonKind::Default), Button::cancel()] }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {

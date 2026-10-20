@@ -16,6 +16,7 @@ use serde_json::Value;
 
 use super::{Dialog, Look, confirm};
 use crate::app::App;
+use crate::tln;
 
 /// The dialog's title.
 pub const TITLE: &str = "Remove from Album";
@@ -45,10 +46,11 @@ pub fn text_for(app: &App, params: &Value) -> Option<String> {
 /// "Remove the %d selected pictures from this album? The files are not deleted." (one picture:
 /// "the selected picture").
 pub fn question(n: usize) -> String {
-    match n {
-        1 => "Remove the selected picture from this album? The file is not deleted.".into(),
-        n => format!("Remove the {n} selected pictures from this album? The files are not deleted."),
-    }
+    tln!(
+        n,
+        "Remove the selected picture from this album? The file is not deleted.",
+        "Remove the {n} selected pictures from this album? The files are not deleted."
+    )
 }
 
 pub fn look(_app: &App, d: &Dialog) -> Look {

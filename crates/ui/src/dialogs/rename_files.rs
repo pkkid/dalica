@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
 use crate::state::RenameDraft;
+use crate::{tl, tln};
 
 /// The dialog's title, its default button and its width (points).
 pub const TITLE: &str = "Rename Files";
@@ -62,8 +63,7 @@ pub fn open(app: &mut App, draft: RenameDraft) -> Result<Value, CmdError> {
 
 /// "%d files selected. Enter a new name:" (one file: "1 file selected.").
 pub fn heading(n: usize) -> String {
-    let noun = if n == 1 { "file" } else { "files" };
-    format!("{n} {noun} selected. Enter a new name:")
+    tln!(n, "{n} file selected. Enter a new name:", "{n} files selected. Enter a new name:")
 }
 
 /// Why Rename cannot run with `draft`, if it cannot: a blank name, no photos.
@@ -115,7 +115,7 @@ pub fn example_name(lib: &Library, photo: &Photo, draft: &RenameDraft) -> String
 /// "Example: Lisbon-001.jpg", or nothing while there is no photo to show.
 pub fn example(lib: &Library, first: Option<PhotoId>, draft: &RenameDraft) -> String {
     match first.and_then(|id| lib.photo(id)) {
-        Some(photo) => format!("Example: {}", example_name(lib, photo, draft)),
+        Some(photo) => tl!("Example: {name}", name = example_name(lib, photo, draft)),
         None => String::new(),
     }
 }
@@ -166,7 +166,11 @@ fn opening(ui: &Ui) -> bool {
 
 pub fn look(app: &App, _d: &Dialog) -> Look {
     let ok = app.state().rename_files.as_ref().is_some_and(|d| ready(d).is_ok());
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new("rename", RENAME, ButtonKind::Default).enabled(ok)] }
+    Look {
+        title: tl!("Rename Files"),
+        width: WIDTH,
+        buttons: vec![Button::cancel(), Button::new("rename", tl!(ctx = "verb", "Rename"), ButtonKind::Default).enabled(ok)],
+    }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
@@ -178,15 +182,15 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     if opening(ui) {
         widgets::focus_field(ui.ctx(), NAME_ID);
     }
-    TextField::new(NAME_ID, NAME_HINT, ui.available_width()).show(ui, &t, &mut d.name);
+    TextField::new(NAME_ID, &tl!("New name"), ui.available_width()).show(ui, &t, &mut d.name);
     let first = first_cached(app, ui, &d);
     let (_, example) = lines(app, &d, first);
     ui.add(Label::new(RichText::new(example).font(fonts::regular(t.detail)).color(t.text_dim)).truncate());
     // The two boxes as one group of lines.
     ui.add_space(4.0);
     ui.spacing_mut().item_spacing.y = 0.0;
-    widgets::checkbox(ui, &t, ADD_DATE_ID, ADD_DATE, &mut d.add_date);
-    widgets::checkbox(ui, &t, ADD_SIZE_ID, ADD_SIZE, &mut d.add_size);
+    widgets::checkbox(ui, &t, ADD_DATE_ID, &tl!("Add the date taken to the name"), &mut d.add_date);
+    widgets::checkbox(ui, &t, ADD_SIZE_ID, &tl!("Add the image size to the name"), &mut d.add_size);
     if d != before {
         app.state_mut().rename_files = Some(d.sanitized());
     }

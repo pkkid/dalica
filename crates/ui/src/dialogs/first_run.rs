@@ -29,6 +29,7 @@ use serde_json::{Value, json};
 use super::folder_manager::listing::{self, Listing, Root};
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::tl;
 
 /// The panel's width and height (points, `organizing.md` §1: ≈ 640 × 460).
 pub const WIDTH: f32 = 640.0;
@@ -65,7 +66,24 @@ pub fn offer(app: &mut App) -> bool {
 }
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: HEADING.into(), width: WIDTH, buttons: vec![Button::new("continue", "Continue", ButtonKind::Default)] }
+    Look {
+        title: tl!("Dalica is ready to look for pictures on your computer"),
+        width: WIDTH,
+        buttons: vec![Button::new("continue", tl!("Continue"), ButtonKind::Default)],
+    }
+}
+
+/// A label or hint of [`CHOICES`] in the language in effect.
+fn shown(english: &str) -> String {
+    match english {
+        "Only look in my Pictures, Documents and Desktop folders" => tl!("Only look in my Pictures, Documents and Desktop folders"),
+        "Choose this if you keep your photos in these folders." => tl!("Choose this if you keep your photos in these folders."),
+        "Choose folders…" => tl!("Choose folders…"),
+        "Pick the folders you want Dalica to watch. You can change this at any time in the Folder Manager." => {
+            tl!("Pick the folders you want Dalica to watch. You can change this at any time in the Folder Manager.")
+        }
+        other => crate::i18n::tr(other),
+    }
 }
 
 /// The choice in the draft: `"places"` unless it says `"choose"`.
@@ -88,7 +106,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     col.spacing_mut().item_spacing = vec2(0.0, 0.0);
     col.add_space(8.0);
     for (value, id, label, hint) in CHOICES {
-        if radio(&mut col, &t, id, label, hint, chosen == value).clicked() {
+        if radio(&mut col, &t, id, &shown(label), &shown(hint), chosen == value).clicked() {
             d.fields.insert("choice".into(), json!(value));
         }
         if value == "places" {
@@ -98,7 +116,9 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     }
     let footer = Rect::from_min_max(pos2(rect.min.x, rect.max.y - 40.0), rect.max);
     let mut foot = ui.new_child(UiBuilder::new().max_rect(footer).layout(Layout::top_down(Align::Min)));
-    foot.add(egui::Label::new(RichText::new(FOOTER).font(fonts::regular(t.small)).color(t.text_dim)).wrap());
+    let footer =
+        tl!("Looking for pictures never moves or copies files. You can change which folders are shown at any time with Tools → Folder Manager.");
+    foot.add(egui::Label::new(RichText::new(footer).font(fonts::regular(t.small)).color(t.text_dim)).wrap());
 }
 
 /// Under the first choice, the folders it watches: each standard place found, with its icon and
@@ -123,7 +143,7 @@ fn places(ui: &mut Ui, t: &Tokens, listing: &Listing, chosen: bool) {
         ui.painter().text(
             pos2(spin.max.x + 8.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            "Looking for your folders…",
+            tl!("Looking for your folders…"),
             fonts::regular(t.body),
             t.text_dim,
         );
@@ -131,7 +151,7 @@ fn places(ui: &mut Ui, t: &Tokens, listing: &Listing, chosen: bool) {
     }
     if found.is_empty() {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::hover());
-        let none = "None of these folders exists here: Continue opens the Folder Manager.";
+        let none = tl!("None of these folders exists here: Continue opens the Folder Manager.");
         ui.painter().text(pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, none, fonts::regular(t.body), t.text_dim);
         return;
     }

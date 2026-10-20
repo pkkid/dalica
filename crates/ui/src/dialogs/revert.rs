@@ -46,15 +46,19 @@ pub fn opened(app: &mut App, params: &Value) {
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
     Look {
-        title: TITLE.into(),
+        title: confirm::text(TITLE),
         width: confirm::WIDTH,
-        buttons: vec![Button::new("revert", TITLE, ButtonKind::Other), Button::new("undoSave", UNDO_SAVE, ButtonKind::Other), Button::cancel()],
+        buttons: vec![
+            Button::new("revert", confirm::text(TITLE), ButtonKind::Other),
+            Button::new("undoSave", confirm::text(UNDO_SAVE), ButtonKind::Other),
+            Button::cancel(),
+        ],
     }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     let t = *app.tokens();
-    ui.add(Label::new(RichText::new(TEXT).font(fonts::regular(t.body)).color(t.text)).wrap());
+    ui.add(Label::new(RichText::new(confirm::text(TEXT)).font(fonts::regular(t.body)).color(t.text)).wrap());
 }
 
 /// Revert, or Undo Save: runs `photo.revert` with `"confirm": true` and the action chosen.

@@ -44,6 +44,7 @@ use serde_json::{Map, Value, json};
 use super::file_types::{self, Opt, shown};
 use super::general;
 use crate::app::App;
+use crate::tl;
 
 /// The tab's groups, in order.
 pub const GROUPS: [&str; 2] = ["File Types", "Interface"];
@@ -73,9 +74,12 @@ pub struct TypeRow {
 impl TypeRow {
     /// Its checkbox's label: "JPEG (Image Viewer)", or "JPEG".
     pub fn label(&self) -> String {
+        // The type's name (the engine's English) in the language in effect; the program is the
+        // system's.
+        let name = crate::i18n::tr(&self.name);
         match &self.handler {
-            Some(h) => format!("{} ({h})", self.name),
-            None => self.name.clone(),
+            Some(h) => tl!("{type} ({program})", type = name, program = h),
+            None => name,
         }
     }
 }
@@ -200,7 +204,7 @@ pub fn body(app: &mut App, ui: &mut Ui) {
     let listing = listing(app, ui.ctx());
     let selected = ids_of(draft.get(DEFAULT_VIEWER)).unwrap_or_else(|| saved(app));
     let t = *app.tokens();
-    let labels: Vec<String> = GROUPS.iter().map(|g| format!("{g}:")).collect();
+    let labels: Vec<String> = GROUPS.iter().map(|g| general::group_label(g)).collect();
     let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
     let form = Form::new(ui, &t, &labels);
     if let Some(next) = file_types(ui, &t, &form, &listing, &selected)
@@ -222,13 +226,14 @@ pub fn body(app: &mut App, ui: &mut Ui) {
 /// The File Types part with `selected` checked; returns the new selection when a click changed it.
 /// Drawn disabled, with the reason as every row's tooltip, when the system cannot.
 pub fn file_types(ui: &mut Ui, t: &Tokens, form: &Form, listing: &Listing, selected: &[String]) -> Option<Vec<String>> {
-    let reason = listing.reason.clone().unwrap_or_default();
+    let reason = listing.reason.as_deref().map(crate::i18n::tr).unwrap_or_default();
     let on = format!("choice:option.{DEFAULT_VIEWER}/on");
     let off = format!("choice:option.{DEFAULT_VIEWER}/off");
     let mut next: Option<Vec<String>> = None;
     form_group(ui, listing.reason.is_none(), |ui| {
-        form.row(ui, t, &format!("{}:", GROUPS[0]), |ui| {
-            if tooltip(radio(ui, t, &on, USE_DALICA, !selected.is_empty()), t, &reason, None).clicked() && selected.is_empty() {
+        form.row(ui, t, &general::group_label(GROUPS[0]), |ui| {
+            let use_dalica = tl!("Use Dalica as the default viewer for these file types:");
+            if tooltip(radio(ui, t, &on, &use_dalica, !selected.is_empty()), t, &reason, None).clicked() && selected.is_empty() {
                 next = Some(listing.all());
             }
             ui.horizontal_wrapped(|ui| {
@@ -245,8 +250,8 @@ pub fn file_types(ui: &mut Ui, t: &Tokens, form: &Form, listing: &Listing, selec
                 }
             });
             ui.horizontal(|ui| {
-                for (name, label) in [("current", "Current"), ("selectAll", "Select All"), ("selectNone", "Select None")] {
-                    if tooltip(text_button(ui, t, &format!("button:option.{DEFAULT_VIEWER}/{name}"), label, false), t, &reason, None).clicked() {
+                for (name, label) in [("current", tl!("Current")), ("selectAll", tl!("Select All")), ("selectNone", tl!("Select None"))] {
+                    if tooltip(text_button(ui, t, &format!("button:option.{DEFAULT_VIEWER}/{name}"), &label, false), t, &reason, None).clicked() {
                         next = Some(match name {
                             "current" => listing.current(),
                             "selectAll" => listing.all(),
@@ -255,7 +260,7 @@ pub fn file_types(ui: &mut Ui, t: &Tokens, form: &Form, listing: &Listing, selec
                     }
                 }
             });
-            if tooltip(radio(ui, t, &off, DONT_USE, selected.is_empty()), t, &reason, None).clicked() {
+            if tooltip(radio(ui, t, &off, &tl!("Don't use Dalica as a viewer"), selected.is_empty()), t, &reason, None).clicked() {
                 next = Some(Vec::new());
             }
         });
@@ -267,7 +272,7 @@ pub fn file_types(ui: &mut Ui, t: &Tokens, form: &Form, listing: &Listing, selec
 /// this pass, by option.
 pub fn interface(ui: &mut Ui, t: &Tokens, form: &Form, opts: &[Opt], draft: &Map<String, Value>) -> Vec<(usize, Value)> {
     let mut changes = Vec::new();
-    form.row(ui, t, &format!("{}:", GROUPS[1]), |ui| {
+    form.row(ui, t, &general::group_label(GROUPS[1]), |ui| {
         for (i, o) in opts.iter().enumerate().filter(|(_, o)| o.row.group == GROUPS[1]) {
             let value = shown(&o.row, draft);
             match o.row.kind.as_str() {
@@ -278,8 +283,9 @@ pub fn interface(ui: &mut Ui, t: &Tokens, form: &Form, opts: &[Opt], draft: &Map
                 }
                 _ => {
                     for (choice, label) in &o.row.choices {
-                        let r =
-                            form_group(ui, o.row.reason.is_none(), |ui| radio(ui, t, &general::item_id(&o.row.key, choice), label, value == choice));
+                        let r = form_group(ui, o.row.reason.is_none(), |ui| {
+                            radio(ui, t, &general::item_id(&o.row.key, choice), &general::choice_text(&o.row, choice, label), value == choice)
+                        });
                         if r.clicked() && value != choice {
                             changes.push((i, choice.clone()));
                         }

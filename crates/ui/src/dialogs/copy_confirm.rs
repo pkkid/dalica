@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use super::{Button, Dialog, DialogKind, Look, confirm};
 use crate::app::App;
 use crate::state::{CopyQuestion, FileOp};
+use crate::{tl, tln};
 
 /// The dialog's title and its default button.
 pub const TITLE: &str = "Copy Files";
@@ -27,21 +28,24 @@ pub fn open(app: &mut App, ids: Vec<PhotoId>, folder: FolderId) -> Result<Value,
 
 /// "Copy %d files to %s?" (one file: "Copy 1 file to %s?").
 pub fn question(n: usize, folder: &str) -> String {
-    let noun = if n == 1 { "file" } else { "files" };
-    format!("Copy {n} {noun} to {folder}?")
+    tln!(n, "Copy {n} file to {folder}?", "Copy {n} files to {folder}?", folder = folder)
 }
 
 /// The folder's name as the question writes it.
 fn folder_name(app: &App, folder: FolderId) -> String {
     let f = app.session().and_then(|s| s.library().folder(folder));
     f.map_or_else(
-        || format!("folder {folder}"),
+        || tl!("folder {folder}", folder = folder),
         |f| f.path.file_name().map_or_else(|| f.path.display().to_string(), |n| n.to_string_lossy().into_owned()),
     )
 }
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: TITLE.into(), width: confirm::WIDTH, buttons: vec![Button::cancel(), Button::new("copy", COPY, ButtonKind::Default)] }
+    Look {
+        title: tl!("Copy Files"),
+        width: confirm::WIDTH,
+        buttons: vec![Button::cancel(), Button::new("copy", tl!(ctx = "verb", "Copy"), ButtonKind::Default)],
+    }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {

@@ -39,6 +39,7 @@ use super::file_types::{self, Opt, shown};
 use super::general::{self, FOLDER_COMMAND, Row};
 use crate::app::App;
 use crate::picker::FolderRequest;
+use crate::tl;
 
 /// The settings keys of the tab.
 pub const LOOP: &str = "slideshow.loop";
@@ -49,9 +50,6 @@ pub const MUSIC: &str = "slideshow.music";
 pub const MUSIC_FOLDER: &str = "slideshow.musicFolder";
 pub const VIDEO_SOUND: &str = "slideshow.videoSound";
 
-/// The form's labels.
-const SLIDESHOW: &str = "Slideshow:";
-const SOUND: &str = "Sound:";
 /// The display time's slider stops (seconds).
 const DISPLAY_STOPS: [f64; 6] = [1.0, 3.0, 5.0, 10.0, 30.0, 60.0];
 /// The options of the Sound group.
@@ -111,13 +109,15 @@ fn find<'a>(opts: &'a [Opt], key: &str) -> Option<(usize, &'a Opt)> {
 
 /// The label of the form row of option `key` (its name and a colon).
 fn label(opts: &[Opt], key: &str) -> String {
-    find(opts, key).map_or_else(String::new, |(_, o)| format!("{}:", o.row.label))
+    find(opts, key).map_or_else(String::new, |(_, o)| general::form_label_of(&o.row))
 }
 
 /// Draws the form; returns the values changed this pass, by option, and whether the music
 /// folder's Browse… was clicked.
 fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_browse: bool) -> (Vec<(usize, Value)>, bool) {
-    let labels = [SLIDESHOW.to_string(), label(opts, DISPLAY_TIME), label(opts, TRANSITION), SOUND.to_string(), label(opts, MUSIC_FOLDER)];
+    let (slideshow, sound) =
+        (general::form_label(&tl!(ctx = "options group", "Slideshow")), general::form_label(&tl!(ctx = "options group", "Sound")));
+    let labels = [slideshow.clone(), label(opts, DISPLAY_TIME), label(opts, TRANSITION), sound.clone(), label(opts, MUSIC_FOLDER)];
     let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
     let form = Form::new(ui, t, &labels);
     let mut changes = Vec::new();
@@ -130,7 +130,7 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_b
             }
         }
     };
-    form.row(ui, t, SLIDESHOW, |ui| checks(ui, &[LOOP, CAPTIONS], &mut changes));
+    form.row(ui, t, &slideshow, |ui| checks(ui, &[LOOP, CAPTIONS], &mut changes));
     if let Some((i, o)) = find(opts, DISPLAY_TIME) {
         form.row(ui, t, &label(opts, DISPLAY_TIME), |ui| {
             if let Some(v) = file_types::number(ui, t, o, shown(&o.row, draft), &DISPLAY_STOPS, true) {
@@ -149,7 +149,7 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_b
     }
     ui.separator();
     ui.add_space(4.0);
-    form.row(ui, t, SOUND, |ui| checks(ui, &[MUSIC], &mut changes));
+    form.row(ui, t, &sound, |ui| checks(ui, &[MUSIC], &mut changes));
     let mut browse = false;
     if let Some((_, o)) = find(opts, MUSIC_FOLDER) {
         form.row(ui, t, &label(opts, MUSIC_FOLDER), |ui| browse = folder(ui, t, &o.row, shown(&o.row, draft), can_browse));
@@ -160,17 +160,17 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_b
 
 /// A dropdown of `row`'s choices showing `value`; returns the choice picked this pass.
 fn choice(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value) -> Option<Value> {
-    let text = row.choices.iter().find(|(v, _)| v == value).map_or_else(|| value.to_string(), |(_, l)| l.clone());
+    let text = row.choices.iter().find(|(v, _)| v == value).map_or_else(|| value.to_string(), |(v, l)| general::choice_text(row, v, l));
     let mut picked = None;
     let r = dropdown(ui, t, &general::control_id(&row.kind, &row.key), &text, |ui| {
         for (v, label) in &row.choices {
-            if dropdown_item(ui, t, &general::item_id(&row.key, v), label, "", v == value).clicked() {
+            if dropdown_item(ui, t, &general::item_id(&row.key, v), &general::choice_text(row, v, label), "", v == value).clicked() {
                 picked = Some(v.clone());
             }
         }
     });
-    if let Some(reason) = &row.reason {
-        tooltip(r, t, reason, None);
+    if let Some(reason) = general::reason_of(row) {
+        tooltip(r, t, &reason, None);
     }
     picked.filter(|p| p != value)
 }
@@ -191,16 +191,16 @@ fn folder(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value, can_browse: bool) -
             let browse = form_group(ui, live && can_browse, |ui| {
                 text_button(ui, t, &format!("button:option.{}/browse", row.key), &crate::tl!("Browse…"), false)
             });
-            if let Some(reason) = &row.reason {
-                tooltip(field.response, t, reason, None);
-                tooltip(browse, t, reason, None);
+            if let Some(reason) = general::reason_of(row) {
+                tooltip(field.response, t, &reason, None);
+                tooltip(browse, t, &reason, None);
                 return false;
             }
             browse.clicked()
         })
         .inner;
     if !row.hint.is_empty() {
-        form_group(ui, live, |ui| hint(ui, t, &row.hint));
+        form_group(ui, live, |ui| hint(ui, t, &general::hint_of(row)));
     }
     clicked
 }

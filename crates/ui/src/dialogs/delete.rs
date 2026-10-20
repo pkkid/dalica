@@ -29,6 +29,7 @@ use serde_json::Value;
 use super::{Dialog, DialogKind, Look, confirm};
 use crate::app::App;
 use crate::state::{DeleteFolder, DeletePhotos};
+use crate::{tl, tln};
 
 /// The photo question's title, and its question when the number is not known.
 pub const PHOTOS_TITLE: &str = "Delete";
@@ -100,17 +101,18 @@ pub fn folder_asks(app: &App, params: &Value) -> bool {
 
 /// "Move the selected picture to the trash?" for one photo, "Move the %d selected pictures to the
 /// trash?" for several; and the folder question, naming the folder: the engine's own texts, the
-/// ones its refusal without `"confirm"` gives.
+/// ones its refusal without `"confirm"` gives (the dialog says the same in the language in effect).
 pub use dalica_engine::cmd::delete::{folder_question, photos_question};
 
 pub fn photos_text(app: &App, params: &Value) -> Option<String> {
     // The photo viewer's file is one picture, whether the library holds it or not.
     let n = if params.get("path").is_some() { 1 } else { photos(app, params).len() };
-    Some(photos_question(n))
+    Some(tln!(n, "Move the selected picture to the trash?", "Move the {n} selected pictures to the trash?"))
 }
 
 pub fn folder_text(app: &App, params: &Value) -> Option<String> {
-    folder(app, params).map(|(_, name)| folder_question(&name))
+    folder(app, params)
+        .map(|(_, name)| tl!("Move the folder \"{name}\" and everything in it (including non-picture files) to the trash?", name = name))
 }
 
 /// Called when a question opens: its draft, the photos or the folder it asks about.

@@ -49,6 +49,7 @@ use serde_json::{Map, Value, json};
 
 use super::general::{self, Row};
 use crate::app::App;
+use crate::tl;
 
 /// The tab's groups, in order: the file types, then the threshold (a row labelled with its name).
 pub const GROUPS: [&str; 2] = ["Show JPEG files and:", "Small pictures"];
@@ -118,8 +119,9 @@ pub fn slider_id(key: &str) -> String {
 /// tooltip); returns the new value when a click flipped it.
 pub fn check(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value) -> Option<Value> {
     let mut on = value.as_bool().unwrap_or(false);
-    let hint_text = (!row.hint.is_empty()).then_some(row.hint.as_str());
-    let out = checkbox_row(ui, t, &general::control_id("bool", &row.key), &row.label, &mut on, hint_text, row.reason.as_deref());
+    let hint_text = (!row.hint.is_empty()).then(|| general::hint_of(row));
+    let reason = general::reason_of(row);
+    let out = checkbox_row(ui, t, &general::control_id("bool", &row.key), &general::label_of(row), &mut on, hint_text.as_deref(), reason.as_deref());
     out.response.changed().then(|| json!(on))
 }
 
@@ -130,14 +132,15 @@ pub fn number(ui: &mut Ui, t: &Tokens, opt: &Opt, value: &Value, stops: &[f64], 
     let Kind::Int { min, max, unit, .. } = opt.spec.kind else { return None };
     let id = slider_id(&opt.row.key);
     let default = opt.spec.default_value().as_f64().unwrap_or(f64::from(min));
-    let spec = SliderSpec { id: &id, label: &opt.row.label, min: f64::from(min), max: f64::from(max), default, step: 1.0, decimals: 0, unit };
+    let (label, unit) = (general::label_of(&opt.row), if unit.is_empty() { String::new() } else { crate::i18n::tr(unit) });
+    let spec = SliderSpec { id: &id, label: &label, min: f64::from(min), max: f64::from(max), default, step: 1.0, decimals: 0, unit: &unit };
     let current = value.as_f64().unwrap_or(default);
     let track_w = ui.available_width().min(TRACK_MAX);
     let s = StopsSlider { spec, stops, field: true, track_w };
     let enabled = enabled && opt.row.reason.is_none();
     let out = form_group(ui, enabled, |ui| stops_slider(ui, t, &s, current));
     if !opt.row.hint.is_empty() {
-        form_group(ui, enabled, |ui| hint(ui, t, &opt.row.hint));
+        form_group(ui, enabled, |ui| hint(ui, t, &general::hint_of(&opt.row)));
     }
     let v = out.value.filter(|v| v.is_finite())?;
     // In range after the clamp, so the cast is exact.
@@ -212,11 +215,12 @@ pub fn body(app: &mut App, ui: &mut Ui) {
 
 /// Draws the tab's rows; returns the values changed this pass, by option.
 fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>) -> Vec<(usize, Value)> {
-    let numbers: Vec<String> = opts.iter().filter(|o| o.row.kind != "bool").map(|o| format!("{}:", o.row.label)).collect();
-    let labels: Vec<&str> = std::iter::once(GROUPS[0]).chain(numbers.iter().map(String::as_str)).collect();
+    let numbers: Vec<String> = opts.iter().filter(|o| o.row.kind != "bool").map(|o| general::form_label_of(&o.row)).collect();
+    let types = tl!("Show JPEG files and:");
+    let labels: Vec<&str> = std::iter::once(types.as_str()).chain(numbers.iter().map(String::as_str)).collect();
     let form = Form::new(ui, t, &labels);
     let mut changes = Vec::new();
-    form.row(ui, t, GROUPS[0], |ui| {
+    form.row(ui, t, &types, |ui| {
         for (i, o) in opts.iter().enumerate().filter(|(_, o)| o.row.kind == "bool") {
             let value = shown(&o.row, draft);
             let changed = if o.row.key == RAW {
@@ -234,13 +238,13 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>) -> Ve
             }
         }
         ui.add_space(2.0);
-        hint(ui, t, TYPES_HINT);
+        hint(ui, t, &tl!("A change rescans your folders. Files of a type turned off are hidden, never deleted."));
     });
     for (i, o) in opts.iter().enumerate().filter(|(_, o)| o.row.kind != "bool") {
         ui.separator();
         ui.add_space(4.0);
         let stops: &[f64] = if o.row.key == THRESHOLD { &THRESHOLD_STOPS } else { &[] };
-        if let Some(v) = form.row(ui, t, &format!("{}:", o.row.label), |ui| number(ui, t, o, shown(&o.row, draft), stops, true)) {
+        if let Some(v) = form.row(ui, t, &general::form_label_of(&o.row), |ui| number(ui, t, o, shown(&o.row, draft), stops, true)) {
             changes.push((i, v));
         }
     }
@@ -249,18 +253,30 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>) -> Ve
 
 /// The RAW row's "list…": a dropdown of the raw kinds this build reads, by extension and maker.
 fn raw_list(ui: &mut Ui, t: &Tokens) {
-    dropdown(ui, t, RAW_LIST_ID, "list…", |ui| {
+    dropdown(ui, t, RAW_LIST_ID, &tl!("list…"), |ui| {
         for kind in raw_kinds() {
             let (part, extensions, makers) = raw_kind(kind);
-            dropdown_item(ui, t, &format!("{RAW_LIST_ID}/{part}"), extensions, makers, false);
+            dropdown_item(ui, t, &format!("{RAW_LIST_ID}/{part}"), extensions, &makers_text(makers), false);
         }
     });
 }
 
 /// The activity indicator's spinner and "Rescanning your folders…", under the rows.
+/// The makers of [`raw_kind`] in the language in effect (the companies' names stay as they are).
+fn makers_text(english: &str) -> String {
+    match english {
+        "TIFF-based: Adobe, Canon, Nikon, Sony, Pentax, Olympus, Panasonic, Samsung" => {
+            tl!("TIFF-based: {makers}", makers = "Adobe, Canon, Nikon, Sony, Pentax, Olympus, Panasonic, Samsung")
+        }
+        "Canon, older cameras" => tl!("{maker}, older cameras", maker = "Canon"),
+        other => other.to_string(),
+    }
+}
+
 fn rescan_line(ui: &mut Ui, t: &Tokens) {
     ui.add_space(8.0);
-    let galley = ui.painter().layout_no_wrap(RESCANNING.to_owned(), fonts::regular(t.body), t.text_label);
+    let rescanning = tl!("Rescanning your folders…");
+    let galley = ui.painter().layout_no_wrap(rescanning.clone(), fonts::regular(t.body), t.text_label);
     let glyph = t.metrics.icon_toolbar;
     let (_, rect) = ui.allocate_space(vec2(glyph + 8.0 + galley.size().x, t.metrics.text_field_h));
     let time = ui.input(|i| i.time);
@@ -270,7 +286,7 @@ fn rescan_line(ui: &mut Ui, t: &Tokens) {
     ui.painter().galley(pos2(rect.min.x + glyph + 8.0, rect.center().y - galley.size().y / 2.0).round(), galley, t.text_label);
     // The spinner's next step (eight a turn, a turn a second).
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(125));
-    widgets::register(ui.ctx(), RESCAN_ID, Role::Other, RESCANNING, Target::Painted { rect, clip: ui.clip_rect() }, false);
+    widgets::register(ui.ctx(), RESCAN_ID, Role::Other, &rescanning, Target::Painted { rect, clip: ui.clip_rect() }, false);
 }
 
 #[cfg(test)]

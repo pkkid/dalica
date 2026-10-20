@@ -10512,7 +10512,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     the tree, a folder and an album, the tray, every side pane and a notice, every text the frame
     draws is bracketed except user data (names, captions, tags, paths); so are the menu bar and each
     menu; at 1400 × 900 and 900 × 600 no label clips; `cargo xtask i18n` passes.
-- ⬜ **M15.32 `ui`: every string of the dialogs through the catalogs**
+- ✅ **M15.32 `ui`: every string of the dialogs through the catalogs**
   - after: M15.7, M15.22, M15.24, M15.27, M15.28
   - files: `crates/ui/src/dialogs/**`, `crates/ui/src/credits.rs`, `crates/ui/tests/i18n_dialogs.rs`
   - scope: the same over every dialog: titles, labels, buttons, hints and questions; the Options

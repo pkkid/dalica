@@ -26,6 +26,7 @@ use dalica_ui_kit::{Icon, Tokens, fonts};
 use egui::{Align2, Id, Label, Rect, RichText, Sense, Ui, pos2, vec2};
 
 use crate::state::{About, CreditsList, CreditsSort, NameMode};
+use crate::{tl, tln};
 
 /// One contributor: GitHub username, chosen names and commit stats.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,6 +145,38 @@ pub const SORTS: [(CreditsSort, &str, &str, &str); 10] = [
 /// The lists: their state value, widget id part and label.
 pub const LISTS: [(CreditsList, &str, &str); 2] = [(CreditsList::GrabBag, "grabBag", "Grab bag"), (CreditsList::Table, "table", "Table")];
 
+/// A label of [`NAME_MODES`], [`SORTS`] or [`LISTS`] (English constants, which tests and
+/// automation read) in the language in effect.
+pub fn label(english: &str) -> String {
+    match english {
+        "Username" => tl!("Username"),
+        "Display name" => tl!("Display name"),
+        "Real name" => tl!("Real name"),
+        "Name (A–Z)" => tl!("Name (A–Z)"),
+        "Name" => tl!(ctx = "credits column", "Name"),
+        "Merged pull requests" => tl!("Merged pull requests"),
+        "PRs" => tl!(ctx = "credits column", "PRs"),
+        "Commits" => tl!("Commits"),
+        "Lines added" => tl!("Lines added"),
+        "+Lines" => tl!(ctx = "credits column", "+Lines"),
+        "Lines deleted" => tl!("Lines deleted"),
+        "−Lines" => tl!(ctx = "credits column", "−Lines"),
+        "Line delta" => tl!("Line delta"),
+        "ΔLines" => tl!(ctx = "credits column", "ΔLines"),
+        "Binary assets added" => tl!("Binary assets added"),
+        "+Bin" => tl!(ctx = "credits column", "+Bin"),
+        "Binary assets removed" => tl!("Binary assets removed"),
+        "−Bin" => tl!(ctx = "credits column", "−Bin"),
+        "First commit" => tl!("First commit"),
+        "First" => tl!(ctx = "credits column", "First"),
+        "Last commit" => tl!("Last commit"),
+        "Last" => tl!(ctx = "credits column", "Last"),
+        "Grab bag" => tl!("Grab bag"),
+        "Table" => tl!("Table"),
+        other => crate::i18n::tr(other),
+    }
+}
+
 fn sort_row(sort: CreditsSort) -> (CreditsSort, &'static str, &'static str, &'static str) {
     SORTS.iter().copied().find(|s| s.0 == sort).unwrap_or(SORTS[0])
 }
@@ -174,20 +207,20 @@ impl Contributor {
         i128::from(self.lines_added) - i128::from(self.lines_deleted)
     }
 
-    /// One line with everything known, for the tooltip.
+    /// One line with everything known, for the tooltip, in the language in effect.
     pub fn summary(&self) -> String {
-        format!(
-            "@{}: {} merged pull requests, {} commits, +{} / −{} lines (Δ {}), +{} / −{} binary assets, {} – {}",
-            self.login,
-            group(self.prs),
-            group(self.commits),
-            group(self.lines_added),
-            group(self.lines_deleted),
-            signed(self.lines_delta()),
-            group(self.binary_added),
-            group(self.binary_deleted),
-            day(self.first_commit),
-            day(self.last_commit),
+        tl!(
+            "{login}: {prs} merged pull requests, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binary_added} / −{binary_deleted} binary assets, {first} – {last}",
+            login = format!("@{}", self.login),
+            prs = group(self.prs),
+            commits = group(self.commits),
+            added = group(self.lines_added),
+            deleted = group(self.lines_deleted),
+            delta = signed(self.lines_delta()),
+            binary_added = group(self.binary_added),
+            binary_deleted = group(self.binary_deleted),
+            first = day(self.first_commit),
+            last = day(self.last_commit),
         )
     }
 
@@ -250,17 +283,9 @@ pub fn listed(list: &[Contributor], view: &About) -> Vec<String> {
     sorted(list, view).into_iter().map(|c| c.name(view.names)).collect()
 }
 
-/// `n` with thousands separators: `1,234,567`.
+/// `n` with thousands separators as the language in effect writes them: `1,234,567`.
 pub fn group(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
+    crate::i18n::format::number(n)
 }
 
 /// `n` things: `1 commit`, `1,200 commits`.
@@ -316,12 +341,16 @@ pub fn contributors_ui(ui: &mut Ui, t: &Tokens, baked: &Baked, view: &mut About,
     let top = ui.cursor().min.y;
     controls(ui, t, view);
     ui.add_space(6.0);
-    let counts = format!("{} · {}", count(baked.contributors.len() as u64, "contributor"), count(baked.total_commits, "commit"));
+    let counts = tl!(
+        "{contributors} · {commits}",
+        contributors = tln!(baked.contributors.len(), "{n} contributor", "{n} contributors"),
+        commits = tln!(baked.total_commits, "{n} commit", "{n} commits")
+    );
     ui.label(RichText::new(counts).font(fonts::regular(t.small)).color(t.text_dim));
     ui.add_space(6.0);
     let rest = (height - (ui.cursor().min.y - top)).max(ROW_H * 3.0);
     if baked.contributors.is_empty() {
-        ui.label(RichText::new("No contributor data was built into this copy.").font(fonts::regular(t.body)).color(t.text_label));
+        ui.label(RichText::new(tl!("No contributor data was built into this copy.")).font(fonts::regular(t.body)).color(t.text_label));
         return;
     }
     let list = sorted(baked.contributors, view);
@@ -329,9 +358,11 @@ pub fn contributors_ui(ui: &mut Ui, t: &Tokens, baked: &Baked, view: &mut About,
         CreditsList::GrabBag => grab_bag(ui, t, &list, view.names, rest),
         CreditsList::Table => {
             let mode = view.names;
+            let heads: Vec<(String, String)> = SORTS.iter().map(|&(_, _, long, short)| (label(short), label(long))).collect();
             let columns: Vec<Column<'_>> = SORTS
                 .iter()
-                .map(|&(sort, part, long, short)| Column {
+                .zip(&heads)
+                .map(|(&(sort, part, _, _), (short, long))| Column {
                     head: short,
                     tip: long,
                     numeric: numeric(sort),
@@ -365,23 +396,24 @@ fn choose_sort(view: &mut About, sort: CreditsSort) {
 fn controls(ui: &mut Ui, t: &Tokens, view: &mut About) {
     let size = vec2(60.0, t.metrics.button_h);
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Show").font(fonts::regular(t.body)).color(t.text_label));
+        ui.label(RichText::new(tl!(ctx = "credits", "Show")).font(fonts::regular(t.body)).color(t.text_label));
         let ids: Vec<String> = NAME_MODES.iter().map(|m| format!("choice:dialog.names/{}", m.1)).collect();
-        let segments: Vec<Segment<'_>> =
-            NAME_MODES.iter().zip(&ids).map(|(m, id)| Segment { id, label: SegmentLabel::Text(m.2), tooltip: "" }).collect();
+        let labels: Vec<String> = NAME_MODES.iter().map(|m| label(m.2)).collect();
+        let segments: Vec<Segment<'_>> = ids.iter().zip(&labels).map(|(id, l)| Segment { id, label: SegmentLabel::Text(l), tooltip: "" }).collect();
         let on = NAME_MODES.iter().position(|m| m.0 == view.names);
         if let Some(m) = widgets::segmented(ui, t, &segments, on, size).and_then(|i| NAME_MODES.get(i)) {
             view.names = m.0;
         }
         ui.add_space(12.0);
-        ui.label(RichText::new("Sort").font(fonts::regular(t.body)).color(t.text_label));
+        ui.label(RichText::new(tl!(ctx = "credits", "Sort")).font(fonts::regular(t.body)).color(t.text_label));
         let mut chosen = None;
-        widgets::dropdown(ui, t, "choice:dialog.sort", sort_row(view.sort).2, |ui| {
+        widgets::dropdown(ui, t, "choice:dialog.sort", &label(sort_row(view.sort).2), |ui| {
             ui.set_min_width(190.0);
             for (sort, part, long, _) in SORTS {
                 let on = view.sort == sort;
-                let r = ui.add(egui::Button::selectable(on, long));
-                widgets::register(ui.ctx(), &format!("choice:dialog.sort/{part}"), Role::MenuItem, long, Target::Widget(&r), on);
+                let long = label(long);
+                let r = ui.add(egui::Button::selectable(on, &long));
+                widgets::register(ui.ctx(), &format!("choice:dialog.sort/{part}"), Role::MenuItem, &long, Target::Widget(&r), on);
                 if r.clicked() {
                     chosen = Some(sort);
                     ui.close();
@@ -392,14 +424,18 @@ fn controls(ui: &mut Ui, t: &Tokens, view: &mut About) {
             view.sort = sort;
             view.ascending = default_ascending(sort);
         }
-        let (icon, tip) =
-            if view.ascending { (Icon::ChevronUp, "Ascending: reverse the order") } else { (Icon::ChevronDown, "Descending: reverse the order") };
-        if widgets::icon_button(ui, t, "button:dialog.reverse", icon, t.metrics.button_h, false, true, tip).clicked() {
+        let (icon, tip) = if view.ascending {
+            (Icon::ChevronUp, tl!("Ascending: reverse the order"))
+        } else {
+            (Icon::ChevronDown, tl!("Descending: reverse the order"))
+        };
+        if widgets::icon_button(ui, t, "button:dialog.reverse", icon, t.metrics.button_h, false, true, &tip).clicked() {
             view.ascending = !view.ascending;
         }
         ui.add_space(12.0);
         let ids: Vec<String> = LISTS.iter().map(|l| format!("choice:dialog.list/{}", l.1)).collect();
-        let segments: Vec<Segment<'_>> = LISTS.iter().zip(&ids).map(|(l, id)| Segment { id, label: SegmentLabel::Text(l.2), tooltip: "" }).collect();
+        let labels: Vec<String> = LISTS.iter().map(|l| label(l.2)).collect();
+        let segments: Vec<Segment<'_>> = ids.iter().zip(&labels).map(|(id, l)| Segment { id, label: SegmentLabel::Text(l), tooltip: "" }).collect();
         let on = LISTS.iter().position(|l| l.0 == view.list);
         if let Some(l) = widgets::segmented(ui, t, &segments, on, size).and_then(|i| LISTS.get(i)) {
             view.list = l.0;
@@ -433,15 +469,17 @@ fn grab_bag(ui: &mut Ui, t: &Tokens, list: &[&Contributor], mode: NameMode, heig
 
 /// About ▸ Models: the models of the `Co-Authored-By` trailers, within `height` points.
 pub fn models_ui(ui: &mut Ui, t: &Tokens, baked: &Baked, height: f32) {
-    ui.label(RichText::new("AI models credited in the Co-Authored-By trailers of Dalica's commits.").font(fonts::regular(t.small)).color(t.text_dim));
+    ui.label(
+        RichText::new(tl!("AI models credited in the Co-Authored-By trailers of Dalica's commits.")).font(fonts::regular(t.small)).color(t.text_dim),
+    );
     ui.add_space(6.0);
     if baked.models.is_empty() {
-        ui.label(RichText::new("No model credits were built into this copy.").font(fonts::regular(t.body)).color(t.text_label));
+        ui.label(RichText::new(tl!("No model credits were built into this copy.")).font(fonts::regular(t.body)).color(t.text_label));
         return;
     }
     // Counted against every commit, or the busiest model's if the total somehow trails it.
     let total = baked.total_commits.max(baked.models.iter().map(|m| m.commits).max().unwrap_or(0));
-    let heads = ["Company", "Model", "Version", "Commits", "Share of commits", "Lines +/−"];
+    let heads = [tl!("Company"), tl!(ctx = "credits column", "Model"), tl!("Version"), tl!("Commits"), tl!("Share of commits"), tl!("Lines +/−")];
     let columns: Vec<Column<'_>> =
         heads.iter().enumerate().map(|(i, h)| Column { head: h, tip: "", numeric: i >= 3, flex: i == 1, id: None, sorted: None }).collect();
     let rows: Vec<Vec<String>> = baked.models.iter().map(|m| model_cells(m, total).to_vec()).collect();

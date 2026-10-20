@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 use super::{Button, Dialog, DialogCommand, DialogKind, Look, confirm};
 use crate::app::App;
 use crate::state::{CollisionQuestion, FileOp, MAX_CLASHES};
+use crate::{tl, tln};
 
 /// The dialog's title, question and buttons.
 pub const TITLE: &str = "Files with the Same Names";
@@ -152,9 +153,10 @@ pub fn remember_move_folder(app: &mut App, to: &Path) {
 /// The names the question lists: the first [`NAMED`], then "and %d more".
 pub fn named(files: &[String]) -> String {
     let shown: Vec<&str> = files.iter().take(NAMED).map(String::as_str).collect();
+    let list = shown.join(&tl!(ctx = "list", ", "));
     match files.len().saturating_sub(NAMED) {
-        0 => shown.join(", "),
-        more => format!("{} and {more} more", shown.join(", ")),
+        0 => list,
+        more => tln!(more, "{names} and {n} more", "{names} and {n} more", names = list),
     }
 }
 
@@ -169,11 +171,11 @@ pub fn run_params(q: &CollisionQuestion, collisions: &str) -> (&'static str, Val
 
 pub fn look(_app: &App, _d: &Dialog) -> Look {
     Look {
-        title: TITLE.into(),
+        title: tl!("Files with the Same Names"),
         width: confirm::WIDTH + 60.0,
         buttons: vec![
-            Button::new("renameDuplicates", RENAME, ButtonKind::Default),
-            Button::new("skipDuplicates", SKIP, ButtonKind::Other),
+            Button::new("renameDuplicates", tl!("Rename Duplicates"), ButtonKind::Default),
+            Button::new("skipDuplicates", tl!("Skip Duplicates"), ButtonKind::Other),
             Button::cancel(),
         ],
     }
@@ -181,7 +183,7 @@ pub fn look(_app: &App, _d: &Dialog) -> Look {
 
 pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     let t = *app.tokens();
-    ui.add(Label::new(RichText::new(TEXT).font(fonts::regular(t.body)).color(t.text)).wrap());
+    ui.add(Label::new(RichText::new(tl!("The folder already has files with the same names.")).font(fonts::regular(t.body)).color(t.text)).wrap());
     if let Some(q) = &app.state().collision
         && !q.files.is_empty()
     {
