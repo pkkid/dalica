@@ -482,7 +482,7 @@ pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
     });
     // egui has already dropped the focus of a field Esc ends this frame: the caption field says
     // whether it had it.
-    let text_input = ctx.egui_wants_keyboard_input() || crate::panels::edit::caption_bar::editing(ctx);
+    let text_input = ctx.text_edit_focused() || crate::panels::edit::caption_bar::editing(ctx);
     let view = if text_input { Context::Global } else { Context::EditView };
     let mut ran = Vec::new();
     for key in presses {

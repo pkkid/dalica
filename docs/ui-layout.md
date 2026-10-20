@@ -510,3 +510,46 @@ box stay. At 900 × 600 both rows and the six tabs fit the 280 pt panel.
   behaviour stops while full screen: no resize edges.
 - All regions must be verified by screenshot at 1400 × 900 and 900 × 600 (and 1100 × 700, where
   the narrow-window rules begin), with the side pane open and closed, and in full screen.
+
+## 12. Keyboard and screen readers
+
+Every part of the window is usable without a pointer and described to a screen reader
+(`SYS-A11Y`; `crates/ui/src/a11y.rs`, `a11y/keyboard.rs`, `panels/menubar.rs`).
+
+- **The menu bar.** F10, or Alt pressed and released on its own (Windows and Linux; not macOS,
+  where Option is no menu key), opens the first menu with the focus on its title; again, it closes
+  the menu. In an open menu Left and Right open the menu beside it (wrapping round), Down and Up
+  move through its enabled rows (wrapping; an open submenu's rows come right after its row), Enter
+  or Space runs the focused row or opens its submenu, Esc closes the menu and leaves the focus on
+  its title, and a second Esc leaves the menu bar. While a menu is open its keys are its own: the
+  arrows move no photo. Every command is reached by its shortcut or by a menu row this way.
+- **Tab.** Tab and Shift+Tab walk every control that takes the focus, region by region in
+  reading order (the menu bar, the room tabs, the toolbar, the tree, the light table and its scroll
+  bar, the side pane, the status line, the tray and the bottom rows; in the edit view its own
+  regions), and within a region in reading order: rows top to bottom, each left to right. They
+  wrap round. Under a dialog they cycle the dialog's controls only, in reading order (a field,
+  then the options under it, then the buttons left to right), never the window under it.
+- **A focused control** takes its own Enter and Space (a button presses, a toggle flips) and its
+  arrows (a slider moves, a row group steps); the view's shortcuts keep working (Ctrl+8 stars),
+  except while a text field has the focus. **A focused cell** of the light table leaves the
+  arrows to the selection, as without focus, and the focus follows the selected photo. Esc gives
+  the focus up.
+- **The focus is always shown**: the focus ring (`design-system.md` §9) on the window's controls,
+  egui's focus look on the menu rows.
+- **What a screen reader hears** (the AccessKit tree, built only while one asks for it): each
+  region is a named landmark: Menu bar, Rooms, Toolbar, Library tree (navigation), Light table
+  (main), the side pane by its pane's name (complementary), Status line, Photo tray, Tray buttons,
+  View controls, Actions; in the edit view its Edit toolbar, Filmstrip, Edit panel, Edit view
+  (main) and Caption; a room in front is the main landmark named after the room; a slideshow and
+  the photo viewer one main landmark each. The light table's visible cells are list items named by
+  the file name, selected or not, with "Starred", "Edited", "Video, 1:23" and the whole caption (a
+  long one is elided under the cell, never in the description), inside a group per section named by
+  its title. The tree's rows say their level, whether they are open (rows with rows below) and
+  "20 photos". The edit view's photo, the compared photo, the collage, the slideshow's photo and
+  the viewer's photo are images named by what they show, with their zoom, the open tool or the
+  photo's place in the show; the map is a group with its zoom (its markers are controls inside
+  it). Dialogs are modal dialogs titled as they are drawn. Cells and rows off screen are never
+  drawn, so never in the tree: the tree grows with the window, never with the library.
+- **Scaling.** At UI scale 150 % with the Large font the window at 1400 × 900 pixels (933 × 600
+  points), the edit view and every dialog keep their controls inside the window and no label is
+  cut at its side (`crates/ui/tests/scaling.rs`).

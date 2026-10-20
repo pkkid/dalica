@@ -129,6 +129,8 @@ impl App {
     pub fn install(&self, ctx: &egui::Context) {
         self.tokens.apply(ctx);
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        // The window's AccessKit tree: landmarks, the light table's cells and sections (`a11y`).
+        crate::a11y::install(ctx);
     }
 
     /// Prepares one frame's raw input (the window's `raw_input_hook`): on Windows a touchpad pinch
@@ -540,7 +542,10 @@ impl App {
         crate::keys::capture_for_editor(self, ui.ctx());
         // Esc ends a drag of photos before any shortcut sees it.
         crate::drag::escape(self, ui.ctx());
-        let keys = if self.state.dialogs.is_empty() {
+        // Keyboard-only use: Tab in reading order, the menu bar's F10, Alt and arrows; a focused
+        // control's or an open menu's Enter, Space and arrows are kept from the shortcuts.
+        let held = crate::a11y::keyboard::before_keys(self, ui.ctx());
+        let mut keys = if self.state.dialogs.is_empty() {
             // The edit view resolves keys in its own context, the open tool first; the library, a
             // room, a slideshow and the viewer in theirs (`keys::view_context`).
             match crate::keys::view_context(&self.state) {
@@ -556,6 +561,11 @@ impl App {
                 keys
             })
         };
+        if self.state.dialogs.is_empty() {
+            crate::a11y::keyboard::give_back(ui.ctx(), held);
+        } else {
+            keys.splice(0..0, held);
+        }
         let mut p = self.panels.take().unwrap_or_else(|| Panels::new(self.picker.clone()));
         if std::mem::take(&mut self.want_folder_picker) {
             p.add_folder();
@@ -575,6 +585,9 @@ impl App {
         self.notices.show(ui, &self.tokens, area, now);
         crate::dialogs::show(self, ui.ctx());
         self.tooltip = tooltip_text(ui.ctx());
+        // A focused cell follows the selection; the frame's nodes for the AccessKit tree.
+        crate::a11y::keyboard::after_frame(self, ui.ctx());
+        crate::a11y::describe(self, ui.ctx());
         // Not in the middle of a drag (the splitter): save once the button is up.
         if !ui.ctx().input(|i| i.pointer.any_down()) {
             self.save_view();

@@ -226,8 +226,8 @@ file and revision in its first lines:
                                              d95fdf31 (M15.12)
   apps/dalica/src/instance.rs                PhotoCraft apps/photocraft/src/single_instance.rs @ d95fdf31
                                              (M15.18; with apps/dalica/src/instance/**)
-  crates/ui/tests/accessibility.rs (tests)   LightCraft crates/ui-egui/tests/accessibility.rs @ 4f0b110b
-                                             (M15.29)
+  crates/ui/tests/accessibility.rs (tests)   LightCraft crates/ui-egui/tests/accessibility.rs @ d999e382
+                                             (M15.29; the same file as at 4f0b110b)
   crates/ui-kit/src/widgets/key_cell.rs (macOS shortcut text)
                                              LightCraft crates/ui-egui/src/menubar.rs @ b3d392b4 (M10.3)
   crates/ui-kit/tests/accessibility.rs (tests)

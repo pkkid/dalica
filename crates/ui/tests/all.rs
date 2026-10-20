@@ -2,6 +2,7 @@
 //! `cargo test -p dalica-ui --test all <file>::` runs one file.
 
 mod about;
+mod accessibility;
 mod activity;
 mod add_to_album;
 mod adjust_date;
@@ -53,6 +54,7 @@ mod import_camera;
 mod import_room;
 mod import_run_ui;
 mod jobs_control;
+mod keyboard_only;
 mod layout;
 mod legacy_ui;
 mod library_window;
@@ -86,6 +88,7 @@ mod save_as;
 mod save_ui;
 mod saved_picture;
 mod scale;
+mod scaling;
 mod scrollbar;
 mod search_ui;
 mod section_header;
