@@ -13,6 +13,7 @@ pub mod credits;
 pub mod dialogs;
 pub mod drag;
 pub mod headless;
+pub mod i18n;
 pub mod keys;
 pub mod menu_catalog;
 pub mod menus;

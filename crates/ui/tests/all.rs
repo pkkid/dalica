@@ -47,6 +47,7 @@ mod folder_move;
 mod folder_properties;
 mod heic_hint;
 mod hidden;
+mod i18n;
 mod idle_write_back;
 mod import_room;
 mod import_run_ui;

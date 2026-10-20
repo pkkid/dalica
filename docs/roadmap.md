@@ -9896,7 +9896,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     and restores the volume; `crates/ui-kit/tests/icons_video.rs`: each new icon stays in its grid
     at 12, 16, 20 and 28 px in rest, hover and disabled colours; gallery and icon fingerprints;
     `widget_ids`, contrast, `cargo xtask assets` and `cargo xtask names` pass.
-- ⬜ **M15.7 `ui` + `xtask`: the localisation core and the pseudo-locale**
+- ✅ **M15.7 `ui` + `xtask`: the localisation core and the pseudo-locale**
   - after: M10.10, M14.R
   - files: `crates/ui/src/i18n.rs`, `crates/ui/src/i18n/catalog.rs`, `crates/ui/src/i18n/plural.rs`, `crates/ui/src/i18n/languages.rs`, `crates/ui/src/i18n/system.rs`, `crates/ui/src/i18n/format.rs`, `crates/ui/src/i18n/pseudo.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/i18n.rs`, `xtask/src/i18n.rs`, `docs/localization.md`, `docs/development.md`
   - scope: `localization.md`, ported from PhotoCraft `crates/ui-egui/src/i18n/mod.rs`, `catalog.rs`
@@ -10576,7 +10576,7 @@ writes M16's blocks while M15 runs, as M16's outline asks.
     English and Thai keeps the open view, the selection and the undo history; a fingerprint of the
     library in Thai at 1400 × 900. If the spike failed: `LANGUAGES` lists English only, the
     pseudo-locale sweep still passes, and the PR names `SYS-I18N`'s Thai as leaving for M15.R.
-- ✅ **M15.41 `create` + `edit` + `engine`: M14's loose ends: two READMEs and one ratio table**
+- ⬜ **M15.41 `create` + `edit` + `engine`: M14's loose ends: two READMEs and one ratio table**
   - after: M14.R
   - files: `crates/create/README.md`, `crates/edit/README.md`, `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`
   - scope: what M14's tasks left outside their files (M14.24 gathered them from their PRs): (1)

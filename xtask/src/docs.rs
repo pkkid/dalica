@@ -18,7 +18,7 @@ pub fn mentions(text: &str) -> Vec<(usize, String, Option<String>)> {
             if !before_ok {
                 continue;
             }
-            let word: String = after.chars().take_while(|c| c.is_ascii_lowercase() || *c == '-').collect();
+            let word: String = after.chars().take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-').collect();
             if word.is_empty() {
                 continue;
             }
@@ -78,9 +78,9 @@ mod tests {
 
     #[test]
     fn finds_commands_and_tasks_subcommands() {
-        let m = mentions("run `cargo xtask ci` then cargo xtask tasks claim M1.4; | `xtask parity [--write]` |\nmy_xtask thing");
+        let m = mentions("run `cargo xtask ci` then cargo xtask tasks claim M1.4; | `xtask parity [--write]` |\nmy_xtask thing `xtask i18n`");
         let got: Vec<_> = m.iter().map(|(l, c, s)| (*l, c.as_str(), s.as_deref())).collect();
-        assert_eq!(got, [(1, "ci", None), (1, "tasks", Some("claim")), (1, "parity", None)]);
+        assert_eq!(got, [(1, "ci", None), (1, "tasks", Some("claim")), (1, "parity", None), (2, "i18n", None)]);
     }
 
     #[test]

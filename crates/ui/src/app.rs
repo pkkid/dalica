@@ -78,6 +78,7 @@ impl App {
     pub fn new(mut session: Option<Session>) -> App {
         if let Some(s) = &mut session {
             crate::keys::join_keymap(s);
+            s.set_languages(&crate::i18n::choices());
         }
         let mut app = App {
             state: UiState::default(),
@@ -162,6 +163,8 @@ impl App {
     /// Hands over the library once it has been opened (off the UI thread).
     pub fn set_session(&mut self, mut session: Session) {
         crate::keys::join_keymap(&mut session);
+        // Options ▸ General ▸ Language lists the window's registry (`localization.md`).
+        session.set_languages(&crate::i18n::choices());
         self.session = Some(session);
         if self.persist_view {
             self.restore_view();
@@ -480,6 +483,8 @@ impl App {
         if std::mem::take(&mut self.quit_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        // The language this frame is drawn in: `interface.language` (`DALICA_LANGUAGE` first).
+        crate::i18n::sync(ui.ctx(), self.session.as_ref().map(|s| s.settings().interface().language).as_deref());
         // UI scale and font size: the Options dialog's preview, else the saved settings.
         crate::scale::apply(ui.ctx(), &self.state, self.session.as_ref().map(Session::settings), &mut self.tokens);
         let Some(session) = &mut self.session else {

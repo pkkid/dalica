@@ -13,6 +13,7 @@ mod corpus;
 mod corpus_pins;
 mod deps;
 mod docs;
+mod i18n;
 mod layers;
 mod metadata;
 mod names;
@@ -42,6 +43,8 @@ commands:
   assets    every asset has an ATTRIBUTION.md row; licence files exist; no forbidden names or formats
   docs      every `cargo xtask` command the docs name exists (AGENTS.md, development.md, task-board.md)
   deps      audit dependencies: licences, banned and *-sys crates, C builds, sources (docs/security.md §8)
+  i18n      the translatable keys (tl! literals, command labels, options rows), each language's coverage; fails on a catalog fault
+            or a key a complete_menus language lacks (localization.md)
   layers    check crate dependencies against the layer table (docs/architecture.md §2)
   names     the reference product's name appears in no file but AGENTS.md
   parity    docs/parity.md is well formed and its evidence exists; --write regenerates the KEY rows and the summary; --p0: the P0 rows not ✅
@@ -63,6 +66,7 @@ pub const COMMANDS: &[&str] = &[
     "test-corpus",
     "docs",
     "deps",
+    "i18n",
     "layers",
     "names",
     "parity",
@@ -111,6 +115,7 @@ fn main() -> ExitCode {
         Some("docs") => docs::run(&root),
         Some("names") => names::run(&root),
         Some("test-layout") => test_layout::run(&root),
+        Some("i18n") => i18n::run(&root, args.get(1..).unwrap_or(&[])),
         Some("layers") => layers::run(&root),
         Some("tasks") => tasks::run(&root, args.get(1..).unwrap_or(&[])),
         Some("version") => version::run(&root, args.get(1..).unwrap_or(&[])),
