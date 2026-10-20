@@ -263,3 +263,28 @@ fn options_slideshow_loop_wraps_the_show() {
     run(&mut f, "slideshow.previous", json!({}));
     assert_eq!(show(&f).index, 2);
 }
+
+#[test]
+fn the_tabs_captions_display_time_and_transition_reach_the_settings() {
+    let mut f = setup(3, (96, 64));
+    let before = settings(&mut f);
+    f.d.run("app.preferences", &json!({ "tab": "slideshow" })).unwrap();
+    f.d.settle(FRAMES).unwrap();
+    f.d.click("check:option.slideshow.captions").unwrap();
+    f.d.settle(FRAMES).unwrap();
+    f.d.click("slider:option.slideshow.displayTime/value").unwrap();
+    f.d.key("Ctrl+A").unwrap();
+    f.d.type_text("7").unwrap();
+    f.d.key("Tab").unwrap();
+    f.d.settle(FRAMES).unwrap();
+    f.d.click("choice:option.slideshow.transition").unwrap();
+    f.d.settle(FRAMES).unwrap();
+    f.d.click("choice:option.slideshow.transition/wipe").unwrap();
+    f.d.settle(FRAMES).unwrap();
+    f.d.click("button:dialog.ok").unwrap();
+    f.d.settle(FRAMES).unwrap();
+    let after = settings(&mut f);
+    assert_eq!(after.captions, !before.captions);
+    assert_eq!(after.display_time, 7);
+    assert_eq!(after.transition, dalica_engine::settings::Transition::Wipe);
+}

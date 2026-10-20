@@ -296,3 +296,21 @@ fn import_commands_fail_gracefully() {
     assert_eq!(code(&mut s, "import.status", json!({ "x": 1 })), "bad_params");
     assert!(s.library().photos().next().is_none(), "nothing was imported");
 }
+
+#[test]
+fn today_names_the_folder_with_the_session_clocks_date() {
+    let _faults = shared();
+    let (lib, mounts, pictures) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut s = session_on(lib.path(), mounts.path());
+    let dcim = mounts.path().join("CARD").join("DCIM");
+    put_all(&dcim, (0..3u64).map(|i| (format!("100CANON/IMG_{:04}.JPG", i + 1), shot(i, i as i64 * 60))).collect());
+    open_card(&mut s, &dcim);
+    let dest = pictures.path().join("Imported");
+    let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let status = import(&mut s, json!({ "destination": dest, "folderName": { "today": true }, "after": "leave" }));
+    let after = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let days: Vec<String> = [before, after].iter().map(|t| DateTime::from_unix_secs(*t).unwrap().date().to_string()).collect();
+    let folder =
+        days.iter().map(|d| dest.join(d)).find(|f| !photos_in(&s, f).is_empty()).unwrap_or_else(|| panic!("no folder named {days:?}: {status}"));
+    assert_eq!(photos_in(&s, &folder), ["IMG_0001.JPG", "IMG_0002.JPG", "IMG_0003.JPG"]);
+}

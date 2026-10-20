@@ -131,3 +131,25 @@ fn a_folder_under_the_projects_directory_is_listed_in_projects() {
     assert_eq!(widget(&d, "tree:group:projects").label, "Projects (1)", "only Prints is a project");
     assert!(is_project(&d, &row) && !is_project(&d, &other));
 }
+
+#[test]
+fn a_watched_projects_directory_lists_its_folders_as_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let pictures = dir.path().join("Pictures");
+    let projects = pictures.join("Dalica");
+    let prints = projects.join("Prints");
+    dalica_fs::create_dir_all(&prints).unwrap();
+    let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(1, 240, 160), 85, None).unwrap();
+    dalica_fs::replace(&prints.join("IMG_0001.jpg"), &bytes, Expect::Absent).unwrap();
+    let mut s = Session::open(&dir.path().join("library"), Arc::new(SystemClock)).unwrap();
+    s.set_pictures_dir(Some(pictures.clone()));
+    s.execute("folders.add", &json!({ "path": projects })).unwrap();
+    s.wait_idle();
+    assert_eq!(s.projects_dir(), Some(projects.clone()));
+    let p = s.library().folder_by_path(&prints).unwrap();
+    let d = driver(s, (1400, 900));
+    let row = format!("tree:folder:{p}");
+    assert!(!d.widgets().iter().any(|w| w.id == "tree:group:projects"), "no Projects group");
+    let folders_header = widget(&d, "tree:group:folders");
+    assert!(widget(&d, &row).rect[1] > folders_header.rect[1] && !is_project(&d, &row), "Prints is a folder");
+}

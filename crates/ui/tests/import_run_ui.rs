@@ -303,3 +303,100 @@ fn the_empty_librarys_import_opens_the_room() {
     // No source yet: no destination strip.
     assert!(try_widget(&d, "importDestination").is_none());
 }
+
+#[test]
+fn a_cancelled_delete_after_import_never_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    let picker = ScriptedPicker::new();
+    picker.push_folder(pictures(dir.path()));
+    let mut d = driver(dir.path(), Some(picker));
+    choose_pictures(&mut d);
+    click(&mut d, "field:import.folderName");
+    d.type_text("Card").unwrap();
+    d.settle(FRAMES).unwrap();
+    click(&mut d, "choice:import.after");
+    click(&mut d, "choice:import.after/delete");
+    let (go, wait) = mpsc::channel::<()>();
+    let wait = Arc::new(Mutex::new(wait));
+    let gate = Arc::clone(&wait);
+    d.app_mut().session_mut().unwrap().set_import_gate(Some(Arc::new(move |n| {
+        if n == 1 {
+            let _ = gate.lock().unwrap().recv_timeout(Duration::from_secs(30));
+        }
+    })));
+    click_now(&mut d, "button:import.importAll");
+    let card = pictures(dir.path()).join("Card");
+    until(&mut d, "the second copy made", |d| status(d)["imported"] == 1 && files(&card).contains(&"IMG_0003.JPG".to_string()));
+    click_now(&mut d, "button:import.cancel");
+    go.send(()).unwrap();
+    until(&mut d, "the import ended", |d| status(d)["state"] == "cancelled");
+    d.settle(FRAMES).unwrap();
+    assert!(try_widget(&d, "dialog:removeFromCard").is_none(), "no question after a cancelled import");
+    assert_eq!(files(&roll(dir.path())).len(), CARD.len(), "nothing left the card");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_import_with_a_failure_stays_open_listing_it_and_never_asks() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let picker = ScriptedPicker::new();
+    picker.push_folder(pictures(dir.path()));
+    let mut d = driver(dir.path(), Some(picker));
+    let bad = roll(dir.path()).join("IMG_0004.JPG");
+    std::fs::set_permissions(&bad, std::fs::Permissions::from_mode(0o000)).unwrap();
+    choose_pictures(&mut d);
+    click(&mut d, "field:import.folderName");
+    d.type_text("Card").unwrap();
+    d.settle(FRAMES).unwrap();
+    click(&mut d, "choice:import.after");
+    click(&mut d, "choice:import.after/delete");
+    click(&mut d, "button:import.importAll");
+    until(&mut d, "the import ended", |d| status(d)["state"] != "running");
+    d.settle(FRAMES).unwrap();
+    std::fs::set_permissions(&bad, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let st = status(&mut d);
+    assert_eq!(d.state().room, Room::Import, "the room stays open: {st}");
+    assert!(try_widget(&d, "dialog:removeFromCard").is_none(), "no question after a failure");
+    assert_eq!(widget(&d, "text:import.result").label, "Imported 3 pictures; 1 could not be imported:", "{st}");
+    assert!(widget(&d, "text:import.failure/0").label.starts_with("IMG_0004.JPG: "), "the failed file has its own line");
+    assert_eq!(files(&roll(dir.path())).len(), CARD.len(), "nothing left the card");
+}
+
+#[test]
+fn todays_date_in_the_room_and_an_import_ending_behind_the_library_tab() {
+    let dir = tempfile::tempdir().unwrap();
+    let picker = ScriptedPicker::new();
+    picker.push_folder(pictures(dir.path()));
+    let mut d = driver(dir.path(), Some(picker));
+    choose_pictures(&mut d);
+    click(&mut d, "choice:import.folderName");
+    click(&mut d, "choice:import.folderName/today");
+    assert_eq!(widget(&d, "text:import.hint").label, "Pictures will go into a folder named with today's date");
+    let (go, wait) = mpsc::channel::<()>();
+    let wait = Arc::new(Mutex::new(wait));
+    let gate = Arc::clone(&wait);
+    d.app_mut().session_mut().unwrap().set_import_gate(Some(Arc::new(move |n| {
+        if n == 1 {
+            let _ = gate.lock().unwrap().recv_timeout(Duration::from_secs(30));
+        }
+    })));
+    let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    click_now(&mut d, "button:import.importAll");
+    until(&mut d, "the second copy made", |d| status(d)["imported"] == 1);
+    // The Library tab in front while the job ends.
+    d.run("room.select", &json!({ "room": "library" })).unwrap();
+    go.send(()).unwrap();
+    until(&mut d, "the import ended", |d| status(d)["state"] != "running");
+    for _ in 0..10 {
+        d.step();
+    }
+    assert_eq!(d.state().room, Room::Library, "the library stays in front");
+    d.run("room.select", &json!({ "room": "import" })).unwrap();
+    until(&mut d, "finished when the room is next drawn", |d| d.state().rooms == [Room::Library]);
+    let after = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let days: Vec<PathBuf> =
+        [before, after].iter().map(|t| pictures(dir.path()).join(dalica_core::DateTime::from_unix_secs(*t).unwrap().date().to_string())).collect();
+    let made = days.iter().find(|p| p.exists()).unwrap_or_else(|| panic!("no folder {days:?}"));
+    assert_eq!(files(made), ["IMG_0002.JPG", "IMG_0003.JPG", "IMG_0004.JPG", "IMG_0005.JPG"]);
+}

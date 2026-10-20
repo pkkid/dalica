@@ -204,3 +204,21 @@ fn undo_all_edits_asks_then_removes_and_matches_its_fingerprint() {
     assert_eq!(edits(&t, ids[3]), ["autocolor()"], "a photo outside the tray keeps its edits");
     assert_eq!(t.d.app().session().unwrap().undo_stack().undo_label(), Some("Remove Edits"));
 }
+
+#[test]
+fn batch_edit_rename_opens_rename_files_for_the_trays_photos() {
+    let mut t = setup(5, None);
+    let held: Vec<PhotoId> = t.ids[..3].to_vec();
+    select(&mut t, &held);
+    run(&mut t, "tray.hold", json!({}));
+    let fifth = t.ids[4];
+    select(&mut t, &[fifth]);
+    menu(&mut t, "Picture/Batch Edit/Rename…");
+    let draft = t.d.state().rename_files.clone().expect("Rename Files is open");
+    let mut got = draft.ids.clone();
+    got.sort();
+    let mut want: Vec<PhotoId> = held.clone();
+    want.push(t.ids[4]);
+    want.sort();
+    assert_eq!(got, want, "the tray's photos: the held ones and the selection");
+}
