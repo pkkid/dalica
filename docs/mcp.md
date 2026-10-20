@@ -269,11 +269,16 @@ with one addition: **client roots**.
   `export.defaults` of a person's section suggests its fallback name (`Export <date>`), not the
   person's, so the `export` tool's default folder names nobody. The commands themselves run as
   asked (naming a face works without the permission; its reply carries ids only), but for the
-  searches: `library.query`, `search.set` and `slideshow.list` run with `"withholdNames": true`
-  (`Policy::people_params`, `control-protocol.md` §6.4), so `query_photos {query: "person:Ana"}`
-  and the plain word `Ana` find nothing by her name (`person` unavailable), while everything else
-  matches as before and the filter by person id still holds: no reply tells a guessed name from
-  an unknown one.
+  searches: `library.query`, `search.set`, `search.suggest` and `slideshow.list` run with
+  `"withholdNames": true` (`Policy::people_params`, `control-protocol.md` §6.4), so
+  `query_photos {query: "person:Ana"}` and the plain word `Ana` find nothing by her name (`person`
+  unavailable), while everything else matches as before and the filter by person id still holds:
+  no reply tells a guessed name from an unknown one. A person's export folder is withheld as the
+  control channel withholds it (`control-protocol.md` §6.13): `jobs.list`, `jobs.wait` and the
+  final job entry a tool that started an export answers (`cmd_export_run`, `command_run`) give that
+  job's `result.folder`, `result.name` and `result.written` `null` and its failures' reasons `null`
+  (counts kept), no job gives a path into the folder it made, searches find no photo through the
+  folder's name and `search.suggest` does not suggest it (`Session::job_for_automation`; M15.51).
 - `--read-only` overrides all of this: nothing is written at all. Commands that write files
   (saves, exports, file operations) answer `read_only`; every other change stays in memory. The
   refusal lives in the engine's session, not in the tools (`security.md` §6.6).

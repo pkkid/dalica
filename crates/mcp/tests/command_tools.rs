@@ -254,3 +254,56 @@ fn connect_mode_adds_the_ui_commands() {
     assert_eq!(r, json!({ "method": "engine.execute", "params": { "command": "pane.tags", "params": { "on": true } } }));
     c.close();
 }
+
+/// Headless MCP routes jobs through the same withholding as the control channel (`mcp.md` §5,
+/// `control-protocol.md` §6.13): without `--automation-allow-people`, an export of a person's
+/// section answers its tool call, `jobs.wait` and `jobs.list` with `result.folder`, `result.name`
+/// and `result.written` `null` (its counts kept), and the scan that brings the folder into the
+/// library names no path into it; with the permission they name it. Known by the job and the
+/// folder the session marked.
+#[test]
+fn a_persons_export_job_keeps_her_folder_from_headless_mcp_without_the_people_permission() {
+    use dalica_engine::automation::Policy;
+    use dalica_mcp::NoProgress;
+
+    for allow in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Photos");
+        std::fs::create_dir_all(&folder).unwrap();
+        for i in 0..2u64 {
+            let scene = dalica_scenes::Scene::new(i, 120, 80);
+            std::fs::write(folder.join(format!("IMG_{:04}.jpg", i + 1)), dalica_scenes::jpeg(&scene, 90, None).unwrap()).unwrap();
+        }
+        let mut policy = Policy::default();
+        policy.set_allow_people(allow);
+        let mut h = Headless::open_with(Source::Empty, std::slice::from_ref(&folder), policy, false).unwrap();
+        h.session_mut().wait_idle();
+        let run = |h: &mut Headless, command: &str, params: Value| {
+            h.call("engine.execute", json!({ "command": command, "params": params }), &mut NoProgress).unwrap()
+        };
+        let face = run(&mut h, "faces.add", json!({ "id": 1, "rect": [0.2, 0.2, 0.5, 0.6] }))["face"].clone();
+        let person = run(&mut h, "faces.name", json!({ "faces": [face], "name": "Ana", "create": true }))["person"].clone();
+        let section = format!("person:{}", person.as_str().unwrap());
+        let ended = run(&mut h, "export.run", json!({ "section": section, "dir": folder, "folderName": "Ana", "size": 100 }));
+        h.session_mut().wait_idle();
+        let job = ended["job"].clone();
+        let waited = h.call("jobs.wait", json!({ "job": job }), &mut NoProgress).unwrap();
+        let listed = h.call("jobs.list", json!({}), &mut NoProgress).unwrap();
+        let entry = listed.as_array().unwrap().iter().find(|e| e["job"] == job).unwrap().clone();
+        let at = format!("allow_people {allow}");
+        for (what, e) in [("the tool's report", &ended), ("jobs.wait", &waited), ("jobs.list", &entry)] {
+            let r = &e["result"];
+            assert_eq!(r["done"], json!(1), "{at}: {what}: the counts stay: {e}");
+            if allow {
+                assert_eq!((&r["folder"], &r["name"]), (&json!(folder.join("Ana")), &json!("Ana")), "{at}: {what}");
+                assert_eq!(r["written"].as_array().map(Vec::len), Some(1), "{at}: {what}");
+            } else {
+                assert_eq!((&r["folder"], &r["name"], &r["written"]), (&Value::Null, &Value::Null, &Value::Null), "{at}: {what}: {e}");
+            }
+        }
+        // No job (nor the scan that brought the folder in) gives a path into it.
+        let quoted = json!(folder.join("Ana")).to_string();
+        let path = quoted.trim_matches('"');
+        assert_eq!(listed.to_string().contains(path), allow, "{at}: {listed}");
+    }
+}

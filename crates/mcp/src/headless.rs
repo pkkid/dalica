@@ -26,9 +26,14 @@
 //!   descriptors never leave, whatever was granted. The one other reply that would name a person,
 //!   `export.defaults` of a person's section (`folderName`, the person's name), suggests the
 //!   dialog's fallback name (`Export <date>`) instead, so the `export` tool's folder carries no name.
-//!   Searches (`library.query`, `search.set`, so `query_photos`) run without the permission with
-//!   people's names left out of the match ([`Policy::people_params`]): `person:` finds nothing and
-//!   is `unavailable`, plain words skip names; the filter by person id still holds.
+//!   Searches (`library.query`, `search.set`, `search.suggest`, so `query_photos`) run without the
+//!   permission with people's names left out of the match ([`Policy::people_params`]): `person:`
+//!   finds nothing and is `unavailable`, plain words skip names, no folder a person's export made
+//!   is suggested; the filter by person id still holds. Jobs (`jobs.list`, `jobs.wait` and the
+//!   final entry a command that started one answers) go through
+//!   [`Session::job_for_automation`] as the control channel's do: a person's export has its
+//!   folder, name, written files and failure reasons `null`, and no job gives a path into the
+//!   folder it made (`control-protocol.md` §6.13).
 //! - **Face models**: the session looks for them in [`dalica_engine::faces_scan::default_models_dir`],
 //!   as the app and the CLI do, so a model installed there scans faces here too.
 //! - **`engine.commands`**, **`jobs.list`**, **`jobs.wait`**, **`jobs.cancel`** as in
@@ -259,9 +264,17 @@ impl Headless {
         }
         self.wait_jobs(&jobs, progress)?;
         match named.and_then(|j| self.session.job(j)) {
-            Some(entry) => Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
+            Some(entry) => Ok(self.job_reply(&entry)),
             None => Ok(value),
         }
+    }
+
+    /// Job `entry` as automation may see it (`control-protocol.md` §6.13, as the control channel
+    /// gives it): without the people permission a person's export has its folder, name and written
+    /// files `null`, and every job's paths into a folder such an export made too
+    /// ([`Session::job_for_automation`]).
+    fn job_reply(&self, entry: &JobEntry) -> Value {
+        self.session.job_for_automation(entry, self.roots.policy().allow_people())
     }
 
     /// The reply of command `id` (run with `params`) as automation may see it: through
@@ -510,7 +523,7 @@ impl Headless {
             return Err(ToolError::new("limit", format!("`timeoutMs` is at most {JOBS_WAIT_MS}, not {ms}")));
         }
         let entry = self.session.wait_job(job, Duration::from_millis(ms))?;
-        let mut v = serde_json::to_value(&entry).unwrap_or(Value::Null);
+        let mut v = self.job_reply(&entry);
         if !entry.state.is_finished()
             && let Some(o) = v.as_object_mut()
         {
@@ -528,7 +541,7 @@ impl Backend for Headless {
             "engine.commands" => self.commands(&params),
             "jobs.list" => {
                 fields(&params, &[], method)?;
-                Ok(serde_json::to_value(self.session.jobs()).unwrap_or(Value::Null))
+                Ok(Value::Array(self.session.jobs().iter().map(|e| self.job_reply(e)).collect()))
             }
             "jobs.wait" => self.jobs_wait(&params),
             "engine.group" => self.group(&params),

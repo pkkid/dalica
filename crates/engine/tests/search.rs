@@ -528,3 +528,59 @@ fn every_command_fails_gracefully() {
     assert_eq!(fx.s.library().model(), &model);
     assert_eq!(fx.s.undo_stack().len(), 0);
 }
+
+/// `search.suggest` with `withholdNames` (automation without the people permission,
+/// `control-protocol.md` §6.13) suggests no folder a person's export made, known by the folder the
+/// session marked; another folder of the same letters still comes, and without the switch (the
+/// permission) so does hers. A search run with names withheld carries the same suggestions.
+#[test]
+fn suggestions_leave_out_a_persons_export_folder_while_names_are_withheld() {
+    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let lisbon = disk.path().join("Lisbon");
+    dalica_fs::create_dir_all(&lisbon).unwrap();
+    for i in 1..=2u64 {
+        dalica_fs::replace(&lisbon.join(format!("IMG_{i:04}.jpg")), &crate::common::jpeg(i), dalica_fs::Expect::Absent).unwrap();
+    }
+    let clock = crate::common::virtual_clock();
+    let mut s = crate::common::open_with(lib.path(), clock.clone());
+    s.execute("folders.add", &json!({ "path": lisbon })).unwrap();
+    s.wait_idle();
+    let first = s.library().photos().map(|p| p.id).min().unwrap();
+    let face = s.execute("faces.add", &json!({ "id": first, "rect": [0.2, 0.2, 0.4, 0.5] })).unwrap()["face"].clone();
+    let ana = s.execute("faces.name", &json!({ "faces": [face], "name": "Ana", "create": true })).unwrap()["person"].clone();
+    let patience = Duration::from_secs(120);
+    let export = |s: &mut Session, section: String, name: &str| {
+        let reply = s.execute("export.run", &json!({ "section": section, "dir": lisbon, "folderName": name, "size": 100 })).unwrap();
+        s.wait_job(reply["job"].as_u64().unwrap(), patience).unwrap();
+        s.wait_idle();
+    };
+    export(&mut s, format!("person:{}", ana.as_str().unwrap()), "Ana");
+    let folder = s.library().folder_by_path(&lisbon).unwrap();
+    export(&mut s, format!("folder:{folder}"), "Anchorage");
+    let hers = format!("folder:{}", s.library().folder_by_path(&lisbon.join("Ana")).expect("the scan brought her folder in"));
+    let other = format!("folder:{}", s.library().folder_by_path(&lisbon.join("Anchorage")).expect("and the other"));
+    let folders = |v: &Value| -> Vec<String> {
+        let mut f: Vec<String> = v["suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|x| x["kind"] == "folder")
+            .map(|x| x["section"].as_str().unwrap().to_string())
+            .collect();
+        f.sort();
+        f
+    };
+    let suggest = |s: &mut Session, withhold: bool| s.execute("search.suggest", &json!({ "text": "an", "withholdNames": withhold })).unwrap();
+    assert_eq!(folders(&suggest(&mut s, false)), [hers.clone(), other.clone()], "with the permission her folder is suggested");
+    assert_eq!(folders(&suggest(&mut s, true)), std::slice::from_ref(&other), "without it only the other");
+
+    s.execute("search.set", &json!({ "text": "an", "withholdNames": true })).unwrap();
+    clock.advance(DEBOUNCE);
+    s.poll();
+    s.wait_search();
+    let carried =
+        s.search_state().result.as_ref().unwrap().suggestions.iter().filter_map(|x| x.section.as_ref().map(ToString::to_string)).collect::<Vec<_>>();
+    assert!(carried.contains(&other) && !carried.contains(&hers), "{carried:?}");
+    assert_eq!(folders(&suggest(&mut s, true)), [other], "from the search's own suggestions");
+    drop(lib);
+}

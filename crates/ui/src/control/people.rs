@@ -24,7 +24,12 @@
 //! - **A person's export folder** ([`widgets`]): the folders an export of a person's section made
 //!   (the session's marks, `dalica_engine::automation::PersonExports`): their tree rows
 //!   (`tree:folder:<id>`, "Ana (12)" → "Person (12)") and their sections' header, icon and title
-//!   (`section:folder:<id>`, `/icon`, `/title`).
+//!   (`section:folder:<id>`, `/icon`, `/title`); the status line's folder prefix in the edit view on
+//!   a photo of such a folder (`ui.state`'s `status` and `text:status`: "Ana › IMG_0001.jpg …" →
+//!   "Person › IMG_0001.jpg …", [`status`]); and the toast of such an export whose files failed
+//!   (`toast:<n>` and `ui.inspect`'s `toasts`), which leaves out the reasons, as they may name the
+//!   folder's path ("Could not export IMG_0001.jpg", `crate::notices::Toast::bare`). Known by the
+//!   photo's folder and by the export's job, never by the text; the window shows the names.
 //! - **Menus** ([`nodes`]): the same people rows in `ui.menu.tree` (the face and person menus) and
 //!   in the model `ui.menu.invoke` looks a path up in.
 //! - **The view state** ([`state`]): the names typed in the Unnamed grid (`unnamed.names`), Add a
@@ -50,13 +55,15 @@ use serde_json::Value;
 use super::Config;
 use crate::app::App;
 use crate::menus::Node;
-use crate::state::{DialogKind, DropAt, FaceRef};
+use crate::state::{DialogKind, DropAt, FaceRef, Section};
 
 /// What stands where a name was.
 pub const PLACEHOLDER: &str = "Person";
 
 /// A face tile's label when it shows no name (ui-kit's `face_tile` with `FaceLabel::None`).
 const UNNAMED_FACE: &str = "Unnamed face";
+/// The status line's text widget.
+const STATUS_TEXT: &str = "text:status";
 /// A face box's label when it has no name (ui-kit's `face_box`).
 const UNNAMED_BOX: &str = "Face";
 /// The filter banner's words before the people's names (`commands::people_pane::banner`).
@@ -81,8 +88,11 @@ pub(super) fn withheld(config: &Config) -> bool {
 pub(super) fn widgets(app: &App, list: &mut [WidgetInfo]) -> HashSet<String> {
     let ids: HashSet<&str> = list.iter().map(|w| w.id.as_str()).collect();
     let named = app.session().map(dalica_engine::Session::person_export_folders).unwrap_or_default();
-    let changes: Vec<(usize, String)> =
-        list.iter().enumerate().filter_map(|(i, w)| label(app, &ids, w).or_else(|| folder_label(&named, w)).map(|l| (i, l))).collect();
+    let changes: Vec<(usize, String)> = list
+        .iter()
+        .enumerate()
+        .filter_map(|(i, w)| label(app, &ids, w).or_else(|| folder_label(&named, w)).or_else(|| export_text(app, w)).map(|l| (i, l)))
+        .collect();
     let mut changed = HashSet::with_capacity(changes.len());
     for (i, l) in changes {
         if let Some(w) = list.get_mut(i) {
@@ -153,6 +163,53 @@ fn folder_label(named: &[FolderId], w: &WidgetInfo) -> Option<String> {
     let rest = w.id.strip_prefix("section:folder:")?;
     let (folder, part) = rest.split_once('/').map_or((rest, None), |(f, part)| (f, Some(part)));
     (is_named(folder) && matches!(part, None | Some("icon" | "title"))).then(|| PLACEHOLDER.to_string())
+}
+
+/// The label of the status line (`text:status`, its folder prefix, [`status_line`]) or of the toast
+/// of a person's export (`toast:<n>`, without its failures' reasons) when it would tell the folder a
+/// person's export made.
+fn export_text(app: &App, w: &WidgetInfo) -> Option<String> {
+    if w.id == STATUS_TEXT {
+        return status_line(app, &w.label);
+    }
+    if w.id.starts_with("toast:") {
+        let session = app.session()?;
+        let toast = app.notices().toast(&w.id)?;
+        let bare = toast.bare(&|j| session.person_exports().is_job(j));
+        return (bare != toast.text).then(|| bare.to_string());
+    }
+    None
+}
+
+/// `ui.state`'s `status` with the edit view's folder prefix the placeholder while the photo shown
+/// lies in a folder a person's export made ([`status_line`]).
+pub(super) fn status(app: &App, v: &mut Value) {
+    if let Some(Value::String(line)) = v.get_mut("status")
+        && let Some(held) = status_line(app, line)
+    {
+        *line = held;
+    }
+}
+
+/// The status line `line` with its folder prefix ("Ana › IMG_0001.jpg …", `status_text::PREFIX_SEP`)
+/// [`PLACEHOLDER`], when the edit view shows a photo of a folder a person's export made (the
+/// session's marks, by the photo's folder): the prefix the line drew is that folder's section title,
+/// else its name. `None` otherwise, and for a line that does not start with it (fitted without the
+/// prefix, or a transient message).
+fn status_line(app: &App, line: &str) -> Option<String> {
+    let state = app.state();
+    if !state.edit_photo_shown() {
+        return None;
+    }
+    let session = app.session()?;
+    let photo = session.library().photo(state.edit.photo?)?;
+    if !session.person_export_folders().contains(&photo.folder) {
+        return None;
+    }
+    let title = app.panels().and_then(|p| p.sections.get(Section::Folder(photo.folder))).map(|s| s.title.clone());
+    let name = session.library().folder(photo.folder).map(|f| crate::panels::light_table::folder_name(&f.path));
+    let sep = crate::status_text::PREFIX_SEP;
+    title.into_iter().chain(name).find_map(|prefix| line.strip_prefix(&format!("{prefix}{sep}")).map(|rest| format!("{PLACEHOLDER}{sep}{rest}")))
 }
 
 /// Whether menu row `widget` names a person (`menuitem:faces.moveToPerson/<PersonId>`, …).

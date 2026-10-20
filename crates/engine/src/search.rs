@@ -49,7 +49,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
-use dalica_core::{PersonId, PhotoId, Timestamp};
+use dalica_core::{FolderId, PersonId, PhotoId, Timestamp};
 use dalica_library::search::{Age, Filters, MAX_SUGGESTIONS, People, Query, Scope, SearchIndex, SectionCount, Suggestion, Update};
 use dalica_library::{AlbumTree, FolderSort, Library, Op, SectionFilter, Tree, TreeMode, TreeOptions};
 use serde_json::{Value, json};
@@ -348,7 +348,10 @@ impl Replica {
         let scope = self.scope(&ask.roots, &ask.options);
         let found = self.index.search_with(&ask.query, &ask.who, &scope);
         let seconds = start.elapsed().as_secs_f64();
-        let suggestions = if ask.suggest { self.index.suggest(&ask.query.text, &scope, MAX_SUGGESTIONS) } else { Vec::new() };
+        let mut suggestions = if ask.suggest { self.index.suggest(&ask.query.text, &scope, MAX_SUGGESTIONS) } else { Vec::new() };
+        if ask.who.withhold_names {
+            without_named_folders(&mut suggestions, &ask.who.named_folders);
+        }
         SearchResult {
             generation,
             text: ask.query.text.clone(),
@@ -426,6 +429,14 @@ fn handle(replica: &mut Replica, request: Request, run: bool, tx: &Sender<Reply>
             let scope = replica.scope(&roots, &options);
             let _ = reply.send(replica.index.suggest(&text, &scope, limit));
         }
+    }
+}
+
+/// `list` without the suggestions of the folders `named` (those a person's export made,
+/// `automation::PersonExports`): by the folder's section, never by its name.
+fn without_named_folders(list: &mut Vec<Suggestion>, named: &[FolderId]) {
+    if !named.is_empty() {
+        list.retain(|s| !matches!(s.section, Some(dalica_library::Section::Folder(f)) if named.contains(&f)));
     }
 }
 
@@ -689,15 +700,26 @@ impl Session {
 
     /// Suggestions for the last word of `text` (`search.suggest`), at most `limit`: from the last
     /// result when it answers this text and nothing changed since, else asked of the worker now.
-    pub(crate) fn search_suggestions(&mut self, text: &str, limit: usize) -> Result<Vec<Suggestion>, CmdError> {
+    /// With `withhold_names`, none of a folder a person's export made
+    /// (`Session::person_export_folders`, known by the folder, never by its name).
+    pub(crate) fn search_suggestions(&mut self, text: &str, limit: usize, withhold_names: bool) -> Result<Vec<Suggestion>, CmdError> {
         let limit = limit.min(MAX_SUGGESTIONS);
+        let named = if withhold_names { self.person_export_folders() } else { Vec::new() };
         if let Some(r) = self.search.fresh().filter(|r| r.text == text) {
-            return Ok(r.suggestions.iter().take(limit).cloned().collect());
+            let mut list = r.suggestions.clone();
+            without_named_folders(&mut list, &named);
+            list.truncate(limit);
+            return Ok(list);
         }
         let (roots, options) = (self.roots().to_vec(), self.search_tree_options());
         let (reply, answer) = mpsc::channel();
-        self.ask_worker(Request::Suggest { text: text.to_string(), limit, roots, options, reply })?;
-        answer.recv().map_err(|_| self.search_worker_stopped())
+        // As many more as may be left out (the index gives at most `MAX_SUGGESTIONS`).
+        let asked = limit.saturating_add(named.len());
+        self.ask_worker(Request::Suggest { text: text.to_string(), limit: asked, roots, options, reply })?;
+        let mut list = answer.recv().map_err(|_| self.search_worker_stopped())?;
+        without_named_folders(&mut list, &named);
+        list.truncate(limit);
+        Ok(list)
     }
 
     fn ask_worker(&mut self, request: Request) -> Result<(), CmdError> {

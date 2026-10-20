@@ -22,6 +22,12 @@
 //!
 //!   A file operation's job (kind `files`: photos or folders moved, copied, renamed or trashed)
 //!   gives no toast of its own here ([`job_toast`]); its notice comes from its `FileOpEvent`.
+//!
+//!   A job's toast remembers its job and the text without the reasons its files failed ("Could not
+//!   export IMG_0041.jpg", [`Toast::bare`]): a reason may name the path of the folder an export of
+//!   a person's section made, which automation without the people permission must not read
+//!   ([`Notices::inspect_withholding`], `control-protocol.md` §6.13; known by the job the session
+//!   marked, never by the text).
 //! - **File operations** (`dalica_engine::FileOpEvent`, `organizing.md` §9): each operation, undo
 //!   or redo that ends becomes one toast ([`op_toast`]), worded from its kind and direction with
 //!   its count: "Moved 3 photos to Lisbon", "Copied 1 photo to Porto", "Renamed 3 photos", "Moved 2
@@ -113,9 +119,22 @@ pub struct JobToast {
     pub action: Option<Action>,
 }
 
+/// A file job's end as [`Notices::poll`] takes it: its event number, job, and toast with the text
+/// without the failures' reasons, if it gives one.
+type Ended = (u64, JobId, Option<(JobToast, String)>);
+
+/// What a toast of a job adds ([`Notices::push_job`]): the job, and the text without the reasons
+/// its files failed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JobOf {
+    pub job: JobId,
+    pub bare: String,
+}
+
 /// One toast: its number (the `<n>` of `toast:<n>`), text, how many characters at the start of
-/// the text stay whole if it is cut short, kind, when it appeared (seconds on the frame clock) and
-/// its button, if any.
+/// the text stay whole if it is cut short, kind, when it appeared (seconds on the frame clock), its
+/// button, if any, and for a file job's toast the job and its text without the failures' reasons
+/// (`of`, [`Toast::bare`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Toast {
     pub n: u64,
@@ -124,9 +143,19 @@ pub struct Toast {
     pub kind: ToastKind,
     pub shown_at: f64,
     pub action: Option<Action>,
+    pub of: Option<JobOf>,
 }
 
 impl Toast {
+    /// Its text as a client may read it that must not learn the folder of job `held`'s export:
+    /// without the failures' reasons when it is a toast of a job `held` names, else the text.
+    pub fn bare(&self, held: &dyn Fn(JobId) -> bool) -> &str {
+        match &self.of {
+            Some(of) if held(of.job) => &of.bare,
+            _ => &self.text,
+        }
+    }
+
     /// Whether it stays until its button is pressed (the legacy notice).
     pub fn sticky(&self) -> bool {
         self.action == Some(Action::LegacyOk)
@@ -195,6 +224,17 @@ impl Notices {
 
     /// [`Notices::push_keeping`] with a button.
     pub fn push_with(&mut self, text: &str, whole: &str, kind: ToastKind, action: Option<Action>, now: f64) {
+        self.push_of(text, whole, kind, action, None, now);
+    }
+
+    /// The toast `t` of file job `job`, its text without the failures' reasons `bare`
+    /// ([`Toast::bare`]).
+    pub fn push_job(&mut self, t: JobToast, job: JobId, bare: &str, now: f64) {
+        let of = JobOf { job, bare: clean(bare) };
+        self.push_of(&t.text, &t.whole, t.kind, t.action, Some(of), now);
+    }
+
+    fn push_of(&mut self, text: &str, whole: &str, kind: ToastKind, action: Option<Action>, of: Option<JobOf>, now: f64) {
         let text = clean(text);
         let whole = clean(whole);
         let keep = if whole.is_empty() {
@@ -209,7 +249,7 @@ impl Notices {
             let oldest = self.toasts.iter().position(|t| !t.sticky()).unwrap_or(0);
             self.toasts.remove(oldest);
         }
-        self.toasts.push(Toast { n: self.next, text, keep, kind, shown_at: if now.is_finite() { now } else { 0.0 }, action });
+        self.toasts.push(Toast { n: self.next, text, keep, kind, shown_at: if now.is_finite() { now } else { 0.0 }, action, of });
     }
 
     /// Notes that file job `job` writes `path` (Save As's chosen path), so a failure of it names
@@ -236,16 +276,19 @@ impl Notices {
             self.seen = self.seen.max(seq);
             self.push_keeping(&text, &file, ToastKind::Caution, now);
         }
-        let ended: Vec<(u64, JobId, Option<JobToast>)> = session
+        let ended: Vec<Ended> = session
             .file_job_events()
             .filter(|e| self.seen_jobs.is_none_or(|s| e.seq > s))
-            .map(|e| (e.seq, e.job, job_toast(e, self.tried.iter().find(|(j, _)| *j == e.job).map(|(_, p)| p.as_path()))))
+            .map(|e| {
+                let tried = self.tried.iter().find(|(j, _)| *j == e.job).map(|(_, p)| p.as_path());
+                (e.seq, e.job, job_toast(e, tried).map(|t| (t, bare_text(e, tried))))
+            })
             .collect();
         for (seq, job, t) in ended {
             self.tried.retain(|(j, _)| *j != job);
             self.seen_jobs = Some(self.seen_jobs.map_or(seq, |s| s.max(seq)));
-            if let Some(t) = t {
-                self.push_with(&t.text, &t.whole, t.kind, t.action, now);
+            if let Some((t, bare)) = t {
+                self.push_job(t, job, &bare, now);
             }
         }
         let ops: Vec<(u64, JobToast)> =
@@ -260,6 +303,13 @@ impl Notices {
             self.legacy_shown = true;
             self.push_with(&legacy_text(folders), "", ToastKind::Info, Some(Action::LegacyOk), now);
         }
+    }
+
+    /// The toast with widget id `id` (`toast:<n>`) still kept, if any: its label in `ui.widgets`
+    /// follows [`Toast::bare`].
+    pub fn toast(&self, id: &str) -> Option<&Toast> {
+        let n: u64 = id.strip_prefix("toast:")?.parse().ok()?;
+        self.toasts.iter().find(|t| t.n == n)
     }
 
     /// The folder a Show Folder pressed asks for, while it waits ([`act`]).
@@ -295,6 +345,12 @@ impl Notices {
     /// or `error`, `remaining` in seconds, `null` for the legacy notice, which stays until OK;
     /// `action` its button: `{id, folder}` for Show Folder, `{id}` for OK).
     pub fn inspect(&self, now: f64) -> Value {
+        self.inspect_withholding(now, &|_| false)
+    }
+
+    /// [`Notices::inspect`] with the toasts of the jobs `held` names giving their text without
+    /// the failures' reasons ([`Toast::bare`]).
+    pub fn inspect_withholding(&self, now: f64, held: &dyn Fn(JobId) -> bool) -> Value {
         let list: Vec<Value> = self
             .showing(now)
             .map(|toast| {
@@ -303,7 +359,7 @@ impl Notices {
                     ToastKind::Caution => "caution",
                     ToastKind::Error => "error",
                 };
-                let mut v = json!({ "id": format!("toast:{}", toast.n), "text": toast.text, "kind": kind, "remaining": toast.remaining(now) });
+                let mut v = json!({ "id": format!("toast:{}", toast.n), "text": toast.bare(held), "kind": kind, "remaining": toast.remaining(now) });
                 match (&toast.action, v.as_object_mut()) {
                     (Some(Action::ShowFolder(folder)), Some(o)) => {
                         o.insert("action".into(), json!({ "id": SHOW_FOLDER_ID, "folder": folder }));
@@ -339,6 +395,17 @@ pub fn event_toast(e: &FileJobEvent) -> JobToast {
 /// chosen name, "Could not save Second Try.jpg: a file of that name already exists") rather than
 /// the photo it was saving.
 fn tried_toast(e: &FileJobEvent, tried: Option<&Path>) -> JobToast {
+    worded(e, tried, true)
+}
+
+/// The text of [`tried_toast`] without the reasons the files failed ("Could not export
+/// IMG_0041.jpg, and 2 more"): a reason may name the path written to.
+pub fn bare_text(e: &FileJobEvent, tried: Option<&Path>) -> String {
+    worded(e, tried, false).text
+}
+
+/// [`tried_toast`], the first failure's reason told when `reasons`.
+fn worded(e: &FileJobEvent, tried: Option<&Path>, reasons: bool) -> JobToast {
     let action = e.folder.clone().map(Action::ShowFolder);
     let Some(first) = e.failures.first() else {
         return JobToast { text: e.message.clone(), whole: String::new(), kind: ToastKind::Info, action };
@@ -350,7 +417,8 @@ fn tried_toast(e: &FileJobEvent, tried: Option<&Path>) -> JobToast {
     };
     let file = tried.unwrap_or(&first.file);
     let name = file.file_name().map_or_else(|| file.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
-    let mut detail = format!("Could not {verb} {name}: {}", first.reason.trim_end_matches('.'));
+    let mut detail =
+        if reasons { format!("Could not {verb} {name}: {}", first.reason.trim_end_matches('.')) } else { format!("Could not {verb} {name}") };
     let more = e.failures.len().saturating_sub(1);
     if more > 0 {
         detail.push_str(&format!(", and {more} more"));
