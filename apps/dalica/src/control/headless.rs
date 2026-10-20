@@ -83,6 +83,9 @@ pub fn run(hub: &Hub, control: &Control, session: Session, mut receiver: Option<
         answer_quit(p, &flushed);
         hub.wait_quit_written(QUIT_REPLY_WAIT);
     }
+    // The reply to the request whose key or click closed `dalica --view`'s viewer reaches its
+    // client before the process exits.
+    hub.wait_replies_written(QUIT_REPLY_WAIT);
     flushed.is_ok()
 }
 
