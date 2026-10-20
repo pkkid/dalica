@@ -1251,7 +1251,7 @@ fn the_new_menu_items_are_listed_and_greyed() {
     assert!(person.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Person/Merge Into"));
     // The bar: Tools ▸ Geotag's Clear Location… greyed with no located photo selected (M13.22),
     // Copy and Paste Location are the engine's (M13.14: Copy live, Paste greyed with nothing
-    // copied); the other M13 rows not live yet; View ▸ People and Places live.
+    // copied); People Manager not live yet (Write People Names, live since M15.R, is `write_people_names_opens_its_question_from_the_menu_bar`); View ▸ People and Places live.
     let copy = row(&mut t, "geo.copy", Value::Null);
     assert_eq!((&copy["live"], &copy["enabled"]), (&json!(true), &json!(true)), "geo.copy: {copy}");
     let paste = row(&mut t, "geo.paste", Value::Null);
@@ -1260,11 +1260,7 @@ fn the_new_menu_items_are_listed_and_greyed() {
     // Picture ▸ Find Faces Again is the engine's (M13.18).
     let reset = row(&mut t, "faces.reset", Value::Null);
     assert_eq!((&reset["live"], &reset["enabled"]), (&json!(true), &json!(true)), "faces.reset: {reset}");
-    for (id, live, reason) in [
-        ("geo.clear", true, dalica_engine::cmd::places::NONE_LOCATED),
-        ("faces.writeXmp", false, "Not available yet."),
-        ("people.manager", false, "Not available yet."),
-    ] {
+    for (id, live, reason) in [("geo.clear", true, dalica_engine::cmd::places::NONE_LOCATED), ("people.manager", false, "Not available yet.")] {
         let r = row(&mut t, id, Value::Null);
         assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(live), &json!(false), &json!(reason)), "{id}: {r}");
     }
@@ -1800,4 +1796,25 @@ fn the_os_rows_wait_and_the_default_viewer_question_is_drawn() {
     ok(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.cancel" }));
     assert!(t.d.app().state().dialogs.is_empty(), "Not Now closes it");
     assert_eq!(state(&mut t)["defaultViewer"], Value::Null);
+}
+
+/// Tools ▸ Experimental ▸ Write People Names to Photos… is live in the menu bar: greyed with
+/// nothing selected, enabled on a selection, and invoking it by its id asks the question
+/// (`writePeopleNames`) on the selected photos (PPL-XMP).
+#[test]
+fn write_people_names_opens_its_question_from_the_menu_bar() {
+    let mut t = setup();
+    let p = t.photos[0];
+    ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [] } }));
+    let r = row(&mut t, "faces.writeXmp", Value::Null);
+    assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!("Select some photos first.")), "{r}");
+    ok(&mut t, "engine.execute", json!({ "command": "select.set", "params": { "ids": [p] } }));
+    let r = row(&mut t, "faces.writeXmp", Value::Null);
+    assert_eq!((&r["live"], &r["enabled"], &r["dialog"]), (&json!(true), &json!(true), &json!("writePeopleNames")), "{r}");
+    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "id": "faces.writeXmp" }))["dialog"], "writePeopleNames");
+    t.d.settle(FRAMES).unwrap();
+    let dialog = t.d.app().state().dialogs.last().cloned().unwrap();
+    assert_eq!(dialog.kind.name(), "writePeopleNames");
+    let question = dialog.command.unwrap();
+    assert_eq!((question.id.as_str(), &question.params["ids"]), ("faces.writeXmp", &json!([p])));
 }

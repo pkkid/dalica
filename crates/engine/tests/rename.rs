@@ -589,3 +589,22 @@ fn a_check_that_saw_a_renamed_watched_folder_gone_only_delays_its_writes() {
     l.s.flush().unwrap();
     assert_eq!(entry(&lisbon, "a.jpg").unwrap()["star"], json!(true), "the star made meanwhile landed");
 }
+
+#[test]
+fn a_renamed_saved_photo_takes_its_original_along_and_revert_still_works() {
+    let mut l = Lib::new(2);
+    let lisbon = l.folder("Lisbon");
+    let id = l.photo("Lisbon", "IMG_0001.jpg");
+    let first = read(&lisbon.join("IMG_0001.jpg"));
+    l.s.execute("photo.history.apply", &json!({ "id": id, "op": "sepia()" })).unwrap();
+    l.run("photo.save", json!({ "ids": [id], "confirm": true }));
+    let originals = lisbon.join(".dalica-originals");
+    assert_eq!(files(&originals).iter().filter(|n| n.ends_with(".jpg")).cloned().collect::<Vec<_>>(), ["IMG_0001.jpg"]);
+    l.run("photo.rename", json!({ "ids": [id], "name": "Tram" }));
+    assert_eq!(l.name(id), "Tram.jpg");
+    assert_eq!(files(&originals).iter().filter(|n| n.ends_with(".jpg")).cloned().collect::<Vec<_>>(), ["Tram.jpg"], "the backup travelled");
+    let record = read_json(&originals.join(".dalica.json")).unwrap();
+    assert!(record["originals"].get("Tram.jpg").is_some() && record["originals"].get("IMG_0001.jpg").is_none(), "{record}");
+    l.run("photo.revert", json!({ "ids": [id], "confirm": true }));
+    assert_eq!(read(&lisbon.join("Tram.jpg")), first, "Revert gives the original bytes under the new name");
+}

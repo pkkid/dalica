@@ -347,3 +347,16 @@ fn the_face_scan_reads_the_photos_and_never_the_clip() {
     assert_eq!((stat(&mut lib.s, "started"), stat(&mut lib.s, "read"), stat(&mut lib.s, "failed")), (2, 2, 0), "the two photos, never the clip");
     assert!(lib.s.library().faces(lib.clip()).is_empty());
 }
+
+#[test]
+fn paste_all_edits_skips_the_video_and_names_it() {
+    let mut lib = Lib::new();
+    let [a, b, clip] = lib.ids;
+    lib.run("photo.history.apply", json!({ "id": a, "op": "sepia()" }));
+    lib.run("edit.copyRecipe", json!({ "id": a }));
+    let v = lib.run("edit.pasteRecipe", json!({ "ids": [b, clip] }));
+    assert_eq!(lib.s.library().info(b).edits, ["sepia()"]);
+    assert!(lib.s.library().info(clip).edits.is_empty(), "the clip takes nothing");
+    let skipped = v["skipped"].as_array().unwrap_or_else(|| panic!("{v}"));
+    assert!(skipped.iter().any(|e| e["id"] == json!(clip) && e["reason"].as_str().is_some_and(|r| !r.is_empty())), "{v}");
+}

@@ -417,3 +417,21 @@ fn the_toolbar_banner_and_empty_state_match_their_fingerprints() {
     answer(d);
     check_region(d, "region:lightTable", &format!("region-no-results-{case}"));
 }
+
+#[test]
+fn the_fields_x_leaves_search_mode_and_f3_focuses_the_field() {
+    let mut fx = fixture((1400, 900));
+    let d = &mut fx.d;
+    let all = sections(d);
+    search_for(d, "harbour");
+    assert!(has(d, "banner:search"));
+    assert!(has(d, "button:search.clear"), "the field shows its ×");
+    d.click("button:search.clear").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().search.text, "");
+    assert!(!d.app().session().unwrap().search_state().active() && !has(d, "banner:search"));
+    assert_eq!(sections(d), all);
+    d.key("F3").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(try_widget(d, "field:search").unwrap().active, "F3 focuses the search field");
+}

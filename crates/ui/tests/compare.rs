@@ -207,3 +207,46 @@ fn a_wheel_notch_over_one_side_zooms_both() {
     assert!(other.scale > other.fit * 1.05, "the side under the wheel zoomed: {other:?}");
     assert!((focused.scale - other.scale).abs() < 1e-4, "and the other side with it: {} vs {}", focused.scale, other.scale);
 }
+
+#[test]
+fn keep_version_dont_ask_again_keeps_the_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, mut d, ids) = editing(dir.path());
+    let photo = ids[0];
+    click(&mut d, "button:compare.same");
+    click(&mut d, "canvas:edit.other");
+    click(&mut d, "tool:autofix");
+    click(&mut d, "button:compare.one");
+    assert_eq!(widget(&d, "dialog:keepVersion").label, "Keep Which Version?");
+    click(&mut d, "check:dialog.dontAsk");
+    click(&mut d, "button:dialog.right");
+    assert_eq!(edits(&d, photo), ["autofix()"]);
+    assert_eq!(d.app().session().unwrap().settings().compare().keep, dalica_engine::settings::KeepVersion::Right);
+    // Again with sides that differ: no question, the right side kept.
+    click(&mut d, "button:compare.same");
+    click(&mut d, "canvas:edit.other");
+    click(&mut d, "tool:autofix");
+    click(&mut d, "button:compare.one");
+    assert!(!d.widgets().iter().any(|w| w.id == "dialog:keepVersion"), "not asked again");
+    assert_eq!(d.state().edit.compare, Compare::One);
+    assert_eq!(edits(&d, photo).len(), 2, "the right side kept again: {:?}", edits(&d, photo));
+}
+
+#[test]
+fn apply_changes_dont_ask_again_always_applies() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, mut d, _) = editing(dir.path());
+    click(&mut d, "button:compare.two");
+    click(&mut d, "tool:crop");
+    click(&mut d, "button:compare.switchFocus");
+    assert_eq!(widget(&d, "dialog:applyChanges").label, "Apply Changes");
+    click(&mut d, "check:dialog.dontAsk");
+    click(&mut d, "button:dialog.apply");
+    assert_eq!((d.state().edit.tool, d.state().edit.focus), (None, Side::Left), "applied, then switched");
+    assert!(!d.app().session().unwrap().settings().compare().ask_before_applying);
+    click(&mut d, "tool:crop");
+    assert_eq!(d.state().edit.tool, Some(ToolKind::Crop));
+    click(&mut d, "button:compare.switchFocus");
+    assert!(!d.widgets().iter().any(|w| w.id == "dialog:applyChanges"), "not asked again");
+    assert_eq!((d.state().edit.tool, d.state().edit.focus), (None, Side::Right), "applied and switched");
+}

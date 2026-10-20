@@ -103,6 +103,7 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("people.rename", "renamePerson"),
     ("people.merge", "mergePeople"),
     ("people.delete", "deletePerson"),
+    ("faces.writeXmp", "writePeopleNames"),
     ("geo.clear", "clearLocation"),
 ];
 

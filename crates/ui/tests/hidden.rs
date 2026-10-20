@@ -206,3 +206,38 @@ fn a_hidden_folder_moves_to_hidden_folders_and_its_section_shows_only_with_hidde
     d.settle(FRAMES).unwrap();
     assert!(has(&d, &row) && !has(&d, "tree:group:hidden") && shows_section(&d, target), "{w}");
 }
+
+#[test]
+fn the_arrows_step_over_a_hidden_photo() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(library(dir.path(), 1, 5), (1400, 900));
+    let order = section_photos(&d);
+    d.run("photo.hide", &json!({ "ids": [order[1]] })).unwrap();
+    d.settle(FRAMES).unwrap();
+    d.run("select.set", &json!({ "ids": [order[0]] })).unwrap();
+    d.settle(FRAMES).unwrap();
+    d.key("Right").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().selection.ids, vec![order[2]], "Right steps over the hidden photo");
+    d.key("Left").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().selection.ids, vec![order[0]], "Left steps back over it");
+    d.key("Shift+Right").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(!d.state().selection.ids.contains(&order[1]), "Shift+Right never takes it: {:?}", d.state().selection.ids);
+}
+
+#[test]
+fn a_hidden_photo_with_edits_counts_in_the_headers_edited() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(library(dir.path(), 1, 5), (1400, 900));
+    let order = section_photos(&d);
+    for p in &order[..2] {
+        d.run("photo.history.apply", &json!({ "id": p, "op": "autofix()" })).unwrap();
+    }
+    d.run("photo.hide", &json!({ "ids": [order[1]] })).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(!has(&d, &format!("thumb:{}", order[1])));
+    let section = d.app().panels().unwrap().sections.list.iter().find(|s| s.folder.is_some()).unwrap().id;
+    assert_eq!(d.app().panels().unwrap().light_table.headers.edited(section), Some(2), "the hidden edited photo counts");
+}
