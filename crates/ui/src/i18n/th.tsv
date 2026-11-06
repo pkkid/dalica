@@ -268,7 +268,9 @@
 ~	Delete Folder…	ลบโฟลเดอร์…
 ~	Delete Page Format	ลบรูปแบบหน้า
 ~	Delete Person	ลบบุคคล
+~	Delete copied files from the camera	ลบไฟล์ที่คัดลอกแล้วออกจากกล้อง
 ~	Delete copied files from the card	ลบไฟล์ที่คัดลอกแล้วออกจากการ์ด
+~	Delete copied files from the drive	ลบไฟล์ที่คัดลอกแล้วออกจากไดรฟ์
 ~	Delete from Disk…	ลบออกจากดิสก์…
 ~	Delete from disk without asking	ลบออกจากดิสก์โดยไม่ถาม
 ~	Delete the album "{name}"? The pictures in it are not deleted.	ลบอัลบั้ม "{name}" หรือไม่ รูปภาพในอัลบั้มจะไม่ถูกลบ
@@ -506,7 +508,9 @@
 ~	Large	ใหญ่
 ~	Last Photo	รูปภาพสุดท้าย
 ~	Last commit	คอมมิตล่าสุด
+~	Leave files on the camera	เก็บไฟล์ไว้ในกล้อง
 ~	Leave files on the card	เก็บไฟล์ไว้ในการ์ด
+~	Leave files on the drive	เก็บไฟล์ไว้ในไดรฟ์
 ~	Legacy Notice Shown	แสดงประกาศข้อมูลเดิมแล้ว
 ~	Library	คลังภาพ
 ~	Library View	มุมมองคลังภาพ

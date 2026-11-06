@@ -918,6 +918,19 @@ fn the_section_filter_drops_sections_without_matches_in_flat_and_tree_mode() {
 }
 
 #[test]
+fn a_search_with_no_text_and_a_filter_names_its_album_search_results() {
+    let (fx, _) = with_albums();
+    let b = ids_in(&fx, folder_named(&fx, "Beach"));
+    // A filter alone (Videos, Starred, an age) searches with no text: no quotes round nothing.
+    let filter = Some(Arc::new(SectionFilter::new([b[0]])));
+    for text in ["", "  "] {
+        let t = AlbumTree::build(&fx.lib, &TreeOptions { filter: filter.clone(), search: Some(text.into()), ..TreeOptions::default() });
+        assert_eq!(t.rows[0].album, AlbumRef::Search);
+        assert_eq!(album_lines(&t)[0], "Search results (1)", "{text:?}");
+    }
+}
+
+#[test]
 fn section_photos_come_in_each_sections_order() {
     let (mut fx, albums) = with_albums();
     let beach = folder_named(&fx, "Beach");

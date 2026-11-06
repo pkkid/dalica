@@ -184,7 +184,8 @@ Layout, top to bottom:
      capture date), **"Today's date"**, plus recently used names. An existing folder name imports
      into that folder (an improvement over the reference, which could not).
    - **"After copying:"** (only for removable/camera sources): **"Leave files on the card"**
-     (default) or **"Delete copied files from the card"**.
+     (default) or **"Delete copied files from the card"**, naming the source: "the camera" for a
+     camera or phone, "the drive" for a removable drive, "the card" for a card.
 5. Hint line with a light-bulb icon, state dependent: "Choose a folder name to continue" → "Click
    Import All or Import Selected" / "Each capture date gets its own folder" / "Pictures will go
    into a folder named with today's date".

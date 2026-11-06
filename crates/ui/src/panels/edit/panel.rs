@@ -192,7 +192,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         video_panel(app, ui);
         return;
     }
-    let need = needed_height(app.tokens(), app.state().edit.tab);
+    let tab = app.state().edit.tab;
+    // Basic Fixes measures its labels: one wrapped onto a second line makes its row taller.
+    let need = match tab {
+        EditTab::Basic => basic::needed_height(ui.ctx(), app.tokens(), ui.max_rect().width() - 2.0 * MARGIN),
+        _ => needed_height(app.tokens(), tab),
+    };
     // The line counting the previous organizer's edits sits on top of Undo / Redo.
     let p = parts_with_line(ui.max_rect(), need, history::line_height(app));
     // A modal tool (Crop, Straighten, Retouch) holds the panel until Apply or Cancel.

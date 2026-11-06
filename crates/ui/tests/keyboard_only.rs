@@ -3,7 +3,8 @@
 //! from the keyboard and Enter runs the focused one; every shortcut is a key a keyboard can press;
 //! Tab and Shift+Tab walk the window's controls region by region in reading order, and cycle each
 //! dialog's controls in reading order without leaving it; a focused control takes its own Enter
-//! and Space; a focused cell leaves the arrows to the selection and the focus follows it.
+//! and Space; a focused cell leaves the arrows to the selection and the focus follows it, and shows
+//! the focus ring until Esc.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -441,6 +442,40 @@ fn arrows_on_a_focused_cell_move_the_selection_the_focus_follows_and_shortcuts_s
     press(&mut d, "Ctrl+8");
     let starred = d.app().session().unwrap().library().photo(dalica_core::PhotoId::new(anchor)).unwrap().star;
     assert!(starred, "Ctrl+8 starred the selected photo");
+}
+
+/// How many pixels of the column 1.5 pt left of `rect`'s left edge (inside the focus ring, which
+/// starts 1 pt outside the cell) are the focus colour, of how many.
+fn ring_pixels(d: &Driver, rect: [f32; 4]) -> (usize, usize) {
+    let shot = d.screenshot().unwrap();
+    let want = dalica_ui_kit::widgets::focus_color(d.app().tokens()).to_array();
+    let x = (rect[0] - 1.5).floor() as u32;
+    let rows = (rect[1].ceil() as u32 + 2)..((rect[1] + rect[3]).floor() as u32).saturating_sub(2);
+    let n = rows.len();
+    let hits = rows.filter(|y| shot.pixel(x, *y).is_some_and(|p| p.iter().zip(want).take(3).all(|(a, b)| a.abs_diff(b) <= 24))).count();
+    (hits, n)
+}
+
+#[test]
+fn a_cell_focused_with_tab_shows_the_focus_ring_and_esc_takes_it_away() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = demo(dir.path());
+    for _ in 0..80 {
+        press(&mut d, "Tab");
+        if focused(&d) == "thumb:1" {
+            break;
+        }
+    }
+    assert_eq!(focused(&d), "thumb:1");
+    d.settle(FRAMES).unwrap();
+    let rect = widget(&d, "thumb:1").rect;
+    let (hits, n) = ring_pixels(&d, rect);
+    assert!(n > 20 && hits == n, "the focus colour 1 pt outside the focused cell: {hits} of {n} pixels");
+    press(&mut d, "Esc");
+    d.settle(FRAMES).unwrap();
+    assert_eq!(focused(&d), "-");
+    let (hits, _) = ring_pixels(&d, rect);
+    assert_eq!(hits, 0, "Esc took the ring away");
 }
 
 /// The keyboard's marks, painted for a look at 1400 × 900 and 900 × 600: the File menu opened with

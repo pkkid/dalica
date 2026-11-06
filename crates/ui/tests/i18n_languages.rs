@@ -3,7 +3,8 @@
 //! 0, 1, 2, 5 and 21 and its text carries break marks between words (`docs/thai-text.md`). The
 //! library, the edit view and the Options dialog drawn in Thai at 1400 × 900 and 900 × 600: no
 //! label cut at the side of its area, no text left in English but user data and the names kept in
-//! Latin letters, every wrapped Thai label broken only between words, and
+//! Latin letters, every wrapped Thai label broken only between words, every Basic Fixes label drawn
+//! whole (on two lines if need be, never cut with "…"), and
 //! (built with `CRAFT_FONTS_DIR`) every character drawn by a face that has it, every mark above or
 //! below its consonant; switching between English and Thai keeps the view, the selection and the
 //! undo history; every command's label has a Thai entry (the macro-made ones `cargo xtask i18n`
@@ -284,6 +285,41 @@ fn the_library_the_edit_view_and_options_in_thai_fit_and_wrap_between_words() {
         assert!(cut.is_empty(), "{size:?}: {} labels clipped:\n{}", cut.len(), cut.into_iter().collect::<Vec<_>>().join("\n"));
         assert!(faults.is_empty(), "{size:?}: {} faults:\n{}", faults.len(), faults.into_iter().collect::<Vec<_>>().join("\n"));
     }
+}
+
+/// In Thai at 900 × 600 a Basic Fixes label too wide for its button (Auto Contrast) wraps onto a
+/// second line at a break mark rather than being cut with "…"; the grid grows by that line and the
+/// Fill Light row still ends above Undo / Redo.
+#[test]
+fn in_thai_every_basic_fixes_label_is_drawn_whole() {
+    use dalica_ui::panels::edit::{basic, panel};
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = thai_library(dir.path(), SMALL);
+    let first = d.app().session().unwrap().library().photos().next().unwrap().id;
+    d.run("select.set", &json!({ "ids": [first.get()] })).unwrap();
+    d.run("view.edit", &json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
+    let buttons: Vec<(String, egui::Rect)> = basic::TOOLS
+        .iter()
+        .map(|(id, ..)| {
+            let r = crate::common::widget(&d, id).rect;
+            (id.to_string(), egui::Rect::from_min_size(egui::pos2(r[0], r[1]), egui::vec2(r[2], r[3])))
+        })
+        .collect();
+    let shapes = crate::accessibility::frame(&mut d, Vec::new()).shapes;
+    let labels: Vec<(String, TextShape)> = texts(&shapes)
+        .into_iter()
+        .filter_map(|(t, _)| buttons.iter().find(|(_, r)| r.contains_rect(t.visual_bounding_rect())).map(|(id, _)| (id.clone(), t)))
+        .collect();
+    assert_eq!(labels.len(), 6, "{:?}", labels.iter().map(|l| &l.0).collect::<Vec<_>>());
+    let cut: Vec<String> = labels.iter().filter(|(_, t)| t.galley.elided).map(|(id, t)| format!("{id}: {:?}", t.galley.text())).collect();
+    assert!(cut.is_empty(), "labels cut with \u{2026}: {cut:?}");
+    let wrapped = labels.iter().find(|(id, _)| id == "tool:autocontrast").map(|(_, t)| t.galley.rows.len());
+    assert_eq!(wrapped, Some(2), "Auto Contrast takes two lines");
+    let (contrast, undo) = (crate::common::widget(&d, "tool:autocontrast").rect, crate::common::widget(&d, "button:edit.undo").rect);
+    let fill_bottom = contrast[1] + contrast[3] + basic::FILL_GAP + basic::FILL_H;
+    assert!(fill_bottom <= undo[1] - panel::MARGIN + 0.01, "Fill Light ends at {fill_bottom}, under Undo at {undo:?}");
+    shot(&d, "i18n-th-basic-fixes-900x600");
 }
 
 /// The texts the next frame draws.

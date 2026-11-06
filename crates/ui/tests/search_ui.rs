@@ -6,7 +6,8 @@
 //! - typing narrows the light table to the matching sections, and the banner says "Showing 20
 //!   pictures in 1 folder (… s) · 212.2 KB" with the engine's numbers;
 //! - each filter and the age combine with the text (the matches are the intersection), the age
-//!   slider reading "Pictures up to 1 week old"; Faces is live (M13.27);
+//!   slider reading "Pictures up to 1 week old"; Faces is live (M13.27); a filter alone names the
+//!   search album "Search results";
 //! - Show All leaves search mode and brings the scroll position back; Ctrl+F focuses the field,
 //!   and Esc there does the same;
 //! - a suggestion picked with ↓ and Enter puts `tag:<tag>` in the field and searches it;
@@ -219,6 +220,22 @@ fn filters_and_the_age_combine_with_the_text() {
     assert_eq!(matches(d), recent.intersection(&hills_all).copied().collect());
     // The hovered slider's label replaces the caption.
     d.hover("slider:age", 100).unwrap();
+}
+
+/// A filter alone searches with no text: the search album is "Search results", not
+/// `Search results for ""`, in the tree and over its section.
+#[test]
+fn the_videos_filter_alone_titles_the_album_search_results() {
+    let mut fx = fixture((1400, 900));
+    let d = &mut fx.d;
+    d.click("button:filter.videos").unwrap();
+    answer(d);
+    assert!(has(d, "banner:search"), "a filter alone is search mode");
+    let row = try_widget(d, "tree:album:search").expect("the search album's row");
+    assert_eq!(row.label, format!("Search results ({})", matches(d).len()));
+    let titles: Vec<String> =
+        d.app().panels().unwrap().sections.list.iter().filter(|s| s.id == Section::Album(AlbumSection::Search)).map(|s| s.title.clone()).collect();
+    assert!(titles.iter().all(|t| t == "Search results"), "{titles:?}");
 }
 
 /// The autocomplete lists the tags for the last word; ↓ and Enter put `tag:<tag>` in the field.
