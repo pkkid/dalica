@@ -38,6 +38,35 @@ What a crate lacks is named. A candidate that passes only with a licence or depe
 counts as failing until the maintainer answers (§8). `unsafe` is counted, not judged: the bar does
 not exclude it, so where a pass rests on `unsafe` code it is said, and §8 asks.
 
+**The playback bar** (M15.R's answer to §8 question 3, 2026-10-20; M16.14). 1080p30 is the
+real-time bar: the player decodes a 1080p30 clip's frame, converted and scaled as it shows it,
+within **16 ms** at p95, so a 60 Hz window shows every frame. The `video_play` bench
+(`development.md` §8) judges it: its procedural `h264 1080p` clip's `decode frame` row against
+`VIDEO_DECODE_CAP_MS` (16; the smaller of it and 1.5 × the first measurement), and the phone
+clips' 1080p30 rows (`IMG_6851.MOV`; `IMG_0445.MOV` in an `hevc` build) against the same cap
+when `corpus/video` is fetched (named as skipped when not). 4K60 (`BTS_iPhone12mini_4K60.MOV`,
+the procedural `h264 4k` clip until the maintainer's Android 4K H.264 clip joins §9), HDR (HLG
+tone mapping) and 1080p60 (`M-6_Fun_Fact.MOV`) are best effort: printed, never held to the cap.
+The bar is judged as `cargo xtask budgets` runs, unpinned on the review machine (the player
+decodes with half its hardware threads, at most eight); the lead's decision, 2026-11-05, logged
+for M16.R. Measured 2026-11-05 on the 24-thread workstation (load 8 to 18), release, p95:
+
+| Row | Unpinned (8 decoding threads) | Two hardware threads (`taskset -c 0,1`, one) |
+|---|---|---|
+| procedural H.264 1080p30 | 4.6 ms | 14.6 to 16.2 ms (two runs; the cores shared with other work) |
+| iPhone 13 H.264 1080p30 (`IMG_6851`) | 11.1 ms | 26.5 to 48.0 ms (misses; not how the bar is judged) |
+| iPhone 7 Plus HEVC 1080p30 (`IMG_0445`, `hevc` build) | 50.8 ms (p50 23.2) | not measured |
+| procedural H.264 4K60 (best effort) | 8.2 ms | 28.0 to 31.2 ms |
+| iPhone 12 mini H.264 4K60 (best effort) | 14.8 ms | 40.6 to 69.0 ms |
+| iPhone 13 HEVC Main 10 HLG 1080p60 (best effort) | 36.8 ms | not measured |
+
+Playing on across a key frame no longer starts the decoder again (it used to, at every group of
+pictures: 90 to 130 ms for an HEVC 1080p frame, 65 to 80 ms for the 4K60 H.264 one), which took
+the 4K60 phone row from 19.6 to 14.8 ms. The HEVC 1080p30 row still misses: `rusty_h265` has no
+threads of its own, and one picture takes 18 to 21 ms on one core here (conversion 3 ms more),
+so no read-ahead of Dalica's own reaches 16 ms per frame asked; the question is on M16.14's
+issue for M16.R.
+
 One limit came from running the spike: every decoder run was capped at 3 GB of address space
 (`ulimit -v 3000000`), one run at a time, after an uncapped parallel run took the shared machine
 down. A decoder that cannot decode a phone clip inside that cap fails on memory.

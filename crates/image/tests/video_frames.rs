@@ -87,6 +87,29 @@ fn the_frame_at_a_time_and_stepping_both_ways() {
 }
 
 #[test]
+fn playing_on_across_key_frames_never_starts_the_decoder_again() {
+    // Key frames every tenth: frame after frame to the end decodes from the first one only, and
+    // gives the frames a seek to each gives.
+    let mut src = open(clip(50, IDENTITY, None, b"avc1")).unwrap();
+    let mut played = Vec::new();
+    while let Some(f) = src.next_frame().unwrap() {
+        played.push(f);
+    }
+    assert_eq!(played.len(), 50);
+    assert_eq!(src.starts(), 1, "one start for 50 frames over five key frames");
+    let mut fresh = open(clip(50, IDENTITY, None, b"avc1")).unwrap();
+    for i in [9, 10, 11, 30, 49] {
+        assert_eq!(fresh.frame(i).unwrap(), played[i], "frame {i}");
+        assert_eq!(frame_of(&played[i].image), Some(i));
+    }
+    // A jump over a key frame still seeks: decoding from the one before the target is cheaper.
+    let starts = fresh.starts();
+    fresh.frame(0).unwrap();
+    fresh.frame(25).unwrap();
+    assert_eq!(fresh.starts(), starts + 2);
+}
+
+#[test]
 fn a_turned_clip_comes_out_upright_and_scaled() {
     let mut src = open(clip(12, QUARTER, None, b"avc1")).unwrap();
     assert_eq!(src.info().rotation, 1);

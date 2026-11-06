@@ -273,6 +273,8 @@ pub struct FrameSource {
     behind: VecDeque<Frame>,
     buf: Vec<u8>,
     converter: yuv::Converter,
+    /// Times decoding began at a sync sample ([`FrameSource::starts`]).
+    starts: usize,
 }
 
 const HIDDEN: u32 = u32::MAX;
@@ -330,6 +332,7 @@ impl FrameSource {
             behind: VecDeque::new(),
             buf: Vec::new(),
             converter: yuv::Converter::default(),
+            starts: 0,
             track,
         };
         source.index()?;
@@ -461,10 +464,12 @@ impl FrameSource {
             return Ok(f);
         }
         // Going on from where the decoder stands is cheaper than a seek when no sync sample lies
-        // between the two.
+        // between the two, and always for the very next frame: playing on across a key frame
+        // never starts the decoder again (a new start there decodes the key frame's group anew,
+        // and an open group's leading pictures the group before it too).
         if let Some(cur) = self.decoded
             && cur < index
-            && self.sync_before(index) <= self.decode_index(cur)
+            && (index == cur + 1 || self.sync_before(index) <= self.decode_index(cur))
         {
             while let Some((d, raw)) = self.next_raw()? {
                 if d >= index {
@@ -495,6 +500,12 @@ impl FrameSource {
     /// The frame returned last.
     pub fn current_index(&self) -> Option<usize> {
         self.last
+    }
+
+    /// How many times decoding began at a sync sample: the first frame asked for, and each seek
+    /// since (playing on frame after frame, across key frames too, begins none).
+    pub fn starts(&self) -> usize {
+        self.starts
     }
 
     fn decode_index(&self, display: usize) -> usize {
@@ -551,6 +562,7 @@ impl FrameSource {
     /// Starts decoding again at decode index `start`.
     fn restart(&mut self, start: usize) -> FrameResult<()> {
         self.decoded = None;
+        self.starts = self.starts.saturating_add(1);
         match self.decoder.as_mut() {
             Some(Codec::H264(h)) => h.reset()?,
             #[cfg(feature = "hevc")]

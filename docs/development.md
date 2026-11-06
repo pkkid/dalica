@@ -647,8 +647,9 @@ frame's p95, a planted slowdown added); `--plant-ms 8` misses the layouts and th
 the render (seconds) or the scans (a hundred milliseconds and more), and `--plant-ms 1000` misses
 every M14 time. Since M15 it also runs the `video_probe` bench (a round's median, a planted
 slowdown added once per round), the `video_play` bench (each procedural clip's poster and step
-medians and its playing and decoded frames' p95, a planted slowdown added to each; the phone
-clips' rows printed, never judged), the `camera_import` bench (files per second, a planted slowdown
+medians and its playing and decoded frames' p95, a planted slowdown added to each; since M16.14
+the 1080p30 decoded frames, the procedural clip's and the phone clips' when fetched, never above
+`VIDEO_DECODE_CAP_MS`, 16 ms; the other phone rows printed, never judged), the `camera_import` bench (files per second, a planted slowdown
 counted once per file) and the `a11y_frame` and `i18n_frame` benches (the frame with AccessKit on
 or in the pseudo-locale and its overhead, at p95, a planted slowdown added to the frame and so to
 the overhead); at the first measurement's numbers `--plant-ms 8` misses the probe, the video's
@@ -1255,8 +1256,12 @@ of its own, into a new library on a temporary thumbnail cache. Rows per clip: `p
 60 a second for `--play-ms`, 2 000, with `shown` and `dropped`) and `decode frame <clip>` (a
 `FrameSource` opened as the player opens it, each frame asked in turn, up to `--decode-frames`,
 150; with `frame_time_ms`). A clip this build cannot play is listed under `not_played` with the
-reason; `--no-phones` leaves the corpus out. `--check` judges the procedural clips' rows. Without
-`--bench` it runs two small clips.
+reason; `--no-phones` leaves the corpus out. `--check` judges the procedural clips' rows and the
+playback bar (`video-decoders.md` §1, M16.14): a 1080p30 decoded frame within `DECODE_CAP_MS`
+(16 ms) at p95, the procedural `h264 1080p` clip's always (the smaller of its budget and the
+cap), the phone clips' `phone h264 1080p` and `phone hevc 1080p` when played (named as skipped
+when not); the 4K60 and HDR 1080p60 phone rows are best effort, printed only. Without `--bench`
+it runs two small clips.
 
 `camera_import` (M15.34, `dalica-engine`) makes `--objects` (300) `scenes` JPEGs of `--side`
 (2048) px with EXIF thumbnails, puts them in `dalica-scan`'s in-memory PTP responder and, `--runs`
