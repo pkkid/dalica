@@ -18,7 +18,7 @@ pub mod widgets;
 pub use icons::Icon;
 pub use raster::{Image, RasterError, Rasterizer};
 pub use registry::{Role, WidgetInfo};
-pub use theme::Tokens;
+pub use theme::{ThemeKind, Tokens};
 
 /// Renders `ui` headlessly into a `width × height` pixel image at `pixels_per_point`, with the
 /// theme of `tokens` applied: a fresh context, two passes (layout settles on the second), painted

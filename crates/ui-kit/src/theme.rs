@@ -2,7 +2,16 @@
 //! with comes from [`Tokens`] (colours and type) and its [`Metrics`] (sizes); widgets never
 //! hard-code a colour. [`Tokens::apply`] turns them into egui's style and visuals and stores them in
 //! the context, where [`Tokens::get`] finds them. [`FontSize`] and [`UiScale`] are the two
-//! Options → Interface factors of §11.4–§11.5.
+//! Options → Interface factors of §11.4–§11.5. [`ThemeKind`] names the themes and
+//! [`Tokens::for_kind`] gives each one's tokens: Dark is [`Tokens::DARK`], the others a [`Palette`]
+//! (`palettes`) through the rule table of §2 (Themes).
+
+mod kind;
+mod palette;
+pub mod palettes;
+
+pub use kind::ThemeKind;
+pub use palette::{BEVEL_DARK, BEVEL_LIGHT, Palette, Theme, no_overrides};
 
 use egui::{Color32, Context, CornerRadius, FontFamily, FontId, Id, Shadow, Stroke, TextStyle, Vec2};
 
@@ -40,6 +49,8 @@ pub fn histogram_fill(mask: u8) -> Color32 {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tokens {
+    /// The theme these tokens are (`Dark` for [`Tokens::DARK`]).
+    pub kind: ThemeKind,
     /// `#2d2d2d`: toolbar, side panes, bottom tray area, menu bar, dialogs (`panel_fill`, `window_fill`).
     pub chrome: Color32,
     /// `#1c1c1c`: edit-view canvas, filmstrip, folder header blocks, selected tree row, badge plates.
@@ -167,6 +178,9 @@ pub struct Tokens {
     pub overlay_radius: u8,
     /// Corner radius of the filter toggles (points).
     pub filter_radius: u8,
+    /// Classic's bevel: buttons, fields, check boxes and panels drawn raised or sunken with a
+    /// [`BEVEL_LIGHT`] and a [`BEVEL_DARK`] edge (`widgets::bevel`). Off in Dark.
+    pub bevel: bool,
     /// Width of the keyboard focus ring and the drop-target outline (points).
     pub focus_width: f32,
     /// Body text, menu items, text fields (points).
@@ -397,8 +411,9 @@ impl Default for Metrics {
 }
 
 impl Tokens {
-    /// The dark theme, the only theme until after 1.0.
+    /// The dark theme, Dalica's default (`ThemeKind::Dark`).
     pub const DARK: Tokens = Tokens {
+        kind: ThemeKind::Dark,
         chrome: grey(0x2d),
         canvas: grey(0x1c),
         grid_bg: grey(0x0f),
@@ -464,6 +479,7 @@ impl Tokens {
         toast_radius: 6,
         overlay_radius: 10,
         filter_radius: 5,
+        bevel: false,
         focus_width: 1.5,
         body: 13.0,
         small: 11.0,
@@ -536,7 +552,7 @@ impl Tokens {
             // id (`control-protocol.md` §7). Text meant to be copied goes in a registered field.
             style.interaction.selectable_labels = false;
             let v = &mut style.visuals;
-            v.dark_mode = true;
+            v.dark_mode = t.is_dark();
             v.panel_fill = t.chrome;
             v.window_fill = t.chrome;
             v.window_stroke = Stroke::new(1.0, t.button_border);

@@ -3,7 +3,7 @@
 
 use egui::{Align2, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetType, pos2, vec2};
 
-use super::{Target, allocate, focus_ring, one_line, register};
+use super::{Target, allocate, bevel, focus_ring, one_line, register};
 use crate::Tokens;
 use crate::fonts;
 use crate::icons::{self, Icon};
@@ -31,6 +31,7 @@ pub fn primary_button(ui: &mut Ui, t: &Tokens, id: &str, label: &str) -> Respons
     } else {
         p.rect(r.rect, radius, t.button, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
     }
+    bevel(p, t, r.rect, !(enabled && r.is_pointer_button_down_on()));
     focus_ring(p, t, &r, r.rect, t.radius);
     let pos = r.rect.center() - galley.size() / 2.0;
     p.galley(pos.round(), galley, t.on_accent);
@@ -135,6 +136,7 @@ pub fn segmented(ui: &mut Ui, t: &Tokens, segments: &[Segment<'_>], active: Opti
         focus_ring(ui.painter(), t, &r, rect, radius);
     }
     ui.painter().rect_stroke(outer, CornerRadius::same(radius), Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    bevel(ui.painter(), t, outer, true);
     clicked
 }
 

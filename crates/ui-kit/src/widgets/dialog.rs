@@ -136,6 +136,7 @@ pub fn dialog<R>(
                 })
                 .inner
         });
+        super::bevel(ui.painter(), t, window.response.rect, true);
         super::access(&window.response, |node| {
             node.set_role(egui::accesskit::Role::Dialog);
             node.set_modal();
