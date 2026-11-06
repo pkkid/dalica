@@ -18,9 +18,17 @@ icu_segmenter.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
+# The CJK faces subset at build time (`build.rs`, M16.27).
+[build-dependencies]
+ttf-parser.workspace = true
+
 [dev-dependencies]
 ab_glyph.workspace = true
 dalica-scenes.workspace = true
+# `tests/fonts.rs` includes `build.rs`, and checks its table of the four CJK character sets
+# against encoding_rs's decoders.
+encoding_rs.workspace = true
+ttf-parser.workspace = true
 
 [[test]]
 name = "all"

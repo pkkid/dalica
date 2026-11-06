@@ -54,11 +54,15 @@ Columns: **Path** (backticked path pattern), **Asset** (title), **Creator**, **S
 Builds made with `CRAFT_FONTS_DIR` embed fonts from
 [storytold/craft-fonts](https://github.com/storytold/craft-fonts) at a pinned commit; no font file
 from it is committed here. Per-file authors, sources and licences are in craft-fonts'
-`ATTRIBUTION.md`; release packages ship each font's licence as `OFL-<family>.txt`. List here the
-families Dalica's builds embed once the pin exists.
+`ATTRIBUTION.md`; release packages ship each font's licence as `OFL-<family>.txt`. The families
+Dalica's builds embed at the pin (`3d9ab3a`), in the desktop app only (M16.27):
 
 | Font (embedded at build time) | Use | Licence |
 |---|---|---|
+| BIZ UDPGothic Regular (`fonts/biz-ud-pgothic/BIZUDPGothic-Regular.ttf`) | Japanese text; subset at build time to the Han characters of the four national sets (`crates/ui-kit/build.rs`) | OFL-1.1, no Reserved Font Name |
+| Noto Sans CJK SC Regular (`fonts/noto-sans-cjk-sc/NotoSansCJKsc-Regular.otf`) | Chinese and Korean text; subset as above | OFL-1.1, no Reserved Font Name |
+| Noto Sans Thai (`fonts/noto-sans-thai/NotoSansThai.ttf`) | Thai text, whole | OFL-1.1 |
+| Noto Sans Arabic (`fonts/noto-sans-arabic/NotoSansArabic.ttf`) | Arabic text, whole | OFL-1.1 |
 
 ## Documentation and README
 

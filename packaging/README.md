@@ -23,7 +23,10 @@ Beside them, each platform folder holds what its script uses and the checks it r
 Each platform script builds `dalica` and `dalica-cli` in release with `--locked`, checks that both
 report the version and the commit (`--version`), and ships `LICENSE-MIT`, `LICENSE-APACHE`,
 `NOTICE`, `ATTRIBUTION.md`, `README.md`, `OFL-Inter.txt` and, when `CRAFT_FONTS_DIR` is set, each
-craft-fonts family's `OFL-<family>.txt`. Locally the Linux script downloads nothing (a format
+craft-fonts family's `OFL-<family>.txt`. Only `dalica` embeds the craft-fonts faces (`dalica-cli`
+carries Inter alone), and the macOS DMG is LZMA-compressed (`ULMO`); `cargo xtask package-size`
+holds every package to half its 1.0.0 size ([`docs/releasing.md`](../docs/releasing.md) → Package
+sizes). Locally the Linux script downloads nothing (a format
 whose tool is missing is skipped and named; `--install-tools` installs the pinned tools,
 `--require-all` makes a skip an error; both are on in GitHub Actions, `DALICA_INSTALL_TOOLS=0`
 turns them off), the Windows script skips the MSI without WiX (`-InstallTools` installs it; its
