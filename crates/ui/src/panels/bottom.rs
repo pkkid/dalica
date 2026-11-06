@@ -6,6 +6,8 @@
 //! clockwise; the loupe, the thumbnail-size slider and the four side-pane toggles at the right) and,
 //! under a 1 pt separator, the action buttons Export ┆ Collage, Slideshow, which go behind a
 //! **More…** button that opens a vertical menu when the window is narrower than [`OVERFLOW_BELOW`].
+//! An action button is 64 wide, or wider when its label needs it (the Large font, a longer
+//! translation): a label is never ellipsized ([`action_width`]).
 //!
 //! The star and rotate buttons act on the tray's photos (`ui-layout.md` §6.3), the same set their
 //! shortcuts and menu items act on ([`crate::keys::targets`]): star in one undo step
@@ -154,6 +156,18 @@ pub fn parts(area: Rect) -> Parts {
 /// Whether the action buttons are behind More… in a window `width` wide.
 pub fn overflows(width: f32) -> bool {
     width.partial_cmp(&OVERFLOW_BELOW).is_none_or(|o| o == std::cmp::Ordering::Less)
+}
+
+/// The room an action button keeps on each side of its label: the shared widget cuts a label at
+/// its width less 4.
+const LABEL_PAD: f32 = 2.0;
+
+/// The width of an action button labelled `label`: the token's 64, or the label's width with
+/// [`LABEL_PAD`] on each side when that is more, so the widget never ellipsizes it.
+fn action_width(ui: &Ui, t: &Tokens, label: &str) -> f32 {
+    let text = ui.painter().layout_no_wrap(label.to_owned(), dalica_ui_kit::fonts::regular(t.button_label), t.text_label).size().x;
+    let need = (text + 2.0 * LABEL_PAD).ceil();
+    if need.is_finite() { need.max(t.metrics.action_button.x) } else { t.metrics.action_button.x }
 }
 
 /// Runs `add` in a child of `ui` whose cursor starts at `rect`'s top-left.
@@ -390,14 +404,22 @@ fn actions(app: &mut App, ui: &mut Ui, row: Rect, width: f32) {
     let mut clicked = None;
     if overflows(width) {
         let open = Popup::is_id_open(ui.ctx(), Id::new(MORE).with("popup"));
-        at(ui, MORE, Rect::from_min_size(pos2(x, top), size), |ui| {
-            let r = widgets::action_button(ui, &t, MORE, Icon::More, &tl!("More…"), open, true).on_hover_text(tl!("More actions"));
+        let label = tl!("More…");
+        let mut st = t;
+        st.metrics.action_button.x = action_width(ui, &t, &label);
+        at(ui, MORE, Rect::from_min_size(pos2(x, top), st.metrics.action_button), |ui| {
+            let r = widgets::action_button(ui, &st, MORE, Icon::More, &label, open, true).on_hover_text(tl!("More actions"));
             Popup::menu(&r).align(RectAlign::TOP_START).show(|ui| clicked = more_menu(ui, &t, &enabled));
         });
     } else {
         for (i, (id, icon, label, command)) in ACTIONS.into_iter().enumerate() {
             let on = enabled.get(i).copied().unwrap_or(false);
-            if at(ui, id, Rect::from_min_size(pos2(x, top), size), |ui| widgets::action_button(ui, &t, id, icon, &text(label), false, on).clicked()) {
+            // The shared widget at the width this button's label needs.
+            let label = text(label);
+            let mut st = t;
+            st.metrics.action_button.x = action_width(ui, &t, &label);
+            let size = st.metrics.action_button;
+            if at(ui, id, Rect::from_min_size(pos2(x, top), size), |ui| widgets::action_button(ui, &st, id, icon, &label, false, on).clicked()) {
                 clicked = Some(command);
             }
             x += size.x;

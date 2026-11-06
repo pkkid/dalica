@@ -62,6 +62,7 @@ mod import_room;
 mod import_run_ui;
 mod jobs_control;
 mod keyboard_only;
+mod large_font;
 mod layout;
 mod legacy_ui;
 mod library_window;

@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, UNIX_EPOCH};
 
 use crate::common::{FRAMES, LARGE, check_region, new_driver, out_dir, put_jpeg, try_widget};
 use dalica_core::{AlbumId, FolderId, PhotoId};
@@ -26,6 +27,9 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use egui::{Modifiers, PointerButton, Pos2, pos2};
 use serde_json::{Value, json};
+
+/// The modification time of every file of the fixture (2023-11-14 22:13:20 UTC).
+const MTIME: u64 = 1_700_000_000;
 
 struct Fx {
     dir: tempfile::TempDir,
@@ -43,10 +47,18 @@ fn open(dir: &Path) -> Session {
 fn fixture((w, h): (u32, u32)) -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let (lisbon, porto) = (dir.path().join("photos").join("Lisbon"), dir.path().join("photos").join("Porto"));
+    let put = |path: PathBuf, seed: u64| {
+        put_jpeg(&path, seed);
+        // One modification time for every file. The folders sort by date, newest first, then by
+        // name: files written as they come straddled a second now and then (on a loaded runner),
+        // which put Porto above Lisbon and pushed Lisbon's cells below the window, so a drag from
+        // `thumb:1` found no widget. With one time the order is always Lisbon, Porto.
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(MTIME)).unwrap();
+    };
     for i in 1..=3 {
-        put_jpeg(&lisbon.join(format!("IMG_000{i}.jpg")), i);
+        put(lisbon.join(format!("IMG_000{i}.jpg")), i);
     }
-    put_jpeg(&porto.join("PORTO_0001.jpg"), 10);
+    put(porto.join("PORTO_0001.jpg"), 10);
     let mut s = open(dir.path());
     for f in [&lisbon, &porto] {
         s.execute("folders.add", &json!({ "path": f })).unwrap();
