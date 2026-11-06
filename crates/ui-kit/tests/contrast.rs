@@ -11,7 +11,7 @@
 //! file instead (`design-system.md` §2, Themes). A theme still wearing Dark's values (its palette
 //! not ported yet) is checked as Dark is.
 
-use dalica_ui_kit::theme::{contrast, over};
+use dalica_ui_kit::theme::{EGUI_TEXT_CURSOR, contrast, over};
 use dalica_ui_kit::{ThemeKind, Tokens};
 use egui::Color32;
 
@@ -164,6 +164,23 @@ fn text_dim_on_chrome_is_at_least_4_5_to_1() {
 fn every_glyph_pair_is_at_least_3_to_1() {
     let fails: Vec<String> = themes().flat_map(|t| below(&t, glyph_pairs(&t), 3.0)).collect();
     assert!(fails.is_empty(), "below 3:1: {fails:?}");
+}
+
+/// The text cursor against a field at rest (`field`) and a focused one (`canvas`): a non-text mark,
+/// so 3:1 (M16.30).
+fn cursor_pairs(t: &Tokens, cursor: Color32) -> Vec<Pair> {
+    vec![("text cursor on field", cursor, t.field), ("text cursor on canvas", cursor, t.canvas)]
+}
+
+#[test]
+fn the_text_cursor_is_at_least_3_to_1_in_every_theme() {
+    assert_eq!(themes().count(), 15);
+    let fails: Vec<String> = themes().flat_map(|t| below(&t, cursor_pairs(&t, t.text_cursor()), 3.0)).collect();
+    assert!(fails.is_empty(), "below 3:1: {fails:?}");
+    assert_eq!(Tokens::DARK.text_cursor(), EGUI_TEXT_CURSOR, "Dark keeps egui's cursor");
+    // The check bites: egui's default, which every theme wore before M16.30, fails the light ones.
+    let old: Vec<String> = themes().flat_map(|t| below(&t, cursor_pairs(&t, EGUI_TEXT_CURSOR), 3.0)).collect();
+    assert!(old.iter().any(|f| f.starts_with("proLight:")), "{old:?}");
 }
 
 #[test]

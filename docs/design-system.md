@@ -563,6 +563,10 @@ underneath, pushed up by the next header).
   `ThemeKind::ALL`. The three pinned pairs belong to Dark (and to a theme still wearing Dark's
   values); every other theme passes them at their threshold, overriding a derived token in its
   palette file where it must.
+- **The text cursor** is a non-text mark, so 3:1 on a field at rest (`field`) and a focused one
+  (`canvas`) in every theme (M16.30, `Tokens::text_cursor`, set by `Tokens::apply`): egui's pale
+  blue `(192, 222, 255)` where it passes, as in Dark and the other dark themes (7.4:1 or more);
+  `text` where it does not, which is every light theme (egui's blue was 1.0 to 1.9:1 there).
 
 ## 10. Verification
 
