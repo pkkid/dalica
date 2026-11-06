@@ -2,7 +2,8 @@
 //! `data-model.md` §3): only the fields given change; texts trimmed and capped, "" clears; a date
 //! or the oldest photo's (`"oldest"` / `null`); the hidden flag left alone; one undo step and none
 //! when nothing changes; undo and redo exact; the sidecar's `"folder"` object after the command
-//! and after undo; folder info surviving a restart and a rebuild of the index.
+//! and after undo; folder info surviving a restart and a rebuild of the index; a folder's music
+//! (M16.16) set, cleared, refused when it names a file or nothing, undone.
 
 use std::path::{Path, PathBuf};
 
@@ -50,7 +51,7 @@ fn only_the_fields_given_change_and_undo_redo_restore_model_and_sidecar() {
         .unwrap();
     assert_eq!(
         v,
-        json!({ "id": id, "description": "Weekend in Lisbon with the family", "date": "2026-06-04", "place": "Lisbon, Portugal", "changed": true })
+        json!({ "id": id, "description": "Weekend in Lisbon with the family", "date": "2026-06-04", "place": "Lisbon, Portugal", "music": "", "changed": true })
     );
     assert_eq!((s.undo_stack().len(), s.undo_stack().undo_label()), (1, Some("Folder Properties")));
     let file1 = sidecar(&mut s, &folder);
@@ -125,4 +126,35 @@ fn folder_info_survives_a_restart_and_a_rebuild_of_the_index() {
     s.execute("photo.star.set", &json!({ "ids": [photo], "on": true })).unwrap();
     assert_eq!(sidecar(&mut s, &folder)["folder"], written, "a write after a rebuild keeps the folder info in the sidecar");
     assert_eq!(info(&s, id), want, "after a rebuild of the index");
+}
+
+/// The music (M16.16): a folder is set (trimmed) with the other fields in one step and written to
+/// the sidecar, "" clears it, a file or a path that is not there is refused with nothing changed,
+/// and undo takes each step back.
+#[test]
+fn a_folders_music_is_set_cleared_refused_for_a_file_and_undone() {
+    let (_l, disk, folder, mut s, id) = setup();
+    let music = disk.path().join("Music");
+    std::fs::create_dir(&music).unwrap();
+    std::fs::write(music.join("song.wav"), b"RIFF").unwrap();
+    let text = music.to_str().unwrap().to_string();
+    let v = s.execute("folder.info.set", &json!({ "id": id, "music": format!(" {text} "), "place": "Lisbon" })).unwrap();
+    assert_eq!((v["music"].as_str(), v["changed"].as_bool()), (Some(text.as_str()), Some(true)));
+    assert_eq!((info(&s, id).music, info(&s, id).place), (text.clone(), "Lisbon".to_string()));
+    assert_eq!(s.undo_stack().len(), 1, "one step with the place");
+    assert_eq!(sidecar(&mut s, &folder)["folder"]["music"], json!(text));
+
+    for bad in [music.join("song.wav"), disk.path().join("Gone")] {
+        let e = s.execute("folder.info.set", &json!({ "id": id, "music": bad, "description": "x" }));
+        assert!(matches!(e, Err(dalica_engine::CmdError::BadParams(_))), "{bad:?}: {e:?}");
+    }
+    assert_eq!((info(&s, id).music, info(&s, id).description, s.undo_stack().len()), (text.clone(), String::new(), 1), "nothing changed");
+
+    s.execute("folder.info.set", &json!({ "id": id, "music": "" })).unwrap();
+    assert_eq!((info(&s, id).music, s.undo_stack().len()), (String::new(), 2));
+    assert_eq!(sidecar(&mut s, &folder)["folder"].get("music"), None, "cleared: no key");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(info(&s, id).music, text);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!(info(&s, id).is_empty());
 }

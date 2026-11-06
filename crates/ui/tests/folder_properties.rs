@@ -13,6 +13,9 @@
 //! - renaming in Folder Properties (M9.20) renames the folder on disk as its own undo step; the
 //!   section title and the tree row follow it, undo puts the name back, a blank name greys OK and
 //!   a name another library folder has is refused with nothing changed;
+//! - Music for slideshows (M16.16): the row is live, Browse… puts the folder picked into the
+//!   field and OK commits it with the other fields, Cancel leaves it unchanged, and the field
+//!   cleared commits "";
 //! - the header and the dialog match their fingerprints at 1400 × 900 and fit 900 × 600
 //!   (`tests/fingerprints/region-header-info-1400x900.json`,
 //!   `dialog-folder-properties-1400x900.json`; `DALICA_BLESS=1` stores new ones, renders go to
@@ -20,15 +23,16 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, shot, try_widget};
 use dalica_core::{Date, FolderId};
 use dalica_engine::Session;
 use dalica_ui::dialogs::folder_properties::{self, BROWSE_ID, DATE_ID, DESCRIPTION_ID, MUSIC_ID, NAME_ID, PLACE_ID, USE_OLDEST_ID};
-use dalica_ui::headless::{Click, DriverError};
+use dalica_ui::headless::Click;
 use dalica_ui::panels::light_table::header::{DESCRIPTION_FIELD, PLACEHOLDER};
 use dalica_ui::state::{DescriptionEdit, DialogKind, Section};
-use dalica_ui::{App, Driver};
+use dalica_ui::{App, Driver, ScriptedPicker};
 use serde_json::{Value, json};
 
 fn open_session(library: &Path) -> Session {
@@ -42,6 +46,7 @@ struct Fx {
     /// `Lisbon Weekend` (three photos, the oldest taken on 2026-06-04) and `Porto` (two).
     lisbon: FolderId,
     d: Driver,
+    picker: ScriptedPicker,
 }
 
 fn fixture((w, h): (u32, u32)) -> Fx {
@@ -59,20 +64,21 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     }
     s.wait_idle();
     let lisbon = s.library().folder_by_path(&photos.join("Lisbon Weekend")).unwrap();
-    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
+    let picker = ScriptedPicker::new();
+    let mut d = new_driver(App::with_picker(Some(s), Arc::new(picker.clone())), w, h, 1.0);
     d.settle(FRAMES).unwrap();
-    Fx { dir, lisbon, d }
+    Fx { dir, lisbon, d, picker }
 }
 
 /// The library under `fx`'s directory opened again in a new window: a restart.
 fn restart(fx: Fx) -> Fx {
-    let Fx { dir, lisbon, d } = fx;
+    let Fx { dir, lisbon, d, picker } = fx;
     let size = d.size();
     drop(d.into_app());
     let s = open_session(&dir.path().join("library"));
-    let mut d = new_driver(App::new(Some(s)), size.0, size.1, size.2);
+    let mut d = new_driver(App::with_picker(Some(s), Arc::new(picker.clone())), size.0, size.1, size.2);
     d.settle(FRAMES).unwrap();
-    Fx { dir, lisbon, d }
+    Fx { dir, lisbon, d, picker }
 }
 
 fn has(d: &Driver, id: &str) -> bool {
@@ -191,14 +197,13 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     let f = fields(&fx.d);
     assert_eq!(
         Value::Object(f),
-        json!({ "folder": folder, "name": "Lisbon Weekend", "date": "2026-06-04", "useOldest": true, "place": "", "description": "" })
+        json!({ "folder": folder, "name": "Lisbon Weekend", "date": "2026-06-04", "useOldest": true, "place": "", "description": "", "music": "" })
     );
     for (id, enabled) in
-        [(NAME_ID, true), (DATE_ID, false), (USE_OLDEST_ID, true), (PLACE_ID, true), (DESCRIPTION_ID, true), (MUSIC_ID, false), (BROWSE_ID, false)]
+        [(NAME_ID, true), (DATE_ID, false), (USE_OLDEST_ID, true), (PLACE_ID, true), (DESCRIPTION_ID, true), (MUSIC_ID, true), (BROWSE_ID, true)]
     {
         assert_eq!(try_widget(&fx.d, id).unwrap_or_else(|| panic!("no {id}")).enabled, enabled, "{id}");
     }
-    assert!(matches!(fx.d.click(BROWSE_ID), Err(DriverError::Disabled(_))), "Music for slideshows waits for slideshows");
 
     // Cancel: whatever was typed, nothing changes.
     retype(&mut fx.d, PLACE_ID, "Somewhere");
@@ -249,7 +254,7 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     open(&mut fx);
     assert_eq!(
         Value::Object(fields(&fx.d)),
-        json!({ "folder": folder, "name": "Lisbon Weekend", "date": "2026-06-01", "useOldest": false, "place": "Lisbon, Portugal", "description": "A weekend of trams" })
+        json!({ "folder": folder, "name": "Lisbon Weekend", "date": "2026-06-01", "useOldest": false, "place": "Lisbon, Portugal", "description": "A weekend of trams", "music": "" })
     );
     fx.d.click(USE_OLDEST_ID).unwrap();
     assert_eq!((fields(&fx.d)["useOldest"].clone(), fields(&fx.d)["date"].clone()), (json!(true), json!("2026-06-04")));
@@ -266,6 +271,71 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     fx.d.settle(FRAMES).unwrap();
     assert!(info(&fx.d, folder).is_empty(), "{:?}", info(&fx.d, folder));
     assert_eq!(shown(&fx.d, folder), ("Thursday, June 4, 2026".to_string(), String::new()));
+}
+
+/// Opens Folder Properties for `folder` (as a double-click on its title does).
+fn open_properties(d: &mut Driver, folder: FolderId) {
+    d.run("section.properties", &json!({ "folder": folder })).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(has(d, "dialog:folderProperties"));
+}
+
+/// Clicks Browse… and waits until a frame has run the picker's answer.
+fn browse(d: &mut Driver) {
+    d.click(BROWSE_ID).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while d.app().folder_request().is_some() {
+        assert!(Instant::now() < deadline, "the picker never answered");
+        std::thread::sleep(Duration::from_millis(1));
+        d.step();
+    }
+    d.settle(FRAMES).unwrap();
+}
+
+/// Music for slideshows: Browse… (the "Music Folder" picker) puts the folder picked into the field,
+/// Cancel leaves the folder's music as it was, OK commits it with the other fields in one step,
+/// and the field cleared commits "".
+#[test]
+fn the_music_row_picks_a_folder_ok_commits_it_cancel_does_not_and_clearing_commits_none() {
+    let mut fx = fixture((1400, 900));
+    let folder = fx.lisbon;
+    let music = fx.dir.path().join("Music");
+    std::fs::create_dir_all(&music).unwrap();
+    let text = music.to_str().unwrap().to_string();
+
+    open_properties(&mut fx.d, folder);
+    let request = folder_properties::music_request(&fields(&fx.d));
+    assert_eq!((request.title.as_str(), request.command, request.output), ("Music Folder", folder_properties::MUSIC_COMMAND, false));
+    // A cancelled picker changes nothing; a folder picked fills the field.
+    browse(&mut fx.d);
+    assert_eq!(fields(&fx.d)["music"], "");
+    fx.picker.push_folder(&music);
+    browse(&mut fx.d);
+    assert_eq!(fields(&fx.d)["music"], json!(text));
+    fx.d.click("button:dialog.cancel").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert!(info(&fx.d, folder).is_empty() && undo_steps(&fx.d).0 == 0, "Cancel leaves it unchanged");
+
+    open_properties(&mut fx.d, folder);
+    fx.picker.push_folder(&music);
+    browse(&mut fx.d);
+    retype(&mut fx.d, PLACE_ID, "Lisbon");
+    fx.d.click("button:dialog.ok").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    let i = info(&fx.d, folder);
+    assert_eq!((i.music.as_str(), i.place.as_str()), (text.as_str(), "Lisbon"));
+    assert_eq!(undo_steps(&fx.d), (1, Some("Folder Properties")), "one step with the other fields");
+
+    // Opened again it shows the music; the field cleared commits "".
+    open_properties(&mut fx.d, folder);
+    assert_eq!(fields(&fx.d)["music"], json!(text));
+    fx.d.click(MUSIC_ID).unwrap();
+    fx.d.key("Ctrl+A").unwrap();
+    fx.d.key("Backspace").unwrap();
+    assert_eq!(fields(&fx.d)["music"], "");
+    fx.d.click("button:dialog.ok").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!((info(&fx.d, folder).music.as_str(), undo_steps(&fx.d).0), ("", 2));
 }
 
 /// Runs frames until the file jobs are done and their results are in the library.

@@ -39,8 +39,13 @@
 //! - **Music** (`viewing.md` §1.5, M15.27): with Play music during slideshows on and a music folder
 //!   set, a [`MusicPlayer`] plays its files in name order, looping, from the show's start; it pauses
 //!   while the show is paused and while a clip's sound plays, and fades out when the show ends (at
-//!   its last photo without Loop, or closed). A folder's own music (Folder Properties) is not
-//!   stored yet: the music folder of Options ▸ Slideshow plays for every show.
+//!   its last photo without Loop, or closed). Which folder ([`show_music`]): a show of one folder
+//!   (the photos are that folder's whole list, in its order, as `slideshow.list` gives it for the
+//!   folder's section) plays the folder's own music (Folder Properties, `FolderInfo::music`) when
+//!   it has one; every other show (an album, a search, the tray, several folders), and a folder
+//!   without one, plays the music folder of Options ▸ Slideshow. A folder's own music that plays
+//!   nothing (its folder gone missing, unreadable or without music) falls back to the Options one,
+//!   and the show says so ([`Slideshow::music_notice`], also among the session's notices).
 
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -48,7 +53,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
-use dalica_core::{Clock, PhotoId, Timestamp};
+use dalica_core::{Clock, FolderId, PhotoId, Timestamp};
 use dalica_create::slideshow::{self as create, FaceBox, Point, Show, State, View};
 use dalica_edit::{Geometry, Recipe};
 use dalica_image::Limits;
@@ -251,6 +256,25 @@ pub fn show_settings(settings: &SlideshowSettings) -> create::Settings {
     create::Settings { display_secs: settings.display_time, transition, looped: settings.looping }
 }
 
+/// The folder's own music a show of `photos` plays: `Some` only when they are one folder's whole
+/// list in its display order (what `slideshow.list` gives for the folder's section: its Play
+/// button, the folder selected) and that folder has music set. An album, a search, the tray or
+/// photos of several folders answer `None` (Options ▸ Slideshow's music folder plays). One pass
+/// over the photos, and one listing of the folder when they are all in it.
+pub fn show_music(s: &mut Session, photos: &[PhotoId]) -> Option<PathBuf> {
+    let folder: FolderId = s.library().photo(*photos.first()?)?.folder;
+    let lib = s.library();
+    if !photos.iter().all(|id| lib.photo(*id).is_some_and(|p| p.folder == folder)) {
+        return None;
+    }
+    let music = lib.folder_info(folder).music.clone();
+    if music.is_empty() {
+        return None;
+    }
+    let whole = playlist(s, Some(&format!("folder:{folder}")), None, None, false).ok()?;
+    (whole.played == photos).then(|| PathBuf::from(music))
+}
+
 /// What the UI draws at one moment of the show.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Frame {
@@ -343,8 +367,13 @@ pub struct Slideshow {
     clip: Option<Clip>,
     /// Play video sound, as the show started.
     video_sound: bool,
-    /// The music folder, while Play music is on.
+    /// The music folder playing, while Play music is on.
     music_folder: Option<PathBuf>,
+    /// The music folder of Options ▸ Slideshow, while a folder's own music plays: what plays when
+    /// that plays nothing.
+    music_fallback: Option<PathBuf>,
+    /// Why the folder's own music gave way to the Options one, once it did.
+    music_notice: Option<String>,
     music: Option<MusicPlayer>,
     /// The output the music and the clips' sound play through.
     sound: Arc<dyn Sound>,
@@ -376,7 +405,12 @@ impl Slideshow {
     pub fn with_settings(s: &mut Session, photos: Vec<PhotoId>, start: usize, settings: create::Settings, fit: (u32, u32)) -> Slideshow {
         let show = Show::new(Arc::clone(&s.clock), photos.len(), start, settings);
         let sound = s.settings().slideshow();
-        let music_folder = sound.music_folder.filter(|_| sound.music);
+        let options_music = sound.music_folder.clone().filter(|_| sound.music);
+        let own = if sound.music { show_music(s, &photos) } else { None };
+        let (music_folder, music_fallback) = match own {
+            Some(folder) => (Some(folder), options_music),
+            None => (options_music, None),
+        };
         let mut me = Slideshow {
             show,
             photos,
@@ -391,6 +425,8 @@ impl Slideshow {
             clip: None,
             video_sound: sound.video_sound,
             music_folder,
+            music_fallback,
+            music_notice: None,
             music: None,
             sound: s.sound(),
         };
@@ -446,6 +482,18 @@ impl Slideshow {
     /// The music playing, if any (for inspection and tests).
     pub fn music(&self) -> Option<&MusicPlayer> {
         self.music.as_ref()
+    }
+
+    /// The music folder the show plays (a folder's own, else Options ▸ Slideshow's), while Play
+    /// music is on.
+    pub fn music_folder(&self) -> Option<&Path> {
+        self.music_folder.as_deref()
+    }
+
+    /// Why the folder's own music gave way to the music folder of Options ▸ Slideshow, once it
+    /// did.
+    pub fn music_notice(&self) -> Option<&str> {
+        self.music_notice.as_deref()
     }
 
     /// The video shown, if the photo shown is one Dalica plays.
@@ -531,7 +579,9 @@ impl Slideshow {
             frame = self.tick_photos(s);
             self.tick_clip(s, &frame);
         }
-        self.tick_music();
+        if let Some(notice) = self.tick_music() {
+            s.notices.push(notice);
+        }
         frame.clip = self.clip.as_mut().map(|c| c.view(s.clock.as_ref()));
         if frame.clip.is_some() {
             frame.view.motion = 0.0;
@@ -650,16 +700,27 @@ impl Slideshow {
     }
 
     /// The music follows the show: paused while it is paused (or a clip's sound plays), faded out
-    /// at its end, started again when Play starts the show over.
-    fn tick_music(&mut self) {
+    /// at its end, started again when Play starts the show over. A folder's own music that ended
+    /// without playing a file gives way to the Options folder: answers the notice saying so.
+    fn tick_music(&mut self) -> Option<String> {
         let state = self.show.state();
         let clip_sound = self.clip.as_ref().is_some_and(|c| c.sound_open.is_some());
-        let Some(music) = self.music.as_ref() else { return };
+        let music = self.music.as_ref()?;
         if state == State::Ended {
             if !music.is_done() {
                 music.fade_out();
             }
-            return;
+            return None;
+        }
+        if let Some(why) = music.ended().filter(|_| music.is_done() && music.played().is_empty())
+            && let Some(own) = self.music_folder.clone().filter(|_| self.music_notice.is_none() && self.music_fallback.is_some())
+        {
+            let notice = format!("{}: {why}; the music folder in Options › Slideshow plays instead", own.display());
+            log::info!("the slideshow's music: {notice}");
+            self.music_notice = Some(notice.clone());
+            self.music_folder = self.music_fallback.take();
+            self.music = self.music_folder.clone().and_then(|folder| MusicPlayer::start(folder, Arc::clone(&self.sound)));
+            return Some(notice);
         }
         if music.is_done() && music.ended().is_none() {
             // Faded at the end, and the show plays again.
@@ -667,7 +728,7 @@ impl Slideshow {
             if let Some(folder) = self.music_folder.clone() {
                 self.music = MusicPlayer::start(folder, Arc::clone(&self.sound));
             }
-            return;
+            return None;
         }
         let paused = state != State::Playing || clip_sound;
         if paused && !music.is_paused() {
@@ -675,6 +736,7 @@ impl Slideshow {
         } else if !paused && music.is_paused() {
             music.resume();
         }
+        None
     }
 
     /// Photo `id`'s Pan and Zoom focus ([`focus_of`]), worked out again only when the library has

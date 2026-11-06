@@ -4,7 +4,10 @@
 //! clip's sound is what the output records, off it records nothing, and a clip whose sound Dalica
 //! cannot decode plays muted and says why; a clip of a codec Dalica cannot play is held for the
 //! display time as its tile; the music folder's files play in name order and loop, a file that does
-//! not play is skipped with its reason, and the music fades out when the show ends. The clips are
+//! not play is skipped with its reason, and the music fades out when the show ends; a folder's own
+//! music (M16.16) plays in a show of that folder, an album's show plays the Options folder's, a
+//! folder's music gone missing falls back to the Options folder with a notice naming it, and Play
+//! music off plays none. The clips are
 //! H.264 made here with every macroblock I_PCM (ITU-T H.264 §7.3.5), muxed by hand from ISO/IEC
 //! 14496-12 (the writer of `video_play.rs`); the music is 16-bit WAV written here.
 
@@ -15,7 +18,7 @@ use std::time::{Duration, Instant};
 use dalica_core::{PhotoId, VirtualClock};
 use dalica_create::slideshow::{Settings, State, Transition};
 use dalica_engine::Session;
-use dalica_engine::cmd::slideshow::{Frame, Slideshow, clip_picture};
+use dalica_engine::cmd::slideshow::{Frame, Slideshow, clip_picture, playlist};
 use dalica_engine::sound::{Format, Silent, Sound};
 use dalica_fs::Expect;
 use dalica_image::formats::audio::CANNOT_PLAY;
@@ -317,7 +320,7 @@ struct Lib {
 }
 
 impl Lib {
-    /// `Trip` holds two photos and four clips: `clip.mp4` (H.264 and AAC), `muted.mp4` (AC-3 sound)
+    /// `Home` holds h1.jpg and h2.jpg. `Trip` holds two photos and four clips: `clip.mp4` (H.264 and AAC), `muted.mp4` (AC-3 sound)
     /// and `old.mov` (MPEG-4 Part 2); `Music` (not watched) holds 1, 2 and 3.wav (0.1 s each of 0.1,
     /// 0.2 and 0.3), a damaged `2b.mp3` and a text file. The sound output is a silent one on the
     /// session's virtual clock.
@@ -331,6 +334,10 @@ impl Lib {
         put(trip.join("clip.mp4"), clip(b"avc1", b"mp4a"));
         put(trip.join("muted.mp4"), clip(b"avc1", b"ac-3"));
         put(trip.join("old.mov"), clip(b"mp4v", b"mp4a"));
+        let home = dir.path().join("Photos").join("Home");
+        dalica_fs::create_dir_all(&home).unwrap();
+        put(home.join("h1.jpg"), jpeg(3));
+        put(home.join("h2.jpg"), jpeg(4));
         let music = dir.path().join("Music");
         dalica_fs::create_dir_all(&music).unwrap();
         put(music.join("1.wav"), wav(0.1, 800));
@@ -516,5 +523,91 @@ fn the_music_folder_plays_in_name_order_loops_and_fades_out_at_the_end() {
     let tail = &samples[samples.len().saturating_sub(100)..];
     assert!(tail.iter().all(|v| v.abs() < 0.01), "faded to silence");
     assert_eq!(lib.sound.format(), None, "the output closed");
+    show.close(&mut lib.s);
+}
+
+/// A folder of one file `x.wav` (0.1 s of 0.5) under `lib`'s directory: a folder's own music.
+fn own_music(lib: &Lib) -> PathBuf {
+    let own = lib.dir.path().join("Own");
+    dalica_fs::create_dir_all(&own).unwrap();
+    dalica_fs::replace(&own.join("x.wav"), &wav(0.5, 800), Expect::Absent).unwrap();
+    own
+}
+
+impl Lib {
+    /// Sets folder `Home`'s own music to `music` and answers the folder's id.
+    fn set_home_music(&mut self, music: &Path) -> dalica_core::FolderId {
+        let home = self.s.library().folder_by_path(&self.dir.path().join("Photos").join("Home")).unwrap();
+        self.s.execute("folder.info.set", &json!({ "id": home, "music": music })).unwrap();
+        home
+    }
+
+    /// A show of `ids` from the first, 2 s each with Cut.
+    fn show_of(&mut self, ids: Vec<PhotoId>) -> Slideshow {
+        let settings = Settings { display_secs: 2, transition: Transition::Cut, looped: false };
+        Slideshow::with_settings(&mut self.s, ids, 0, settings, FIT)
+    }
+
+    /// The name of the first music file `show` played, once it played one.
+    fn first_music(&mut self, show: &mut Slideshow) -> String {
+        self.until(show, "a music file played", |l, sh, _| {
+            l.advance(10);
+            sh.music().is_some_and(|m| !m.played().is_empty())
+        });
+        let played = show.music().unwrap().played();
+        played[0].file_name().unwrap().to_string_lossy().into_owned()
+    }
+}
+
+/// A show of one folder (its whole list, as its Play button plays it) plays the folder's own music;
+/// an album's show plays the music folder of Options.
+#[test]
+fn a_folders_show_plays_its_own_music_and_an_albums_the_options_folder() {
+    let mut lib = Lib::new();
+    let (options, own) = (lib.music(), own_music(&lib));
+    lib.sound_settings(false, Some(&options));
+    let home = lib.set_home_music(&own);
+    let whole = playlist(&mut lib.s, Some(&format!("folder:{home}")), None, None, false).unwrap().played;
+    assert_eq!(whole.len(), 2);
+    let mut show = lib.show_of(whole);
+    assert_eq!(show.music_folder(), Some(own.as_path()));
+    assert_eq!(lib.first_music(&mut show), "x.wav", "the folder's own music");
+    show.close(&mut lib.s);
+
+    let h1 = lib.id("h1.jpg");
+    let album = lib.s.execute("album.create", &json!({ "name": "Best", "ids": [h1] })).unwrap()["album"].as_str().unwrap().to_string();
+    let listed = playlist(&mut lib.s, Some(&format!("album:{album}")), None, None, false).unwrap().played;
+    let mut show = lib.show_of(listed);
+    assert_eq!(show.music_folder(), Some(options.as_path()));
+    assert_eq!(lib.first_music(&mut show), "1.wav", "the Options folder's music");
+    assert_eq!(show.music_notice(), None);
+    show.close(&mut lib.s);
+}
+
+/// A folder's own music that has gone missing gives way to the Options folder, with a notice
+/// naming it; Play music off plays nothing, the folder's music or not.
+#[test]
+fn a_missing_folder_music_falls_back_with_a_notice_and_music_off_plays_none() {
+    let mut lib = Lib::new();
+    let (options, own) = (lib.music(), own_music(&lib));
+    lib.sound_settings(false, Some(&options));
+    let home = lib.set_home_music(&own);
+    std::fs::remove_dir_all(&own).unwrap();
+    let whole = playlist(&mut lib.s, Some(&format!("folder:{home}")), None, None, false).unwrap().played;
+    let mut show = lib.show_of(whole.clone());
+    assert_eq!(lib.first_music(&mut show), "1.wav", "the Options folder's music instead");
+    let notice = show.music_notice().unwrap().to_string();
+    assert!(notice.contains(own.to_str().unwrap()), "{notice}");
+    assert!(lib.s.notices().contains(&notice), "among the session's notices");
+    assert_eq!(show.music_folder(), Some(options.as_path()));
+    show.close(&mut lib.s);
+
+    lib.sound_settings(false, None);
+    let mut show = lib.show_of(whole);
+    for _ in 0..20 {
+        lib.advance(50);
+        show.tick(&mut lib.s);
+    }
+    assert!(show.music().is_none() && show.music_folder().is_none(), "Play music off: none, the folder's music or not");
     show.close(&mut lib.s);
 }
