@@ -11170,7 +11170,7 @@ under their own key, and a snapshot without them reads as one with none.
     reverts and Apply keeps it; a font size change after a theme change keeps the theme; the
     engine's and `ui-kit`'s id lists match; at 900 × 600 the submenu stays inside the window;
     `widget_ids`, `panic_hunt` and every existing `ui` fingerprint pass unchanged.
-- ⬜ **M16.6 `ui-kit`: the Pro, Studio and Classic palettes**
+- ✅ **M16.6 `ui-kit`: the Pro, Studio and Classic palettes**
   - after: M16.3
   - files: `crates/ui-kit/src/theme/palettes/pro.rs`, `crates/ui-kit/src/theme/palettes/studio.rs`, `crates/ui-kit/src/theme/palettes/classic.rs`, `crates/ui-kit/tests/fingerprints/theme-pro*.json`, `crates/ui-kit/tests/fingerprints/theme-studio*.json`, `crates/ui-kit/tests/fingerprints/theme-classic*.json`
   - scope: ported value for value from PhotoCraft `crates/ui-egui/src/theme.rs` at 3a896a5e
