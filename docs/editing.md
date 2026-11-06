@@ -65,6 +65,34 @@ person's name, we use a descriptive name instead (e.g. **Auto Fix**). Never rena
 - **Bottom area**: same as the library (tray, star, rotate buttons, action buttons) except the
   thumbnail-size slider is replaced by **Fit** / **1:1** segmented buttons and the **zoom slider**.
 
+### 2.1 The star's flight (Dalica addition, M16.35)
+
+Starring the photo shown plays a short, calm animation from the bottom area's star button
+(`crates/ui/src/panels/edit/star_flight.rs`; mockups in `docs/mockups/star-flight.html`; the
+maintainer's choice, 2026-11-06, which the review can reverse):
+
+- **Star (the burst):** 1000 ms. The star (the `star` token, filled, on a 1 pt `crosshair_outer`
+  edge) rises 40 pt straight up from the button's glyph with one full turn clockwise, growing from
+  16 to 24 pt, while a 2 pt `star` ring round it blooms from 10 to 40 pt radius. Every movement is
+  on a sine ease-in-out (it starts and stops softly; no snap, no bounce, no overshoot). The star
+  stays opaque for the first half and fades out on the same ease over the second; the ring's
+  opacity rises to 0.5 and falls back on a sine arc. It never covers the photo.
+- **Unstar (the drop):** 450 ms. The filled star drops 18 pt from the button's glyph, tilting back
+  an eighth of a turn (−45°) and shrinking to 12 pt, fading out over the whole drop on the same
+  ease.
+- **Never in the way:** the star is written at once and the button fills (or empties) at once; the
+  flight follows the photo's star flag, is drawn on a layer of its own, takes no input and delays
+  nothing. Starring or unstarring again mid-flight starts the new direction's flight from the
+  button; opening another photo or leaving the edit view ends it.
+- **Only by hand:** it plays for the person's own button click, Ctrl+8, Space or Picture ▸ Star /
+  Unstar (a key or pointer press at most 0.25 s before the change shows); never for a star set over
+  the control channel, the CLI or MCP, so snapshots and fingerprints are unchanged. With Options ▸
+  General ▸ **Use animations** off it never plays.
+- **Cost:** none when idle (no repaint is asked for); while a flight is in the air, one star, one
+  ring and one repaint per frame.
+- The edit view only for now (not the light table, the slideshow or the viewer); a video in the edit
+  view, whose canvas is the player, does not fly.
+
 ## 3. Zoom and pan
 
 - Zoom slider value v ∈ [0,1]: v = 0 → **fit**; v = 0.5 → **100 %** (always the slider midpoint);

@@ -109,6 +109,7 @@ mod slideshow_bar;
 mod slideshow_video;
 mod soften_brush;
 mod stand_in;
+mod star_flight;
 mod stats_for_nerds;
 mod status_line;
 mod status_tags;

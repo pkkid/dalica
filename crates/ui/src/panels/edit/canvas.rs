@@ -1,6 +1,7 @@
 //! The photo area (`editing.md` §2–§3): the open photo from the session's preview, fitted with
 //! [`PADDING`] all round on the canvas background with its drop shadow, zoom and pan, the zoom
-//! read-out ([`super::zoom`]) and the navigator ([`super::navigator`]) while zoomed.
+//! read-out ([`super::zoom`]) and the navigator ([`super::navigator`]) while zoomed; it also keeps
+//! [`super::star_flight`] following the photo shown.
 //!
 //! **Pixels.** The canvas opens the photo in the session's preview (`Session::open_preview`) at the
 //! photo area's box in device pixels, and prefetches its section neighbours. The preview is
@@ -363,13 +364,16 @@ pub fn window(image: Rect, area: Rect, scale: f32, ppp: f32, size: (f32, f32)) -
 /// sides of a compare mode ([`compare::panes`]), each from its preview pane, zoom and pan synced.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
-    if edit_view::open_photo(app).is_none() {
+    let Some(open) = edit_view::open_photo(app) else {
         ctx.data_mut(|d| {
             d.insert_temp(view_id(), None::<View>);
             d.insert_temp(other_view_id(), None::<View>);
         });
+        super::star_flight::forget(&ctx);
         return;
-    }
+    };
+    // The star's flight follows the photo shown, whatever the sides draw.
+    super::star_flight::show(app, &ctx, open);
     // Ctrl+= and Ctrl+− are the photo's zoom here, never egui's zoom of the whole window.
     if ctx.options(|o| o.zoom_with_keyboard) {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
@@ -399,6 +403,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 d.insert_temp(view_id(), None::<View>);
                 d.insert_temp(other_view_id(), None::<View>);
             });
+            super::star_flight::forget(&ctx);
             return;
         }
     }

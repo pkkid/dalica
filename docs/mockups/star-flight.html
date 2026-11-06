@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dalica star flight mockups</title>
+<!--
+  Mockups of the edit view's star animation (issue #755, task M16.35; original work, MIT OR
+  Apache-2.0). The edit view is drawn from docs/editing.md section 2 and the rects of Dalica's own
+  1400 x 900 snapshot; colours are docs/design-system.md tokens. Every variant is one pure function
+  of time (`frame` below), so the page, the frame strip and the Rust port share the same numbers.
+  Query string: ?bare=1&v=rise|settle|burst|drop|reverse&t=0..1 renders one still frame at
+  1400 x 900 (t is the share of the animation played; t < 0 is the moment before the click).
+-->
+<style>
+  :root {
+    --chrome:#2d2d2d; --canvas:#1c1c1c; --inset:#232323; --field:#222222; --field_border:#3c3c3c;
+    --button:#242424; --button_border:#4c4c4c; --hover:#3a3a3a; --pressed:#3f3f3f; --text:#e2e2e2;
+    --text_label:#bcbcbc; --text_dim:#949494; --text_disabled:#5c5c5c; --icon:#9a9a9a; --track:#5a5a5a;
+    --thumb:#a0a0a0; --star:#d8d8d8; --pick:#f0f0f0; --tray_bg:#262626; --divider:#1c1c1c;
+    --page:#141414; --page_text:#bcbcbc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--page_text);
+    font-family: Inter, "Inter Variable", system-ui, sans-serif; font-size: 13px; }
+  #review { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px;
+    border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; background: var(--page); z-index: 5; }
+  #review b { color: #e2e2e2; font-weight: 600; }
+  #review label { display: inline-flex; gap: 6px; align-items: center; }
+  #review select, #review button { background: #242424; color: #e2e2e2; border: 1px solid #4c4c4c;
+    border-radius: 4px; padding: 3px 8px; font: inherit; }
+  #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(720px, 1fr)); gap: 24px; padding: 16px; }
+  body.single #cards { grid-template-columns: 1fr; }
+  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 12px; }
+  .card h2 { margin: 0 0 4px; font-size: 15px; color: #e2e2e2; font-weight: 600; }
+  .card p { margin: 0 0 8px; color: #a8a8a8; line-height: 1.45; }
+  .card table { border-collapse: collapse; margin: 0 0 10px; font-size: 12px; }
+  .card td { padding: 2px 10px 2px 0; vertical-align: top; }
+  .card td:first-child { color: #8e8e8e; white-space: nowrap; }
+  .holder { position: relative; overflow: hidden; border-radius: 4px; }
+  .win { position: absolute; left: 0; top: 0; width: 1400px; height: 900px; overflow: hidden;
+    background: var(--chrome); color: var(--text_label); transform-origin: 0 0; }
+  .r { position: absolute; }
+  .svg { display: block; }
+  .row { display: flex; align-items: center; }
+  .btn { position: absolute; background: var(--button); border: 1px solid var(--button_border); border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--text); font-size: 12px; font-weight: 600; }
+  .lbl { position: absolute; font-size: 12px; color: var(--text_label); text-align: center; }
+  #notes { padding: 0 16px 24px; max-width: 1100px; line-height: 1.5; color: #a8a8a8; }
+  #notes h3 { color: #e2e2e2; font-size: 14px; margin: 18px 0 6px; }
+  body.bare #review, body.bare #notes, body.bare .card h2, body.bare .card p, body.bare .card table { display: none; }
+  body.bare #cards { padding: 0; display: block; }
+  body.bare .card { padding: 0; border: 0; border-radius: 0; background: none; }
+  body.bare .holder { border-radius: 0; }
+</style>
+</head>
+<body>
+<div id="review">
+  <b>Dalica · the star's flight in the edit view</b>
+  <label>Show <select id="show">
+    <option value="all">every variant (half size)</option>
+    <option value="rise">1. Rise and spin (full size)</option>
+    <option value="settle">2. Rise, spin and settle (full size)</option>
+    <option value="burst">3. Burst in place, chosen (full size)</option>
+    <option value="drop">4a. Unstar: drop and fade, chosen (full size)</option>
+    <option value="reverse">4b. Unstar: reverse flight (full size)</option>
+  </select></label>
+  <label>Speed <select id="speed"><option value="1">1×</option><option value="0.5">0.5×</option>
+    <option value="0.25">0.25×</option><option value="0.1">0.1×</option></select></label>
+  <label><input type="checkbox" id="anim" checked> Use animations</label>
+  <label><input type="checkbox" id="path"> Show the path</label>
+  <button id="pause">Pause</button>
+  <span style="color:#8e8e8e"><b>Chosen:</b> 3 for starring (1000 ms) and 4a for unstarring (450 ms); 1, 2 and 4b were not taken. Each card loops: rest, a click on the star button, the flight, a pause.</span>
+</div>
+<div id="cards"></div>
+<div id="notes">
+  <h3>Rules every variant keeps</h3>
+  <ul>
+    <li><b>Never blocking.</b> The star is written the moment the button, Ctrl+8, Space or Picture ▸ Star is used; the button fills at once. The flight is drawn over the window afterwards, takes no input and holds nothing back. Starring again mid-flight restarts it from the button (an unstar mid-flight ends the star's flight at once and plays the unstar's, if any).</li>
+    <li><b>Reversible:</b> the timings and the choice are the maintainer's (2026-11-06) and can be changed or reversed at the review.</li>
+    <li><b>Colour:</b> the star is the <code>star</code> token (filled, as the star button's glyph when on) with a 1 pt <code>crosshair_outer</code> edge (black α160) so it reads over a white sky; the burst's ring is <code>star</code> at the opacity given. Nothing is hard-coded: a theme changes both.</li>
+    <li><b>Motion rule:</b> design-system.md §1 says 80 ms animations, no bouncing, no long fades. The maintainer approved these two flights as the exception (2026-11-06): the burst at 1000 ms and the drop at 450 ms, on a sine ease-in-out, no bounce, no overshoot (design-system.md §8).</li>
+    <li><b>Use animations off</b> (Options): no flight at all, only the state change (the button fills). The checkbox above shows it.</li>
+    <li><b>Which starring plays it:</b> every user input in the edit view (the button, Ctrl+8, Space, the Picture menu). Never a star over the control channel, the CLI or MCP, so snapshots and fingerprints stay deterministic.</li>
+    <li><b>Where:</b> the edit view only for now; the flight is one reusable piece (a start point, an end point, the clock) so the light table, the slideshow and the viewer could use it later.</li>
+    <li><b>Cost:</b> nothing when idle (no repaint is asked for unless a flight is in the air); while one is, one star, one optional ring, one repaint per frame for at most a second, well inside the 60 Hz frame budget.</li>
+    <li><b>Several photos:</b> the edit view stars one photo; with photos held in the tray too the star button stars them all and still shows one flight.</li>
+  </ul>
+  <h3>Note on variant 2</h3>
+  <p>editing.md §2 places a starred badge at the right end of the edit view's status line, but the status line does not draw it today. Variant 2 needs it drawn (a 12 pt <code>star</code> glyph after the line's last field, right-aligned), which touches the status line too; the page draws it where the spec puts it.</p>
+</div>
+<script>
+"use strict";
+const css = n => getComputedStyle(document.documentElement).getPropertyValue("--" + n).trim();
+const T = {}; for (const n of ["chrome","canvas","inset","field","field_border","button","button_border","hover","pressed","text","text_label","text_dim","text_disabled","icon","track","thumb","star","pick","tray_bg","divider"]) T[n] = css(n);
+const OUTER = "rgba(0,0,0,0.627)"; // crosshair_outer, black α160
+
+// ---------- geometry (window points, 1400 x 900, from the snapshot of the edit view) ----------
+const BTN = { x: 523, y: 810, w: 36, h: 24 };              // the bottom area's star button
+const B = { x: BTN.x + BTN.w / 2, y: BTN.y + BTN.h / 2 };  // its glyph's centre
+const PHOTO = { x: 600, y: 250, w: 480, h: 320 };           // the photo as fitted
+const L = { x: PHOTO.x + PHOTO.w / 2, y: PHOTO.y + PHOTO.h * 0.68 }; // the photo's lower middle
+const BADGE = { x: 1382, y: 794 };                          // the status line's starred badge
+const GLYPH = 16;                                           // star_toggle's glyph size
+
+// ---------- easing (no overshoot anywhere) ----------
+const clamp01 = x => Math.max(0, Math.min(1, x));
+const outCubic = x => 1 - Math.pow(1 - clamp01(x), 3);
+const inQuad = x => clamp01(x) * clamp01(x);
+const inOutSine = x => (1 - Math.cos(Math.PI * clamp01(x))) / 2; // the chosen flights' ease: soft start, soft end
+const inOutCubic = x => { x = clamp01(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const lerp = (a, b, u) => a + (b - a) * u;
+const span = (t, a, b) => clamp01((t - a) / (b - a));
+// the rising arc: a quadratic curve that leaves the button going up and swings over to the target
+function arc(u, from, to) {
+  const c = { x: from.x + (to.x - from.x) * 0.1, y: to.y + (from.y - to.y) * 0.15 };
+  const v = 1 - u;
+  return { x: v * v * from.x + 2 * v * u * c.x + u * u * to.x, y: v * v * from.y + 2 * v * u * c.y + u * u * to.y };
+}
+
+// ---------- the variants: each a pure function of t (0 … 1 of its duration) ----------
+const V = {
+  rise: { n: "1", title: "Rise and spin", ms: 480, starring: true,
+    blurb: "The star leaves the button, rises in an arc into the lower middle of the photo while turning once, grows to almost three times its size, then fades out there.",
+    spec: [["Duration", "480 ms"], ["Path", "a curve from the button's glyph to the photo's lower middle (68 % down), ease-out cubic"],
+      ["Turn", "one full turn (360°) clockwise, ease-out cubic"], ["Size", "16 pt (the button's glyph) to 44 pt, ease-out cubic"],
+      ["Fade", "fully opaque to 60 %, then out over the last 40 % (ease-in)"], ["Colour", "<code>star</code>, 1 pt <code>crosshair_outer</code> edge"]],
+    frame(t) { const u = outCubic(t), p = arc(u, B, L);
+      return { star: { ...p, size: lerp(GLYPH, 44, u), rot: 360 * u, alpha: 1 - inQuad(span(t, 0.6, 1)) } }; } },
+  settle: { n: "2", title: "Rise, spin and settle", ms: 500, starring: true,
+    blurb: "The same rise and turn into the photo (300 ms), then the star shrinks as it glides into the starred badge at the right end of the status line (200 ms), which lights as it lands. It shows where the state now lives.",
+    spec: [["Duration", "500 ms: rise 300 ms, settle 200 ms"], ["Path", "the rise's curve to the lower middle, then a straight glide to the status line's badge (ease-in-out cubic)"],
+      ["Turn", "one full turn during the rise; none while settling"], ["Size", "16 to 40 pt rising, 40 to 12 pt (the badge's glyph) settling"],
+      ["Fade", "none: it becomes the badge"], ["Colour", "<code>star</code>, 1 pt <code>crosshair_outer</code> edge"]],
+    frame(t) { const a = span(t, 0, 0.6), b = inOutCubic(span(t, 0.6, 1)), u = outCubic(a), p = arc(u, B, L);
+      if (t < 0.6) return { star: { ...p, size: lerp(GLYPH, 40, u), rot: 360 * u, alpha: 1 } };
+      return { star: { x: lerp(L.x, BADGE.x, b), y: lerp(L.y, BADGE.y, b), size: lerp(40, 12, b), rot: 360, alpha: t >= 1 ? 0 : 1 }, badge: t >= 1 ? 1 : 0 }; } },
+  burst: { n: "3", title: "Burst in place (chosen for starring)", ms: 1000, starring: true,
+    blurb: "The maintainer's choice (2026-11-06), slowed to a full second so it is fun and calm: the star rises softly a short way above the button with one unhurried turn while a ring blooms slowly round it, and both fade gently. It never covers the photo.",
+    spec: [["Duration", "1000 ms"], ["Path", "straight up 40 pt from the button's glyph, sine ease-in-out (no snap at the start, a soft stop)"],
+      ["Turn", "one full turn (360°) clockwise, on the same ease"], ["Size", "16 to 24 pt, on the same ease"],
+      ["Ring", "round the star: radius 10 to 40 pt on the same ease, 2 pt stroke; opacity rises to 0.5 and falls back on a sine arc"],
+      ["Fade", "the star opaque to half way, then out on the sine ease"], ["Colour", "<code>star</code> for both; the star's 1 pt <code>crosshair_outer</code> edge"]],
+    frame(t) { const u = inOutSine(t), p = { x: B.x, y: B.y - 40 * u };
+      return { star: { ...p, size: lerp(GLYPH, 24, u), rot: 360 * u, alpha: 1 - inOutSine(span(t, 0.5, 1)) },
+        ring: { ...p, r: lerp(10, 40, u), alpha: 0.5 * Math.sin(Math.PI * clamp01(t)) } }; } },
+  drop: { n: "4a", title: "Unstar: drop and fade (chosen for unstarring)", ms: 450, starring: false,
+    blurb: "The maintainer's choice for un-starring, made calmer (450 ms) to sit beside the slow burst: the button empties at once and the filled star it held drops a short way, tilting, as it fades.",
+    spec: [["Duration", "450 ms"], ["Path", "straight down 18 pt from the button's glyph, sine ease-in-out"],
+      ["Turn", "an eighth of a turn back (−45°)"], ["Size", "16 to 12 pt"], ["Fade", "out over the whole drop, on the same ease"], ["Colour", "<code>star</code>, 1 pt <code>crosshair_outer</code> edge"]],
+    frame(t) { const u = inOutSine(t);
+      return { star: { x: B.x, y: B.y + 18 * u, size: lerp(GLYPH, 12, u), rot: -45 * u, alpha: 1 - u } }; } },
+  reverse: { n: "4b", title: "Unstar: reverse flight", ms: 400, starring: false,
+    blurb: "Un-starring as the star's flight backwards: the star appears in the photo, turns back once and shrinks into the button, which empties as it arrives. Symmetric with 1, but it draws the eye to a removal.",
+    spec: [["Duration", "400 ms"], ["Path", "variant 1's curve, from the photo back to the button, ease-in-out cubic"],
+      ["Turn", "one turn anticlockwise"], ["Size", "44 to 16 pt"], ["Fade", "in over the first 30 %, out over the last 15 %"], ["Colour", "<code>star</code>, 1 pt <code>crosshair_outer</code> edge"]],
+    frame(t) { const u = 1 - inOutCubic(t), p = arc(u, B, L);
+      return { star: { ...p, size: lerp(GLYPH, 44, u), rot: 360 * u, alpha: Math.min(span(t, 0, 0.3), 1 - span(t, 0.85, 1)) } }; } },
+};
+const ORDER = ["rise", "settle", "burst", "drop", "reverse"];
+
+// ---------- drawing ----------
+function starPath(cx, cy, size, rot) { // a five-pointed star, outer radius size / 2, inner 0.42 of it
+  const R = size / 2, r = R * 0.42, pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (rot - 90 + i * 36) * Math.PI / 180, k = i % 2 ? r : R;
+    pts.push(`${(cx + k * Math.cos(a)).toFixed(2)},${(cy + k * Math.sin(a)).toFixed(2)}`);
+  }
+  return `M${pts.join("L")}Z`;
+}
+const ICON = {
+  back: '<path d="M16 10H4M8.5 5.5L4 10l4.5 4.5"/>', play: '<circle cx="10" cy="10" r="7"/><path d="M8.5 7.2l4 2.8-4 2.8z"/>',
+  rotL: '<path d="M5.2 9.5A5.5 5.5 0 1 1 7 13.6"/><path d="M5 4.5v5h5"/>', rotR: '<path d="M14.8 9.5A5.5 5.5 0 1 0 13 13.6"/><path d="M15 4.5v5h-5"/>',
+  hold: '<path d="M7.5 3h5l-.6 5 2.6 2.6V12h-9v-1.4L8.1 8z"/><path d="M10 12v5"/>', clear: '<circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6l9.2-9.2"/>',
+  album: '<path d="M5 3h9a1 1 0 0 1 1 1v13H6.5A1.5 1.5 0 0 1 5 15.5z"/>', export: '<path d="M10 3v9M6.5 6.5L10 3l3.5 3.5"/><path d="M4 11v5h12v-5"/>',
+  collage: '<rect x="3" y="4" width="14" height="12" rx="1"/><path d="M10 4v12M3 10h7"/>', show: '<rect x="3" y="3" width="14" height="10" rx="1"/><path d="M8.5 6l3 2-3 2zM7 17h6M10 13v4"/>',
+  people: '<circle cx="8" cy="7" r="3"/><path d="M3 16.5c0-3 2.2-5 5-5s5 2 5 5"/>', map: '<path d="M3 5l4.5-2 5 2 4.5-2v12l-4.5 2-5-2L3 17z"/><path d="M7.5 3v12M12.5 5v12"/>',
+  tag: '<path d="M3 3h7l7 7-7 7-7-7z"/><circle cx="7" cy="7" r="1.3"/>', info: '<circle cx="10" cy="10" r="7"/><path d="M10 9v5M10 6.5h.01"/>',
+  trash: '<path d="M4 6h12M8 6V4h4v2M5.5 6l1 11h7l1-11"/>', wrench: '<path d="M12.5 3.5a4 4 0 0 0-4.8 5.2L3.5 13a1.8 1.8 0 0 0 2.5 2.5l4.3-4.2a4 4 0 0 0 5.2-4.8l-2.3 2.3-2.2-.6-.6-2.2z"/>',
+  sun: '<circle cx="10" cy="10" r="3"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6L15 15M5 15l1.4-1.4M13.6 6.4L15 5"/>',
+  brush: '<path d="M15.5 3.5l-7 7M8.5 10.5c-2 0-3 1.5-3 3s-1 2.5-2 2.5c3 1 6 0 6-3z"/>', crop: '<path d="M6 3v11h11M3 6h11v11"/>',
+  level: '<rect x="3" y="7" width="14" height="7" rx="1"/><path d="M8 10.5h4"/>', heal: '<rect x="3" y="7" width="14" height="6" rx="3" transform="rotate(-45 10 10)"/>',
+  spark: '<path d="M10 3v14M3 10h14M5.5 5.5l9 9M14.5 5.5l-9 9"/>', half: '<circle cx="10" cy="10" r="7"/><path d="M10 3v14" /><path d="M10 3a7 7 0 0 1 0 14z" fill="currentColor"/>',
+  rings: '<circle cx="10" cy="7.5" r="4"/><circle cx="7.5" cy="12" r="4"/><circle cx="12.5" cy="12" r="4"/>', capt: '<rect x="3" y="4" width="14" height="10" rx="1"/><path d="M6 11h8M6 8h5"/>',
+};
+const icon = (n, s, c) => `<svg class="svg" width="${s}" height="${s}" viewBox="0 0 20 20" fill="none" stroke="${c}" color="${c}" stroke-width="${1.5 * 20 / s > 2 ? 2 : 1.5}" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
+const box = (x, y, w, h, st) => `<div class="r" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;${st || ""}"></div>`;
+const text = (x, y, s, st) => `<div class="r" style="left:${x}px;top:${y}px;white-space:nowrap;${st || ""}">${s}</div>`;
+const button = (x, y, w, h, inner, st) => `<div class="btn" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;${st || ""}">${inner}</div>`;
+const sky = "radial-gradient(circle at 72% 30%, rgba(255,248,226,.95) 0 3%, rgba(255,240,200,0) 9%), linear-gradient(180deg, #86b4e2 0%, #cfe2f0 48%, #e9dcc2 55%, #8a9a6a 56%, #5d6f43 74%, #34401f 100%)";
+
+function editView() {
+  let h = "";
+  // menu bar and title (32)
+  h += box(0, 0, 1400, 32, `background:${T.chrome}`);
+  h += box(8, 8, 18, 18, "background:#d65d0e;border-radius:4px");
+  h += `<div class="r row" style="left:36px;top:7px;gap:11px;font-size:14px;color:${T.text}">${["File", "Edit", "View", "Folder", "Picture", "Create", "Tools", "Help"].map(m => `<span>${m}</span>`).join("")}</div>`;
+  h += text(700, 7, "Garden · Dalica", `font-size:14px;color:${T.text_label};transform:translateX(-50%)`);
+  // edit top bar (40)
+  h += box(0, 32, 1400, 40, `background:${T.chrome}`);
+  h += button(8, 40, 139, 23, `${icon("back", 14, T.text)}Back to Library`) + button(156, 40, 75, 23, `${icon("play", 14, T.text)}Play`);
+  h += text(441, 44, "◀", `color:${T.text_disabled};font-size:10px`) + text(968, 44, "▶", `color:${T.icon};font-size:10px`);
+  ["#86b4e2,#5d6f43", "#3cbf7a,#c535d0", "#0d2a2e,#bfe0e0", "#2c3320,#c8c38a", "#c8a43a,#6aa05a"].forEach((g, i) => {
+    h += box(692 + 56 * i, 34, 36, 36, `background:linear-gradient(135deg,${g});${i ? "" : "outline:2px solid #fff;outline-offset:-1px"}`);
+  });
+  h += box(1188, 40, 132, 23, `border:1px solid ${T.button_border};border-radius:4px;background:${T.button}`) + box(1189, 41, 43, 21, `background:${T.pressed};border-radius:3px 0 0 3px`);
+  h += text(1205, 44, "A", `color:${T.text};font-weight:600;font-size:12px`) + text(1243, 44, "A│B", `color:${T.text};font-weight:600;font-size:12px`) + text(1287, 44, "A│A", `color:${T.text};font-weight:600;font-size:12px`);
+  // edit panel (280)
+  h += box(0, 72, 280, 712, `background:${T.chrome}`);
+  h += box(0, 72, 40, 32, `background:${T.pressed}`);
+  ["wrench", "sun", "brush", "brush", "brush"].forEach((n, i) => { h += `<div class="r" style="left:${12 + 40 * i}px;top:80px">${icon(n, 16, i ? T.icon : T.pick)}</div>`; });
+  h += button(204, 76, 68, 24, "Original");
+  [["crop", "Crop"], ["level", "Straighten"], ["heal", "Retouch"], ["spark", "Auto Fix"], ["half", "Auto Contrast"], ["rings", "Auto Color"]].forEach(([n, l], i) => {
+    const x = 29 + 89 * (i % 3), y = 116 + 56 * Math.floor(i / 3);
+    h += box(x, y, 44, 28, `background:${T.inset};border-radius:4px`) + `<div class="r" style="left:${x + 14}px;top:${y + 6}px">${icon(n, 16, T.icon)}</div>`;
+    h += `<div class="lbl" style="left:${x - 30}px;top:${y + 30}px;width:104px">${l}</div>`;
+  });
+  h += box(8, 234, 44, 32, `background:${T.inset};border-radius:4px`) + `<div class="r" style="left:22px;top:242px">${icon("sun", 16, T.icon)}</div>`;
+  h += text(60, 230, "Fill Light", `font-size:12px;color:${T.text_label}`) + box(68, 259, 196, 2, `background:${T.track}`) + box(61, 252, 14, 14, `border:2px solid ${T.thumb};border-radius:50%;background:${T.chrome}`);
+  h += button(8, 590, 128, 27, "Undo", `color:${T.text_disabled}`) + button(143, 590, 128, 27, "Redo", `color:${T.text_disabled}`);
+  h += box(8, 626, 264, 150, `border:1px solid ${T.button_border};border-radius:4px`) + text(16, 635, "Histogram &amp; Camera Info", `font-size:12px;font-weight:600;color:${T.text}`);
+  h += box(16, 654, 248, 68, "background:#141414") + `<svg class="r" style="left:16px;top:654px" width="248" height="68"><path d="M0 68 L40 60 L60 20 L75 58 L90 30 L110 62 L130 40 L150 10 L170 50 L190 25 L210 64 L248 66 L248 68Z" fill="rgba(68,176,114,.55)"/><path d="M0 68 L50 64 L80 45 L100 66 L140 30 L160 60 L180 15 L200 62 L248 68Z" fill="rgba(59,111,224,.5)"/><path d="M0 68 L120 66 L150 42 L170 20 L185 48 L200 8 L220 66 L248 68Z" fill="rgba(223,57,57,.55)"/></svg>`;
+  h += text(16, 726, "Dalica Scenes 1", `font-size:12px;color:${T.text_label}`);
+  // photo area (canvas)
+  h += box(280, 72, 1120, 712, `background:${T.canvas}`);
+  h += box(PHOTO.x, PHOTO.y, PHOTO.w, PHOTO.h, `background:${sky};box-shadow:0 2px 10px rgba(0,0,0,.5)`);
+  h += box(289, 753, 26, 24, `background:${T.button};border:1px solid ${T.button_border};border-radius:4px`) + `<div class="r" style="left:294px;top:757px">${icon("capt", 16, T.icon)}</div>`;
+  h += box(660, 754, 360, 24, `background:${T.field};border:1px solid ${T.field_border};border-radius:3px`) + text(668, 757, "Add a caption", `font-size:14px;color:${T.text_dim}`);
+  h += `<div class="r" style="left:1370px;top:758px">${icon("trash", 16, T.icon)}</div>`;
+  // status line (20)
+  h += box(0, 784, 1400, 20, `background:${T.chrome}`);
+  h += text(453, 787, "Garden › IMG_0041.jpg&nbsp;&nbsp;&nbsp;&nbsp;June 6, 2026 1:40 PM&nbsp;&nbsp;&nbsp;&nbsp;480 × 320&nbsp;&nbsp;&nbsp;&nbsp;8.5 KB&nbsp;&nbsp;&nbsp;&nbsp;(1 of 20)", `font-size:12px;color:${T.text_label}`);
+  // bottom area
+  h += box(0, 804, 1400, 96, `background:${T.chrome}`);
+  h += box(6, 812, 449, 80, `background:${T.tray_bg};border-radius:4px`) + box(203, 825, 54, 54, `background:${sky}`);
+  ["hold", "clear", "album"].forEach((n, i) => { h += box(463, 813 + 29 * i, 34, 24, `background:${T.button};border:1px solid ${T.button_border};border-radius:4px`) + `<div class="r" style="left:${472}px;top:${817 + 29 * i}px">${icon(n, 16, T.icon)}</div>`; });
+  h += box(517, 804, 1, 96, `background:${T.divider}`);
+  h += `<div class="r starbtn" style="left:${BTN.x}px;top:${BTN.y}px;width:${BTN.w}px;height:${BTN.h}px;border:1px solid ${T.button_border};border-radius:4px"></div>`;
+  ["rotL", "rotR"].forEach((n, i) => { h += box(563 + 40 * i, 810, 36, 24, `background:${T.button};border:1px solid ${T.button_border};border-radius:4px`) + `<div class="r" style="left:${573 + 40 * i}px;top:814px">${icon(n, 16, T.icon)}</div>`; });
+  [["export", "Export", 554], ["collage", "Collage", 635], ["show", "Slideshow", 703]].forEach(([n, l, x]) => {
+    h += `<div class="r" style="left:${x - 12}px;top:848px">${icon(n, 24, T.icon)}</div><div class="lbl" style="left:${x - 40}px;top:880px;width:80px">${l}</div>`;
+  });
+  h += box(595, 852, 1, 36, `border-left:1px dashed ${T.button_border}`);
+  h += box(1062, 810, 72, 24, `border:1px solid ${T.button_border};border-radius:4px;background:${T.button}`) + box(1063, 811, 35, 22, `background:${T.pressed}`);
+  h += text(1072, 814, "Fit", `font-size:12px;font-weight:600;color:${T.text}`) + text(1108, 814, "1:1", `font-size:12px;font-weight:600;color:${T.text}`);
+  h += box(1146, 821, 104, 2, `background:${T.track}`) + box(1145, 814, 2, 16, `background:${T.text}`);
+  ["people", "map", "tag", "info"].forEach((n, i) => { h += box(1260 + 32 * i, 810, 32, 24, `background:${T.button};border:1px solid ${T.button_border};${i ? "" : "border-radius:4px 0 0 4px;"}${i === 3 ? "border-radius:0 4px 4px 0;" : ""}`) + `<div class="r" style="left:${1268 + 32 * i}px;top:814px">${icon(n, 16, T.icon)}</div>`; });
+  return h;
+}
+
+// one window: the static edit view, its star button, and the overlay the flight is drawn on
+function makeWindow(holder, scale) {
+  const win = document.createElement("div");
+  win.className = "win"; win.style.transform = `scale(${scale})`; win.innerHTML = editView();
+  win.insertAdjacentHTML("beforeend", `<svg class="r ov" style="left:0;top:0;pointer-events:none" width="1400" height="900"></svg>`);
+  holder.style.width = 1400 * scale + "px"; holder.style.height = 900 * scale + "px";
+  holder.appendChild(win);
+  return { btn: win.querySelector(".starbtn"), ov: win.querySelector(".ov") };
+}
+// paints one frame: on = the star's state, pressed = the button held, f = the variant's frame (or null)
+function paint(w, on, pressed, f, showPath, v) {
+  w.btn.style.background = pressed ? T.pressed : T.button;
+  const glyph = `<path d="${starPath(B.x - BTN.x, B.y - BTN.y, GLYPH, 0)}" fill="${on ? T.star : "none"}" stroke="${on ? T.star : T.icon}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  w.btn.innerHTML = `<svg width="${BTN.w}" height="${BTN.h}" style="position:absolute;left:-1px;top:-1px">${glyph}</svg>`;
+  let s = "";
+  if (showPath && v) {
+    let d = ""; for (let i = 0; i <= 40; i++) { const g = V[v].frame(i / 40).star; if (g) d += (i ? "L" : "M") + g.x.toFixed(1) + "," + g.y.toFixed(1); }
+    s += `<path d="${d}" fill="none" stroke="#e3a83c" stroke-width="1" stroke-dasharray="3 3" opacity=".8"/>`;
+  }
+  if (v === "settle" && on && (!f || f.badge)) s += `<path d="${starPath(BADGE.x, BADGE.y, 12, 0)}" fill="${T.star}"/>`;
+  if (f && f.ring && f.ring.alpha > 0) s += `<circle cx="${f.ring.x}" cy="${f.ring.y}" r="${f.ring.r}" fill="none" stroke="${T.star}" stroke-width="2" opacity="${f.ring.alpha.toFixed(3)}"/>`;
+  if (f && f.star && f.star.alpha > 0) {
+    const g = f.star;
+    s += `<path d="${starPath(g.x, g.y, g.size, g.rot)}" fill="${T.star}" stroke="${OUTER}" stroke-width="1" stroke-linejoin="round" opacity="${g.alpha.toFixed(3)}"/>`;
+  }
+  w.ov.innerHTML = s;
+}
+
+// ---------- the page ----------
+const q = new URLSearchParams(location.search);
+const bare = q.get("bare") === "1";
+if (bare) document.body.classList.add("bare");
+const cards = document.getElementById("cards");
+let wins = [];
+function build(show) {
+  cards.innerHTML = ""; wins = [];
+  document.body.classList.toggle("single", show !== "all");
+  const list = show === "all" ? ORDER : [show];
+  for (const v of list) {
+    const d = V[v], card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<h2>${d.n}. ${d.title}</h2><p>${d.blurb}</p><table>${d.spec.map(([k, x]) => `<tr><td>${k}</td><td>${x}</td></tr>`).join("")}</table><div class="holder"></div>`;
+    cards.appendChild(card);
+    wins.push({ v, w: makeWindow(card.querySelector(".holder"), bare || show !== "all" ? 1 : 0.5) });
+  }
+}
+const REST = 700, PRESS = 110, HOLD = 1100;
+let paused = false, clock = 0, last = performance.now();
+function tick(now) {
+  const speed = +document.getElementById("speed").value;
+  if (!paused) clock += (now - last) * speed;
+  last = now;
+  const anim = document.getElementById("anim").checked, showPath = document.getElementById("path").checked;
+  for (const { v, w } of wins) {
+    const d = V[v], cycle = REST + d.ms + HOLD, at = clock % cycle, k = at - REST;
+    const on = d.starring ? k >= 0 : k < 0;
+    const f = anim && k >= 0 && k < d.ms ? d.frame(k / d.ms) : null;
+    paint(w, on, k >= 0 && k < PRESS, f, showPath, v);
+  }
+  requestAnimationFrame(tick);
+}
+if (bare) {
+  const v = V[q.get("v")] ? q.get("v") : "rise", t = parseFloat(q.get("t") ?? "0.5");
+  build(v);
+  const d = V[v], on = d.starring ? t >= 0 : t < 0;
+  paint(wins[0].w, on, false, t >= 0 && t <= 1 ? d.frame(Math.min(t, 1)) : null, q.get("path") === "1", v);
+} else {
+  const sel = document.getElementById("show");
+  sel.onchange = () => build(sel.value);
+  document.getElementById("pause").onclick = e => { paused = !paused; e.target.textContent = paused ? "Play" : "Pause"; };
+  build("all");
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>
