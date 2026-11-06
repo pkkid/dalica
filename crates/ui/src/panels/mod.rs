@@ -30,6 +30,7 @@ pub mod collage;
 pub mod edit;
 pub mod faces;
 pub mod folders;
+pub mod history_pane;
 pub mod import;
 pub mod layout;
 pub mod light_table;

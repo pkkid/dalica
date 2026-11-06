@@ -185,6 +185,18 @@ enabled. Tabs 3–5 show their tile grids, §8.1.)
   runs `edit.undoAll` with them: one library undo step, and a saved photo keeps its saved pixels.
 - Exception to linear history: **Crop** can be re-opened at any time; it shows the whole photo with
   the current rectangle and replaces the earlier crop without undoing later edits.
+- **The History pane** (Dalica addition, issue #726; `ui-layout.md` §7) lists this history: a row
+  **Original**, then one row per entry of the recipe, then the redo list (the next step to redo
+  first), each with its history label and a short detail (a crop's shape, a straighten's angle,
+  Tuning's values that are not zero). A re-opened crop is one Crop row at its place, updated; a
+  Tuning session is one row that changes while you drag. Clicking a row runs
+  `photo.history.goto {id, index}`, one command that undoes or redoes as many steps as needed; the
+  redoable steps stay until a new edit replaces them, so the row left is one click away. Clicking
+  Original undoes every step and keeps them all redoable, which Undo All Edits does not. A saved
+  photo with no newer edits shows **Save** as its first row; the pane never runs Undo Save. The rows
+  come from the query `photo.history {id}` (`steps`, each with `index`, `label`, `detail`, `op`,
+  `kind` `original` / `save` / `edit` and `redo`, and `current`), so the CLI, MCP and the control
+  channel read the same list. The library's own undo stack is not listed.
 
 ### 5.2 Histogram & camera info
 

@@ -11642,7 +11642,7 @@ under their own key, and a snapshot without them reads as one with none.
     screen and back on the same photo and timer, and Esc ends it; screenshots at 1400 x 900 and
     900 x 600, in the window and full screen, before and after; slideshow fingerprints that move
     are looked at and the why is in the commit body; the PR closes #725.
-- ⬜ **M16.33 `ui` + `engine`: the History pane (#726)**
+- ✅ **M16.33 `ui` + `engine`: the History pane (#726)**
   - after: M16.31
   - files: `crates/ui/src/panels/history_pane.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/tests/history.rs`, `crates/ui/tests/history_pane.rs`, `docs/ui-layout.md`, `docs/editing.md`
   - scope: issue #726 as written (maintainer request, 2026-11-06): a "History" side pane next

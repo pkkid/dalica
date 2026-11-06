@@ -235,6 +235,7 @@ pub const VIEW: &[Entry] = &[
     item("Tags", "pane.tags").key("Ctrl+T").check().e(),
     item("People", "pane.people").check().e(),
     item("Places", "pane.places").check().e(),
+    item("History", "pane.history").key("Ctrl+Shift+Y").check().e(),
     SEP,
     item("Show Edit Controls", "edit.panelToggle").key("Ctrl+9").check().e(),
     SEP,

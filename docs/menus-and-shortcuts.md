@@ -81,6 +81,7 @@ Reference order; Undo/Redo are a Dalica addition placed first.
 | Tags | Ctrl+T | `pane.tags` | checkable |
 | People | | `pane.people` | checkable |
 | Places | | `pane.places` | checkable |
+| History | Ctrl+Shift+Y | `pane.history` | checkable; Dalica addition (M16.33): the open photo's edit history (`ui-layout.md` §7) |
 | — | | | |
 | Show Edit Controls | Ctrl+9 | `edit.panelToggle` | checkable; in the library it sets whether the edit panel shows when the edit view next opens |
 | — | | | |
@@ -314,6 +315,7 @@ commands change nothing and record no undo step.
 | `edit.pasteRecipe` | Paste All Edits: replace recipes with the copied one, as one library step (`{ids}`), or as one step of the open photo's history in the edit view (`{id, history: true}`) (M11.9) |
 | `edit.undoAll` | Undo All Edits: remove every unsaved edit (recipe and redo list) as one library step that can be undone (`{ids, confirm}`; `needs_confirm` without), or one history step in the edit view (`{id, history: true}`); saved photos keep their saved pixels (M11.9); the section header's Discard opens its question for the photos the header counts as "%d edited" (M16.34) |
 | `edit.variant.open` / `edit.variant.close` | A│A's variant: a copy of the photo's recipe with its own undo, held in the session only (`{id}`), dropped or kept as one step of the photo's history (`{keep: "left" \| "right"}`); `photo.history.apply`, `.undo`, `.redo` and `.state` take `variant: true` (M11.10) |
+| `photo.history` / `photo.history.goto` | the History pane's rows (query, `{id}`: Original or Save, then every step with its label and detail, `current`) and the jump to one (`{id, index}`: undoes or redoes as many steps as needed in one command, the redoable steps kept; M16.33) |
 | `import.sources` | query: the cards, drives and recent sources to import from, from the cached list, never waiting on the disk (M11.7) |
 | `import.openSource` | open a source in the Import room (`{device}`: a card or drive from `import.sources`, or `{path}`: a folder, checked against automation's read roots); starts the listing and drops an older one (M11.7; the UI's `import.open`, Ctrl+M, opens the room) |
 | `import.list` | query: the listing's status ("Loading 112 of 340 files…") and its candidates in capture order, paged (`{offset?, limit?}`, at most 1 000) (M11.7) |
@@ -402,6 +404,7 @@ does not know are kept verbatim and ignored. The editor goes through `app.setSho
 | Ctrl+3 / Ctrl+4 | edit view / slideshow |
 | Ctrl+0 / Ctrl+9 | side pane / edit controls |
 | Ctrl+T | Tags pane |
+| Ctrl+Shift+Y | History pane (Dalica addition) |
 | Ctrl+F, F3 | search |
 | Ctrl+S / Ctrl+Shift+S | save / export |
 | Ctrl+Shift+O | open in external editor *(OS integration)* |

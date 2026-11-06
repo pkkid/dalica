@@ -3,7 +3,8 @@
 //! « at the left (`button:pane.widen`: toggles the large width), the pane's title centred in
 //! SemiBold, × at the right (`button:pane.close`), then the pane body (`pane:<name>`): the
 //! Properties pane ([`super::properties`]), the Tags pane ([`super::tags`]), the People pane
-//! ([`super::people_pane`]) and the Places pane ([`super::places`]). When the window narrows so far that the light table would drop below 480
+//! ([`super::people_pane`]), the Places pane ([`super::places`]) and the History pane
+//! ([`super::history_pane`]). When the window narrows so far that the light table would drop below 480
 //! the pane gives up its large width, then closes itself.
 //!
 //! Opening slides the pane in over [`SLIDE_SECONDS`] (ease-out) and closing slides it out, the
@@ -127,6 +128,7 @@ pub fn title(pane: Pane) -> (String, &'static str) {
         Pane::Places => (tl!("Places"), "places"),
         Pane::Tags => (tl!("Tags"), "tags"),
         Pane::Properties => (tl!("Properties"), "properties"),
+        Pane::History => (tl!("History"), "history"),
     }
 }
 
@@ -229,6 +231,7 @@ pub fn show_slid(app: &mut App, ui: &mut Ui, drawn: Drawn) {
             Pane::Tags => super::tags::show(app, &mut inner),
             Pane::People => super::people_pane::show(app, &mut inner),
             Pane::Places => super::places::show(app, &mut inner),
+            Pane::History => super::history_pane::show(app, &mut inner),
         }
     }
 

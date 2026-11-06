@@ -264,6 +264,8 @@ pub enum Pane {
     Places,
     Tags,
     Properties,
+    /// The open photo's edit history (M16.33).
+    History,
 }
 
 /// How the library tree shows folders (`organizing.md` §10): every folder as one row (`flat`, the
@@ -4020,7 +4022,7 @@ mod tests {
         let mut s = UiState { pane: Some(Pane::Properties), pane_large: true, ..UiState::default() };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!((&v["pane"], &v["paneLarge"]), (&"properties".into(), &true.into()));
-        for (name, pane) in [("people", Pane::People), ("places", Pane::Places), ("tags", Pane::Tags)] {
+        for (name, pane) in [("people", Pane::People), ("places", Pane::Places), ("tags", Pane::Tags), ("history", Pane::History)] {
             s.pane = Some(pane);
             assert_eq!(serde_json::to_value(&s).unwrap()["pane"], name);
         }

@@ -300,7 +300,7 @@ fn no_interactive_node_lacks_a_name_and_every_slider_has_its_value_and_range_in_
         problems.extend(audit(d, &t, place));
     };
     audit_now(&mut d, "library");
-    for pane in ["pane.properties", "pane.tags", "pane.people", "pane.places"] {
+    for pane in ["pane.properties", "pane.tags", "pane.people", "pane.places", "pane.history"] {
         d.run(pane, &json!({})).unwrap();
         audit_now(&mut d, pane);
     }

@@ -262,7 +262,10 @@ fn the_specs_name_their_histories() {
     }
     let listed: Vec<&str> = s.commands().iter().map(|c| c.id).filter(|c| c.starts_with("photo.history.")).collect();
     assert_eq!(history("photo.history.tuning"), History::Photo);
-    assert_eq!(listed, ["photo.history.apply", "photo.history.undo", "photo.history.redo", "photo.history.state", "photo.history.tuning"]);
+    assert_eq!(
+        listed,
+        ["photo.history.apply", "photo.history.undo", "photo.history.redo", "photo.history.state", "photo.history.goto", "photo.history.tuning"]
+    );
 }
 
 #[test]

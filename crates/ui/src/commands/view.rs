@@ -69,6 +69,14 @@ pub const COMMANDS: &[UiCommand] = &[
         run: pane_places,
     },
     UiCommand {
+        id: "pane.history",
+        label: "History",
+        menu: "View/History",
+        keys: &[(Context::Global, "Ctrl+Shift+Y")],
+        params: "{}: open the History pane (the open photo's edits, photo.history), or close it when it is open",
+        run: pane_history,
+    },
+    UiCommand {
         id: "pane.toggle",
         label: "Toggle Side Pane",
         menu: "",
@@ -194,6 +202,10 @@ fn pane_people(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 
 fn pane_places(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     pane(app, params, Pane::Places)
+}
+
+fn pane_history(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    pane(app, params, Pane::History)
 }
 
 fn pane_toggle(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -347,6 +359,7 @@ pub fn checked(state: &UiState, id: &str, params: &Value) -> Option<bool> {
         "pane.tags" => state.pane == Some(Pane::Tags),
         "pane.people" => state.pane == Some(Pane::People),
         "pane.places" => state.pane == Some(Pane::Places),
+        "pane.history" => state.pane == Some(Pane::History),
         "view.smallPictures" => state.small_pictures,
         "view.hiddenPictures" => state.hidden_pictures,
         "window.fullscreen" => state.full_screen,
