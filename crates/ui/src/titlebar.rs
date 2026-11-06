@@ -239,7 +239,7 @@ enum Glyph {
 }
 
 /// One caption button: `hover` on hover, `pressed` while held; Close turns `caption_close` (× 0.8
-/// while held) with a white glyph.
+/// while held) with a [`close_ink`] glyph.
 fn caption(ui: &mut Ui, t: &Tokens, rect: Rect, id: &str, glyph: Glyph, label: &str) -> egui::Response {
     let r = ui.interact(rect, Id::new(id), Sense::click());
     let close = glyph == Glyph::Close;
@@ -255,10 +255,20 @@ fn caption(ui: &mut Ui, t: &Tokens, rect: Rect, id: &str, glyph: Glyph, label: &
     if let Some(fill) = fill {
         painter.rect_filled(rect, 0, fill);
     }
-    let ink = if close && (hovered || down) { t.on_accent } else { t.icon };
+    let ink = if close && (hovered || down) { close_ink(t) } else { t.icon };
     paint_glyph(painter, glyph, rect.center(), Stroke::new(1.0, ink));
     widgets::register(ui.ctx(), id, Role::IconButton, label, Target::Widget(&r), false);
     r.on_hover_text(label)
+}
+
+/// The glyph of Close on its `caption_close` fill: white or black, whichever reads better on it
+/// (`design-system.md` §2, Themes), as `on_accent` is to `accent`. White in Dark and in most
+/// themes (Windows' red); black on Adwaita's light grey. Not `on_accent`, whose fill is another
+/// colour: on Pro's red it would be black where white reads better.
+fn close_ink(t: &Tokens) -> egui::Color32 {
+    use dalica_ui_kit::theme::contrast;
+    let (white, black) = (egui::Color32::WHITE, egui::Color32::BLACK);
+    if contrast(white, t.caption_close) >= contrast(black, t.caption_close) { white } else { black }
 }
 
 /// The 10 pt line glyphs of the Windows caption buttons, centred at `at` (PhotoCraft's
@@ -363,6 +373,19 @@ mod tests {
     use super::*;
     use crate::headless::Driver;
     use dalica_ui_kit::registry;
+
+    #[test]
+    fn close_reads_on_its_fill_in_every_theme_and_stays_white_in_dark() {
+        use dalica_ui_kit::theme::{ThemeKind, contrast};
+        assert_eq!(close_ink(&Tokens::DARK), egui::Color32::WHITE);
+        for kind in ThemeKind::ALL {
+            let t = Tokens::for_kind(kind);
+            let c = contrast(close_ink(&t), t.caption_close);
+            assert!(c >= 4.5, "{}: Close's glyph at {c:.2}:1 on its fill", kind.id());
+        }
+        // Pro's red takes white, as the palette's own Close text is.
+        assert_eq!(close_ink(&Tokens::for_kind(ThemeKind::Pro)), egui::Color32::WHITE);
+    }
 
     #[test]
     fn the_title_names_the_section() {

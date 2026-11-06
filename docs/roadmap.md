@@ -11197,7 +11197,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: `crates/ui-kit/tests/themes.rs` and `tests/contrast.rs` pass for each palette with no
     pinned exception; their gallery fingerprints show each palette; `cargo xtask assets` passes
     with the Solarized row and licence file; `cargo xtask names` passes.
-- ⬜ **M16.8 `ui`: the window in every theme**
+- ✅ **M16.8 `ui`: the window in every theme**
   - after: M16.5, M16.6, M16.7
   - files: `crates/ui/src/panels/**`, `crates/ui/src/dialogs/**`, `crates/ui/src/titlebar.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/themes.rs`, `crates/ui/tests/fingerprints/theme-*.json`, `docs/design-system.md`, `docs/ui-layout.md`
   - scope: every view drawn in every theme, and whatever does not follow the theme fixed: a

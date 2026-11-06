@@ -99,9 +99,10 @@ The §3 sizes are `Tokens` fields (`body`, `small`, `title`, `heading`, `button_
 
 ### Themes
 
-From M16 the look is switchable among thirteen themes (`theme::ThemeKind`): Dalica's own **Dark**
-(the default, id `dark`: the tokens above, LightCraft's look) and PhotoCraft's twelve, ported from
-its `crates/ui-egui/src/theme.rs` at revision 3a896a5e (`NOTICE`):
+From M16 the look is switchable among fifteen themes (`theme::ThemeKind`): Dalica's own **Dark**
+(the default, id `dark`: the tokens above, LightCraft's look) and PhotoCraft's fourteen (the twelve
+of M16's outline and, from the M15 review, Soft Dark and Soft Light), ported from its
+`crates/ui-egui/src/theme.rs` at revision 3a896a5e (`NOTICE`):
 
 | Id | Label | Source |
 |---|---|---|
@@ -112,6 +113,7 @@ its `crates/ui-egui/src/theme.rs` at revision 3a896a5e (`NOTICE`):
 | `adwaita`, `adwaitaDark` | Adwaita (Light), Adwaita (Dark) | PhotoCraft's mapping of libadwaita (`palettes/adwaita.rs`, M16.7) |
 | `solarizedDark` | Solarized Dark | PhotoCraft's mapping of Solarized, MIT (`palettes/solarized.rs`, M16.7) |
 | `breezeLight`, `breezeDark` | Breeze Light, Breeze Dark | PhotoCraft's adaptation of Breeze (`palettes/breeze.rs`, M16.7) |
+| `softDark`, `softLight` | Soft Dark, Soft Light | PhotoCraft's own low-contrast palettes: violet-grey surfaces, a periwinkle accent, generous radii (`palettes/soft.rs`, M16.7) |
 
 `ThemeKind::from_name` takes an id, a label or one of PhotoCraft's aliases (`medium`, `lightgray`,
 `lightest`, `retro`, `solarized`, `breeze`, …), ignoring case, spaces, `_`, `-` and brackets;
@@ -159,13 +161,32 @@ contrast tests. A theme whose palette has not been ported yet wears Dark's value
 
 The palette colours the table does not name (`canvas_dot`, `card_border`, `accent_soft`,
 `accent_border`, `accent_text`, `primary_bg`, `primary_text`, `tab_strip`, `row_selected`,
-`histogram_bg`, `caption_close_text`, `scrim`) are kept for a faithful port and unused.
+`histogram_bg`, `caption_close_text`, `scrim`) are kept for a faithful port and unused. The title
+bar's Close glyph on `caption_close` is not a token: it is white or black, whichever has more
+contrast on `caption_close`, as `on_accent` is on `accent` (white on every theme's red, as
+PhotoCraft's `caption_close_text` is; black on Adwaita's light grey); `on_accent` is not used there,
+because on Pro's red it is black where white reads better.
 
 **What never changes with a theme:** the type sizes (§3), the metrics (§4), the focus width, the
 photo's overlays (`face_box`, `crosshair` and their outlines), the slideshow and the photo viewer
 (`viewer_bg`, `viewer_overlay`, `overlay_bar`, `caption_plate`, the `overlay_*` colours), the dialog
 `backdrop`, `excluded_dim`, the histogram's channel colours and the icons' drawing. `apply` sets
-egui's dark mode from the theme (`Tokens::is_dark`: `text` lighter than `chrome`).
+egui's dark mode from the theme (`Tokens::is_dark`: `text` lighter than `chrome`). What is drawn on
+those dark surfaces takes their own tokens, never a themed one: the photo viewer's filmstrip
+outlines the photo shown in `overlay_text`, not `photo_focus` (which turns black in a light theme
+and would vanish on the band); a guide or bar drawn over the photo itself (the straighten grid and
+bar, the navigator's dimming) is black or white at a fixed alpha, as the crosshair is.
+
+**The window in every theme** (M16.8, `crates/ui/tests/themes.rs`): every panel and dialog takes
+its colours from `Tokens::get` each frame, never from `Tokens::DARK` or a literal (outside tests,
+where Dark's metrics are what a layout test measures). A sweep draws the library, the edit view,
+the Options dialog and the Collage room in each theme and checks the colour each region paints
+most against its token: the menu bar, toolbar, folder tree, status line, bottom controls, edit
+panel, edit top bar and filmstrip, and the Options dialog `chrome`; the light table and the Collage
+room beside the page `grid_bg`; the scroll bar's track and the Collage room's left panel `inset`;
+the photo tray `tray_bg`; the edit canvas, its caption bar and the Collage tab strip `canvas`. A
+region that paints anything else most is a bug in its panel. The layout is the same in every
+theme: at 900 × 600 the library in Pro (Light) puts every widget where Dark does.
 
 **Classic's bevel** (PhotoCraft's `surface`): with `Tokens.bevel` on, `widgets::bevel` draws a 1 pt
 `BEVEL_LIGHT` (white) edge along the top and left of a control and a `BEVEL_DARK` (`gray 64`) one
@@ -572,7 +593,8 @@ Adapted from PhotoCraft `docs/ui-design.md` (revision 59684266) and LightCraft `
   of either, then Minimize, Maximize/Restore and Close flush in the top-right corner (46 × 31 each,
   above the divider; 10 pt glyphs drawn in 1 pt lines in `icon`: a bar, a square, two offset
   squares for Restore, an X; hover `hover`, pressed `pressed`, Close hover `caption_close` with a
-  white glyph and `caption_close × 0.8` while held). The free gap between the menus and the caption buttons drags the
+  white glyph (in any theme, white or black, whichever reads better on `caption_close`; §2
+  Themes) and `caption_close × 0.8` while held). The free gap between the menus and the caption buttons drags the
   window, a double-click there maximizes/restores it, and invisible 5 pt edges (12 pt corners)
   resize it. Close runs **File → Exit**, so pending writes and running jobs are handled first: it
   closes the window the way the OS close does, and the library is flushed before the process ends.
