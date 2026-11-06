@@ -253,6 +253,12 @@ Other third-party code, adapted into Dalica (each file names its source in its f
                                              the image-rs developers, licensed under the MIT License or the
                                              Apache License, Version 2.0 (M16.19; with
                                              crates/image/src/formats/webp/vp8/**)
+  vendor/rusty_h265/**                       rusty_h265 0.6.2 (github.com/Remade-With-Rust/rusty_h265,
+                                             crates.io release), the whole crate, changed by Dalica
+                                             (threads for its wavefront rows and in-loop filters;
+                                             vendor/rusty_h265/README.dalica.md lists every change);
+                                             Copyright Mata Network, licensed under the Apache License,
+                                             Version 2.0 (vendor/rusty_h265/LICENSE) (M16.14)
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

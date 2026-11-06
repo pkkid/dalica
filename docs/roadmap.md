@@ -11307,7 +11307,7 @@ under their own key, and a snapshot without them reads as one with none.
     the reason above everywhere and is never decoded; `cargo xtask ci --full` runs `test hevc`
     green; LIB-LT-VIDEO and VIEW-VIDEO record the answer (HEVC with the `hevc` feature, as HEIC
     with `heif`) in place of their "not forwarded" notes.
-- ⬜ **M16.14 `engine` + `xtask`: the playback bar: a 1080p30 decoded frame within 16 ms**
+- ✅ **M16.14 `engine` + `xtask`: the playback bar: a 1080p30 decoded frame within 16 ms**
   - after: M15.R
   - files: `crates/engine/benches/video.rs`, `xtask/src/bench.rs`, `xtask/src/corpus_pins.rs`, `docs/video-decoders.md`, `docs/development.md`
   - scope: the M15.R answer (Q3): 1080p30 is the real-time bar. `video_play`'s `decode frame h264

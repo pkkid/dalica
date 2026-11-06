@@ -392,3 +392,23 @@ fn phone_clips_hevc() {
         phone_clip("M-6_Fun_Fact.MOV", VideoCodec::Hevc, true);
     }
 }
+
+/// HEVC decoded with threads (the vendored decoder's wavefront rows and in-loop filters, and the
+/// decoder on a thread of its own a few samples ahead; M16.14) gives the frames one thread gives:
+/// playing on across a key frame, a seek forward, a step back, and the poster.
+#[cfg(feature = "hevc")]
+#[test]
+fn hevc_frames_are_the_same_with_threads() {
+    let Some(path) = corpus("IMG_0445.MOV") else { return };
+    let limits = Limits::default();
+    let open = |threads| FrameSource::open(&path, &limits, FrameOptions { max_side: Some(640), threads }).unwrap();
+    let (mut one, mut many) = (open(0), open(4));
+    let played = if full() { 70 } else { 35 };
+    for _ in 0..played {
+        assert_eq!(many.next_frame().unwrap(), one.next_frame().unwrap());
+    }
+    let ahead = one.frame_count() / 2;
+    assert_eq!(many.frame(ahead).unwrap(), one.frame(ahead).unwrap());
+    assert_eq!(many.previous_frame().unwrap(), one.previous_frame().unwrap());
+    assert_eq!(many.poster().unwrap(), one.poster().unwrap());
+}
