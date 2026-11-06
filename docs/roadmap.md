@@ -10,8 +10,27 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-20, M15.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-11-06, M16.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-11-06 (M16.R, the Release 1.1.0 gate).* M16 is done: 41 tasks merged with 7 workers between 22:27 on 2026-11-05
+and 12:10 on 2026-11-06, plus three review fixes. Themes: fifteen, from View ▸ Theme ▸ and Options ▸ General (Dark stays
+the default), switched live and kept across restarts, every one passing the contrast checks. Colour search: `color:` in
+seven colours and Tools ▸ Experimental ▸ Search for ▸, from the sketches already stored (100 k photos summarised in
+0.95 s, `color:green` 2.9 ms). M15.R's follow-ups: HEVC forwarded and threaded (1080p30 decoded frame p95 9.4 to 12.3 ms,
+from 42.6 to 44.7) but still only in builds with the non-default `hevc` feature; a folder's own slideshow music; RAW
+`.xmp` moves with its photo; the packages halved (tar 47.6, MSI 37.3, DMG 44.0 MB) by subsetting the CJK fonts to the
+four national sets (rare characters show boxes). The maintainer added ten backlog items during the run: the slideshow
+in the window with Full Screen, a History pane, Discard beside Save and an Edited filter, the star's burst, Stats for
+Nerds, Straighten's grid at half opacity, Auto fixes that settle on a repeat, large TIFF panoramas previewed, closing
+that never freezes the window, and one card for a section's HEIC photos. The review's `ci --full` (18.6 min) passed
+4 857 tests and failed 17, every one from the run's last merges (screenshot baselines the new toggles moved, one test's
+expectation); fixed and green on Linux, Windows and macOS (#1214). Release budgets 26 / 28 held; the theme switch's
+first frame (p95 about 4 ms) and the in-window slideshow's transition frame (about 1.2 ms) missed theirs, and the
+maintainer raised them to 8 and 2 ms (#1215; speed-ups kept on a branch for M17). The run lost about six hours to a worker
+that died silently and twice lost the lead's session to the thread settling on a linked PR's merge; agents now open
+windows only on a hidden display and compile inside a memory cap. Parity ✅ 200 · 🟡 43 · ⬜ 15 · 🚫 17 (275 rows, 454
+commands). M16.R is the 1.1.0 release gate; M17 is M16's follow-ups.
 
 *2026-10-20 (M15.R, the Release 1.0 gate).* M15 is done: 53 tasks merged with 7 workers in about 19 hours, plus 13
 fix PRs during the run. `accept M15` passes (7 / 7, 168 s), the tests on `main` went from 4 329 to 4 715 (`ci --full`
