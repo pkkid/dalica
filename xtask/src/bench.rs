@@ -428,8 +428,10 @@ pub const BATCH_PHOTOS: u64 = 1_000;
 pub const SLIDESHOW_ADVANCE_MS: f64 = 24.0;
 /// A transition frame's p95: an absolute 1 ms, set by the maintainer at M11.R (2026-10-17). The
 /// first budget, 0.3 ms (1.5 × the first measurement, 0.199 ms), left no headroom for load: it
-/// missed once at 0.32 ms on a busy machine, where 0.21 to 0.26 ms is typical.
-pub const SLIDESHOW_TRANSITION_P95_MS: f64 = 1.0;
+/// missed once at 0.32 ms on a busy machine, where 0.21 to 0.26 ms is typical. Raised to 2 ms once the show played in
+/// the window with the dimmed library drawn around it (M16.32):
+/// maintainer, 2026-11-06 (M16.R): measured p95 up to 5.3 ms / 1.3 ms at 6e37be13; frames after the switch are unchanged.
+pub const SLIDESHOW_TRANSITION_P95_MS: f64 = 2.0;
 pub const SLIDESHOW_FRAME_CAP_MS: f64 = 16.0;
 /// The photos the slideshow budgets hold for: a 24 MP camera's, in pixels.
 pub const SLIDESHOW_PIXELS: u64 = 6000 * 4000;
@@ -1147,9 +1149,10 @@ pub const COLOUR_PER_SKETCH_US: f64 = 5.5;
 /// `color:green` over the 100 k search library (median), rounded up to 0.1 ms, never above the
 /// search's query cap (`search` → `COLOUR_BUDGET_MS`).
 pub const COLOUR_SEARCH_MS: f64 = 5.4;
-/// The first frame after a theme switch at 100 k photos (p95), rounded up to 0.5 ms, never above
-/// [`THEME_SWITCH_CAP_MS`] (`theme_switch` → `SWITCH_BUDGET_MS`, `SWITCH_CAP_MS`).
-pub const THEME_SWITCH_P95_MS: f64 = 3.0;
+/// The first frame after a theme switch at 100 k photos (p95), never above [`THEME_SWITCH_CAP_MS`]
+/// (`theme_switch` → `SWITCH_BUDGET_MS`, `SWITCH_CAP_MS`): first 1.5 × the first measurement
+/// (3 ms), raised to 8 ms by the maintainer, 2026-11-06 (M16.R): measured p95 up to 5.3 ms / 1.3 ms at 6e37be13; frames after the switch are unchanged.
+pub const THEME_SWITCH_P95_MS: f64 = 8.0;
 pub const THEME_SWITCH_CAP_MS: f64 = 16.0;
 /// The library the three hold for.
 pub const M16_PHOTOS: u64 = 100_000;
@@ -1503,10 +1506,10 @@ pub(crate) mod tests {
     fn the_slideshow_budgets_need_no_wait_and_judge_the_advance_and_a_transition_frame() {
         let full = [6000, 4000];
         let ok = judge_slideshow(&slideshow_out("release", full, 16.0, 0.199, 0), 0.0).unwrap();
-        assert!(ok.contains("18 changes, 0 waits") && ok.contains("advance median 16.00 ms ≤ 24 ms") && ok.contains("p95 0.199 ms ≤ 1 ms"), "{ok}");
+        assert!(ok.contains("18 changes, 0 waits") && ok.contains("advance median 16.00 ms ≤ 24 ms") && ok.contains("p95 0.199 ms ≤ 2 ms"), "{ok}");
         assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 0.199, 1), 0.0).unwrap_err().contains("1 of 18 changes waited"));
         assert!(judge_slideshow(&slideshow_out("release", full, 24.5, 0.199, 0), 0.0).unwrap_err().starts_with("advance: median 24.50 ms"));
-        assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 1.02, 0), 0.0).unwrap_err().starts_with("transition frame: p95 1.02 ms"));
+        assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 2.02, 0), 0.0).unwrap_err().starts_with("transition frame: p95 2.02 ms"));
         // 8 ms planted in every frame misses either.
         let e = judge_slideshow(&slideshow_out("release", full, 17.0, 0.199, 0), 8.0).unwrap_err();
         assert!(e.contains("25.00 ms (17.00 ms measured + 8.00 ms planted)"), "{e}");
@@ -1987,7 +1990,8 @@ pub(crate) mod tests {
         let (summaries, per_sketch) = COLOUR_SUMMARY_MEASURED;
         assert!(one_and_a_half(COLOUR_SUMMARIES_MS, summaries, 5.0) && one_and_a_half(COLOUR_PER_SKETCH_US, per_sketch, 0.5));
         assert!(one_and_a_half(COLOUR_SEARCH_MS, COLOUR_SEARCH_MEASURED, 0.1) && COLOUR_SEARCH_MS <= crate::accept::SEARCH_QUERY_CAP_MS);
-        assert!(one_and_a_half(THEME_SWITCH_P95_MS, THEME_SWITCH_MEASURED, 0.5) && THEME_SWITCH_P95_MS <= THEME_SWITCH_CAP_MS);
+        // The theme switch's budget is the maintainer's 8 ms (M16.R), not 1.5 × the first measurement.
+        const { assert!(THEME_SWITCH_P95_MS == 8.0 && THEME_SWITCH_P95_MS <= THEME_SWITCH_CAP_MS) };
 
         // The summaries: each budget missed alone; 8 ms planted misses one sketch's (µs), not the
         // summaries at open (about a second); the largest misses both.
@@ -2017,7 +2021,7 @@ pub(crate) mod tests {
 
         // The theme switch's frame.
         let ok = judge_theme_switch(&theme_switch_out("release", 100_000, THEME_SWITCH_MEASURED), 0.0).unwrap();
-        assert!(ok.starts_with("p95: frame switch 100k 1.82 ms ≤ 3 ms (cap 16 ms)"), "{ok}");
+        assert!(ok.starts_with("p95: frame switch 100k 1.82 ms ≤ 8 ms (cap 16 ms)"), "{ok}");
         let e = judge_theme_switch(&theme_switch_out("release", 100_000, THEME_SWITCH_P95_MS + 0.01), 0.0).unwrap_err();
         assert!(e.starts_with("1 of 1 missed: frame switch 100k: p95"), "{e}");
         let e = judge_theme_switch(&theme_switch_out("release", 100_000, THEME_SWITCH_MEASURED), 8.0).unwrap_err();

@@ -269,7 +269,7 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 11,
         name: "slideshow",
-        what: "slideshow: 24 MP JPEGs in the headless app at 1400 × 900, every transition: no change waits for its preview, an advance to its first frame median ≤ 24 ms, a transition frame p95 ≤ 1 ms (never above 16 ms), an upload frame p95 ≤ 6.8 ms",
+        what: "slideshow: 24 MP JPEGs in the headless app at 1400 × 900, every transition: no change waits for its preview, an advance to its first frame median ≤ 24 ms, a transition frame p95 ≤ 2 ms (never above 16 ms), an upload frame p95 ≤ 6.8 ms",
         cargo: &["bench", "-p", "dalica-ui", "--bench", "slideshow", "--", "--json"],
         judge: crate::bench::judge_slideshow,
         relative: None,
@@ -418,7 +418,7 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 16,
         name: "theme switch",
-        what: "theme_switch: the first frame after a theme switch at 100 k photos (p95) within 1.5 × its first measurement and never above 16 ms",
+        what: "theme_switch: the first frame after a theme switch at 100 k photos (p95) ≤ 8 ms (the maintainer's, M16.R) and never above 16 ms",
         cargo: &["bench", "-p", "dalica-ui", "--bench", "theme_switch", "--", "--json"],
         judge: crate::bench::judge_theme_switch,
         relative: None,

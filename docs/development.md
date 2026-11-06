@@ -270,7 +270,7 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Batch Edit: undo Auto Fix on 1 000 photos (median) | ≤ 5 ms |
 | Slideshow of 24 MP photos: a change that waits for its preview | 0 |
 | Slideshow: an advance to the first frame of its transition, next photo prefetched (median) | ≤ 24 ms |
-| Slideshow: a transition frame (p95; never above 16 ms) | ≤ 1 ms |
+| Slideshow: a transition frame (p95; never above 16 ms) | ≤ 2 ms |
 | Slideshow: a frame that uploads the next photo's texture (p95; never above 16 ms) | ≤ 6.8 ms |
 | An effect at its defaults, rendered at 24 MP as Save renders it (median) | ≤ 1.5 × its first measurement (`effects` → `BUDGETS`) |
 | An empty recipe: the final on the 2560 × 1600 screen (p95); the 24 MP Save render (median) | ≤ 12 ms; ≤ 55 ms |
@@ -298,7 +298,7 @@ cargo run --release -p dalica -- --control 7990 --demo
 | The same frame in the pseudo-locale; its overhead over English (p95; never above 8 ms and 1 ms) | ≤ 1.5 ms; ≤ 0.5 ms |
 | A 100 k-photo library indexed without colour summaries opened: every summary made from its stored sketch, from the open's start (median); one sketch's summary (median) | ≤ 1 445 ms; ≤ 5.5 µs |
 | `color:green` over 100 k photos with a colour summary on each (median; never above 100 ms) | ≤ 5.4 ms |
-| The first frame after a theme switch at 100 k photos (p95; never above 16 ms) | ≤ 3 ms |
+| The first frame after a theme switch at 100 k photos (p95; never above 16 ms) | ≤ 8 ms |
 
 **Judged against a base on the same machine** (`cargo xtask budgets --baseline <ref>`; maintainer
 decisions, 2026-10-15, for the import at M12.R, and for the M13 rows at M13.R): the save, export
@@ -371,7 +371,7 @@ rounded up, rates down), absolute; a transition frame is also never above 16 ms 
 change of the slideshow may wait for its preview, whatever the first numbers. The one exception is
 a transition frame's p95: 1.5 × its first measurement made 0.3 ms, which left no headroom for load
 (it missed once at 0.32 ms on a busy machine, where 0.21 to 0.26 ms is typical), so the maintainer
-raised it to an absolute 1 ms at M11.R (2026-10-17). The first
+raised it to an absolute 1 ms at M11.R (2026-10-17), and to 2 ms at M16.R (maintainer, 2026-11-06 (M16.R): measured p95 up to 5.3 ms / 1.3 ms at 6e37be13; frames after the switch are unchanged. The show plays in the window from M16.32, the dimmed library drawn around it.) The first
 measurement is the median of three runs in one sitting: release on two cores (`taskset -c 0,1`),
 2026-10-17, the same 24-core workstation (load average 10 falling to 2.4 over the runs; its NVMe
 disk formatted btrfs). Single runs earlier that day under heavier load spread widely (Batch Edit
@@ -595,7 +595,8 @@ p95, whatever the first number. None was missed; nothing needed speeding up.
   headless app at 1400 × 900, from four places in the light table, twice over each of the 15 themes:
   the frame that runs the theme's command and wears it 1.82 ms at p95 (1.82, 1.63, 1.90; 1.34 ms at
   the median), a frame without a switch at the same place 0.60 ms at p95; the switch's own cost
-  (every text laid out again in its new colours, the style applied) about 1 ms.
+  (every text laid out again in its new colours, the style applied) about 1 ms. The budget, first
+  3 ms (1.5 × that), is 8 ms: maintainer, 2026-11-06 (M16.R): measured p95 up to 5.3 ms / 1.3 ms at 6e37be13; frames after the switch are unchanged.
 
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
