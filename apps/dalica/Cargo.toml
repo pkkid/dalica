@@ -14,6 +14,8 @@ autotests = false
 [features]
 # HEIF/HEIC decoding (formats.md §3), off by default: `cargo build -p dalica --features heif`.
 heif = ["dep:dalica-image", "dalica-image/heif"]
+# HEVC video frames (formats.md §1), off by default: `cargo build -p dalica --features hevc`.
+hevc = ["dalica-engine/hevc"]
 
 [dependencies]
 dalica-core.workspace = true

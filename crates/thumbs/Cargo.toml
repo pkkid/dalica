@@ -11,6 +11,9 @@ publish = false
 # Every integration test is a module of one binary (`tests/all.rs`): one link, not one per file.
 autotests = false
 
+[features]
+# HEVC video frames (formats.md §1), off by default: with it an HEVC clip's poster is its thumbnail.
+hevc = ["dalica-image/hevc"]
 
 [dependencies]
 # The renderer the ladder draws edited photos with (`ladder.rs`, architecture.md §6.3).

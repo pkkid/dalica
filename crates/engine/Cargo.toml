@@ -20,6 +20,10 @@ camera-usb = ["dalica-scan/usb"]
 # HEIF/HEIC decoding (formats.md §3), off by default; with it `tests/save_formats.rs` runs its HEIC
 # case: `cargo test -p dalica-engine --features heif --test all save_formats::`.
 heif = ["dalica-image/heif"]
+# HEVC video frames (formats.md §1, docs/video-decoders.md §8), off by default as `heif` is; with it
+# the player, the slideshow, Export and the collage take HEVC clips, and `tests/hevc.rs` runs its
+# decoding half: `cargo test -p dalica-engine --features hevc --test all hevc::`.
+hevc = ["dalica-image/hevc", "dalica-thumbs/hevc", "dalica-create/hevc"]
 # Planted failures for tests (`cmd::rename::planted`) on top of `fs`'s fault points.
 faults = ["dalica-fs/faults"]
 

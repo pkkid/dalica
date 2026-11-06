@@ -68,8 +68,8 @@ decision, 2026-10-15).
 |---|---|---|
 | `cargo xtask ci` | a worker, before `tasks submit` (minutes) | fmt, clippy over the whole workspace with all targets (every crate and every test still compiles), the static checks, and the tests of the packages the branch changed against `origin/main` and of the packages that depend on them directly, quick |
 | `cargo xtask ci --merge` | `tasks merge`, after its rebase | fmt, clippy, the static checks; no tests (the worker's gate ran them on the same changes, and tasks never share files) |
-| `cargo xtask ci --full` | the lead at the review (`/milestone-review`), and the review's GitHub run on Linux | every test of every package at full strength, the heif decoder's tests, `parity` with every cited `cmd:` id checked against the registered commands, and the acceptance test of every finished milestone |
-| `cargo xtask ci --full --platform` | the review's GitHub run on Windows and macOS | `--full` without what gives the same answer on every system: fmt, the static checks, the heif tests, and the pure packages (`dalica-core`, `-library`, `-scenes`, `-edit`, `-image`, `-meta`, `-sidecar`, `xtask`) |
+| `cargo xtask ci --full` | the lead at the review (`/milestone-review`), and the review's GitHub run on Linux | every test of every package at full strength, the heif decoder's tests, the HEVC clip with the `hevc` feature, `parity` with every cited `cmd:` id checked against the registered commands, and the acceptance test of every finished milestone |
+| `cargo xtask ci --full --platform` | the review's GitHub run on Windows and macOS | `--full` without what gives the same answer on every system: fmt, the static checks, the heif and hevc tests, and the pure packages (`dalica-core`, `-library`, `-scenes`, `-edit`, `-image`, `-meta`, `-sidecar`, `xtask`) |
 | `… --full [--platform] --tests-only` / `--accept-only` | the review's GitHub run, as two jobs per system | the two halves of the gate above: `--accept-only` runs steps 3 and 4 below (`test acceptance` and each `accept M<k>`), `--tests-only` everything else; together exactly the whole |
 
 **Which packages a task's gate tests.** A file belongs to the workspace member whose directory
@@ -100,13 +100,17 @@ the same behaviour.
    engine's Save of a HEIC photo, which only a build with the decoder can make (`cargo test -p
    dalica-engine --features heif --test all save_formats::`); both run even when the first fails
    (Linux only).
-3. `test acceptance`: the acceptance package's library and every `[[test]]` target of
+3. `test hevc` (M16.13): the engine's HEVC clip through the player, the thumbnails, Export, the
+   slideshow and the collage with the optional decoder (`cargo test -p dalica-engine --features
+   hevc --test all hevc::`), and `cargo check -p dalica --features hevc` and `-p dalica-cli
+   --features hevc`; all three run even when one fails (Linux only).
+4. `test acceptance`: the acceptance package's library and every `[[test]]` target of
    `tests/acceptance/Cargo.toml` that no `accept` step runs (`m0_skeleton`, and the acceptance
    test of a milestone still in progress). A finished milestone's headless half (`m1_headless`) is
    left out too: `m1.rs` runs the same steps first, so it would repeat them; it stays for
    `cargo xtask accept M1 --headless`. A task's gate runs this step when the branch changed the
    acceptance package.
-4. `accept M<k>` for each finished milestone (every block ✅), each running `m<k>.rs` once.
+5. `accept M<k>` for each finished milestone (every block ✅), each running `m<k>.rs` once.
 
 An acceptance test re-runs the crate suites its milestone's *Done when* names (`cargo test -p …`),
 so one `cargo xtask accept M<n>` checks everything. Inside `ci` those suites already ran in step 1,
