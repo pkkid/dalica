@@ -11550,9 +11550,9 @@ under their own key, and a snapshot without them reads as one with none.
     starts) and make the test wait for the widget, never loosening what it checks.
   - done when: a test at the Large font at 1400 × 900 and 900 × 600 finds no bottom-bar label
     clipped; the drag test passes 200 runs in a row at full strength.
-- ⬜ **M16.27 `ui-kit` + packaging: smaller 1.0 packages**
+- ✅ **M16.27 `ui-kit` + packaging: smaller 1.0 packages**
   - after: M15.R
-  - files: `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/build.rs`, `crates/ui-kit/Cargo.toml`, `packaging/README.md`, `docs/releasing.md`, `xtask/src/package_size.rs`
+  - files: `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/build.rs`, `crates/ui-kit/Cargo.toml`, `packaging/README.md`, `docs/releasing.md`, `xtask/src/package_size.rs`, `apps/dalica/src/main.rs`, `packaging/macos/package.sh`, `crates/ui-kit/tests/fonts.rs`, `crates/ui-kit/tests/script_fingerprints.rs`, `crates/ui-kit/tests/fingerprints/script-*.json`, `crates/ui/tests/ui_glyphs.rs`, `crates/ui/tests/i18n.rs`, `ATTRIBUTION.md`, `docs/assets.md`, `xtask/src/accept.rs`
   - scope: the 1.0.0 packages are about three times 0.9.0's (Linux x86_64 tar 98 MB, was 34 MB;
     `dalica` 99 MB with 47 MB of `.rodata`, which embeds `NotoSansCJKsc-Regular` among the
     fallback fonts). Measure what each part costs (`cargo bloat`-style section and symbol sizes,

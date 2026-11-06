@@ -205,6 +205,9 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // The fallback faces for Chinese, Japanese, Korean, Thai and Arabic text: only the app links
+    // them; `dalica-cli` registers none, so its binary carries no fonts (M16.27).
+    dalica_ui_kit::fonts::register(dalica_ui_kit::fonts::CRAFT_FONTS);
     // Before anything else, the libraries the window loads at run time (Linux; `preflight`): a
     // missing one is named with its package, never a crash inside winit or wgpu.
     if cfg!(target_os = "linux")

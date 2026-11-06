@@ -127,6 +127,12 @@ fast_image_resize = "6"
 # The export watermark's glyphs (dalica-create, M8.11; as LightCraft): Inter outlines and their
 # coverage, pure Rust (Apache-2.0; ttf-parser MIT OR Apache-2.0). No `variable-fonts`: Inter is static.
 ab_glyph = { version = "0.2.32", default-features = false, features = ["std"] }
+# The craft-fonts CJK faces subset at build time (dalica-ui-kit's build.rs, M16.27): their cmap and
+# GSUB read with ttf-parser (MIT OR Apache-2.0, already under ab_glyph; a build and test
+# dependency). encoding_rs ((Apache-2.0 OR MIT) AND BSD-3-Clause, the WHATWG index data) is a test
+# dependency only: it checks build.rs's table of the four national character sets.
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std", "opentype-layout"] }
+encoding_rs = "0.8.44"
 # Test files (`dalica-scenes` formats, M5.2): zlib for Deflate TIFF strips (already under `png`), a
 # safe lossless JPEG XL encoder (MIT OR Apache-2.0 OR Zlib; single-threaded, so its bytes are
 # deterministic) with its core types, and `image`'s own TIFF backend for layouts `image` refuses.

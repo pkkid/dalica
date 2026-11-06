@@ -1,7 +1,9 @@
 //! The UI's fonts: Inter Regular and SemiBold (OFL, `assets/fonts/`), compiled in, and after them
 //! the fallback faces of the optional craft-fonts build input ([`CRAFT_FONTS`], embedded by
-//! `build.rs` from `CRAFT_FONTS_DIR`; `docs/assets.md` §4), ordered by the script of the interface
-//! language ([`set_language`]). egui's own default fonts are off: every glyph comes from these.
+//! `build.rs` from `CRAFT_FONTS_DIR`, the CJK faces subset; `docs/assets.md` §4), ordered by the
+//! script of the interface language ([`set_language`]). egui's own default fonts are off: every
+//! glyph comes from these. The fallback faces reach a binary only through [`register`], which the
+//! desktop app calls and `dalica-cli` does not (M16.27).
 //!
 //! The craft-fonts part is adapted from LightCraft `crates/engine/src/fonts.rs` and the font
 //! definitions of `crates/ui-egui/src/theme.rs`, with the script table of
@@ -9,7 +11,7 @@
 //! language's own script comes first for every script (Thai faces first for Thai), not only CJK;
 //! no separately loaded web face; a bold variable face is not drawn heavier.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use egui::{Context, FontData, FontDefinitions, FontFamily, FontId, FontTweak, Id};
 
@@ -137,10 +139,36 @@ pub fn ui_fallback<'a>(fonts: &'a [CraftFont], script: &str, style: &str) -> Vec
     faces
 }
 
-/// Our font set for [`DEFAULT_SCRIPT`]: Inter, then the embedded craft-fonts faces (none without
-/// `CRAFT_FONTS_DIR`).
+static REGISTERED: OnceLock<&'static [CraftFont]> = OnceLock::new();
+
+/// Makes `faces` (the desktop app passes [`CRAFT_FONTS`]) the fallback faces [`install`] puts after
+/// Inter, before the first window; only the first call counts (returns whether it did). Naming
+/// [`CRAFT_FONTS`] here is what links the faces into a binary: `dalica-cli` never calls this, so it
+/// carries none (M16.27).
+pub fn register(faces: &'static [CraftFont]) -> bool {
+    REGISTERED.set(faces).is_ok()
+}
+
+/// The fallback faces [`install`] uses: the [`register`]ed ones; with none registered, none in a
+/// release build, and [`CRAFT_FONTS`] in a debug build, so the tests and development runs (which
+/// make no registration call) draw every script while a release `dalica-cli` links no faces.
+pub fn faces() -> &'static [CraftFont] {
+    REGISTERED.get().copied().unwrap_or_else(unregistered)
+}
+
+#[cfg(debug_assertions)]
+fn unregistered() -> &'static [CraftFont] {
+    CRAFT_FONTS
+}
+
+#[cfg(not(debug_assertions))]
+fn unregistered() -> &'static [CraftFont] {
+    &[]
+}
+
+/// Our font set for [`DEFAULT_SCRIPT`]: Inter, then the [`faces`] (none without `CRAFT_FONTS_DIR`).
 pub fn definitions() -> FontDefinitions {
-    definitions_for(CRAFT_FONTS, DEFAULT_SCRIPT)
+    definitions_for(faces(), DEFAULT_SCRIPT)
 }
 
 /// Our font set for `script`: Inter for proportional and monospace text, Inter SemiBold as the
@@ -179,10 +207,10 @@ pub fn script(ctx: &Context) -> String {
     ctx.data(|d| d.get_temp::<String>(script_key())).unwrap_or_else(|| DEFAULT_SCRIPT.into())
 }
 
-/// Installs [`definitions_for`] the embedded faces and `ctx`'s [`script`]; they take effect on the
-/// next pass.
+/// Installs [`definitions_for`] the [`faces`] and `ctx`'s [`script`]; they take effect on the next
+/// pass.
 pub fn install(ctx: &Context) {
-    ctx.set_fonts(definitions_for(CRAFT_FONTS, &script(ctx)));
+    ctx.set_fonts(definitions_for(faces(), &script(ctx)));
 }
 
 /// Orders the fallback faces for `script` from the next pass on, without a restart; nothing

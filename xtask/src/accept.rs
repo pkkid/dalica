@@ -423,6 +423,14 @@ pub const BUDGETS: &[Budget] = &[
         judge: crate::bench::judge_theme_switch,
         relative: None,
     },
+    Budget {
+        milestone: 16,
+        name: "package size",
+        what: "package-size: the Linux x86_64 tarball built as the release builds it (with CRAFT_FONTS_DIR at the release pin) at most half 1.0.0's (48.8 MB), the fallback faces in dalica and none in dalica-cli; a planted slowdown changes nothing (the MSI and DMG: `cargo xtask package-size --dist` on a release run's packages)",
+        cargo: &["xtask", "package-size", "--json"],
+        judge: crate::package_size::judge,
+        relative: None,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -1602,6 +1610,9 @@ mod tests {
             move |args: &[&str]| -> Result<(bool, String), String> {
                 Ok(if args.contains(&"library_bench") {
                     (true, bench_out("release", scroll_p95, 40, 42))
+                } else if args.contains(&"package-size") {
+                    let tar = [("dalica-1.1.0-linux-x86_64.tar.gz".to_string(), 45_000_000)];
+                    (true, crate::package_size::report(&tar, Some((true, false))).to_string())
                 } else if args.contains(&"save_export") {
                     (true, save_export_out("release", 300.0, 150.0, 15_000.0))
                 } else if args.contains(&"--colour") {
@@ -1691,10 +1702,11 @@ mod tests {
         // second) do not.
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("19 of 27 missed")
+            e.contains("19 of 28 missed")
                 && e.contains("M16 colour summaries: 1 of 2 missed: summary per sketch")
                 && e.contains("M16 colour search: 1 of 1 missed: color:green")
                 && e.contains("M16 theme switch: 1 of 1 missed: frame switch 100k")
+                && !e.contains("M16 package size")
                 && e.contains("M15 video probe: 1 of 1 missed")
                 && e.contains("M15 video play: 5 of 8 missed")
                 && !e.contains("M15 camera import")
@@ -1723,18 +1735,19 @@ mod tests {
         assert!(e.contains("M11 import: first thumbnails"), "{e}");
         // The largest planted slowdown misses every budget, the cold start's included.
         let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
-        assert!(e.contains("27 of 27 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
+        // Every budget of time: the package size has none.
+        assert!(e.contains("27 of 28 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 27 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 28 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 27 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 28 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("27 of 27 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("28 of 28 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }
@@ -1744,7 +1757,9 @@ mod tests {
     fn every_budget_runs_a_target_that_exists_in_release() {
         let root = crate::workspace_root();
         for b in BUDGETS {
-            assert!(b.cargo.first() == Some(&"bench") || b.cargo.contains(&"--release"), "{}: a release build", b.name);
+            // `xtask package-size` builds the release packages itself.
+            let packages = b.cargo.starts_with(&["xtask", "package-size"]);
+            assert!(b.cargo.first() == Some(&"bench") || b.cargo.contains(&"--release") || packages, "{}: a release build", b.name);
         }
         assert!(crate::bench::BENCHES.iter().any(|b| b.name == "library_bench" && b.package == "dalica-ui"));
         assert!(crate::bench::BENCHES.iter().any(|b| b.name == "first_thumbnails" && b.package == "dalica-engine"));

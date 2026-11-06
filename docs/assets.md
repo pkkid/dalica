@@ -82,7 +82,15 @@ rows that start with `|` are read; the commented example in `ATTRIBUTION.md` is 
   CRAFT_FONTS_DIR=../craft-fonts cargo run --release -p dalica
   ```
 
-  `crates/ui-kit/build.rs` embeds every face of the manifest as `fonts::CRAFT_FONTS`;
+  `crates/ui-kit/build.rs` embeds one face per script of the manifest as `fonts::CRAFT_FONTS`
+  (M16.27: BIZ UDPGothic Regular, Noto Sans CJK SC Regular, Noto Sans Thai, Noto Sans Arabic; the
+  Bold and Mincho faces stay out, so bold CJK text is drawn Regular). The two CJK faces are subset
+  at build time by our own subsetter in `build.rs`: only the Han characters and Hangul syllables of
+  GB 2312, Big5 level 1, JIS X 0208 and KS X 1001 keep their glyphs (rarer ones show boxes), every
+  other character is kept, and the glyphs the shaper's default substitutions reach stay too. That
+  changes which glyphs a file holds, not any glyph; the OFL allows modified versions, and neither
+  face declares a Reserved Font Name, so the subsets keep their names. Only the
+  desktop app links the faces (`fonts::register` in its `main`); `dalica-cli` carries Inter alone.
   `fonts::install` puts them after Inter as fallbacks in every family (Regular faces preferred for
   regular text, Bold for SemiBold), ordered by the interface language's script
   (`fonts::script_of`: `ja` → `Jpan`, `zh-hans` → `Hans`, `zh-hant` → `Hant`, `th` → `Thai`, …):

@@ -197,9 +197,11 @@ cp "$WORK/layout/DS_Store" "$STAGE/.DS_Store"
 rm -f "$DMG"
 # `create -srcfolder` keeps the signed app as it is (makehybrid adds FinderInfo to it, which breaks
 # the strict signature check) and copies the .DS_Store. The volume name has no version: the
-# layout's background alias finds the image by volume name (dmg/README.md).
-hdiutil_retry create -srcfolder "$STAGE" -volname "Dalica" -fs HFS+ -format UDZO \
-  -imagekey zlib-level=9 -ov "$DMG"
+# layout's background alias finds the image by volume name (dmg/README.md). ULMO (LZMA, macOS 10.15
+# and later; the app needs 11) instead of UDZO (zlib): the universal app holds every embedded font
+# twice, and LZMA packs fonts smaller (1.0.0's seven faces: 23.0 MB with LZMA, 28.7 MB with zlib;
+# M16.27).
+hdiutil_retry create -srcfolder "$STAGE" -volname "Dalica" -fs HFS+ -format ULMO -ov "$DMG"
 sign "$DMG"
 codesign --verify --strict --verbose=2 "$DMG"
 if [ "$NOTARIZE" = 1 ]; then "$HERE/notarize.sh" "$DMG"; fi

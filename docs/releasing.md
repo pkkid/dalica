@@ -134,11 +134,17 @@ Every binary reports its version, commit and build date: `dalica --version`,
 `DALICA_BUILD_DATE`; a plain `cargo build` reports `<version> (dev build)`.
 
 Release builds check out [craft-fonts](https://github.com/storytold/craft-fonts) at a pinned commit
-and build with `CRAFT_FONTS_DIR` and `CRAFT_FONTS_REQUIRED=1`: `crates/ui-kit/build.rs` embeds every
-face of its manifest, and fails the build, naming what is missing, when the directory, a face or a
+and build with `CRAFT_FONTS_DIR` and `CRAFT_FONTS_REQUIRED=1`: `crates/ui-kit/build.rs` embeds one
+face per script of its manifest (BIZ UDPGothic Regular, Noto Sans CJK SC Regular, Noto Sans Thai
+and Noto Sans Arabic; since 1.1, M16.27: not the Bold and Mincho faces), the two CJK faces subset
+at build time to the characters of GB 2312, Big5 level 1, JIS X 0208 and KS X 1001 (*Package
+sizes* below), and fails the build, naming what is missing, when the directory, a face or a
 required UI face is absent (BIZ UDPGothic Regular for Japanese, Noto Sans CJK SC Regular for
-Chinese, Noto Sans Thai Regular for Thai), so a release never ships without the fallback faces
-([`assets.md`](assets.md) §4). Packages carry each embedded family's licence as
+Chinese, Noto Sans Thai Regular for Thai) or a face does not subset, so a release never ships
+without the fallback faces ([`assets.md`](assets.md) §4). Only the desktop app links them: its
+`main` registers them (`dalica_ui_kit::fonts::register`), and `dalica-cli` carries no fonts but
+Inter (its `snapshot` draws CJK and Thai text as boxes in a release build; a debug build, as the
+tests use, falls back on every embedded face). Packages carry each embedded family's licence as
 `OFL-<family>.txt`, copied from the checkout's `fonts/*/OFL.txt`; `dalica_ui_kit::fonts::licences()`
 lists the families and licence files the binary embeds. Bump the pin deliberately, whenever a
 shipped language needs a face the old pin lacks: a stale pin still builds, it just shows boxes
@@ -152,6 +158,34 @@ release, run the glyph tests with `CRAFT_FONTS_DIR` set
 coverage test of [`localization.md`](localization.md)).
 
 Every package ships `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE` and `ATTRIBUTION.md`.
+
+### Package sizes
+
+1.0.0's packages were about three times 0.9.0's: both binaries embedded all seven craft-fonts
+faces whole (41.6 MB raw, 28.7 MB gzip each; Noto Sans CJK SC alone 16.4 MB), and the DMG's
+universal app holds every face twice. M16.27 (maintainer's decision on #1148) embeds one face per
+script, in the app only, subsets the CJK faces (characters outside the four national sets show as
+boxes), and makes the DMG with LZMA (`ULMO`, macOS 10.15 and later) instead of zlib. The budget:
+every package at most half its 1.0.0 size, `cargo xtask package-size` (in `cargo xtask budgets`,
+run locally at each review: it builds the Linux x86_64 tarball with `CRAFT_FONTS_DIR` set and
+checks the faces are in `dalica` and not in `dalica-cli`; `--dist DIR` measures a release run's
+packages, the MSI and the DMG among them).
+
+| Package | 0.9.0 | 1.0.0 | Budget (half of 1.0.0) | M16.27 |
+|---|---|---|---|---|
+| Linux x86_64 `.tar.gz` | 34.1 MB | 97.7 MB | 48.8 MB | 47.6 MB (`dalica` 99.2 → 66.9 MB, `dalica-cli` 84.0 → 42.5 MB inside) |
+| Windows x64 `.msi` | 25.5 MB | 81.7 MB | 40.9 MB | 37.3 MB (37,294,080 bytes; release dry run 42229869517) |
+| macOS universal `.dmg` | 36.6 MB | 100.6 MB | 50.3 MB | 44.0 MB (44,003,271 bytes; same run; `dalica-cli` zip 92.7 → 35.2 MB) |
+
+The subset faces, as `build.rs` writes them: BIZ UDPGothic Regular 4.67 MB → 3.26 MB (9,261 of
+13,932 glyphs keep their outlines; 2.10 MB with gzip), Noto Sans CJK SC Regular 16.44 MB → 5.49 MB
+(17,979 of 65,535; 4.32 MB with gzip, its CFF table compacted). Kept: every character the face maps
+outside the Han and Hangul blocks, the 10,831 Han characters and 2,350 Hangul syllables of the four
+sets, and every glyph the shaper's default substitutions (`ccmp`, `locl`, `liga`, `calt`, the
+Hangul jamo features, under each script's default language) reach from them; glyph ids, metrics,
+GSUB and GPOS stay as they were. `crates/ui-kit/tests/fonts.rs` checks the kept glyphs draw as in
+the original faces and `tests/script_fingerprints.rs` pins Latin, Japanese, Chinese, Korean and
+Thai user text.
 
 ### Linux
 

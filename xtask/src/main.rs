@@ -19,6 +19,7 @@ mod i18n;
 mod layers;
 mod metadata;
 mod names;
+mod package_size;
 mod parity;
 mod sbom;
 mod stats;
@@ -54,6 +55,8 @@ commands:
             or a key a complete_menus language lacks (localization.md)
   layers    check crate dependencies against the layer table (docs/architecture.md §2)
   names     the reference product's name appears in no file but AGENTS.md
+  package-size  cargo xtask package-size [--dist DIR] [--json]: each release package at most half its 1.0.0 size; plain: builds the
+            Linux tarball with CRAFT_FONTS_DIR and checks the fallback faces are in dalica and not dalica-cli (releasing.md)
   parity    docs/parity.md is well formed and its evidence exists; --write regenerates the KEY rows and the summary; --p0: the P0 rows not ✅
   sbom      cargo xtask sbom [--out <dir>] [--list]: a CycloneDX SBOM per release package (default target/sbom; security.md §8.5)
   stats     cargo xtask stats [--check]: the workflow tests' pass rate (passing / total, the ignored ones and why); --check holds the floor
@@ -79,6 +82,7 @@ pub const COMMANDS: &[&str] = &[
     "i18n",
     "layers",
     "names",
+    "package-size",
     "parity",
     "sbom",
     "stats",
@@ -121,6 +125,7 @@ fn main() -> ExitCode {
         Some("contributors") => contributors::run(&root, args.get(1..).unwrap_or(&[])),
         Some("corpus") => corpus::run(&root, args.get(1..).unwrap_or(&[])),
         Some("test-corpus") => corpus::test(&root, args.get(1..).unwrap_or(&[])),
+        Some("package-size") => package_size::run(&root, args.get(1..).unwrap_or(&[])),
         Some("parity") => parity::main(&root, args.get(1..).unwrap_or(&[])),
         Some("sbom") => sbom::run(&root, args.get(1..).unwrap_or(&[])),
         Some("stats") => stats::run(&root, args.get(1..).unwrap_or(&[])),

@@ -26,6 +26,7 @@ mod input;
 mod m9_widgets;
 mod map_widget;
 mod options_widgets;
+mod script_fingerprints;
 mod thai_text;
 mod themes;
 mod video_widgets;
