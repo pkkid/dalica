@@ -11708,7 +11708,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: the issue's *Done when* holds; a test decodes a procedural panorama over the old
     cap to a thumbnail within a memory bound; peak memory and time with `DALICA_PROFILE=1` in the
     PR; the PR closes #722.
-- ⬜ **M16.38 `dalica` + `ui`: closing never leaves a frozen window (#723)**
+- ✅ **M16.38 `dalica` + `ui`: closing never leaves a frozen window (#723)**
   - after: M16.12
   - files: `apps/dalica/src/window.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/shutdown.rs`
   - scope: issue #723 as written (maintainer request, 2026-11-06). M16.28 fixed closing during a
