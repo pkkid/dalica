@@ -11088,7 +11088,7 @@ under their own key, and a snapshot without them reads as one with none.
     M16.25 on it). M16.14's Android clip goes to `pkkid/dalica-corpus` only after asking.
   - done when: `cargo xtask tasks sync --check` parses the fitted blocks and M16's intro records
     both answers with the review's date.
-- ⬜ **M16.2 `core`: the search colours and the colour classifier**
+- ✅ **M16.2 `core`: the search colours and the colour classifier**
   - after: M12.4, M15.R
   - files: `crates/core/src/color_summary.rs`, `crates/core/src/lib.rs`, `crates/core/tests/color_summary.rs`, `crates/core/README.md`, `docs/organizing.md`
   - scope: `organizing.md` §8.1: `SearchColour` (`red`, `orange`, `yellow`, `green`, `blue`,
