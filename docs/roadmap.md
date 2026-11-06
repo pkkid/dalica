@@ -11268,7 +11268,7 @@ under their own key, and a snapshot without them reads as one with none.
     and after numbers in the PR) or blocks with its numbers, never loosened.
   - done when: `cargo xtask bench colour_summary`, `colour_search` and `theme_switch` print their
     numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
-- ⬜ **M16.12 `accept M16`**
+- ✅ **M16.12 `accept M16`**
   - after: M16.11
   - files: `tests/acceptance/m16.rs`, `tests/acceptance/m16_*.rs`, `tests/acceptance/m16.md`, `tests/acceptance/fingerprints/m16-*.json`
   - scope: every *Done when* of M16's two areas in the real `dalica --headless` over the control
