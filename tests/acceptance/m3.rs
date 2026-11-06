@@ -558,14 +558,49 @@ fn tree_beside(requested: f64, w: f64, pane: f64) -> f64 {
     requested.clamp(200.0, (w - pane - 480.0).max(200.0))
 }
 
-/// What `menus-and-shortcuts.md` §1 lists today, per layout: 8 menus, 112 items and 7 submenus on
-/// Windows and Linux; on macOS Exit, Options… and About Dalica move to the application menu (109).
+/// What `menus-and-shortcuts.md` §1 lists today, per layout: 8 menus, 113 items (Help ▸ Stats for
+/// Nerds… since M16.36) and 8 submenus (View ▸ Theme ▸ since M16.5) on Windows and Linux; on
+/// macOS Exit, Options… and About Dalica move to the application menu (110).
 fn menu_floor(platform: menus::Platform) -> menus::Counts {
     let items = match platform {
-        menus::Platform::Mac => 109,
-        menus::Platform::Other => 112,
+        menus::Platform::Mac => 110,
+        menus::Platform::Other => 113,
     };
-    menus::Counts { menus: 8, items, submenus: 7 }
+    menus::Counts { menus: 8, items, submenus: 8 }
+}
+
+/// The rows the app shows under the submenus whose rows the document describes instead of
+/// listing (View ▸ Theme ▸: "one radio row per theme"): `menus::compare_bar` counts those rows,
+/// as items with ids, where `menus::count` of the document has none.
+fn unlisted_rows(want: &[menus::Menu], tree: &Value) -> usize {
+    fn unlisted(nodes: &[menus::Node], out: &mut Vec<String>) {
+        for n in nodes {
+            match n {
+                menus::Node::Sub { label, children: None, .. } => out.push(label.clone()),
+                menus::Node::Sub { children: Some(kids), .. } => unlisted(kids, out),
+                _ => {}
+            }
+        }
+    }
+    fn rows(nodes: &Value, labels: &[String]) -> usize {
+        nodes
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|n| match n.get("children") {
+                Some(kids) if labels.iter().any(|l| n["label"] == l.as_str()) => {
+                    kids.as_array().map_or(0, |a| a.iter().filter(|r| r.get("id").is_some()).count())
+                }
+                Some(kids) => rows(kids, labels),
+                None => 0,
+            })
+            .sum()
+    }
+    let mut labels = Vec::new();
+    for m in want {
+        unlisted(&m.rows, &mut labels);
+    }
+    tree.as_array().into_iter().flatten().map(|m| rows(&m["children"], &labels)).sum()
 }
 
 /// Both layouts' expectations come from the document on every OS, so the macOS path runs on Linux
@@ -717,9 +752,12 @@ fn window_shell() {
     let want = menus::for_this_platform(menus_from_doc);
     let counts = menus::compare_bar(&want, &tree)
         .unwrap_or_else(|errors| panic!("`ui.menu.tree` against menus-and-shortcuts.md §1:\n  {}", errors.join("\n  ")));
-    // Exactly what the document lists for this platform's layout, and never less than it lists
-    // today (so an empty or truncated parse cannot pass).
-    assert_eq!(counts, menus::count(&want), "`ui.menu.tree` shows exactly the rows §1 lists for {:?}", menus::Platform::current());
+    // Exactly what the document lists for this platform's layout (with the rows of the submenus
+    // it describes instead of listing), and never less than it lists today (so an empty or
+    // truncated parse cannot pass).
+    let listed = menus::count(&want);
+    let listed = menus::Counts { items: listed.items + unlisted_rows(&want, &tree), ..listed };
+    assert_eq!(counts, listed, "`ui.menu.tree` shows exactly the rows §1 lists for {:?}", menus::Platform::current());
     let floor = menu_floor(menus::Platform::current());
     assert!(counts.menus >= floor.menus && counts.items >= floor.items && counts.submenus >= floor.submenus, "{counts:?} < {floor:?}");
     let menu_check = secs(t);
