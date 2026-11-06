@@ -114,6 +114,20 @@ revision), never per frame.
   click there lands one character off. Typing, deleting and the arrow keys work on the right
   characters, and nothing panics; display is unaffected. An upstream egui issue, for the review's
   input-method pass by hand.
+- **The dictionary misreads some of the catalog's runs (M16.24).** ICU4X reads ผลการค้นหา
+  ("search results") as ผลก|า|รค|้|นหา, and splits loanwords mid-syllable (แพ|ตช|์ for แพตช์,
+  "patch"). `mark` leaves out the boundaries no Thai line takes (before a following vowel or a
+  mark, after a leading vowel), so the marks that remained fell inside words (ผลกา|รค้|นหาสำ|หรับ)
+  and the M15.R screenshot's search album broke a row inside a word. The rule:
+  `linebreak::RUNS` is a short table of the runs the dictionary misreads, each as its words (a
+  loanword kept whole is a run of one word). Where a run occurs, `mark` breaks at its words'
+  edges, never inside one of its words, and segments only the text between runs with the
+  dictionary. The marks stay out of the catalog: the table is in the segmenter's path, so a
+  caption with the same words wraps the same way. The table was found by segmenting every Thai
+  catalog text and listing those with a boundary no Thai line takes (40 texts of 1,595, all
+  fixed by 19 runs); a new catalog text that shows a break inside a word gets a row there.
+  `the_search_title_breaks_only_between_its_words` checks the search title, filled and not, at
+  every width from its widest word up.
 - **The dictionary can misread an ambiguous run.** ICU4X splits ที่นอน (a mattress) as ที่ + นอน
   when the context is unclear; a break there falls between two real words, so the worst case is a
   slightly odd line end.

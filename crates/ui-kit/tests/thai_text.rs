@@ -294,3 +294,44 @@ fn mark_costs_little_on_the_release_notes_length() {
         caption.chars().count()
     );
 }
+
+/// The catalog's "Search results for" (M16.24): ICU4X's dictionary reads the run after ผล as
+/// ผลก|า|รค|้|นหาส|ำ|หรับ, so the marks it could place fell inside words (ผลกา|รค้|นหาสำ|หรับ) and
+/// the screenshot's row broke inside one; `linebreak::mark` breaks the runs it misreads at their
+/// words, and keeps the loanwords it splits whole.
+#[test]
+fn the_search_title_breaks_only_between_its_words() {
+    let m = MARK.to_string();
+    let words = ["ผล", "การ", "ค้นหา", "สำหรับ"].join(&m);
+    for (text, want) in [
+        ("ผลการค้นหาสำหรับ \"{text}\"".to_string(), format!("{words} \"{{text}}\"")),
+        ("ผลการค้นหาสำหรับ \"ทะเล\"".to_string(), format!("{words} \"ทะเล\"")),
+        ("บันทึกผลการค้นหา…".to_string(), format!("บันทึก{m}ผล{m}การ{m}ค้นหา…")),
+        ("ปิดโดยไม่ใช้แพตช์".to_string(), ["ปิด", "โดย", "ไม่", "ใช้", "แพตช์"].join(&m)),
+    ] {
+        let marked = linebreak::mark(&text).into_owned();
+        assert_eq!(marked.replace(MARK, "|"), want.replace(MARK, "|"), "{text}");
+        assert_eq!(linebreak::mark(&marked), marked, "marking marked text changes nothing");
+        assert_eq!(linebreak::unmark(&marked), text);
+    }
+    // Wrapped at every width from its widest word up (the screenshot's among them), the filled
+    // title breaks only at a mark or the space.
+    let ctx = thai_ctx();
+    let size = 13.0;
+    let title = linebreak::mark("ผลการค้นหาสำหรับ \"ทะเล\"").into_owned();
+    let wide = |t: &str| ctx.fonts_mut(|f| f.layout_no_wrap(t.to_string(), FontId::proportional(size), Color32::WHITE)).size().x;
+    let widest = ["ผล", "การ", "ค้นหา", "สำหรับ", "\"ทะเล\""].iter().map(|w| wide(w)).fold(0.0, f32::max);
+    let full = wide(&title);
+    let mut width = widest.ceil();
+    let mut wrapped = 0;
+    while width < full {
+        let galley = layout(&ctx, &title, size, width);
+        for row in &galley.rows[..galley.rows.len() - 1] {
+            let last = row.row.glyphs.last().map(|g| g.chr);
+            assert!(last == Some(MARK) || last == Some(' '), "at {width} px a row broke inside a word, after {last:?}");
+        }
+        wrapped += usize::from(galley.rows.len() > 1);
+        width += 1.0;
+    }
+    assert!(wrapped > 0, "widest word {widest} px, the title {full} px");
+}

@@ -11500,7 +11500,7 @@ under their own key, and a snapshot without them reads as one with none.
     every OS) and a cut PE is refused; `crates/ui/tests/os_menus.rs`: the submenu's row draws its
     icon's pixels at the icon slot, a row without one keeps its name aligned; at 900 × 600 the
     submenu stays inside the window.
-- ⬜ **M16.24 `ui-kit`: M15.R's text findings: Thai break marks and a sub-second trim**
+- ✅ **M16.24 `ui-kit`: M15.R's text findings: Thai break marks and a sub-second trim**
   - after: M15.R
   - files: `crates/ui-kit/src/linebreak.rs`, `crates/ui-kit/src/widgets/scrubber.rs`, `crates/ui-kit/tests/thai_text.rs`, `crates/ui-kit/tests/video_widgets.rs`, `docs/thai-text.md`
   - scope: two findings of the M15.R screenshots. (1) Thai "Search results for" (ผลการค้นหาสำหรับ
