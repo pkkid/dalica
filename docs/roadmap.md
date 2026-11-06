@@ -11134,7 +11134,7 @@ under their own key, and a snapshot without them reads as one with none.
     bottom edge, off draws none; the contrast tests pass for every kind; the thirteen gallery
     fingerprints exist (the twelve equal to Dark's until their palettes land); the existing gallery
     fingerprint unchanged; `widget_ids` and `cargo xtask names` pass.
-- ⬜ **M16.4 `engine`: the Theme setting, its options row and one command per theme**
+- ✅ **M16.4 `engine`: the Theme setting, its options row and one command per theme**
   - after: M15.4, M15.R
   - files: `crates/engine/src/settings.rs`, `crates/engine/src/options.rs`, `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/theme.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/theme.rs`, `crates/engine/README.md`, `docs/data-model.md`, `crates/ui/src/i18n/th.tsv`
   - scope: `interface.theme` (default `dark`; the thirteen ids as a choice, PhotoCraft

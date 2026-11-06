@@ -33,6 +33,10 @@
 //! the system to open those types with Dalica, so `options.set` refuses it with a reason naming
 //! that command ([`SET_DEFAULT`]).
 //!
+//! M16.4: General ▸ Interface ▸ Theme (`interface.theme`, after UI font size) is a choice of the
+//! themes ([`crate::settings::THEMES`]), Dark by default; `theme.<id>` (`cmd/theme.rs`) sets the
+//! same key through `options.set`.
+//!
 //! [`OptionSpec::check`] is the one validation of a value, [`OptionSpec::store`] the one way a
 //! value is written (a merge into its object, unknown keys kept) and [`OptionSpec::to_json`] the
 //! row as `options.list` gives it.
@@ -45,7 +49,8 @@ use crate::map_tiles::{DEFAULT_ATTRIBUTION, DEFAULT_GEOCODER, DEFAULT_TILE_SERVE
 use crate::settings::{
     CONFIDENCE_DEFAULT, CONFIDENCE_RANGE, CONFIDENCE_STEP, CUSTOM_QUALITY_DEFAULT, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE, EXPORT_SIZE_DEFAULT,
     EXPORT_SIZE_RANGE, MAX_ATTRIBUTION_BYTES, MAX_HOST_BYTES, MAX_PATH_BYTES, MAX_TEMPLATE_BYTES, MAX_WATERMARK_BYTES, PROXY_PORT_DEFAULT,
-    PROXY_PORT_RANGE, QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
+    PROXY_PORT_RANGE, QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, THEME_DEFAULT, THEMES, UI_SCALE_RANGE, UI_SCALE_STEP,
+    UiScaleSetting,
 };
 use crate::sound::SOUND_UNAVAILABLE;
 
@@ -484,6 +489,7 @@ static CATALOGUE: &[OptionSpec] = &[
     row("interface.fontSize", Tab::General, "Interface", "UI font size", Kind::Choice(FONT_SIZES), Initial::Str("small"), |s| {
         json!(s.interface().font_size.id())
     }),
+    row("interface.theme", Tab::General, "Interface", "Theme", Kind::Choice(THEMES), Initial::Str(THEME_DEFAULT), |s| json!(s.interface().theme)),
     row("interface.language", Tab::General, "Interface", "Language", Kind::Choice(LANGUAGES), Initial::Str("system"), |s| {
         json!(s.interface().language)
     })

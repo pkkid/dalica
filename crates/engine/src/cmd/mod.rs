@@ -50,6 +50,7 @@ pub mod section;
 pub mod slideshow;
 pub mod suggest;
 pub mod tags;
+pub mod theme;
 pub mod tuning;
 pub mod video;
 pub mod video_output;
@@ -132,6 +133,8 @@ pub fn specs() -> Vec<CommandSpec> {
         video_output::specs(),
         os::specs(),
         camera::specs(),
+        // M16: one command per theme and `theme.next` (M16.4).
+        theme::specs(),
     ]
     .concat();
     #[cfg(test)]
