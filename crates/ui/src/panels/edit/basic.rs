@@ -10,13 +10,20 @@
 //! Crop, Straighten and Retouch open their tool (`edit.tool.open`), and their button shows active
 //! while it is open; Auto Fix (`edit.autoFix`, Ctrl+Shift+E), Auto Contrast and Auto Color apply at
 //! once as one step of the photo's history (`photo.history.apply`). Ids `tool:<name>`.
+//!
+//! A label too wide for its button wraps onto a second line (Thai at its break marks) before it is
+//! cut with "…", and its row of the grid grows by that line ([`extra`]); the panel asks for the
+//! taller grid ([`needed_height`]).
 
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::fonts;
 use dalica_ui_kit::icons::{EditIcon, paint_edit};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, TOOL_BUTTON_H, Target, ToastKind, tool_button_width};
-use egui::{Align2, CornerRadius, Id, Rect, Response, Sense, Ui, UiBuilder, Vec2, WidgetType, pos2, vec2};
+use std::sync::Arc;
+
+use egui::text::{LayoutJob, TextFormat, TextWrapping};
+use egui::{Align, Color32, Context, CornerRadius, Galley, Id, Rect, Response, Sense, Ui, UiBuilder, Vec2, WidgetType, pos2, vec2};
 use serde_json::json;
 
 use super::fill_light;
@@ -72,21 +79,61 @@ pub const GAP: f32 = 4.0;
 pub const FILL_GAP: f32 = 8.0;
 pub const FILL_H: f32 = 45.0;
 
-/// The rects of the six buttons and of the Fill Light row inside `rect`.
-pub fn layout(t: &Tokens, rect: Rect) -> ([Rect; 6], Rect) {
+/// The most lines a button's label takes before it is cut with "…".
+pub const LABEL_LINES: usize = 2;
+/// The height of a button's one-line label row: from 1 pt under the icon tile to 3 pt above the
+/// button's foot.
+const LABEL_ROW: f32 = 15.0;
+
+/// The rects of the six buttons and of the Fill Light row inside `rect`, each row of buttons
+/// `extra` points taller than [`TOOL_BUTTON_H`] (its labels' second lines, [`extra`]).
+pub fn layout(t: &Tokens, rect: Rect, extra: [f32; 2]) -> ([Rect; 6], Rect) {
     let w = tool_button_width(t, rect.width(), COLUMNS, GAP);
+    let extra = extra.map(|e| if e.is_finite() { e.max(0.0) } else { 0.0 });
+    let heights = [TOOL_BUTTON_H + extra[0], TOOL_BUTTON_H + extra[1]];
     let cells = std::array::from_fn(|i| {
-        let (col, row) = ((i % 3) as f32, (i / 3) as f32);
-        Rect::from_min_size(pos2(rect.min.x + col * (w + GAP), rect.min.y + row * (TOOL_BUTTON_H + GAP)), vec2(w, TOOL_BUTTON_H))
+        let (col, row) = ((i % 3) as f32, i / 3);
+        let top = if row == 0 { rect.min.y } else { rect.min.y + heights[0] + GAP };
+        Rect::from_min_size(pos2(rect.min.x + col * (w + GAP), top), vec2(w, heights[row.min(1)]))
     });
-    let top = rect.min.y + 2.0 * TOOL_BUTTON_H + GAP + FILL_GAP;
+    let top = rect.min.y + heights[0] + heights[1] + GAP + FILL_GAP;
     (cells, Rect::from_min_size(pos2(rect.min.x, top), vec2(rect.width(), FILL_H)))
+}
+
+/// A button's label `width` wide: centred, wrapped (at spaces and Thai break marks) onto at most
+/// [`LABEL_LINES`] lines, then cut with "…".
+fn label_galley(ctx: &Context, t: &Tokens, label: &str, width: f32, color: Color32) -> Arc<Galley> {
+    let mut job = LayoutJob::single_section(label.to_owned(), TextFormat::simple(fonts::regular(t.count), color));
+    job.wrap = TextWrapping { max_width: (width - 4.0).max(1.0), max_rows: LABEL_LINES, break_anywhere: false, overflow_character: Some('\u{2026}') };
+    job.halign = Align::Center;
+    ctx.fonts_mut(|f| f.layout_job(job))
+}
+
+/// How much taller each row of buttons is for its labels' second lines, in a grid `width` wide in
+/// the language in effect: `[0, 0]` when every label fits on one line.
+pub fn extra(ctx: &Context, t: &Tokens, width: f32) -> [f32; 2] {
+    let w = tool_button_width(t, width, COLUMNS, GAP);
+    let mut out = [0.0f32; 2];
+    for (i, (_, label, ..)) in TOOLS.iter().enumerate() {
+        let galley = label_galley(ctx, t, &text(label), w, Color32::WHITE);
+        let row = &mut out[(i / 3).min(1)];
+        *row = row.max((galley.size().y - LABEL_ROW).max(0.0).ceil());
+    }
+    out
+}
+
+/// The height the tab needs in a content area `width` wide: its two rows of buttons (taller by
+/// [`extra`]) and the Fill Light row.
+pub fn needed_height(ctx: &Context, t: &Tokens, width: f32) -> f32 {
+    let [a, b] = extra(ctx, t, width);
+    2.0 * TOOL_BUTTON_H + a + b + GAP + FILL_GAP + FILL_H
 }
 
 /// Draws the grid and the Fill Light row into `ui`'s rect.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
-    let (cells, fill) = layout(&t, ui.max_rect());
+    let rect = ui.max_rect();
+    let (cells, fill) = layout(&t, rect, extra(ui.ctx(), &t, rect.width()));
     let open = app.state().edit.tool;
     let photo = app.state().edit.photo.is_some();
     let mut clicked = None;
@@ -118,7 +165,7 @@ fn run(app: &mut App, action: Action) {
 
 /// A Basic Fixes tool button over `rect`, drawn as `widgets::tool_button` draws it (`design-system.md`
 /// §6) with an edit glyph: the `inset` icon tile (`metrics.tool_tile`) 3 pt from the top, the
-/// 20 pt glyph in it, the label (12 pt, elided) below. Rest: no fill, `icon` glyph, `text_label`
+/// 20 pt glyph in it, the label (12 pt, on up to two lines, then elided) below. Rest: no fill, `icon` glyph, `text_label`
 /// label; hovered `hover` fill, `text` glyph and label; held `pressed`; `active` (its tool open)
 /// `tool_active` fill and a `pick` glyph; disabled both `text_disabled`. Registers `id` (role
 /// `tool`, active while open); the tooltip shows disabled too.
@@ -148,11 +195,11 @@ fn tool_button(ui: &mut Ui, t: &Tokens, id: &str, icon: EditIcon, label: &str, r
         (t.icon, t.text_label)
     };
     paint_edit(p, Rect::from_center_size(tile.center(), Vec2::splat(m.icon_tool)), icon, glyph);
-    let mut job = egui::text::LayoutJob::simple_singleline(label.to_owned(), fonts::regular(t.count), text);
-    job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 4.0).max(1.0));
-    let galley = p.layout_job(job);
+    let galley = label_galley(ui.ctx(), t, label, rect.width(), text);
     let row = Rect::from_min_max(pos2(rect.min.x, tile.max.y + 1.0), pos2(rect.max.x, rect.max.y - 3.0));
-    p.galley(Align2::CENTER_CENTER.align_size_within_rect(galley.size(), row).min.round(), galley, text);
+    // Centred rows: the galley's x runs either side of its anchor.
+    let at = pos2(row.center().x, row.center().y - galley.size().y / 2.0);
+    p.galley(at.round(), galley, text);
     widgets::focus_ring(p, t, &r, rect, t.radius);
     widgets::register(ui.ctx(), id, Role::Tool, label, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, active, label));
@@ -166,7 +213,7 @@ mod tests {
     #[test]
     fn the_grid_is_three_by_two_then_the_fill_light_row() {
         let t = Tokens::DARK;
-        let (cells, fill) = layout(&t, Rect::from_min_size(pos2(8.0, 104.0), vec2(264.0, 400.0)));
+        let (cells, fill) = layout(&t, Rect::from_min_size(pos2(8.0, 104.0), vec2(264.0, 400.0)), [0.0, 0.0]);
         assert_eq!(cells[0], Rect::from_min_size(pos2(8.0, 104.0), vec2(85.0, TOOL_BUTTON_H)));
         assert_eq!(cells[2].min.x, 8.0 + 2.0 * 89.0);
         assert_eq!(cells[3].min, pos2(8.0, 104.0 + TOOL_BUTTON_H + GAP));
@@ -174,8 +221,12 @@ mod tests {
         assert_eq!(fill.min.y, cells[5].max.y + FILL_GAP);
         assert_eq!(fill.width(), 264.0);
         // Too narrow for three, each button keeps the icon tile's width.
-        let (cells, _) = layout(&t, Rect::from_min_size(pos2(0.0, 0.0), vec2(f32::NAN, 10.0)));
-        assert!(cells.iter().all(|c| c.width() == t.metrics.tool_tile.x));
+        let (cells, _) = layout(&t, Rect::from_min_size(pos2(0.0, 0.0), vec2(f32::NAN, 10.0)), [f32::NAN, -3.0]);
+        assert!(cells.iter().all(|c| c.width() == t.metrics.tool_tile.x && c.height() == TOOL_BUTTON_H));
+        // A row with a label on two lines grows by that line; the rows under it move down.
+        let (cells, fill) = layout(&t, Rect::from_min_size(pos2(8.0, 104.0), vec2(264.0, 400.0)), [0.0, 15.0]);
+        assert_eq!((cells[0].height(), cells[3].height(), cells[3].min.y), (TOOL_BUTTON_H, TOOL_BUTTON_H + 15.0, 104.0 + TOOL_BUTTON_H + GAP));
+        assert_eq!(fill.min.y, cells[5].max.y + FILL_GAP);
     }
 
     #[test]

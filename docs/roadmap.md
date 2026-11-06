@@ -11516,7 +11516,7 @@ under their own key, and a snapshot without them reads as one with none.
     inside a word; every existing Thai case passes; `crates/ui-kit/tests/video_widgets.rs`: a
     640 ms trim reads "(trimmed to 00:00:00.6)", 9 950 ms "00:00:09.9" or "00:00:10" by the rule
     written in the test, 21 000 ms "00:00:21" as before; the gallery fingerprint unchanged.
-- ⬜ **M16.25 `ui` + `library`: M15.R's screenshot findings: focus, fit and words**
+- ✅ **M16.25 `ui` + `library`: M15.R's screenshot findings: focus, fit and words**
   - after: M15.R
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/edit/basic.rs`, `crates/ui/src/panels/import/destination.rs`, `crates/ui/src/i18n/th.tsv`, `crates/library/src/tree.rs`, `crates/library/tests/tree.rs`, `crates/ui/tests/keyboard_only.rs`, `crates/ui/tests/i18n_languages.rs`, `crates/ui/tests/search_ui.rs`, `crates/ui/tests/import_camera.rs`
   - scope: four findings of the M15.R screenshots. (1) A light-table cell focused with Tab shows
