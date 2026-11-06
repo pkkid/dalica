@@ -11235,7 +11235,7 @@ under their own key, and a snapshot without them reads as one with none.
     seven; `crates/store/tests/colours.rs`: summaries survive a snapshot and a journal replay, an
     old snapshot reads, a bad byte is dropped with its warning; every existing `library` and
     `store` test passes unchanged.
-- ⬜ **M16.10 `thumbs` + `engine`: colour summaries made with each sketch, and Search for ▸ live**
+- ✅ **M16.10 `thumbs` + `engine`: colour summaries made with each sketch, and Search for ▸ live**
   - after: M16.9
   - files: `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/search.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/tests/colour_search.rs`, `crates/engine/README.md`, `crates/thumbs/README.md`, `docs/organizing.md`, `crates/ui/src/i18n/th.tsv`
   - scope: `Sketch::colours()` (the decoded grid through `dalica_core::color_summary::classify`);

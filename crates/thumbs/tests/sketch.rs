@@ -3,6 +3,7 @@
 
 use std::time::Instant;
 
+use dalica_core::color_summary::{ColourSummary, SearchColour};
 use dalica_scenes::{Kind, Scene};
 use dalica_thumbs::Rgba8;
 use dalica_thumbs::sketch::{self, DEFAULT_DECODE_SIDE, Error, MAX_BYTES, MAX_DECODE_SIDE};
@@ -224,6 +225,38 @@ fn malformed_sketches_are_errors() {
     assert_eq!(sketch::decode(&[]), Err(Error::Short(0)));
 }
 
+/// A 4:3 picture painted by `f(x, y)` (RGB, opaque).
+fn painted(w: u32, h: u32, f: impl Fn(u32, u32) -> [u8; 3]) -> Rgba8 {
+    let data = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).flat_map(|(x, y)| {
+        let [r, g, b] = f(x, y);
+        [r, g, b, 255]
+    });
+    Rgba8 { width: w, height: h, data: data.collect() }
+}
+
+/// The colour summary follows the sketch (`organizing.md` §8.1): a green field (grass of varying
+/// shade and hue, a few darker furrows) is green and nothing else; a grey ramp from black to
+/// white is black and white; bytes that are not a sketch give the empty summary.
+#[test]
+fn a_sketch_gives_its_photos_colour_summary() {
+    let field = painted(256, 192, |x, y| {
+        // A cheap deterministic texture: the shade and the hue wander with position.
+        let n = (x * 7 + y * 13) % 40;
+        let furrow = if (y / 12) % 4 == 0 { 30 } else { 0 };
+        [(40 + n / 2) as u8, (150 + n - furrow) as u8, (35 + n / 3) as u8]
+    });
+    let summary = sketch::colours(&sketch::encode(&field).unwrap());
+    assert_eq!((summary.main(), summary.colours().count()), (Some(SearchColour::Green), 1), "{summary:?}");
+    assert_eq!(sketch::decode(&sketch::encode(&field).unwrap()).unwrap().colours(), summary);
+
+    let ramp = painted(256, 192, |x, _| [x.min(255) as u8; 3]);
+    let summary = sketch::colours(&sketch::encode(&ramp).unwrap());
+    assert_eq!((summary.main(), summary.colours().count()), (Some(SearchColour::Bw), 1), "{summary:?}");
+
+    assert_eq!(sketch::colours(&[]), ColourSummary::EMPTY);
+    assert_eq!(sketch::colours(&[0xff; 26]), ColourSummary::EMPTY);
+}
+
 /// Encode and decode times per photo, printed for the PR (`cargo test --release -p dalica-thumbs
 /// --test all -- --nocapture sketch::timings`). Not asserted: debug builds and busy machines vary.
 #[test]
@@ -252,8 +285,9 @@ fn timings() {
     let grid = per_sketch(&|b| sketch::decode(b).unwrap().grid(4, 4).len());
     let small = per_sketch(&|b| sketch::decode(b).unwrap().to_rgba(16).data.len());
     let image = per_sketch(&|b| sketch::decode(b).unwrap().to_rgba(DEFAULT_DECODE_SIDE).data.len());
+    let colours = per_sketch(&|b| usize::from(sketch::colours(b).to_byte()) + 1);
     println!(
-        "sketch per 256 px photo ({} photos): encode {encode:?}; decode {decode:?}; + 4 × 4 grid {grid:?}; + 16 px image {small:?}; + 32 px image {image:?}",
+        "sketch per 256 px photo ({} photos): encode {encode:?}; decode {decode:?}; + 4 × 4 grid {grid:?}; + 16 px image {small:?}; + 32 px image {image:?}; decode + colour summary {colours:?}",
         thumbs.len()
     );
 }

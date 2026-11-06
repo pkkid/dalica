@@ -8,6 +8,15 @@
 //!   whose entries are cached is not decoded again. [`Thumbs::sync`] looks only at the folders that
 //!   changed since it last ran (their revision or path), so a scan landing batch after batch costs
 //!   a pass over the folders and the new photos, not over the library's keys.
+//! - **Colour summaries** (M16.10, `organizing.md` §8.1): the scan job that makes a sketch also
+//!   reads its colour summary ([`dalica_thumbs::sketch::colours`]) on the worker, and the owner
+//!   applies each batch of sketches with their summaries as one derived op (`Op::Batch` of
+//!   `SetSketches` and `SetColours`), so a scan, a rescan and an edit's redrawn sketch all bring
+//!   the summary (a photo turned black and white moves to `color:bw`); the summaries also reach
+//!   the search worker's copy. [`Thumbs::sync`] finds the photos that have a sketch and no summary
+//!   (a library indexed before M16, a folder moved by a scan) and makes theirs from the stored
+//!   sketch on the pool, [`COLOUR_BATCH`] per job: no file is read, and the owner thread only
+//!   copies sketches out and applies the answers.
 //! - **The first screenful first:** a cell on screen ([`Session::thumbnail`](crate::Session::thumbnail))
 //!   raises its photo's scan to the visible priority, and while the photo has nothing in memory a
 //!   quicker job above it decodes the file's embedded thumbnail (EXIF / camera preview), shown at
@@ -71,6 +80,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use dalica_core::color_summary::ColourSummary;
 use dalica_core::{FolderId, PhotoId};
 use dalica_library::{Library, Photo, Sketch};
 use dalica_thumbs::ladder::{self, Choice, Edits, Render, Source};
@@ -78,6 +88,8 @@ pub use dalica_thumbs::pack::Size;
 use dalica_thumbs::pack::{Cache, Key};
 use dalica_thumbs::upkeep::{self, Budget};
 use dalica_thumbs::{Lru, Pool, Priority, Rgba8, Submitted};
+
+use dalica_library::Op;
 
 use crate::session::Session;
 
@@ -87,6 +99,8 @@ pub const MEMORY: usize = 192 << 20;
 const QUICK_MEMORY: usize = 32 << 20;
 /// Sketches applied per op.
 pub const SKETCH_BATCH: usize = 512;
+/// Stored sketches one background job reads the colour summaries of (a few milliseconds of work).
+pub const COLOUR_BATCH: usize = 1024;
 /// Finished jobs handled per [`Session::poll`](crate::Session::poll), so a frame stays short.
 pub const POLL_MAX: usize = 256;
 /// Bytes of scan images on their way to the owner; past it, scans send their sketch only, so a
@@ -271,16 +285,39 @@ enum Job {
     Prune,
     /// Making dead the entries of photos that left (numbered: each batch is its own job).
     Forget(u64),
+    /// The colour summaries of stored sketches (numbered: each batch is its own job).
+    Colours(u64),
 }
 
 /// A finished job.
 enum Done {
-    Scanned { key: Key, result: Result<ladder::Scanned, ladder::Error>, in_flight: usize, unavailable: bool },
-    Fetched { key: Key, size: Size, result: Result<ladder::Fetched, ladder::Error>, unavailable: bool },
-    Quick { key: Key, image: Option<Rgba8> },
-    Maintained { result: Result<(), String>, over: bool, disk: u64 },
+    /// `colours`: the summary of the sketch made, if one was.
+    Scanned {
+        key: Key,
+        result: Result<ladder::Scanned, ladder::Error>,
+        colours: Option<ColourSummary>,
+        in_flight: usize,
+        unavailable: bool,
+    },
+    Fetched {
+        key: Key,
+        size: Size,
+        result: Result<ladder::Fetched, ladder::Error>,
+        unavailable: bool,
+    },
+    Quick {
+        key: Key,
+        image: Option<Rgba8>,
+    },
+    Maintained {
+        result: Result<(), String>,
+        over: bool,
+        disk: u64,
+    },
     Pruned(Result<upkeep::Pruned, String>),
     Forgotten(Result<usize, String>),
+    /// Each photo's stored sketch and the summary read from it (empty when it is not a sketch).
+    Coloured(Vec<(PhotoId, Sketch, ColourSummary)>),
     Panicked(String),
 }
 
@@ -352,7 +389,14 @@ pub(crate) struct Thumbs {
     outstanding: HashMap<Job, Priority>,
     scans: usize,
     prefetching: HashSet<Job>,
-    sketches: Vec<(PhotoId, Option<Sketch>)>,
+    /// Sketches made, each with its colour summary, until the owner takes them.
+    sketches: Vec<Made>,
+    /// Summaries read from stored sketches, until the owner takes them.
+    colours: Vec<(PhotoId, Sketch, ColourSummary)>,
+    /// Photos whose summary a [`Job::Colours`] is reading, and each job's photos.
+    colouring: HashSet<PhotoId>,
+    colour_jobs: HashMap<u64, Vec<PhotoId>>,
+    colour_seq: u64,
     in_flight: Arc<AtomicUsize>,
     maintain_due: bool,
     /// A worker saw the cache past its budget.
@@ -377,6 +421,9 @@ pub(crate) struct Thumbs {
     versions: Option<Versions>,
     stats: ThumbStats,
 }
+
+/// A sketch the thumbnailer made (`None`: cleared) and its colour summary.
+pub(crate) type Made = (PhotoId, Option<Sketch>, Option<ColourSummary>);
 
 /// A photo's recipe as read from the library.
 struct Read {
@@ -434,6 +481,10 @@ impl Thumbs {
             scans: 0,
             prefetching: HashSet::new(),
             sketches: Vec::new(),
+            colours: Vec::new(),
+            colouring: HashSet::new(),
+            colour_jobs: HashMap::new(),
+            colour_seq: 0,
             in_flight: Arc::new(AtomicUsize::new(0)),
             maintain_due: false,
             over: Arc::new(AtomicBool::new(false)),
@@ -629,9 +680,16 @@ impl Thumbs {
         }
         let mut lists: HashMap<FolderId, HashSet<PhotoId>> = changed.iter().map(|id| (*id, HashSet::new())).collect();
         let mut dead: Vec<Key> = Vec::new();
+        let mut uncoloured: Vec<(PhotoId, Sketch)> = Vec::new();
         for photo in library.photos() {
             let Some(list) = lists.get_mut(&photo.folder) else { continue };
             list.insert(photo.id);
+            if let Some(sketch) = library.sketch(photo.id)
+                && library.colours(photo.id).is_none()
+                && !self.colouring.contains(&photo.id)
+            {
+                uncoloured.push((photo.id, *sketch));
+            }
             let Some(source) = source(library, photo) else { continue };
             let epoch = self.epoch;
             // The recipe is read again only when it changed (or the rendering did).
@@ -689,6 +747,7 @@ impl Thumbs {
             self.forget_images(id);
         }
         self.by_folder.extend(lists);
+        self.submit_colours(uncoloured);
         if !dead.is_empty() {
             // A key another photo still has stays (a rebuild gives the same files new ids).
             let live: HashSet<Key> = self.photos.values().map(|st| st.key).collect();
@@ -745,10 +804,10 @@ impl Thumbs {
             if refresh {
                 if !reachable(&source.path) {
                     let result = Err(ladder::Error::Photo(dalica_thumbs::Error::Io("its folder cannot be reached".into())));
-                    return Done::Scanned { key, result, in_flight: 0, unavailable: true };
+                    return Done::Scanned { key, result, colours: None, in_flight: 0, unavailable: true };
                 }
                 if let Err(e) = upkeep::forget(&cache, &entries_of(key, screen)) {
-                    return Done::Scanned { key, result: Err(e.into()), in_flight: 0, unavailable: false };
+                    return Done::Scanned { key, result: Err(e.into()), colours: None, in_flight: 0, unavailable: false };
                 }
             }
             let want_sketch = want_sketch || refresh;
@@ -768,8 +827,36 @@ impl Thumbs {
                 }
                 note_budget(&cache, &budget, &over, s.decoded);
             }
-            Done::Scanned { key, result, in_flight: bytes, unavailable }
+            // The summary is read here, on the worker, from the bytes just made.
+            let colours = result.as_ref().ok().and_then(|s| s.sketch.as_deref()).map(dalica_thumbs::sketch::colours).filter(|c| !c.is_empty());
+            Done::Scanned { key, result, colours, in_flight: bytes, unavailable }
         });
+    }
+
+    /// Queues the colour summaries of stored sketches, [`COLOUR_BATCH`] per background job (no file
+    /// is read). Nothing when thumbnails are off.
+    fn submit_colours(&mut self, list: Vec<(PhotoId, Sketch)>) {
+        if self.pool.is_none() {
+            return;
+        }
+        for chunk in list.chunks(COLOUR_BATCH) {
+            self.colour_seq += 1;
+            let seq = self.colour_seq;
+            let ids: Vec<PhotoId> = chunk.iter().map(|(id, _)| *id).collect();
+            self.colouring.extend(ids.iter().copied());
+            self.colour_jobs.insert(seq, ids);
+            let chunk = chunk.to_vec();
+            self.submit(Job::Colours(seq), Priority::BACKGROUND, move |cancel| {
+                let mut out = Vec::with_capacity(chunk.len());
+                for (id, sketch) in chunk {
+                    if cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    out.push((id, sketch, dalica_thumbs::sketch::colours(sketch.as_bytes())));
+                }
+                Done::Coloured(out)
+            });
+        }
     }
 
     fn submit_fetch(&mut self, library: &Library, id: PhotoId, size: Size, priority: Priority) -> Option<Job> {
@@ -1134,9 +1221,15 @@ impl Thumbs {
         if self.outstanding.remove(&job).is_some() && matches!(job, Job::Scan(_)) {
             self.scans = self.scans.saturating_sub(1);
         }
+        if let Job::Colours(seq) = job {
+            // Answered or not (a panic), its photos may be asked for again.
+            for id in self.colour_jobs.remove(&seq).unwrap_or_default() {
+                self.colouring.remove(&id);
+            }
+        }
         self.prefetching.remove(&job);
         match (job, done) {
-            (Job::Scan(id), Done::Scanned { key, result, in_flight, unavailable }) => {
+            (Job::Scan(id), Done::Scanned { key, result, colours, in_flight, unavailable }) => {
                 self.in_flight.fetch_sub(in_flight, Ordering::SeqCst);
                 self.fresh(library, id, None);
                 let Some(known) = self.photos.get(&id).map(|st| st.key) else { return };
@@ -1153,7 +1246,7 @@ impl Thumbs {
                             && library.sketch(id).is_none()
                             && let Some(sketch) = scanned.sketch.as_deref().and_then(Sketch::new)
                         {
-                            self.sketches.push((id, Some(sketch)));
+                            self.sketches.push((id, Some(sketch), colours));
                         }
                         return;
                     }
@@ -1184,7 +1277,7 @@ impl Thumbs {
                         if let Some(sketch) = scanned.sketch.as_deref().and_then(Sketch::new) {
                             st.sketch_due = false;
                             self.stats.sketches += 1;
-                            self.sketches.push((id, Some(sketch)));
+                            self.sketches.push((id, Some(sketch), colours));
                         }
                         for (size, image) in scanned.images {
                             self.remember(id, size, key, image);
@@ -1254,6 +1347,7 @@ impl Thumbs {
             (_, Done::Pruned(Err(e))) => log::warn!("thumbnail cache pruning: {e}"),
             (_, Done::Forgotten(Ok(n))) => self.stats.forgotten += u64::try_from(n).unwrap_or(u64::MAX),
             (_, Done::Forgotten(Err(e))) => log::warn!("thumbnail cache: {e}"),
+            (Job::Colours(_), Done::Coloured(list)) => self.colours.extend(list),
             (job, Done::Panicked(message)) => {
                 log::error!("thumbnail job {job:?} panicked: {message}");
                 if let Job::Scan(id) | Job::Fetch(id, _) = job
@@ -1271,9 +1365,10 @@ impl Thumbs {
         self.memory.insert((id, size), (key, Arc::new(image)), bytes);
     }
 
-    /// Sketches made since the last call, oldest first.
-    pub(crate) fn take_sketches(&mut self) -> Vec<(PhotoId, Option<Sketch>)> {
-        std::mem::take(&mut self.sketches)
+    /// Sketches made since the last call with their summaries, oldest first; and the summaries
+    /// read from stored sketches since then.
+    pub(crate) fn take_sketches(&mut self) -> (Vec<Made>, Vec<(PhotoId, Sketch, ColourSummary)>) {
+        (std::mem::take(&mut self.sketches), std::mem::take(&mut self.colours))
     }
 
     /// Why photo `id` cannot be shown (its error badge); never for a video, which keeps the video
@@ -1440,6 +1535,58 @@ fn source(library: &Library, photo: &Photo) -> Option<Source> {
 }
 
 impl Session {
+    /// Applies the sketches the thumbnailer made with their colour summaries, [`SKETCH_BATCH`] per
+    /// op: each batch's new sketches and the summaries that differ from the library's are one
+    /// derived op (`organizing.md` §8.1), and the summaries go to the search worker too. Those of
+    /// photos that are gone, or unchanged, are left out. Then the summaries read from stored
+    /// sketches, for photos whose sketch is still the one read and that have none yet.
+    pub(crate) fn apply_sketches(&mut self) {
+        let (mut made, read) = self.thumbs.take_sketches();
+        made.retain(|(id, _, _)| self.library.photo(*id).is_some());
+        for batch in made.chunks(SKETCH_BATCH) {
+            let mut sketches = Vec::new();
+            let mut colours = Vec::new();
+            for (id, sketch, summary) in batch {
+                let new_sketch = self.library.sketch(*id) != sketch.as_ref();
+                if new_sketch {
+                    sketches.push((*id, *sketch));
+                }
+                if new_sketch || self.library.colours(*id) != *summary {
+                    colours.push((*id, *summary));
+                }
+            }
+            self.apply_sketch_batch(sketches, colours);
+        }
+        let mut read: Vec<_> = read
+            .into_iter()
+            .filter(|(id, sketch, summary)| !summary.is_empty() && self.library.sketch(*id) == Some(sketch) && self.library.colours(*id).is_none())
+            .map(|(id, _, summary)| (id, Some(summary)))
+            .collect();
+        read.dedup_by_key(|(id, _)| *id);
+        for batch in read.chunks(SKETCH_BATCH) {
+            self.apply_sketch_batch(Vec::new(), batch.to_vec());
+        }
+    }
+
+    /// One derived op of `sketches` and `colours` (either may be empty), journaled; the summaries
+    /// reach the search worker's copy.
+    fn apply_sketch_batch(&mut self, sketches: Vec<(PhotoId, Option<Sketch>)>, colours: Vec<(PhotoId, Option<ColourSummary>)>) {
+        let colour_op = (!colours.is_empty()).then_some(Op::SetColours { colours });
+        let op = match (sketches.is_empty(), &colour_op) {
+            (true, None) => return,
+            (false, None) => Op::SetSketches { sketches },
+            (true, Some(c)) => c.clone(),
+            (false, Some(c)) => Op::Batch { ops: vec![Op::SetSketches { sketches }, c.clone()] },
+        };
+        if let Err(e) = self.apply_derived(op) {
+            self.scan_warnings.push(format!("sketches not applied: {e}"));
+            return;
+        }
+        if let Some(c) = colour_op {
+            self.search_applied(&c);
+        }
+    }
+
     /// Applies the thumbnail settings of `settings.json` (View → Use Color Management, the cache
     /// size) before the first sync; called once by [`Session::open_with`].
     pub(crate) fn configure_thumbnails(&mut self) {

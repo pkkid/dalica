@@ -16,6 +16,8 @@ autotests = false
 hevc = ["dalica-image/hevc"]
 
 [dependencies]
+# The colour classifier a sketch's summary goes through (`sketch.rs`, organizing.md §8.1).
+dalica-core.workspace = true
 # The renderer the ladder draws edited photos with (`ladder.rs`, architecture.md §6.3).
 dalica-edit.workspace = true
 dalica-fs.workspace = true
