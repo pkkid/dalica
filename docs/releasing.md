@@ -174,8 +174,8 @@ packages, the MSI and the DMG among them).
 | Package | 0.9.0 | 1.0.0 | Budget (half of 1.0.0) | M16.27 |
 |---|---|---|---|---|
 | Linux x86_64 `.tar.gz` | 34.1 MB | 97.7 MB | 48.8 MB | 47.6 MB (`dalica` 99.2 → 66.9 MB, `dalica-cli` 84.0 → 42.5 MB inside) |
-| Windows x64 `.msi` | 25.5 MB | 81.7 MB | 40.9 MB | @MSI@ |
-| macOS universal `.dmg` | 36.6 MB | 100.6 MB | 50.3 MB | @DMG@ |
+| Windows x64 `.msi` | 25.5 MB | 81.7 MB | 40.9 MB | 37.3 MB (37,294,080 bytes; release dry run 42229869517) |
+| macOS universal `.dmg` | 36.6 MB | 100.6 MB | 50.3 MB | 44.0 MB (44,003,271 bytes; same run; `dalica-cli` zip 92.7 → 35.2 MB) |
 
 The subset faces, as `build.rs` writes them: BIZ UDPGothic Regular 4.67 MB → 3.26 MB (9,261 of
 13,932 glyphs keep their outlines; 2.10 MB with gzip), Noto Sans CJK SC Regular 16.44 MB → 5.49 MB
