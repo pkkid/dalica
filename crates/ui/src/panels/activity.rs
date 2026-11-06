@@ -11,7 +11,8 @@
 //!   ([`fraction`]: `done / total`, the sliding third while a running job's total is unknown) and,
 //!   while it runs and can be cancelled, its × (Cancel), which runs what `jobs.cancel {job}` runs,
 //!   [`Session::cancel_jobs`](dalica_engine::Session::cancel_jobs). With no job it says "No
-//!   background work".
+//!   background work". The row of the rescan an applied File Types change started reads
+//!   "Rescanning your folders…" while it runs, as the indicator does ([`row_label`], M16.22).
 //! - **Ids** (`control-protocol.md` §7): the popover `popover:activity`, a row `job:<n>`, its Cancel
 //!   `job:<n>/cancel`.
 //! - **Look:** the popup frame (`chrome`, `button_border`, radius 6, the popup shadow), [`WIDTH`]
@@ -73,6 +74,13 @@ pub fn fraction(e: &JobEntry) -> Option<f32> {
     }
 }
 
+/// What job `e`'s row reads: "Rescanning your folders…" while it is the running rescan of an
+/// applied File Types change (`rescan`: `Session::rescanning_for_file_types`), else the engine's
+/// label, looked up whole (one carrying values stays English).
+pub fn row_label(e: &JobEntry, rescan: Option<JobId>) -> String {
+    if rescan == Some(e.job) && !e.state.is_finished() { tl!("Rescanning your folders…") } else { crate::i18n::tr(&e.label) }
+}
+
 /// Whether job `e`'s row shows a Cancel button.
 pub fn can_cancel(e: &JobEntry) -> bool {
     e.cancellable && !e.state.is_finished()
@@ -107,6 +115,7 @@ pub fn show(app: &mut App, ui: &mut Ui, anchor: Rect) {
     }
     let t = *app.tokens();
     let jobs = app.session().map(dalica_engine::Session::jobs).unwrap_or_default();
+    let rescan = app.session().and_then(dalica_engine::Session::rescanning_for_file_types);
     let (list, more) = rows(jobs);
     let row_h = t.metrics.status_h;
     let lines = list.len() + usize::from(more > 0);
@@ -125,8 +134,7 @@ pub fn show(app: &mut App, ui: &mut Ui, anchor: Rect) {
         }
         for e in &list {
             let cancel_widget = can_cancel(e).then(|| cancel_id(e.job));
-            // The engine's label, looked up whole (one carrying values stays English).
-            let label = crate::i18n::tr(&e.label);
+            let label = row_label(e, rescan);
             let out = widgets::progress_row(&mut child, &t, &row_id(e.job), &label, fraction(e), cancel_widget.as_deref(), inner.width());
             if out.cancel {
                 cancel = Some(e.job);
@@ -205,6 +213,15 @@ mod tests {
         assert!(can_cancel(&job(1, JobState::Running, 0, 0)));
         assert!(!can_cancel(&job(1, JobState::Done, 0, 0)));
         assert!(!can_cancel(&JobEntry { cancellable: false, ..job(1, JobState::Running, 0, 0) }));
+    }
+
+    #[test]
+    fn the_file_types_rescan_row_reads_rescanning_while_it_runs() {
+        let running = job(3, JobState::Running, 1, 4);
+        assert_eq!(row_label(&running, Some(3)), "Rescanning your folders…");
+        assert_eq!(row_label(&running, Some(4)), "job 3", "another job keeps its own label");
+        assert_eq!(row_label(&running, None), "job 3");
+        assert_eq!(row_label(&job(3, JobState::Done, 4, 4), Some(3)), "job 3", "not once it ended");
     }
 
     #[test]
