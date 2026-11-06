@@ -9,12 +9,16 @@
 //! - stepping: ↑ and ↓ step the part under the cursor and keep it selected;
 //! - refusal: 31 February never becomes the value, the field says so in `caution`, and the text goes
 //!   back when the edit ends;
+//! - the language's order: the text table's date-field template (`{day}/{month}/{year}`) orders the
+//!   parts and gives the separators for writing, reading and stepping; a template the field cannot
+//!   use gives ISO;
 //! - the look: a sheet of states (`fingerprints/datetime-states.json`) and a window
 //!   with the fields at its bottom-right corner (`fingerprints/datetime-window-1400x900.json`). The
 //!   renders go to `target/test-output/ui-kit/`; `DALICA_BLESS=1` stores new fingerprints (commit
 //!   them only after looking at the PNGs).
 
 use crate::common::{check, out_dir};
+use dalica_ui_kit::text::{self, DateFormat, Text, Texts};
 use dalica_ui_kit::widgets::{DatePart, PickedDate, PickedTime, TimePart, date_field, days_in_month, time_field};
 use dalica_ui_kit::{Image, Rasterizer, Tokens, WidgetInfo, fonts, registry};
 use egui::{Align2, Context, Event, Key, Modifiers, PointerButton, Pos2, Rect, UiBuilder, pos2, vec2};
@@ -135,6 +139,8 @@ struct Rig {
     changes: usize,
     clock: f64,
     widgets: Vec<WidgetInfo>,
+    /// The texts the last pass painted.
+    drawn: Vec<String>,
     raster: Rasterizer,
 }
 
@@ -161,6 +167,7 @@ impl Rig {
             changes: 0,
             clock: 0.0,
             widgets: vec![],
+            drawn: vec![],
             raster: Rasterizer::new(),
         };
         rig.settle();
@@ -190,6 +197,14 @@ impl Rig {
             });
         });
         self.widgets = registry::widgets(&self.ctx);
+        self.drawn = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
         out
     }
 
@@ -371,6 +386,89 @@ fn the_31st_of_february_is_refused() {
     assert_eq!((rig.time, rig.time_out.1), (time("10:00:00"), false));
     rig.key(Key::Tab, Modifiers::NONE);
     assert_eq!((rig.time, rig.time_out.1), (time("10:00:00"), true));
+}
+
+// ---- The language's order ----
+
+/// A template orders the parts and gives the separators; one the field cannot use is ISO.
+#[test]
+fn a_template_orders_the_parts_and_a_bad_one_gives_iso() {
+    let dmy = DateFormat::from_template("{day}/{month}/{year}");
+    assert_eq!(dmy.read("31/12/2026"), PickedDate::new(2026, 12, 31));
+    assert_eq!(dmy.read(" 04/06/2026 "), PickedDate::new(2026, 6, 4), "spaces around it are fine");
+    assert_eq!((dmy.write(date("2026-06-04")), dmy.hint()), ("04/06/2026".to_owned(), "DD/MM/YYYY".to_owned()));
+    for bad in ["31/02/2026", "2026-12-31", "4/6/2026", "31/12/26", "31/12/2026/", "31-12-2026", "aa/bb/cccc", "", "３１/12/2026"] {
+        assert_eq!(dmy.read(bad), None, "{bad}");
+    }
+    // Other separators and words around the date; non-ASCII separators count in characters.
+    let dots = DateFormat::from_template(" {day}.{month}.{year} г.");
+    assert_eq!((dots.write(date("2026-06-04")), dots.read("04.06.2026 г.")), ("04.06.2026 г.".to_owned(), PickedDate::new(2026, 6, 4)));
+    let ymd = DateFormat::from_template("{year}年{month}月{day}日");
+    assert_eq!(ymd.read("2026年06月04日"), PickedDate::new(2026, 6, 4));
+    // English is ISO, the table's default.
+    assert_eq!((Texts::english().date_format(), DateFormat::default()), (DateFormat::iso(), DateFormat::iso()));
+    assert_eq!(DateFormat::iso().write(date("2026-06-04")), "2026-06-04");
+    // A part missing or held twice, a digit or a brace between the parts, a template too long:
+    // ISO, never a panic.
+    for bad in [
+        "",
+        "{day}/{month}",
+        "{day}/{day}/{year}",
+        "{day}/{month}/{year}/{year}",
+        "{day}/{month}/{year} {weekday}",
+        "{day}1{month}/{year}",
+        "{day}/{month}/{yea}",
+        "{{day}}/{month}/{year}",
+        "day/month/year",
+        "}{day{month}{year}{",
+    ] {
+        assert_eq!(DateFormat::from_template(bad), DateFormat::iso(), "{bad:?}");
+    }
+    let long = format!("{{day}}/{{month}}/{{year}}{}", " ".repeat(DateFormat::MAX_TEMPLATE) + "x");
+    assert_eq!(DateFormat::from_template(&long), DateFormat::iso(), "too long");
+    // No separators at all still reads by the parts' widths.
+    assert_eq!(DateFormat::from_template("{year}{month}{day}").read("20260604"), PickedDate::new(2026, 6, 4));
+}
+
+/// With the table's template `{day}/{month}/{year}`, the field shows, reads and steps the date day
+/// first, and refuses 31 February as in ISO.
+#[test]
+fn the_field_writes_reads_and_steps_in_the_tables_order() {
+    let mut rig = Rig::new();
+    text::set(&rig.ctx, Texts::english().with(Text::DateField, "{day}/{month}/{year}"));
+    rig.settle();
+    assert!(rig.drawn.iter().any(|s| s == "04/06/2026"), "the value, day first: {:?}", rig.drawn);
+    rig.retype(DATE, "31/12/2026");
+    assert_eq!(rig.date, date("2026-12-31"));
+    rig.key(Key::Enter, Modifiers::NONE);
+    // ↑ in the first part steps the day.
+    rig.cursor_at(DATE, 0);
+    rig.key(Key::ArrowUp, Modifiers::NONE);
+    assert_eq!(rig.date, date("2026-12-01"), "the day goes round within its month");
+    assert_eq!(rig.selection(DATE), Some((0, 2)), "the day is selected");
+    rig.key(Key::End, Modifiers::NONE);
+    rig.key(Key::ArrowUp, Modifiers::NONE);
+    assert_eq!(rig.date, date("2027-12-01"), "the last part is the year");
+    assert_eq!(rig.selection(DATE), Some((6, 10)));
+    rig.key(Key::Enter, Modifiers::NONE);
+    // 31 February is refused, and the text goes back.
+    rig.retype(DATE, "31/02/2026");
+    assert_eq!((rig.date, rig.date_out.1), (date("2027-12-01"), false));
+    rig.key(Key::Enter, Modifiers::NONE);
+    assert_eq!((rig.date, rig.date_out.1), (date("2027-12-01"), true));
+    assert!(rig.drawn.iter().any(|s| s == "01/12/2027"), "{:?}", rig.drawn);
+    // ISO is not this field's language.
+    rig.retype(DATE, "2026-08-14");
+    assert_eq!((rig.date, rig.date_out.1), (date("2027-12-01"), false));
+    rig.key(Key::Escape, Modifiers::NONE);
+    // The time field keeps HH:MM:SS.
+    assert!(rig.drawn.iter().any(|s| s == "10:00:00"), "{:?}", rig.drawn);
+    // A template the field cannot use: ISO.
+    text::set(&rig.ctx, Texts::english().with(Text::DateField, "{day}/{day}/{year}"));
+    rig.settle();
+    assert!(rig.drawn.iter().any(|s| s == "2027-12-01"), "{:?}", rig.drawn);
+    rig.retype(DATE, "2026-08-14");
+    assert_eq!(rig.date, date("2026-08-14"));
 }
 
 // ---- The look ----

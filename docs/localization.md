@@ -35,6 +35,15 @@ Dalica follows the PhotoCraft i18n design (prior art only; our own code, see
   language's registry row; the words and their order from the catalog (contexts `month`,
   `weekday` and `date`: `{month} {day}, {year}`). A form row's label is `{label}:` in the context
   `form label`, so a language may write its own colon.
+- A date the user types (the date field of Adjust Date and Time and of Folder Properties) is
+  written and read in the order of `ui-kit`'s text `{year}-{month}-{day}` (context `date field`).
+  A language may reorder the three parts and change the separators between and around them
+  (Thai: `{day}/{month}/{year}`); it may not drop or repeat a part, put a digit or a brace between
+  them, or make the template longer than 40 characters, and a template that breaks a rule gives
+  ISO. The parts stay four digits for the year and two for the month and the day, the year in the
+  Christian Era; ↑ / ↓ step the part under the cursor, whatever its place. English stays ISO, which
+  is never ambiguous between the month and the day. The time field is `HH:MM:SS`, 24 hours, in
+  every language (the 12-hour words belong to the long dates).
 - Leave room: translations run up to 40 % longer than English. Buttons and tree rows must
   ellipsize or wrap rather than clip; check with a long language (German) in a snapshot.
 
