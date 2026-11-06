@@ -85,8 +85,19 @@ pub fn clock_text(ms: u64) -> String {
     format!("{:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
 }
 
-/// The readout: "00:00:09 / 00:00:41", and " (trimmed to 00:00:21)" with the length kept when the
-/// trim cuts anything away.
+/// The length a trim keeps as the readout writes it: [`clock_text`] from 10 s up; under 10 s with
+/// the tenths passed, `00:00:00.6` for 640 ms and `00:00:09.9` for 9 950 ms, and at least
+/// `00:00:00.1`, so a trim that keeps something never reads zero (M16.24).
+fn trim_length_text(ms: u64) -> String {
+    if ms >= 10_000 {
+        return clock_text(ms);
+    }
+    let tenths = (ms / 100).max(u64::from(ms > 0));
+    format!("00:00:{:02}.{}", tenths / 10, tenths % 10)
+}
+
+/// The readout: "00:00:09 / 00:00:41", and " (trimmed to 00:00:21)" with the length kept
+/// ([`trim_length_text`]) when the trim cuts anything away.
 pub fn scrubber_readout(s: &Scrubber) -> String {
     readout_in(&text::Texts::english(), s)
 }
@@ -95,7 +106,11 @@ pub fn scrubber_readout(s: &Scrubber) -> String {
 pub fn readout_in(texts: &text::Texts, s: &Scrubber) -> String {
     let s = s.normalized();
     let base = format!("{} / {}", clock_text(s.position_ms), clock_text(s.duration_ms));
-    if s.trimmed() { text::fill(texts.get(Text::Trimmed), &[("time", &base), ("length", &clock_text(s.end_ms - s.start_ms))]) } else { base }
+    if s.trimmed() {
+        text::fill(texts.get(Text::Trimmed), &[("time", &base), ("length", &trim_length_text(s.end_ms.saturating_sub(s.start_ms)))])
+    } else {
+        base
+    }
 }
 
 /// Where the trim's start goes when asked for `want`: inside the clip, at least a step before the

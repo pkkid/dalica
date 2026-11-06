@@ -464,6 +464,16 @@ fn space_plays_and_the_readout_follows_the_clock_and_a_step_moves_one_frame() {
     assert!(!w.d.state().video.playing, "the view state follows the end");
 }
 
+/// The readout's trimmed length (M16.24): whole seconds from 10 s up; under 10 s the tenths
+/// passed, at least one.
+fn trimmed_length(ms: u64) -> String {
+    if ms >= 10_000 {
+        return video::clock(ms);
+    }
+    let tenths = (ms / 100).max(1);
+    format!("00:00:{:02}.{}", tenths / 10, tenths % 10)
+}
+
 #[test]
 fn dragging_the_start_handle_and_set_end_trim_and_the_readout_says_trimmed() {
     let mut w = W::new();
@@ -478,7 +488,7 @@ fn dragging_the_start_handle_and_set_end_trim_and_the_readout_says_trimmed() {
     let start = v["trim"]["startMs"].as_u64().unwrap_or_else(|| panic!("trimmed: {v}"));
     assert!(start.abs_diff(500) <= FRAME_MS, "the start where it was dropped: {v}");
     assert_eq!(v["trim"]["endMs"], 2000);
-    assert!(w.readout().ends_with(&format!("(trimmed to {})", video::clock(2000 - start))), "{}", w.readout());
+    assert!(w.readout().ends_with(&format!("(trimmed to {})", trimmed_length(2000 - start))), "{}", w.readout());
     assert_eq!(w.d.state().video.trim, None, "no handle dragged now");
     // Set End at 1.5 s: the playhead there, then the button.
     w.d.run("player.seek", &json!({ "ms": 1500 })).unwrap();
@@ -487,7 +497,7 @@ fn dragging_the_start_handle_and_set_end_trim_and_the_readout_says_trimmed() {
     w.d.settle(FRAMES).unwrap();
     let v = w.player();
     assert_eq!(v["trim"]["endMs"], 1500, "{v}");
-    assert_eq!(w.readout(), format!("00:00:01 / 00:00:02 (trimmed to {})", video::clock(1500 - start)));
+    assert_eq!(w.readout(), format!("00:00:01 / 00:00:02 (trimmed to {})", trimmed_length(1500 - start)));
     let edits = w.d.app().session().unwrap().library().info(id).edits.clone();
     assert_eq!(edits.iter().filter(|e| e.starts_with("trim(")).count(), 1, "one trim in the recipe: {edits:?}");
     assert_eq!(edits.last().map(String::as_str), Some(format!("trim({start},1500)").as_str()));

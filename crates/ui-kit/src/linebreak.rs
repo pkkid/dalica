@@ -46,16 +46,91 @@ pub fn has_thai(text: &str) -> bool {
     text.chars().any(is_thai)
 }
 
+/// Runs of the Thai catalog that ICU4X's dictionary misreads, as their words (M16.24,
+/// `docs/thai-text.md`). After ผล it reads ผลการค้นหา as ผลก|า|รค|้|นหา, and it splits loanwords
+/// mid-syllable (แพ|ตช|์), so with the marks it cannot place (before a vowel or a mark) left out a
+/// row broke inside a word. Where a run occurs, [`mark`] breaks at its words' edges and segments
+/// only the text between runs with the dictionary. A loanword kept whole is a run of one word.
+/// Found by segmenting every catalog text and listing those with a boundary no Thai line takes
+/// (`never_starts_a_line`, `never_ends_a_line`).
+const RUNS: &[&[&str]] = &[
+    &["ผล", "การ"],
+    &["ตรวจ", "หา", "รายการ"],
+    &["เพื่อ", "นำ"],
+    &["ล่าง", "สุด"],
+    &["ตาม", "ที่"],
+    &["ทำ", "ไม่", "ได้"],
+    &["ดู", "และ"],
+    &["นั้น", "และ"],
+    &["ด้าน", "ใน"],
+    &["ด้าน", "นอก"],
+    &["สี", "สอง", "แถบ"],
+    &["เมตา", "ของ", "รูปภาพ"],
+    &["มาตรฐาน"],
+    &["เอฟเฟกต์"],
+    &["ฟิลเตอร์"],
+    &["แพตช์"],
+    &["ไดรฟ์"],
+    &["ฮิสโตแกรม"],
+    &["อินสแตนต์"],
+];
+
+/// Each of [`RUNS`] written out, beside its words, made once.
+static RUN_TEXTS: LazyLock<Vec<(String, &'static [&'static str])>> = LazyLock::new(|| RUNS.iter().map(|run| (run.concat(), *run)).collect());
+
+/// The words of [`RUNS`] found in `text`, as byte ranges, sorted.
+fn run_words(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut words = Vec::new();
+    for (whole, run) in RUN_TEXTS.iter() {
+        for (start, _) in text.match_indices(whole.as_str()) {
+            let mut edge = start;
+            for word in run.iter() {
+                words.push(edge..edge + word.len());
+                edge += word.len();
+            }
+        }
+    }
+    words.sort_unstable_by_key(|w| (w.start, w.end));
+    words
+}
+
+/// Every place `text` may break, in byte offsets, ascending: the edges of the [`RUNS`]' words,
+/// and the dictionary's boundaries in each stretch between them (segmented on its own, so a run
+/// does not sway its neighbours), never inside a run's word.
+fn boundaries(text: &str) -> Vec<usize> {
+    let words = run_words(text);
+    if words.is_empty() {
+        return SEGMENTER.segment_str(text).collect();
+    }
+    let mut edges: Vec<usize> = words.iter().flat_map(|w| [w.start, w.end]).collect();
+    edges.sort_unstable();
+    edges.dedup();
+    let mut out = Vec::new();
+    let mut from = 0;
+    for edge in edges.iter().copied().chain(std::iter::once(text.len())) {
+        if let Some(piece) = text.get(from..edge) {
+            out.extend(SEGMENTER.segment_str(piece).map(|at| from + at));
+        }
+        out.push(edge);
+        from = edge;
+    }
+    out.retain(|at| !words.iter().any(|w| w.start < *at && *at < w.end));
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// `text` with a [`MARK`] at every dictionary word boundary between two Thai letters, where a
-/// wrapped row may then break. Borrowed (unchanged) when `text` has no Thai or no such boundary;
-/// marking marked text changes nothing.
+/// wrapped row may then break; the runs the dictionary misreads ([`RUNS`]) break at their words.
+/// Borrowed (unchanged) when `text` has no Thai or no such boundary; marking marked text changes
+/// nothing.
 pub fn mark(text: &str) -> Cow<'_, str> {
     if !has_thai(text) {
         return Cow::Borrowed(text);
     }
     let mut out: Option<String> = None;
     let mut copied = 0;
-    for at in SEGMENTER.segment_str(text) {
+    for at in boundaries(text) {
         let (Some(before), Some(after)) = (text.get(..at).and_then(|s| s.chars().next_back()), text.get(at..).and_then(|s| s.chars().next())) else {
             continue;
         };

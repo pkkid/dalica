@@ -283,6 +283,15 @@ fn the_readout_formats_times_and_says_the_trimmed_length_only_when_trimmed() {
     let trimmed = Scrubber { start_ms: 12_000, end_ms: 33_000, ..clip };
     assert_eq!(scrubber_readout(&trimmed), "00:00:09 / 00:00:41 (trimmed to 00:00:21)");
     assert_eq!(scrubber_readout(&Scrubber { end_ms: 41_000, start_ms: 0, ..trimmed }), "00:00:09 / 00:00:41", "a trim of the whole clip is none");
+    // A trimmed length under 10 s shows the tenths passed (truncated, as the seconds are), and at
+    // least a tenth: a trim that keeps something never reads zero (M16.24). So 9 950 ms reads
+    // 00:00:09.9, and from 10 s on whole seconds as before.
+    let kept = |ms: u64| scrubber_readout(&Scrubber { position_ms: 0, start_ms: 0, end_ms: ms, ..clip });
+    assert_eq!(kept(640), "00:00:00 / 00:00:41 (trimmed to 00:00:00.6)");
+    assert_eq!(kept(9_950), "00:00:00 / 00:00:41 (trimmed to 00:00:09.9)");
+    assert_eq!(kept(21_000), "00:00:00 / 00:00:41 (trimmed to 00:00:21)");
+    assert_eq!(kept(10_000), "00:00:00 / 00:00:41 (trimmed to 00:00:10)");
+    assert_eq!(kept(1), "00:00:00 / 00:00:41 (trimmed to 00:00:00.1)", "never zero");
     // The widget paints and registers the same text, and follows a change in the same frame.
     let mut rig = scrub_rig();
     rig.state.clip = Scrubber { position_ms: 9_400, start_ms: 12_000, end_ms: 33_000, ..rig.state.clip };
