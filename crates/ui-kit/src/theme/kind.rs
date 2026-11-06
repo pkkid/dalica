@@ -6,7 +6,7 @@
 //! first: it is the default and owns the name `dark`. PhotoCraft's aliases are kept except `dark`
 //! and `light` and those that name another company's product.
 
-/// A theme: Dalica's Dark (the default, LightCraft's look) or one of PhotoCraft's twelve.
+/// A theme: Dalica's Dark (the default, LightCraft's look) or one of PhotoCraft's fourteen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ThemeKind {
     /// Dalica's dark grey theme, `Tokens::DARK` value for value.
@@ -36,12 +36,16 @@ pub enum ThemeKind {
     BreezeLight,
     /// An adaptation of KDE Plasma's Breeze dark look.
     BreezeDark,
+    /// Muted violet-grey surfaces (never near-black), softened off-white text, a periwinkle accent.
+    SoftDark,
+    /// Pale violet-grey surfaces, softened dark-violet text, a periwinkle accent.
+    SoftLight,
 }
 
 impl ThemeKind {
     /// Every theme, in the order the menu and the Options row list them; [`next`](Self::next) goes
     /// round it.
-    pub const ALL: [ThemeKind; 13] = [
+    pub const ALL: [ThemeKind; 15] = [
         ThemeKind::Dark,
         ThemeKind::Pro,
         ThemeKind::ProMedium,
@@ -55,6 +59,8 @@ impl ThemeKind {
         ThemeKind::SolarizedDark,
         ThemeKind::BreezeLight,
         ThemeKind::BreezeDark,
+        ThemeKind::SoftDark,
+        ThemeKind::SoftLight,
     ];
 
     /// The canonical name: the setting's value (`interface.theme`), the command `theme.<id>` and
@@ -74,6 +80,8 @@ impl ThemeKind {
             ThemeKind::SolarizedDark => "solarizedDark",
             ThemeKind::BreezeLight => "breezeLight",
             ThemeKind::BreezeDark => "breezeDark",
+            ThemeKind::SoftDark => "softDark",
+            ThemeKind::SoftLight => "softLight",
         }
     }
 
@@ -93,6 +101,8 @@ impl ThemeKind {
             ThemeKind::SolarizedDark => "Solarized Dark",
             ThemeKind::BreezeLight => "Breeze Light",
             ThemeKind::BreezeDark => "Breeze Dark",
+            ThemeKind::SoftDark => "Soft Dark",
+            ThemeKind::SoftLight => "Soft Light",
         }
     }
 
@@ -120,6 +130,8 @@ impl ThemeKind {
             "solarizeddark" | "solarized" => ThemeKind::SolarizedDark,
             "breezelight" | "breeze" => ThemeKind::BreezeLight,
             "breezedark" => ThemeKind::BreezeDark,
+            "softdark" => ThemeKind::SoftDark,
+            "softlight" => ThemeKind::SoftLight,
             _ => return None,
         })
     }

@@ -31,11 +31,11 @@ fn each_theme_command_writes_its_id_and_is_checked_while_in_effect() {
         s.flush().unwrap();
         assert_eq!(read_json(&lib.path().join(FILE)).unwrap()["interface"]["theme"], json!(id), "{id} is on disk");
     }
-    assert_eq!(s.execute("theme.breezeDark", &json!(null)).unwrap(), json!({ "theme": "breezeDark", "changed": false }), "again: no change");
+    assert_eq!(s.execute("theme.softLight", &json!(null)).unwrap(), json!({ "theme": "softLight", "changed": false }), "again: no change");
     assert!(s.undo_stack().is_empty(), "a theme is not an undo step");
     assert_eq!(command("Dark"), None, "ids are exact");
     drop(s);
-    assert_eq!(open(lib.path()).settings().interface().theme, "breezeDark", "kept over a restart");
+    assert_eq!(open(lib.path()).settings().interface().theme, "softLight", "kept over a restart");
 }
 
 #[test]

@@ -11182,7 +11182,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: `crates/ui-kit/tests/themes.rs` and `tests/contrast.rs` pass for the seven with no
     pinned exception; their gallery fingerprints show each palette (light themes light, Classic
     bevelled); `cargo xtask names` passes (no product name in a label or comment).
-- ⬜ **M16.7 `ui-kit`: the Adwaita, Solarized and Breeze palettes**
+- ✅ **M16.7 `ui-kit`: the Adwaita, Solarized and Breeze palettes**
   - after: M16.1, M16.3, M16.4
   - files: `crates/ui-kit/src/theme/kind.rs`, `crates/ui-kit/src/theme/palettes.rs`, `crates/engine/src/settings.rs`, `crates/ui/src/i18n/th.tsv`, `crates/ui-kit/src/theme/palettes/adwaita.rs`, `crates/ui-kit/src/theme/palettes/solarized.rs`, `crates/ui-kit/src/theme/palettes/breeze.rs`, `crates/ui-kit/src/theme/palettes/soft.rs`, `crates/ui-kit/src/theme/palettes/LICENSE-solarized.txt`, `crates/ui-kit/tests/fingerprints/theme-adwaita*.json`, `crates/ui-kit/tests/fingerprints/theme-solarized*.json`, `crates/ui-kit/tests/fingerprints/theme-breeze*.json`, `crates/ui-kit/tests/fingerprints/theme-soft*.json`, `ATTRIBUTION.md`
   - scope: ported value for value from PhotoCraft `crates/ui-egui/src/theme.rs` at 3a896a5e

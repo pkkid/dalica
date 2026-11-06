@@ -1,4 +1,4 @@
-//! Themes (`design-system.md` §2, Themes; M16.3): the thirteen `ThemeKind`s, their ids, labels and
+//! Themes (`design-system.md` §2, Themes; M16.3, M16.7): the fifteen `ThemeKind`s, their ids, labels and
 //! names, `next` round the list; `Tokens::for_kind` (Dark is `Tokens::DARK`, a theme not ported yet
 //! wears Dark's values); the rule table's fixed values; Classic's bevel; and the gallery of widgets
 //! fingerprinted in every theme (`fingerprints/theme-<id>-1400x900.json`). The renders go to
@@ -15,7 +15,7 @@ use dalica_ui_kit::widgets::{
 use dalica_ui_kit::{Icon, Image, ThemeKind, Tokens, fonts};
 use egui::{Align2, Color32, CornerRadius, Rect, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
 
-const IDS: [&str; 13] = [
+const IDS: [&str; 15] = [
     "dark",
     "pro",
     "proMedium",
@@ -29,6 +29,8 @@ const IDS: [&str; 13] = [
     "solarizedDark",
     "breezeLight",
     "breezeDark",
+    "softDark",
+    "softLight",
 ];
 
 #[test]
@@ -37,7 +39,7 @@ fn every_id_and_label_names_its_theme_and_unknown_names_none() {
     assert_eq!(ThemeKind::default(), ThemeKind::Dark);
     assert_eq!(ThemeKind::Dark.label(), "Dark");
     let labels: HashSet<&str> = ThemeKind::ALL.iter().map(|k| k.label()).collect();
-    assert_eq!(labels.len(), 13, "labels are distinct");
+    assert_eq!(labels.len(), 15, "labels are distinct");
     for kind in ThemeKind::ALL {
         assert_eq!(ThemeKind::from_name(kind.id()), Some(kind), "{kind:?} by id");
         assert_eq!(ThemeKind::from_name(kind.label()), Some(kind), "{kind:?} by label");
@@ -65,10 +67,10 @@ fn every_id_and_label_names_its_theme_and_unknown_names_none() {
 }
 
 #[test]
-fn next_visits_all_thirteen_and_comes_back() {
+fn next_visits_all_fifteen_and_comes_back() {
     let mut seen = Vec::new();
     let mut k = ThemeKind::Dark;
-    for _ in 0..13 {
+    for _ in 0..15 {
         seen.push(k);
         k = k.next();
     }
