@@ -4,7 +4,8 @@
 //! Windows ones from `reg query` output; on the OS the test runs on, reveal and open-with start
 //! the right program (a stub on `PATH` records its arguments); files and text round-trip through
 //! the clipboard where there is a display. No real program is started: the vectors go to a
-//! recording runner or to the stubs.
+//! recording runner or to the stubs. Open With ▸'s icons (M16.23) are found in a fixture hicolor
+//! theme, an `.ico` and a hand-built PE file's icon groups.
 
 #[allow(dead_code)]
 #[path = "../src/os.rs"]
@@ -16,7 +17,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use dalica_engine::os::{Clip, Handler, Os, OsError};
+use dalica_engine::handler_icons::decode;
+use dalica_engine::os::{Clip, Handler, IconFile, Os, OsError};
 use native::launch::{Argv, Platform, Runner};
 use native::{Env, Native, desktop, registry};
 
@@ -532,4 +534,217 @@ fn same_files(got: &[PathBuf], want: &[PathBuf]) -> bool {
             #[cfg(not(unix))]
             false
         })
+}
+
+/// A `side`-pixel PNG of one colour.
+fn png_of(side: u32, rgba: [u8; 4]) -> Vec<u8> {
+    let pixels: Vec<u8> = (0..side * side).flat_map(|_| rgba).collect();
+    dalica_scenes::fingerprint::png_rgba(side, side, &pixels)
+}
+
+/// The colour of the middle pixel of an icon's bytes decoded at 16 px.
+fn colour(bytes: &[u8]) -> [u8; 4] {
+    let p = decode(bytes, 16).unwrap();
+    let at = ((p.height / 2 * p.width + p.width / 2) * 4) as usize;
+    p.data[at..at + 4].try_into().unwrap()
+}
+
+/// Linux (M16.23): under a temporary `XDG_DATA_DIRS` a desktop entry's `Icon=name` finds the
+/// hicolor theme's PNG nearest the size asked; an absolute `Icon=` file is read as it is; an
+/// SVG-only icon, an SVG file and a name with a folder in it are none.
+#[test]
+fn linux_finds_a_desktop_entrys_icon_in_the_hicolor_theme() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = xdg(dir.path());
+    let sys = dir.path().join("sys");
+    let theme = sys.join("icons/hicolor");
+    for (size, colour) in [("16x16", [255, 0, 0, 255]), ("48x48", [0, 0, 255, 255])] {
+        write(&theme.join(size).join("apps/org.example.Viewer.png"), "");
+        std::fs::write(theme.join(size).join("apps/org.example.Viewer.png"), png_of(size[..2].parse().unwrap(), colour)).unwrap();
+    }
+    write(&theme.join("scalable/apps/org.example.Vector.svg"), "<svg/>");
+    let absolute = dir.path().join("opt/paint/paint.png");
+    write(&absolute, "");
+    std::fs::write(&absolute, png_of(32, [0, 255, 0, 255])).unwrap();
+    for (id, icon) in
+        [("viewer", "org.example.Viewer".to_string()), ("paint", absolute.to_string_lossy().into_owned()), ("vector", "org.example.Vector".into())]
+    {
+        write(
+            &sys.join(format!("applications/{id}.desktop")),
+            &format!("[Desktop Entry]\nType=Application\nName={id}\nIcon={icon}\nExec=/opt/{id} %f\nMimeType=image/jpeg;\n"),
+        );
+    }
+    let os = Native::with(Platform::Linux, env, Arc::new(Recorder::default()), no_bus());
+    let handlers = os.handlers(Path::new("/p/a.jpg")).unwrap();
+    let icon_of = |id: &str| handlers.iter().find(|h| h.id == format!("{id}.desktop")).and_then(|h| h.icon.clone()).unwrap();
+    let file = |icon: &str, px: u32| match os.icon_file(icon, px) {
+        Some(IconFile::Path(p)) => Some(p),
+        other => {
+            assert_eq!(other, None);
+            None
+        }
+    };
+    let canonical = |p: PathBuf| std::fs::canonicalize(p).unwrap();
+    assert_eq!(file(&icon_of("viewer"), 16), Some(canonical(theme.join("16x16/apps/org.example.Viewer.png"))), "Icon=name at 16 px");
+    assert_eq!(file(&icon_of("viewer"), 32), Some(canonical(theme.join("48x48/apps/org.example.Viewer.png"))), "the next size up");
+    assert_eq!(file(&icon_of("viewer"), 64), Some(canonical(theme.join("48x48/apps/org.example.Viewer.png"))), "else the largest");
+    assert_eq!(file("org.example.Viewer.png", 16), file(&icon_of("viewer"), 16), "a name with its extension");
+    let read = |p: Option<PathBuf>| std::fs::read(p.unwrap()).unwrap();
+    assert_eq!(colour(&read(file(&icon_of("viewer"), 16))), [255, 0, 0, 255]);
+    assert_eq!(colour(&read(file(&icon_of("paint"), 16))), [0, 255, 0, 255], "an absolute Icon= file");
+    assert_eq!(file(&icon_of("vector"), 16), None, "SVG only");
+    assert_eq!(file(&theme.join("scalable/apps/org.example.Vector.svg").to_string_lossy(), 16), None, "an SVG file");
+    assert_eq!(file("../icons/org.example.Viewer", 16), None, "a name with a folder");
+    assert_eq!(file("", 16), None);
+    let mac = Native::with(Platform::MacOs, xdg(dir.path()), Arc::new(Recorder::default()), no_bus());
+    assert_eq!(mac.icon_file(&icon_of("viewer"), 16), None, "macOS gives none");
+}
+
+/// A resource folder of `entries` (id, target) as a PE file holds it.
+fn res_folder(entries: &[(u32, u32)]) -> Vec<u8> {
+    let mut v = vec![0u8; 14];
+    v.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    for (id, target) in entries {
+        v.extend_from_slice(&id.to_le_bytes());
+        v.extend_from_slice(&target.to_le_bytes());
+    }
+    v
+}
+
+/// A 32-bit PE file of one `.rsrc` section holding `icons` (RT_ICON, by id) and `groups`
+/// (RT_GROUP_ICON, by id), each in one language: what a Windows `.exe` holds, built by hand.
+fn pe_file(icons: &[(u16, Vec<u8>)], groups: &[(u16, Vec<u8>)]) -> Vec<u8> {
+    const RVA: u32 = 0x1000;
+    const RAW: usize = 0x200;
+    const DIR: u32 = 0x8000_0000;
+    let all: Vec<&(u16, Vec<u8>)> = icons.iter().chain(groups).collect();
+    let (ni, ng) = (icons.len() as u32, groups.len() as u32);
+    let di = 16 + 2 * 8;
+    let dg = di + 16 + 8 * ni;
+    let langs = dg + 16 + 8 * ng;
+    let entries = langs + 24 * (ni + ng);
+    let blobs = entries + 16 * (ni + ng);
+    let mut rs = res_folder(&[(3, DIR | di), (14, DIR | dg)]);
+    rs.extend(res_folder(&icons.iter().enumerate().map(|(k, (id, _))| (u32::from(*id), DIR | (langs + 24 * k as u32))).collect::<Vec<_>>()));
+    rs.extend(res_folder(&groups.iter().enumerate().map(|(k, (id, _))| (u32::from(*id), DIR | (langs + 24 * (ni + k as u32)))).collect::<Vec<_>>()));
+    for k in 0..all.len() as u32 {
+        rs.extend(res_folder(&[(1033, entries + 16 * k)]));
+    }
+    let mut at = blobs;
+    for (_, data) in &all {
+        rs.extend_from_slice(&(RVA + at).to_le_bytes());
+        rs.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        rs.extend_from_slice(&[0; 8]);
+        at += data.len() as u32;
+    }
+    for (_, data) in &all {
+        rs.extend_from_slice(data);
+    }
+    let mut f = vec![0u8; RAW];
+    f[..2].copy_from_slice(b"MZ");
+    f[0x3c..0x40].copy_from_slice(&64u32.to_le_bytes());
+    f[64..68].copy_from_slice(b"PE\0\0");
+    f[68..70].copy_from_slice(&0x14cu16.to_le_bytes());
+    f[70..72].copy_from_slice(&1u16.to_le_bytes());
+    f[84..86].copy_from_slice(&224u16.to_le_bytes());
+    let opt = 88;
+    f[opt..opt + 2].copy_from_slice(&0x10bu16.to_le_bytes());
+    f[opt + 92..opt + 96].copy_from_slice(&16u32.to_le_bytes());
+    f[opt + 112..opt + 116].copy_from_slice(&RVA.to_le_bytes());
+    f[opt + 116..opt + 120].copy_from_slice(&(rs.len() as u32).to_le_bytes());
+    let sec = opt + 224;
+    f[sec..sec + 5].copy_from_slice(b".rsrc");
+    f[sec + 8..sec + 12].copy_from_slice(&(rs.len() as u32).to_le_bytes());
+    f[sec + 12..sec + 16].copy_from_slice(&RVA.to_le_bytes());
+    f[sec + 16..sec + 20].copy_from_slice(&(rs.len() as u32).to_le_bytes());
+    f[sec + 20..sec + 24].copy_from_slice(&(RAW as u32).to_le_bytes());
+    f.extend(rs);
+    f
+}
+
+/// An icon group of `images` (side, bit depth, bytes, RT_ICON id).
+fn group(images: &[(u8, u16, usize, u16)]) -> Vec<u8> {
+    let mut g = vec![0, 0, 1, 0];
+    g.extend_from_slice(&(images.len() as u16).to_le_bytes());
+    for (side, bits, len, id) in images {
+        g.extend_from_slice(&[*side, *side, 0, 0]);
+        g.extend_from_slice(&1u16.to_le_bytes());
+        g.extend_from_slice(&bits.to_le_bytes());
+        g.extend_from_slice(&(*len as u32).to_le_bytes());
+        g.extend_from_slice(&id.to_le_bytes());
+    }
+    g
+}
+
+/// A 32-bit BMP icon image of one colour, `side` pixels, as an ICO or an RT_ICON holds it.
+fn dib_of(side: u32, [r, g, b, a]: [u8; 4]) -> Vec<u8> {
+    let mut d = Vec::new();
+    d.extend_from_slice(&40u32.to_le_bytes());
+    d.extend_from_slice(&side.to_le_bytes());
+    d.extend_from_slice(&(2 * side).to_le_bytes());
+    d.extend_from_slice(&1u16.to_le_bytes());
+    d.extend_from_slice(&32u16.to_le_bytes());
+    d.extend_from_slice(&[0; 24]);
+    d.extend((0..side * side).flat_map(|_| [b, g, r, a]));
+    d.extend(std::iter::repeat_n(0u8, (side.div_ceil(32) * 4 * side) as usize));
+    d
+}
+
+/// Windows (M16.23), pure code run on every OS: `DefaultIcon`'s `.ico` is read (its entry nearest
+/// the size, a BMP image here), a hand-built `.exe`'s icon groups are read by index and by
+/// resource id (the image nearest the size), and a cut or damaged one is refused.
+#[test]
+fn windows_reads_an_ico_and_a_pe_files_icon_groups() {
+    let dir = tempfile::tempdir().unwrap();
+    let (red, green, blue) = ([255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]);
+    // An .ico of a 16 px BMP (red) and a 32 px PNG (green).
+    let (small, large) = (dib_of(16, red), png_of(32, green));
+    let mut ico = vec![0, 0, 1, 0, 2, 0];
+    let mut at = 6 + 2 * 16;
+    for (side, bits, data) in [(16u8, 32u16, &small), (32, 32, &large)] {
+        ico.extend_from_slice(&[side, side, 0, 0, 1, 0]);
+        ico.extend_from_slice(&bits.to_le_bytes());
+        ico.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        ico.extend_from_slice(&(at as u32).to_le_bytes());
+        at += data.len();
+    }
+    ico.extend_from_slice(&small);
+    ico.extend_from_slice(&large);
+    let ico_path = dir.path().join("Viewer.ico");
+    std::fs::write(&ico_path, &ico).unwrap();
+    let os = Native::with(Platform::Windows, Env::default(), Arc::new(Recorder::default()), no_bus());
+    let Some(IconFile::Path(found)) = os.icon_file(&format!("\"{}\"", ico_path.display()), 16) else { panic!("the .ico") };
+    let bytes = std::fs::read(found).unwrap();
+    assert_eq!(colour(&bytes), red, "the 16 px BMP entry");
+    assert_eq!(decode(&bytes, 32).unwrap().width, 32, "the 32 px PNG entry");
+
+    // An .exe of two groups: the first a 16 px BMP (red) and a 32 px PNG (green), the second blue.
+    let (blue_png, red_dib) = (png_of(16, blue), dib_of(16, red));
+    let pe = pe_file(
+        &[(1, red_dib.clone()), (2, large.clone()), (3, blue_png.clone())],
+        &[(101, group(&[(16, 32, red_dib.len(), 1), (32, 32, large.len(), 2)])), (102, group(&[(16, 32, blue_png.len(), 3)]))],
+    );
+    let exe = dir.path().join("Viewer App.exe");
+    std::fs::write(&exe, &pe).unwrap();
+    let icon = |s: String, px: u32| match os.icon_file(&s, px) {
+        Some(IconFile::Bytes(b)) => b,
+        other => panic!("{s}: {other:?}"),
+    };
+    assert_eq!(colour(&icon(format!("\"{}\",0", exe.display()), 16)), red, "group 0 at 16 px: the BMP");
+    assert_eq!(colour(&icon(format!("{},0", exe.display()), 24)), green, "group 0 at 24 px: the 32 px PNG");
+    assert_eq!(colour(&icon(format!("{},1", exe.display()), 16)), blue, "group 1 by index");
+    assert_eq!(colour(&icon(format!("{},-101", exe.display()), 16)), red, "group 101 by its id");
+    assert_eq!(colour(&icon(exe.display().to_string(), 16)), red, "no index: the first group");
+    assert_eq!(os.icon_file(&format!("{},2", exe.display()), 16), None, "no third group");
+    assert_eq!(os.icon_file("%1", 16), None, "the file's own icon");
+
+    // Cut anywhere, or pointing outside the file: refused with a reason, never a panic.
+    use native::icons::pe_icon;
+    for len in [0, 2, 63, 70, 100, 300, 0x200, 0x220, pe.len() - 1] {
+        assert!(pe_icon(&pe[..len], 1, 16).is_err(), "cut at {len}");
+    }
+    let mut far = pe.clone();
+    far[0x3c..0x40].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(pe_icon(far.as_slice(), 0, 16).is_err(), "a header past the end");
+    assert!(pe_icon(&b"not a program"[..], 0, 16).is_err());
 }

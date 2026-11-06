@@ -22,6 +22,14 @@
 //! applications" when the system offers none; the submenu closing forgets them (`openWith.close`).
 //! The photo menu's and the viewer's ⋯ menu's Open With ▸ are drawn from the same rows.
 //!
+//! **The applications' icons** (M16.23, [`paint_icons`]): each application row draws its icon,
+//! [`ICON_PT`] points square, in the row's left gutter (where a check mark goes), so its name
+//! stays where every other row's is; a row without one keeps the gutter empty. The engine reads and
+//! decodes the icon off the owner thread (`Session::handler_icon`); until it is ready the row is
+//! drawn without it and the window asks for another frame. Every place Open With ▸ is drawn (the
+//! photo menu, the viewer's ⋯ menu, the video's Open With popup) calls [`sync_open_with`] after
+//! drawing it, which paints them.
+//!
 //! **The UI's own commands**, for what has no engine command of its own:
 //!
 //! - **`openWith.list {id?}`**, **`openWith.close`**: above.
@@ -45,9 +53,11 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Duration;
 
 use dalica_core::PhotoId;
 use dalica_engine::cmd::os::{OS_WAIT, SLOW, missing};
+use dalica_engine::handler_icons::HandlerIcon;
 use dalica_engine::options::find;
 use dalica_engine::os::Service;
 use dalica_engine::settings::MAX_PATH_BYTES;
@@ -88,6 +98,14 @@ pub const OPEN_WITH_MENU: &str = "Open With";
 /// The Options row of the external editor, and the command Browse…'s answer runs.
 pub const EDITOR_KEY: &str = "files.externalEditor";
 pub const EDITOR_COMMAND: &str = "app.preferences.editor";
+/// The side of an application's icon in Open With ▸, in points.
+pub const ICON_PT: f32 = 16.0;
+/// Where the icon's centre is from the row's left edge, in points: the middle of the menu rows'
+/// left gutter (`crate::menus`' 24 pt), where a check mark goes.
+pub const ICON_SLOT_X: f32 = 12.0;
+/// The automation id prefix of Open With ▸'s application rows.
+pub const OPEN_WITH_ROW: &str = "menuitem:photo.openWith/";
+
 /// The title of the program picker Browse… opens.
 pub const EDITOR_TITLE: &str = "Choose the External Editor";
 
@@ -307,6 +325,9 @@ pub fn open_with_rows(app: &App, photo: Option<PhotoId>, none: &str) -> Vec<Node
 /// system for the photo's applications once (`openWith.list`, so the next frame lists them), and
 /// closed forgets them (`openWith.close`). Asks for a repaint when it changed something.
 pub fn sync_open_with(app: &mut App, ctx: &egui::Context, photo: Option<PhotoId>, open: bool) {
+    if open {
+        paint_icons(app, ctx);
+    }
     let asked = app.state().open_with.as_ref().map(|m| m.photo);
     match (open, photo) {
         (true, Some(p)) if asked != Some(p) && list_enabled(app, p).is_ok() => {
@@ -318,6 +339,60 @@ pub fn sync_open_with(app: &mut App, ctx: &egui::Context, photo: Option<PhotoId>
             ctx.request_repaint();
         }
         _ => {}
+    }
+}
+
+/// Paints the icon of each Open With ▸ application row drawn in this pass ([`OPEN_WITH_ROW`]),
+/// centred in the row's gutter ([`ICON_SLOT_X`]), [`ICON_PT`] square (a picture that is not square
+/// fits inside), faded on a greyed row. An icon still loading asks for another frame; one with
+/// none leaves the gutter empty.
+pub fn paint_icons(app: &mut App, ctx: &egui::Context) {
+    let Some(handlers) = app.state().open_with.as_ref().and_then(|m| m.handlers.clone()) else { return };
+    let rows: Vec<_> = dalica_ui_kit::registry::widgets(ctx).into_iter().filter(|w| w.id.starts_with(OPEN_WITH_ROW)).collect();
+    if rows.is_empty() {
+        return;
+    }
+    let ppp = ctx.pixels_per_point();
+    let px = (ICON_PT * ppp).round().clamp(1.0, 256.0) as u32;
+    let mut loading = false;
+    for row in rows {
+        let Some(handler) = row.id.strip_prefix(OPEN_WITH_ROW).and_then(|n| n.parse::<usize>().ok()).and_then(|n| handlers.get(n)) else {
+            continue;
+        };
+        let Some(response) = row.egui_id.and_then(|id| ctx.read_response(id)) else { continue };
+        let Some(session) = app.session_mut() else { return };
+        let picture = match session.handler_icon(&handler.id, px) {
+            HandlerIcon::Ready(p) => p,
+            HandlerIcon::Loading => {
+                loading = true;
+                continue;
+            }
+            HandlerIcon::None => continue,
+        };
+        let key = egui::Id::new(("dalica-open-with-icon", &handler.id, px));
+        let texture = match ctx.data(|d| d.get_temp::<egui::TextureHandle>(key)) {
+            Some(t) => t,
+            None => {
+                let size = [picture.width as usize, picture.height as usize];
+                let image = egui::ColorImage::from_rgba_unmultiplied(size, &picture.data);
+                let t = ctx.load_texture(format!("dalica-open-with-icon-{}-{px}", handler.id), image, egui::TextureOptions::LINEAR);
+                ctx.data_mut(|d| d.insert_temp(key, t.clone()));
+                t
+            }
+        };
+        let (w, h) = (picture.width.max(1) as f32, picture.height.max(1) as f32);
+        let scale = ICON_PT / w.max(h);
+        let centre = egui::pos2(response.rect.left() + ICON_SLOT_X, response.rect.center().y);
+        let slot = egui::Rect::from_center_size(centre, egui::vec2(w * scale, h * scale));
+        let slot = egui::emath::GuiRounding::round_to_pixels(slot, ppp);
+        let [x, y, rw, rh] = row.rect;
+        let clip = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(rw, rh));
+        let tint = if row.enabled { egui::Color32::WHITE } else { egui::Color32::WHITE.gamma_multiply(0.45) };
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        ctx.layer_painter(response.layer_id).with_clip_rect(clip).image(texture.id(), slot, uv, tint);
+    }
+    if loading {
+        ctx.request_repaint_after(Duration::from_millis(30));
     }
 }
 
