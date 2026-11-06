@@ -122,7 +122,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "dalica-core"
-version = "0.9.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "thiserror",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-image"
-version = "0.9.0"
+version = "1.1.0"
 dependencies = [
  "altc264",
  "claxon",
@@ -624,8 +624,6 @@ checksum = "9408128402e729f7f5b71f05870198b9140bcb597e6e09dddc75f1272f7aec48"
 [[package]]
 name = "rusty_h265"
 version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56850745172ccec10fdb3829ae06b5b6b1bc6995571dd59373e5ef7bc9007d7d"
 dependencies = [
  "rusty_h265-accel",
 ]

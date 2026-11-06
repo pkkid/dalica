@@ -10,6 +10,9 @@
 //!   toolchain crate ([`C_BUILD`]), and `*-sys` crates only from [`SYS_ALLOW`].
 //! - Sources: crates.io, local paths, and git only from the Craft-app repositories at a full hash.
 //! - Duplicate versions are printed as warnings.
+//! - Fuzz workspaces (`crates/*/fuzz`, `apps/*/fuzz`, each its own workspace): one that resolves a
+//!   crate the root manifest's `[patch.crates-io]` patches must carry the same patch (a path to the
+//!   same directory), and its lockfile must not take that crate from a registry.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -324,8 +327,75 @@ pub fn check(meta: &Metadata) -> Vec<Violation> {
     out
 }
 
+/// The `name = { path = "…" }` rows of a manifest's `[patch.crates-io]` table (name, path).
+pub fn crates_io_patches(manifest: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line == "[patch.crates-io]";
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=').filter(|_| inside && !line.starts_with('#')) else { continue };
+        let path = value.split_once("path").and_then(|(_, rest)| rest.split('"').nth(1));
+        if let Some(path) = path {
+            out.push((name.trim().to_string(), path.to_string()));
+        }
+    }
+    out
+}
+
+/// The sources a lockfile resolves `name` from: `None` for a path package, else its `source`.
+pub fn locked_sources(lock: &str, name: &str) -> Vec<Option<String>> {
+    let wanted = format!("name = \"{name}\"");
+    lock.split("[[package]]")
+        .filter(|entry| entry.lines().any(|l| l.trim() == wanted))
+        .map(|entry| entry.lines().find_map(|l| l.trim().strip_prefix("source = \"").map(|s| s.trim_end_matches('"').to_string())))
+        .collect()
+}
+
+/// Every fuzz workspace that resolves a crate the root patches carries the same patch
+/// (`[patch.crates-io]` does not reach a separate workspace).
+pub fn check_fuzz_patches(root: &Path) -> Result<Vec<Violation>, String> {
+    let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()));
+    let root_patches = crates_io_patches(&read(&root.join("Cargo.toml"))?);
+    let mut out = Vec::new();
+    for group in ["crates", "apps"] {
+        let Ok(entries) = std::fs::read_dir(root.join(group)) else { continue };
+        let mut dirs: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path().join("fuzz")).filter(|d| d.join("Cargo.lock").is_file()).collect();
+        dirs.sort();
+        for dir in dirs {
+            let lock = read(&dir.join("Cargo.lock"))?;
+            let patches = crates_io_patches(&read(&dir.join("Cargo.toml"))?);
+            let shown = dir.strip_prefix(root).unwrap_or(&dir).to_string_lossy().replace('\\', "/");
+            for (name, path) in &root_patches {
+                let sources = locked_sources(&lock, name);
+                if sources.is_empty() {
+                    continue;
+                }
+                let want = root.join(path).canonicalize().ok();
+                let same = patches.iter().any(|(n, p)| n == name && dir.join(p).canonicalize().ok() == want);
+                if !same {
+                    out.push(Violation {
+                        krate: name.clone(),
+                        message: format!("{shown} resolves it but lacks the root's [patch.crates-io] entry ({path})"),
+                    });
+                }
+                if sources.iter().any(Option::is_some) {
+                    out.push(Violation {
+                        krate: name.clone(),
+                        message: format!("{shown}/Cargo.lock takes it from a registry, not the patched path"),
+                    });
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub fn run(root: &Path) -> Result<(), String> {
     let mut violations = BTreeSet::new();
+    violations.extend(check_fuzz_patches(root)?.into_iter().map(|v| format!("[fuzz] {v}")));
     let mut crates = 0;
     let mut product = BTreeSet::new();
     for target in TARGETS {
@@ -574,5 +644,39 @@ mod tests {
             r.nodes.push(crate::metadata::Node { id: "dup 2.0.0".into(), deps: vec![], features: vec![] });
         }
         assert_eq!(duplicates(&m), [("dup".to_string(), vec!["1.0.0".to_string(), "2.0.0".to_string()])]);
+    }
+
+    #[test]
+    fn a_fuzz_workspace_needs_the_roots_patch_for_a_crate_it_resolves() {
+        let root = tempfile::tempdir().unwrap();
+        let r = root.path();
+        let write = |p: &str, s: &str| {
+            let p = r.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, s).unwrap();
+        };
+        write("Cargo.toml", "[workspace]\n\n[patch.crates-io]\n# a comment\nh = { path = \"vendor/h\" }\n");
+        write("vendor/h/Cargo.toml", "");
+        let registry = "[[package]]\nname = \"h\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+        let path = "[[package]]\nname = \"h\"\nversion = \"1.0.0\"\n";
+        // Unpatched and from the registry: both faults; a workspace without the crate: none.
+        write("crates/a/fuzz/Cargo.toml", "[workspace]\n");
+        write("crates/a/fuzz/Cargo.lock", registry);
+        write("crates/b/fuzz/Cargo.toml", "[workspace]\n");
+        write("crates/b/fuzz/Cargo.lock", "[[package]]\nname = \"hh\"\nversion = \"1.0.0\"\n");
+        let v = check_fuzz_patches(r).unwrap();
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert!(v.iter().all(|v| v.krate == "h" && v.message.starts_with("crates/a/fuzz")), "{v:?}");
+        // Patched to the same directory and resolved from it: clean.
+        write("crates/a/fuzz/Cargo.toml", "[workspace]\n\n[patch.crates-io]\nh = { path = \"../../../vendor/h\" }\n");
+        write("crates/a/fuzz/Cargo.lock", path);
+        assert_eq!(check_fuzz_patches(r).unwrap(), []);
+    }
+
+    #[test]
+    fn the_real_fuzz_workspaces_carry_the_roots_patches() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        assert!(!crates_io_patches(&std::fs::read_to_string(root.join("Cargo.toml")).unwrap()).is_empty());
+        assert_eq!(check_fuzz_patches(&root).unwrap(), []);
     }
 }
