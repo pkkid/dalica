@@ -64,6 +64,105 @@ pub struct App {
     opening_since: Option<f64>,
     /// The user's input as last reported to the face scan (`crate::user_activity`).
     activity: crate::user_activity::Reporter,
+    /// The window closes on a thread of its own ([`App::close_on_thread`]), and what that thread
+    /// does when the window does not go once the close has finished; `None` (headless and
+    /// snapshot sessions, which call [`App::shutdown`]) closes in the exit.
+    close_on_thread: Option<Stalled>,
+    /// The close running on its thread, once the window asked to close ([`App::begin_close`]).
+    closing: Option<Closing>,
+}
+
+/// The window's close, running on a thread of its own ([`App::begin_close`]): the session's
+/// writes land and its workers stop there while the window is hidden and its event loop keeps
+/// answering the desktop.
+pub struct Closing {
+    started: std::time::Instant,
+    thread: Option<std::thread::JoinHandle<Result<(), CmdError>>>,
+    done: Arc<std::sync::atomic::AtomicBool>,
+    /// Set once the window has gone (or the app is dropped): the close's thread stops watching.
+    released: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// What the close's thread does when the window has not gone [`CLOSE_STALL`] after every write
+/// landed (its event loop gets no turn: a Wayland window the compositor stopped drawing); the
+/// argument is whether every write landed. The window ends the process (`apps/dalica`).
+pub type Stalled = Arc<dyn Fn(bool) + Send + Sync>;
+
+/// How long the close's thread waits, after every write landed, for the window to go before it
+/// calls the [`Stalled`] hook.
+pub const CLOSE_STALL: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl Drop for Closing {
+    fn drop(&mut self) {
+        self.released.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Closing {
+    /// Whether every write has landed and the library is closed: the window may go.
+    pub fn finished(&self) -> bool {
+        self.done.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// How long ago the close began.
+    pub fn elapsed(&self) -> std::time::Duration {
+        self.started.elapsed()
+    }
+
+    /// Waits for the close to end; `Err(Unsaved)` names what could not be written.
+    fn wait(&mut self) -> Result<(), CmdError> {
+        self.released.store(true, std::sync::atomic::Ordering::SeqCst);
+        match self.thread.take() {
+            Some(t) => t.join().unwrap_or_else(|_| Err(CmdError::Unsaved("closing the library stopped unexpectedly".into()))),
+            None => Ok(()),
+        }
+    }
+}
+
+/// How long the close may take before the window, if it is still on screen (a desktop that cannot
+/// hide it), says "Saving changes…".
+pub const SAVING_NOTE_AFTER: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// A stage of closing that takes longer than this is named in the log.
+const SLOW_CLOSE_STAGE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Times the stages of closing; a slow one is named in the log.
+struct Stages {
+    at: std::time::Instant,
+}
+
+impl Stages {
+    fn new() -> Stages {
+        Stages { at: std::time::Instant::now() }
+    }
+
+    fn done(&mut self, what: &str) {
+        let took = self.at.elapsed();
+        if took >= SLOW_CLOSE_STAGE {
+            log::info!("dalica: closing: {what} took {} ms", took.as_millis());
+        }
+        self.at = std::time::Instant::now();
+    }
+}
+
+/// The session's half of closing ([`App::shutdown`], [`App::begin_close`]): the running scans are
+/// let go, the metadata writes still waiting for their debounce are made, then every journal
+/// record, sidecar and settings write lands. Blocks the calling thread.
+fn close_session(session: &mut Session) -> Result<(), CmdError> {
+    let mut stages = Stages::new();
+    // A scan still walking is let go, never waited for.
+    let stopped = session.stop_scans_for_close();
+    if stopped > 0 {
+        log::info!("dalica: {stopped} scan(s) stopped on close; the next session verifies the folders again");
+    }
+    stages.done("stopping the scans");
+    if !session.flush_metadata(SHUTDOWN_METADATA_WAIT) {
+        log::warn!("dalica: metadata writes are still running; they finish before the library closes");
+    }
+    stages.done("the metadata writes");
+    let flushed = session.flush();
+    stages.done("the journal, sidecar and settings writes");
+    flushed
 }
 
 /// The persisted part of the view state: the window's (M3) and the library view's options (M4).
@@ -103,6 +202,8 @@ impl App {
             opening_detail: None,
             opening_since: None,
             activity: Default::default(),
+            close_on_thread: None,
+            closing: None,
         };
         app.show_open_viewer();
         app
@@ -244,6 +345,14 @@ impl App {
     /// writes still running after [`SHUTDOWN_METADATA_WAIT`] are not an error: dropping the session
     /// finishes them before it returns.
     pub fn shutdown(&mut self) -> Result<(), CmdError> {
+        self.prepare_close();
+        let Some(session) = &mut self.session else { return Ok(()) };
+        close_session(session)
+    }
+
+    /// The UI's half of closing, on the UI thread: the editors' text is committed and the view
+    /// state saved (both only queue writes).
+    fn prepare_close(&mut self) {
         if let Some(edit) = self.state.caption_edit.take() {
             crate::panels::light_table::caption_edit::commit(self, edit.photo, &edit.draft);
         }
@@ -257,16 +366,130 @@ impl App {
             let _ = self.run(id, &params);
         }
         self.save_view();
-        let Some(session) = &mut self.session else { return Ok(()) };
-        // A scan still walking is let go, never waited for (the window would stop answering).
-        let stopped = session.stop_scans_for_close();
-        if stopped > 0 {
-            log::info!("dalica: {stopped} scan(s) stopped on close; the next session verifies the folders again");
+    }
+
+    /// From now on a close request of the window closes on a thread of its own
+    /// ([`App::begin_close`]) instead of in the window's exit; `stalled` runs on that thread if the
+    /// window has not gone [`CLOSE_STALL`] after every write landed. The window turns it on;
+    /// headless and snapshot sessions leave it off and call [`App::shutdown`].
+    pub fn close_on_thread(&mut self, stalled: Stalled) {
+        self.close_on_thread = Some(stalled);
+    }
+
+    /// The window's close (its Close button, File ▸ Exit, the system's close) without freezing it
+    /// (issue #723): what [`App::shutdown`] does, with the session's half (the metadata flush of up
+    /// to [`SHUTDOWN_METADATA_WAIT`], the journal and sidecar flush, the joins of the session's
+    /// workers) moved to a thread of its own, which wakes `ctx` when it is done. The UI thread
+    /// returns at once: the window is hidden meanwhile and goes once [`Closing::finished`]. Every
+    /// write still lands before the process ends ([`App::finish_close`] waits for it). `false` when
+    /// there is no library to close; `true` when a close runs (or already ran).
+    pub fn begin_close(&mut self, ctx: &egui::Context) -> bool {
+        if self.closing.is_some() {
+            return true;
         }
-        if !session.flush_metadata(SHUTDOWN_METADATA_WAIT) {
-            log::warn!("dalica: metadata writes are still running; they finish before the library closes");
+        let Some(stalled) = self.close_on_thread.clone() else { return false };
+        if self.session.is_none() {
+            return false;
         }
-        session.flush()
+        self.prepare_close();
+        let Some(session) = self.session.take() else { return false };
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (flag, gone, wake) = (Arc::clone(&done), Arc::clone(&released), ctx.clone());
+        // The session goes over a channel, so it stays here if the thread cannot start.
+        let (tx, rx) = std::sync::mpsc::channel::<Session>();
+        let spawned = std::thread::Builder::new().name("dalica-close".into()).spawn(move || {
+            let Ok(mut session) = rx.recv() else { return Ok(()) };
+            let started = std::time::Instant::now();
+            let closed = close_session(&mut session);
+            let mut stages = Stages::new();
+            drop(session);
+            stages.done("closing the library (its workers and caches)");
+            log::info!("dalica: closing: every write landed and the library closed in {} ms", started.elapsed().as_millis());
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            // The window goes in its next turn; keep waking it until it has.
+            let landed = std::time::Instant::now();
+            while !gone.load(std::sync::atomic::Ordering::SeqCst) {
+                if landed.elapsed() >= CLOSE_STALL {
+                    stalled(closed.is_ok());
+                    break;
+                }
+                wake.request_repaint();
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            closed
+        });
+        match spawned {
+            Ok(thread) => match tx.send(session) {
+                Ok(()) => {
+                    log::info!("dalica: closing: the window hides while its writes land on a thread of its own");
+                    self.closing = Some(Closing { started: std::time::Instant::now(), thread: Some(thread), done, released });
+                    true
+                }
+                Err(std::sync::mpsc::SendError(session)) => {
+                    self.session = Some(session);
+                    false
+                }
+            },
+            Err(e) => {
+                log::warn!("dalica: cannot close on a thread of its own ({e}); closing in the window's exit");
+                self.session = Some(session);
+                false
+            }
+        }
+    }
+
+    /// The close running on its thread, if the window began one.
+    pub fn closing(&self) -> Option<&Closing> {
+        self.closing.as_ref()
+    }
+
+    /// Waits for the close [`App::begin_close`] began (at once when it has finished); `None` when
+    /// none began, and [`App::shutdown`] is still to run.
+    pub fn finish_close(&mut self) -> Option<Result<(), CmdError>> {
+        self.closing.as_mut().map(Closing::wait)
+    }
+
+    /// The window's logic tick while closing on a thread: a close running holds the window
+    /// (`CancelClose`), a close that has finished lets it go (`Close`); and a close request of a
+    /// window not on screen (minimised, hidden), which draws no frame to see it, begins one.
+    pub fn close_tick(&mut self, ctx: &egui::Context) {
+        if self.close_on_thread.is_none() {
+            return;
+        }
+        let (requested, shown) = ctx.input(|i| {
+            let v = i.viewport();
+            (v.close_requested(), v.visible() != Some(false) && v.minimized != Some(true))
+        });
+        match self.closing.as_ref().map(Closing::finished) {
+            Some(true) => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                ctx.request_repaint();
+            }
+            Some(false) if requested => ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose),
+            Some(false) => {}
+            None if requested && !shown && self.begin_close(ctx) => ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose),
+            None => {}
+        }
+    }
+
+    /// A frame while the close runs on its thread: the window is hidden where the desktop allows;
+    /// where it stays on screen it shows the window's ground, and "Saving changes…" once the close
+    /// has taken [`SAVING_NOTE_AFTER`]. A close request is held until the close has finished.
+    fn closing_frame(&mut self, ui: &mut egui::Ui) {
+        let Some(closing) = &self.closing else { return };
+        if !closing.finished() && ui.input(|i| i.viewport().close_requested()) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+        let note = closing.elapsed() >= SAVING_NOTE_AFTER;
+        let t = self.tokens;
+        egui::CentralPanel::default().frame(Frame::new().fill(t.chrome)).show(ui, |ui| {
+            if note {
+                let c = ui.max_rect().center();
+                ui.painter().text(c, Align2::CENTER_CENTER, "Saving changes…", fonts::semibold(18.0), t.text_label);
+            }
+        });
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
     }
 
     /// Runs command `id`: a UI-only one here, anything else in the engine. A command whose UI asks
@@ -499,6 +722,10 @@ impl App {
 
     /// One frame: applies finished background work, runs this frame's shortcuts, then paints.
     pub fn frame(&mut self, ui: &mut egui::Ui) {
+        if self.closing.is_some() {
+            self.closing_frame(ui);
+            return;
+        }
         if std::mem::take(&mut self.quit_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -535,8 +762,17 @@ impl App {
         crate::commands::collage::follow(self);
         // Closing the window with unsaved changes in the collage asks Save Draft, Discard or
         // Cancel first; the window stays open meanwhile.
-        if ui.input(|i| i.viewport().close_requested()) && crate::commands::collage::ask_before_window_closes(self) {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        if ui.input(|i| i.viewport().close_requested()) {
+            if crate::commands::collage::ask_before_window_closes(self) {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            } else if self.close_on_thread.is_some() && self.begin_close(ui.ctx()) {
+                // The writes land on the close's thread: the window hides at once and goes once
+                // they have landed (`close_tick`), never waiting in its exit.
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                self.closing_frame(ui);
+                return;
+            }
         }
         self.poll_folder_request();
         self.poll_open_request();

@@ -213,6 +213,14 @@ impl Window {
         titlebar::set_chrome(ctx, frame.chrome);
         // The window keeps its view state between runs; headless sessions never do.
         app.persist_view();
+        // Closing writes on a thread of its own while the window hides and keeps answering the
+        // desktop (issue #723); headless sessions close in `app.quit`.
+        app.close_on_thread(Arc::new(|landed| {
+            // Every write has landed and the session is closed; only the window is left, and its
+            // event loop gets no turn to let it go (a Wayland window the compositor stopped drawing).
+            log::warn!("dalica: the window did not go after its close; ending the process");
+            std::process::exit(if landed { 0 } else { 1 });
+        }));
         #[cfg(target_os = "macos")]
         let native = {
             let bar = crate::native_menu::native_bar(&dalica_ui::menus::bar(&app, dalica_ui::menus::Platform::Mac));
@@ -279,6 +287,15 @@ impl eframe::App for Window {
         }
         #[cfg(target_os = "macos")]
         self.native_menu(ctx);
+        // Asked to close: the last placement is saved while the session is still here (the close
+        // takes it to a thread of its own); then the close is held until its writes have landed,
+        // and let go once they have.
+        if ctx.input(|i| i.viewport().close_requested())
+            && let Some(state) = self.placement.unsaved()
+        {
+            self.save_placement(state);
+        }
+        self.app.close_tick(ctx);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -329,15 +346,23 @@ impl eframe::App for Window {
         }
     }
 
+    /// The window is going. Normally its close already ran on a thread of its own
+    /// (`App::begin_close`) while the window was hidden, and this only collects the result; a close
+    /// that never began there (the library still opening, no thread to be had) runs here, as the
+    /// headless app's `app.quit` does (`App::shutdown`). Either way every write has landed when
+    /// this returns.
     fn on_exit(&mut self) {
-        // The last placement, if it changed since it was saved; the rest of what closing writes
-        // is the app's, shared with the headless app's `app.quit` (`App::shutdown`).
+        // The last placement, if it changed since it was saved (nothing once the session is gone).
         if let Some(state) = self.placement.unsaved() {
             self.save_placement(state);
         }
         // No more frames: this thread may write again (the flush in `shutdown`).
         self._ui_thread = None;
-        if let Err(e) = self.app.shutdown() {
+        let closed = match self.app.finish_close() {
+            Some(closed) => closed,
+            None => self.app.shutdown(),
+        };
+        if let Err(e) = closed {
             log::error!("dalica: not every change was saved: {e}");
         }
     }

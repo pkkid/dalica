@@ -116,3 +116,106 @@ fn closing_before_the_library_opens_writes_nothing() {
     let mut app = App::new(None);
     assert!(app.shutdown().is_ok());
 }
+
+/// A clock that, once armed, holds the metadata writer's thread the next time it asks the time,
+/// until it is opened: a metadata write held in flight, whatever the disk's speed.
+#[derive(Default)]
+struct WriterGate {
+    armed: std::sync::Mutex<bool>,
+    opened: std::sync::Condvar,
+    reached: std::sync::atomic::AtomicBool,
+}
+
+impl WriterGate {
+    fn arm(&self, on: bool) {
+        *self.armed.lock().unwrap() = on;
+        self.opened.notify_all();
+    }
+
+    fn reached(&self) -> bool {
+        self.reached.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl dalica_core::Clock for WriterGate {
+    fn now(&self) -> dalica_core::Timestamp {
+        if std::thread::current().name() == Some("dalica-metadata-writes") {
+            let armed = self.armed.lock().unwrap();
+            if *armed {
+                self.reached.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            drop(self.opened.wait_while(armed, |armed| *armed).unwrap());
+        }
+        dalica_core::SystemClock.now()
+    }
+}
+
+/// The window's close (issue #723): with a metadata write held in flight, the frame that sees the
+/// close request returns at once, hides the window and holds its close, while the write goes on
+/// on the close's thread; once the write is let through it lands in the photo file and the
+/// sidecar, the close finishes, and the next close request is let go.
+#[test]
+fn the_window_closes_at_once_while_a_held_metadata_write_still_lands() {
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let (library, folder) = (dir.path().join("library"), dir.path().join("photos").join("Sintra"));
+    let photo = folder.join("IMG_0001.jpg");
+    put_jpeg(&photo, 1);
+    let gate = Arc::new(WriterGate::default());
+    let mut s = Session::open(&library, gate.clone()).unwrap();
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let id = s.library().photos().next().unwrap().id;
+    let mut app = App::new(Some(s));
+    app.close_on_thread(Arc::new(|_| panic!("the window went in time")));
+    let mut d = new_driver(app, 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    d.run("photo.caption.set", &json!({ "ids": [id.get()], "caption": "Pena" })).unwrap();
+    assert!(d.app().session().unwrap().pending_metadata_writes() > 0, "the write is queued");
+    gate.arm(true);
+
+    let mut app = d.into_app();
+    let ctx = egui::Context::default();
+    app.install(&ctx);
+    let frame = |app: &mut App, close: bool| {
+        let mut input = dalica_ui_kit::raw_input(1400, 900, 1.0);
+        if close {
+            input.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        }
+        let mut out = ctx.run_ui(input, |ui| {
+            app.close_tick(ui.ctx());
+            app.frame(ui);
+        });
+        out.textures_delta.clear();
+        out.viewport_output.remove(&egui::ViewportId::ROOT).map(|v| v.commands).unwrap_or_default()
+    };
+    let start = Instant::now();
+    let commands = frame(&mut app, true);
+    let returned = start.elapsed();
+    assert!(returned < Duration::from_secs(2), "the close frame returned in {returned:?}");
+    assert!(commands.contains(&egui::ViewportCommand::CancelClose), "held while the writes land: {commands:?}");
+    assert!(commands.contains(&egui::ViewportCommand::Visible(false)), "the window hides at once: {commands:?}");
+    assert!(app.session().is_none(), "the session went to the close's thread");
+    // The writer is held: the close cannot finish, and a second close request is held too.
+    let held = Instant::now();
+    while !gate.reached() {
+        assert!(held.elapsed() < Duration::from_secs(30), "the writer reaches the gate");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!app.closing().unwrap().finished());
+    assert!(frame(&mut app, true).contains(&egui::ViewportCommand::CancelClose), "still held");
+    assert_eq!(file_caption(&photo), None, "the write has not landed yet");
+
+    gate.arm(false);
+    let wait = Instant::now();
+    while !app.closing().unwrap().finished() {
+        assert!(wait.elapsed() < Duration::from_secs(60), "the close finishes once the write is let through");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let commands = frame(&mut app, false);
+    assert!(commands.contains(&egui::ViewportCommand::Close), "the finished close lets the window go: {commands:?}");
+    assert!(!frame(&mut app, true).contains(&egui::ViewportCommand::CancelClose), "and its close request is not held");
+    app.finish_close().unwrap().unwrap();
+    assert_eq!(file_caption(&photo).as_deref(), Some("Pena"), "the held write landed in the photo file");
+    assert_eq!(read_json(&folder.join(".dalica.json"))["photos"]["IMG_0001.jpg"]["caption"], "Pena", "and in the sidecar");
+}
