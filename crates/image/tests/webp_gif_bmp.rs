@@ -19,9 +19,10 @@ use std::time::Instant;
 
 use dalica_image::color::{self, ColorPath};
 use dalica_image::formats;
+use dalica_image::resize;
 use dalica_image::{
-    Budget, ColorModel, DecodeOptions, Decoded, Error, Format, Limits, Orientation, Rgba8, Samples, decode, decode_thumbnail, decode_with,
-    read_header, sniff,
+    Budget, ColorModel, DecodeOptions, Decoded, Error, Format, Limits, Orientation, Rgba8, Samples, decode, decode_thumbnail, decode_thumbnail_with,
+    decode_with, read_header, sniff,
 };
 use dalica_scenes::formats::{Colour, Depth, SampleData, Webp, alpha, bmp, gif, quantized, samples, webp};
 use dalica_scenes::icc::{self, Space, Version};
@@ -123,6 +124,276 @@ fn lossy_webp(w: u16, h: u16, alpha: Option<&[u8]>) -> Vec<u8> {
     }
 }
 
+// ---- A lossy picture with content ----------------------------------------------------------------
+//
+// The flat frame above has no coefficients. This writer codes a key frame of its own (RFC 6386):
+// the frame header with an RFC §7.3 bool encoder, then nothing but zero bits in the first
+// partition (which decode as every macroblock B_PRED with DC-predicted subblocks, and no token
+// probability updates), and in the DCT partitions a DC coefficient for every luma subblock and
+// every macroblock's first U and V blocks. The token probabilities it needs are the RFC's
+// defaults (§13.5) for those planes and bands.
+
+/// RFC 6386 §7.3's boolean encoder.
+struct BoolWriter {
+    out: Vec<u8>,
+    range: u32,
+    bottom: u32,
+    bit_count: i32,
+}
+
+impl BoolWriter {
+    fn new() -> BoolWriter {
+        BoolWriter { out: Vec::new(), range: 255, bottom: 0, bit_count: 24 }
+    }
+
+    fn put(&mut self, prob: u8, bit: bool) {
+        let split = 1 + (((self.range - 1) * u32::from(prob)) >> 8);
+        if bit {
+            self.bottom = self.bottom.wrapping_add(split);
+            self.range -= split;
+        } else {
+            self.range = split;
+        }
+        while self.range < 128 {
+            self.range <<= 1;
+            if self.bottom & (1 << 31) != 0 {
+                for b in self.out.iter_mut().rev() {
+                    *b = b.wrapping_add(1);
+                    if *b != 0 {
+                        break;
+                    }
+                }
+            }
+            self.bottom <<= 1;
+            self.bit_count -= 1;
+            if self.bit_count == 0 {
+                self.out.push((self.bottom >> 24) as u8);
+                self.bottom &= (1 << 24) - 1;
+                self.bit_count = 8;
+            }
+        }
+    }
+
+    fn literal(&mut self, bits: u32, v: u32) {
+        for i in (0..bits).rev() {
+            self.put(128, (v >> i) & 1 == 1);
+        }
+    }
+
+    /// The value `leaf` of `tree` (RFC form), from entry `at`.
+    fn tree(&mut self, tree: &[i8], probs: &[u8], at: usize, leaf: i8) {
+        fn path(tree: &[i8], at: usize, leaf: i8, bits: &mut Vec<(usize, bool)>) -> bool {
+            for bit in [false, true] {
+                let next = tree[at + usize::from(bit)];
+                bits.push((at, bit));
+                if (next <= 0 && -next == leaf) || (next > 0 && path(tree, next as usize, leaf, bits)) {
+                    return true;
+                }
+                bits.pop();
+            }
+            false
+        }
+        let mut bits = Vec::new();
+        assert!(path(tree, at, leaf, &mut bits));
+        for (i, bit) in bits {
+            self.put(probs[i >> 1], bit);
+        }
+    }
+
+    /// Flushes: the code then ends exactly at the interval's bottom, so the zero bytes that follow
+    /// read as 0 at any probability.
+    fn finish(mut self) -> Vec<u8> {
+        for _ in 0..32 {
+            self.put(128, false);
+        }
+        self.out
+    }
+}
+
+const TOKEN_TREE: [i8; 22] = [-11, 2, -0, 4, -1, 6, 8, 12, -2, 10, -3, -4, 14, 16, -5, -6, 18, 20, -7, -8, -9, -10];
+/// RFC 6386 §13.5's default token probabilities, bands 0 and 1, contexts 0 to 2: luma in a
+/// B_PRED macroblock (plane type 3) and chroma (plane type 2).
+const LUMA_PROBS: [[[u8; 11]; 3]; 2] = [
+    [
+        [202, 24, 213, 235, 186, 191, 220, 160, 240, 175, 255],
+        [126, 38, 182, 232, 169, 184, 228, 174, 255, 187, 128],
+        [61, 46, 138, 219, 151, 178, 240, 170, 255, 216, 128],
+    ],
+    [
+        [1, 112, 230, 250, 199, 191, 247, 159, 255, 255, 128],
+        [166, 109, 228, 252, 211, 215, 255, 174, 128, 128, 128],
+        [39, 77, 162, 232, 172, 180, 245, 178, 255, 255, 128],
+    ],
+];
+const CHROMA_PROBS: [[[u8; 11]; 3]; 2] = [
+    [
+        [253, 9, 248, 251, 207, 208, 255, 192, 128, 128, 128],
+        [175, 13, 224, 243, 193, 185, 249, 198, 255, 255, 128],
+        [73, 17, 171, 221, 161, 179, 236, 167, 255, 234, 128],
+    ],
+    [
+        [1, 95, 247, 253, 212, 183, 255, 255, 128, 128, 128],
+        [239, 90, 244, 250, 211, 209, 255, 255, 128, 128, 128],
+        [155, 77, 195, 248, 188, 195, 255, 255, 128, 128, 128],
+    ],
+];
+/// The extra bits of tokens CAT1 to CAT6 (§13.2) and their bases.
+const CAT_PROBS: [&[u8]; 6] = [
+    &[159],
+    &[165, 145],
+    &[173, 148, 140],
+    &[176, 155, 140, 135],
+    &[180, 157, 141, 134, 130],
+    &[254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129],
+];
+const CAT_BASE: [i32; 6] = [5, 7, 11, 19, 35, 67];
+
+/// A block holding only `dc` at context `ctx`; whether it is non-zero (the next blocks' context).
+fn put_dc(w: &mut BoolWriter, probs: &[[[u8; 11]; 3]; 2], ctx: usize, dc: i32) -> bool {
+    if dc == 0 {
+        w.tree(&TOKEN_TREE, &probs[0][ctx], 0, 11);
+        return false;
+    }
+    let a = dc.abs();
+    if a <= 4 {
+        w.tree(&TOKEN_TREE, &probs[0][ctx], 0, a as i8);
+    } else {
+        let cat = CAT_BASE.iter().rposition(|&b| a >= b).unwrap();
+        w.tree(&TOKEN_TREE, &probs[0][ctx], 0, 5 + cat as i8);
+        let extra = a - CAT_BASE[cat];
+        let n = CAT_PROBS[cat].len();
+        for (i, &p) in CAT_PROBS[cat].iter().enumerate() {
+            w.put(p, (extra >> (n - 1 - i)) & 1 == 1);
+        }
+    }
+    w.put(128, dc < 0);
+    w.tree(&TOKEN_TREE, &probs[1][if a == 1 { 1 } else { 2 }], 0, 11);
+    true
+}
+
+/// A lossy key frame of `w × h`, its loop filter at `filter` (0: off), whose luma subblock
+/// `b` of macroblock `mbx`, `mby` gets DC level `luma(mbx, mby, b)` and whose first U and V
+/// blocks get `chroma(mbx, mby)`, at quantizer index 40, in two DCT partitions.
+fn vp8_picture(w: u16, h: u16, filter: u32, luma: impl Fn(usize, usize, usize) -> i32, chroma: impl Fn(usize, usize) -> (i32, i32)) -> Vec<u8> {
+    let (mbw, mbh) = (usize::from(w).div_ceil(16), usize::from(h).div_ceil(16));
+    let mut head = BoolWriter::new();
+    head.literal(2, 0); // colour space, clamping
+    head.put(128, false); // no segments
+    head.put(128, false); // the normal filter
+    head.literal(6, filter);
+    head.literal(3, 0); // sharpness
+    head.put(128, false); // no filter adjustments
+    head.literal(2, 1); // two DCT partitions
+    head.literal(7, 40); // quantizer index
+    head.literal(5, 0); // no quantizer deltas
+    head.literal(1, 0); // refresh entropy probabilities
+    let mut first = head.finish();
+    // Zero bits for the token updates and every macroblock header: about 4 bits each.
+    first.resize(first.len() + mbw * mbh * 5 / 8 + 1024, 0);
+    assert!(first.len() < 1 << 19, "the first partition outgrows its 19-bit size");
+    let mut parts = [BoolWriter::new(), BoolWriter::new()];
+    // Non-zero flags above (per macroblock column: 4 luma, 2 U, 2 V) and to the left.
+    let mut top = vec![[false; 8]; mbw];
+    for mby in 0..mbh {
+        let p = &mut parts[mby % 2];
+        let mut left = [false; 8];
+        for (mbx, top) in top.iter_mut().enumerate() {
+            for b in 0..16 {
+                let (x, y) = (b % 4, b / 4);
+                let ctx = usize::from(top[x]) + usize::from(left[y]);
+                let nz = put_dc(p, &LUMA_PROBS, ctx, luma(mbx, mby, b));
+                top[x] = nz;
+                left[y] = nz;
+            }
+            let (u, v) = chroma(mbx, mby);
+            for (plane, dc) in [(4usize, u), (6, v)] {
+                for b in 0..4 {
+                    let (x, y) = (b % 2, b / 2);
+                    let ctx = usize::from(top[plane + x]) + usize::from(left[plane + y]);
+                    let nz = put_dc(p, &CHROMA_PROBS, ctx, if b == 0 { dc } else { 0 });
+                    top[plane + x] = nz;
+                    left[plane + y] = nz;
+                }
+            }
+        }
+    }
+    let [p0, p1] = parts.map(|p| {
+        let mut d = p.finish();
+        d.resize(d.len() + 64, 0);
+        d
+    });
+    let tag = (1 << 4) | ((first.len() as u32) << 5);
+    let mut d = u24(tag).to_vec();
+    d.extend([0x9d, 0x01, 0x2a]);
+    d.extend(w.to_le_bytes());
+    d.extend(h.to_le_bytes());
+    d.extend(&first);
+    d.extend(u24(p0.len() as u32));
+    d.extend(&p0);
+    d.extend(&p1);
+    d
+}
+
+/// A lossy WebP with content: macroblocks of different DC levels, textured subblocks, colour.
+fn lossy_picture(w: u16, h: u16) -> Vec<u8> {
+    let frame = vp8_picture(
+        w,
+        h,
+        20,
+        |x, y, b| if b == 0 { ((x / 2 + y / 3) % 5) as i32 * 6 - 12 } else { ((x * 3 + y * 5 + b * 7) % 5) as i32 - 2 },
+        |x, y| (((x / 3 + y) % 5) as i32 * 4 - 8, ((x + y / 2) % 3) as i32 * 4 - 4),
+    );
+    riff(&[(b"VP8 ", &frame)])
+}
+
+/// The PSNR of `a` against `b` (same size, RGB), in dB.
+fn psnr(a: &Rgba8, b: &Rgba8) -> f64 {
+    assert_eq!((a.width, a.height), (b.width, b.height));
+    let (mut sum, mut n) = (0f64, 0f64);
+    for (pa, pb) in a.data.as_chunks::<4>().0.iter().zip(b.data.as_chunks::<4>().0) {
+        for c in 0..3 {
+            sum += (f64::from(pa[c]) - f64::from(pb[c])).powi(2);
+            n += 1.0;
+        }
+    }
+    if sum == 0.0 { f64::INFINITY } else { 10.0 * (255f64 * 255.0 / (sum / n)).log10() }
+}
+
+/// `small` stretched to `w × h`, each pixel the one its position falls in.
+fn stretched(small: &Rgba8, w: u32, h: u32) -> Rgba8 {
+    let mut data = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let (sx, sy) = (x * small.width / w, y * small.height / h);
+            data.extend_from_slice(&small.data[((sy * small.width + sx) * 4) as usize..][..4]);
+        }
+    }
+    Rgba8 { width: w, height: h, data }
+}
+
+/// `img` reduced to 1/`s` by exact means of `s × s` blocks (fewer at the edges).
+fn box_reduced(img: &Rgba8, s: u32) -> Rgba8 {
+    let (w, h) = (img.width.div_ceil(s), img.height.div_ceil(s));
+    let mut data = Vec::new();
+    for by in 0..h {
+        for bx in 0..w {
+            let mut sum = [0u32; 4];
+            let mut n = 0u32;
+            for y in by * s..((by + 1) * s).min(img.height) {
+                for x in bx * s..((bx + 1) * s).min(img.width) {
+                    let px = &img.data[((y * img.width + x) * 4) as usize..][..4];
+                    for c in 0..4 {
+                        sum[c] += u32::from(px[c]);
+                    }
+                    n += 1;
+                }
+            }
+            data.extend(sum.map(|v| ((v + n / 2) / n) as u8));
+        }
+    }
+    Rgba8 { width: w, height: h, data }
+}
+
 /// An animation of the scenes `seeds`, each a lossless frame covering the canvas, alpha-blended
 /// onto it or not.
 fn animated_webp(scene: &Scene, seeds: &[u64], blend: bool) -> Vec<u8> {
@@ -218,6 +489,106 @@ fn lossy_webp_decodes_like_the_reference_decoder() {
     assert_eq!(img.data, reference(&file).into_raw());
     assert_eq!(alpha_of(&img), a);
     assert_fingerprint("webp-lossy-alpha", &img, TOL);
+}
+
+/// A lossy WebP's thumbnail is decoded scaled (M16.19): exactly the full decode's pixels reduced
+/// by 1/2, 1/4 or 1/8 and then fitted, so against the full decode it loses no more than fitting
+/// the full decode does. The bound: measured against the full decode itself (each thumbnail
+/// stretched back to full size), the scaled thumbnail's PSNR is within 1 dB of the full decode
+/// fitted.
+#[test]
+fn a_lossy_thumbnail_is_decoded_scaled() {
+    let l = Limits::default();
+    let file = lossy_picture(1000, 700);
+    let full = decode(&file, &l).unwrap();
+    // Content: many levels, not a flat frame.
+    let mut levels: Vec<u8> = full.data.iter().step_by(4).copied().collect();
+    levels.sort_unstable();
+    levels.dedup();
+    assert!(levels.len() > 40, "{} levels of red", levels.len());
+    for (long_side, s) in [(256, 2), (200, 4), (120, 8)] {
+        let thumb = decode_thumbnail(&file, long_side, &l).unwrap();
+        let fitted = resize::fit(&full, long_side).unwrap();
+        assert_eq!((thumb.width, thumb.height), (fitted.width, fitted.height));
+        // The decoder's rows are the full decode's, bit for bit.
+        assert_eq!(thumb, resize::fit(&box_reduced(&full, s), long_side).unwrap(), "1/{s}");
+        let own = psnr(&stretched(&fitted, full.width, full.height), &full);
+        let scaled = psnr(&stretched(&thumb, full.width, full.height), &full);
+        assert!(scaled >= own - 1.0, "1/{s}: {scaled:.2} dB against the fit's {own:.2} dB");
+    }
+    // An odd size without the loop filter, then with a profile and orientation.
+    let frame = vp8_picture(333, 201, 0, |x, y, b| ((x + y + b) % 3) as i32 - 1, |_, _| (3, -3));
+    let file = riff(&[(b"VP8 ", &frame)]);
+    let full = decode(&file, &l).unwrap();
+    assert_eq!(decode_thumbnail(&file, 64, &l).unwrap(), resize::fit(&box_reduced(&full, 4), 64).unwrap());
+    let p3 = icc::rgb(Space::DisplayP3, Version::V4);
+    let with_exif = webp(&Scene::new(1, 333, 201), &Webp { exif: Some(Exif { orientation: 6, ..Exif::default() }), ..Webp::default() }).unwrap();
+    let (_, exif) = chunks_of(&with_exif).into_iter().find(|(k, _)| k == b"EXIF").unwrap();
+    let tagged = riff(&[(b"VP8X", &vp8x(0x20 | 0x08, 333, 201)), (b"ICCP", &p3), (b"VP8 ", &frame), (b"EXIF", &exif)]);
+    let t = decode_thumbnail(&tagged, 64, &l).unwrap();
+    assert_eq!((t.width, t.height), (39, 64), "turned upright");
+    // The reduced picture goes through the profile, then is fitted and turned.
+    let expected = through_profile(&box_reduced(&full, 4), &p3, false);
+    let expected = dalica_image::orient::apply(resize::fit(&expected, 64).unwrap(), Orientation::new(6).unwrap()).unwrap();
+    assert_eq!(t, expected);
+    assert_ne!(t, decode_thumbnail_with(&tagged, 64, &OFF, &l).unwrap(), "the profile changed nothing");
+}
+
+/// A lossy picture past the 64 MP that a thumbnail used to stop at gets its thumbnail, holding a
+/// small part of the frame: with an allocation limit of 1/16 of what its full decode charges,
+/// the full decode is refused and the thumbnail is made.
+#[test]
+fn a_huge_lossy_webp_gets_its_thumbnail_on_a_small_budget() {
+    let (w, h) = (16_000u16, 12_000u16);
+    let frame = vp8_picture(w, h, 0, |_, _, _| 0, |_, _| (0, 0));
+    let file = riff(&[(b"VP8 ", &frame)]);
+    let (w, h) = (u64::from(w), u64::from(h));
+    // The full decode: the decoder's planes (charged as 3 bytes a padded pixel), its RGB output
+    // and the RGBA picture.
+    let full_peak = w.div_ceil(16) * 16 * h.div_ceil(16) * 16 * 3 + w * h * 3 + w * h * 4;
+    let tight = Limits { max_alloc: full_peak / 16, ..Limits::default() };
+    assert!(matches!(decode(&file, &tight), Err(Error::TooLarge { .. })));
+    let t = decode_thumbnail(&file, 256, &tight).unwrap();
+    assert_eq!((t.width, t.height), (256, 192));
+    // A flat frame: mid-grey everywhere (as the small flat frame decodes).
+    assert!(t.data.as_chunks::<4>().0.iter().all(|px| px[0] == px[1] && (120..=136).contains(&px[0]) && px[3] == 255));
+}
+
+/// Cut or damaged rows give the damaged-file error, never a panic; lossless, alpha and animated
+/// files keep the full decode's thumbnail.
+#[test]
+fn damaged_lossy_rows_and_the_other_kinds() {
+    let l = Limits::default();
+    let file = lossy_picture(400, 300);
+    let header_end = 12 + 8 + 10;
+    // Inside the second DCT partition (before its zero padding), the first, the frame header.
+    for cut in [file.len() - 200, file.len() / 2, file.len() / 3, header_end + 100] {
+        let mut cut_file = file[..cut].to_vec();
+        let body = (cut_file.len() - 8) as u32;
+        cut_file[4..8].copy_from_slice(&body.to_le_bytes());
+        let len = (cut_file.len() - 20) as u32;
+        cut_file[16..20].copy_from_slice(&len.to_le_bytes());
+        let err = decode_thumbnail(&cut_file, 128, &l).unwrap_err();
+        assert_eq!(err.reason(), "Damaged file", "cut at {cut}: {err:?}");
+        assert!(!matches!(err, Error::Panic(_)), "cut at {cut}");
+    }
+    for at in (header_end..file.len()).step_by(97) {
+        let mut bad = file.clone();
+        bad[at] ^= 0x5a;
+        match decode_thumbnail(&bad, 128, &l) {
+            Ok(t) => assert_eq!((t.width, t.height), (128, 96)),
+            Err(e) => assert!(e.reason() == "Damaged file" && !matches!(e, Error::Panic(_)), "byte {at}: {e:?}"),
+        }
+    }
+    let scene = Scene::new(12, 600, 400);
+    for (name, file) in [
+        ("lossless", webp(&scene, &Webp::default()).unwrap()),
+        ("lossy alpha", lossy_webp(600, 400, Some(&alpha(600, 400)))),
+        ("animated", animated_webp(&scene, &[12, 13], false)),
+    ] {
+        let full = decode(&file, &l).unwrap();
+        assert_eq!(decode_thumbnail(&file, 128, &l).unwrap(), resize::fit(&full, 128).unwrap(), "{name}");
+    }
 }
 
 #[test]
@@ -480,6 +851,7 @@ fn files() -> Vec<(&'static str, Vec<u8>)> {
         ("webp alpha exif icc", webp(&scene, &Webp { alpha: true, exif: Some(exif), icc: Some(icc::rgb(Space::AdobeRgb, Version::V2)) }).unwrap()),
         ("webp lossy", lossy_webp(40, 28, None)),
         ("webp lossy alpha", lossy_webp(40, 28, Some(&alpha(40, 28)))),
+        ("webp lossy picture", lossy_picture(72, 56)),
         ("webp animated", animated_webp(&scene, &[7, 8], true)),
         ("gif", gif(&scene, 1).unwrap()),
         ("gif animated", gif(&scene, 3).unwrap()),
@@ -503,7 +875,9 @@ fn truncation_at_every_offset_never_panics() {
                 assert_eq!((h.width, h.height), (full.width, full.height), "{name}: prefix {len}");
             }
             let format = full.format;
-            for result in [decode(cut, &l).map(|_| ()), formats::embedded_thumbnail(format, cut, &l).map(|_| ())] {
+            let results =
+                [decode(cut, &l).map(|_| ()), decode_thumbnail(cut, 32, &l).map(|_| ()), formats::embedded_thumbnail(format, cut, &l).map(|_| ())];
+            for result in results {
                 assert!(!matches!(result, Err(Error::Panic(_))), "{name}: prefix {len} panicked in the decoder");
             }
         }
@@ -514,7 +888,7 @@ proptest! {
 
     /// Bytes changed anywhere in a real file, then cut anywhere: never a panic.
     #[test]
-    fn corrupted_files_never_panic(which in 0usize..10, cut in any::<prop::sample::Index>(), flips in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..8)) {
+    fn corrupted_files_never_panic(which in 0usize..11, cut in any::<prop::sample::Index>(), flips in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..8)) {
         let (_, mut bytes) = files().swap_remove(which);
         for (at, v) in flips {
             let i = at.index(bytes.len());

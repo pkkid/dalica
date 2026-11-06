@@ -11,6 +11,14 @@
 //!   attached for the colour stage. `image-webp` allocates its own working buffers (the YUV planes,
 //!   a lossless frame, an animation's canvas); a conservative estimate of them is charged to the
 //!   [`Budget`] before it runs.
+//! - **Thumbnails** ([`thumbnail`]): a lossy frame without alpha is decoded by our own VP8 decoder
+//!   ([`vp8`], ported from `image-webp`) macroblock row by row and reduced to 1/2, 1/4 or 1/8 as
+//!   the rows come ([`scaled`]), so its memory is the reduced picture and a few macroblock rows.
+//!   Lossless, alpha and animated files take the full decode (VP8L's transforms read whole rows
+//!   of the picture, and the alpha plane is a lossless picture of its own).
+
+mod scaled;
+mod vp8;
 
 use std::io::{Cursor, ErrorKind};
 use std::ops::Range;
@@ -33,6 +41,9 @@ pub const MAX_FRAMES: usize = 10_000;
 /// The `VP8X` animation flag (WebP container specification, "Extended file format").
 const FLAG_ANIMATION: u8 = 0x02;
 
+/// The `VP8X` alpha flag.
+const FLAG_ALPHA: u8 = 0x10;
+
 /// What the chunk walk found.
 #[derive(Debug, Default)]
 struct Layout {
@@ -41,6 +52,10 @@ struct Layout {
     animated: bool,
     /// The first frame is lossy (`VP8 `).
     lossy: bool,
+    /// The still picture's bitstream (`VP8 ` or `VP8L` data); `None` for an animation.
+    bitstream: Option<Range<usize>>,
+    /// The canvas has alpha (the `VP8X` flag or an `ALPH` chunk).
+    alpha: bool,
     /// The `EXIF` chunk's data.
     exif: Option<Range<usize>>,
     /// The `ICCP` chunk's data.
@@ -137,7 +152,7 @@ fn layout(b: &[u8], limits: &Limits) -> Result<Layout> {
     let end = (le32(b, 4)? as usize).saturating_add(8).min(b.len());
     let first = chunk(b, 12, end)?;
     match bitstream_size(b, &first)? {
-        Some((width, height, lossy)) => Ok(Layout { width, height, lossy, ..Layout::default() }),
+        Some((width, height, lossy)) => Ok(Layout { width, height, lossy, bitstream: Some(first.data), ..Layout::default() }),
         None if &first.kind == b"VP8X" => extended(b, &first, end, limits),
         None => Err(Error::Malformed(format!("WebP: the first chunk is {:?}", String::from_utf8_lossy(&first.kind)))),
     }
@@ -151,7 +166,7 @@ fn extended(b: &[u8], vp8x: &Chunk, end: usize, limits: &Limits) -> Result<Layou
     if u64::from(width) * u64::from(height) > u64::from(u32::MAX) {
         return Err(Error::Malformed(format!("WebP canvas {width} × {height}")));
     }
-    let mut out = Layout { width, height, animated: flags & FLAG_ANIMATION != 0, ..Layout::default() };
+    let mut out = Layout { width, height, animated: flags & FLAG_ANIMATION != 0, alpha: flags & FLAG_ALPHA != 0, ..Layout::default() };
     let mut first_frame = false;
     let mut work = Work::new(limits.max_segments, "WebP chunks");
     let mut pos = vp8x.next;
@@ -177,6 +192,10 @@ fn extended(b: &[u8], vp8x: &Chunk, end: usize, limits: &Limits) -> Result<Layou
                 work.step()?;
                 out.icc.get_or_insert(c.data.clone());
             }
+            b"ALPH" => {
+                work.step()?;
+                out.alpha = true;
+            }
             _ => {
                 work.step()?;
                 if !out.animated
@@ -187,6 +206,7 @@ fn extended(b: &[u8], vp8x: &Chunk, end: usize, limits: &Limits) -> Result<Layou
                         return Err(Error::Malformed(format!("WebP: a {w} × {h} bitstream on a {width} × {height} canvas")));
                     }
                     out.lossy = lossy;
+                    out.bitstream = Some(c.data.clone());
                     first_frame = true;
                 }
             }
@@ -286,6 +306,41 @@ pub fn decode(bytes: &[u8], header: &Header, budget: &mut Budget, limits: &Limit
     d.read_image(&mut buf).map_err(|e| webp_err(e, width, height))?;
     let icc = layout.icc.and_then(|r| bytes.get(r)).filter(|p| p.len() <= limits.max_icc).map(<[u8]>::to_vec);
     Ok(Decoded { width, height, model: ColorModel::Rgb, alpha, samples: Samples::U8(buf), icc, orientation: header.orientation })
+}
+
+/// A lossy still picture's thumbnail, decoded and reduced row by row to the smallest of 1/2, 1/4
+/// and 1/8 whose long side still covers `long_side`, stored pixels (before orientation) with the
+/// profile attached. `None` when this path does not apply (lossless, alpha, an animation, or a
+/// picture too small to reduce): the caller decodes in full.
+pub fn thumbnail(bytes: &[u8], header: &Header, long_side: u32, budget: &mut Budget, limits: &Limits) -> Result<Option<Decoded>> {
+    let layout = layout(bytes, limits)?;
+    let (width, height) = (layout.width, layout.height);
+    if (width, height) != (header.width, header.height) {
+        return Err(Error::Malformed(format!("WebP canvas {width} × {height}, header says {} × {}", header.width, header.height)));
+    }
+    let Some(range) = layout.bitstream.filter(|_| layout.lossy && !layout.alpha && !layout.animated) else {
+        return Ok(None);
+    };
+    let s = scaled::factor(width, height, long_side);
+    if s == 1 {
+        return Ok(None);
+    }
+    let data = bytes.get(range).ok_or(Error::Truncated)?;
+    if vp8::frame_size(data)? != (width, height) {
+        return Err(Error::Malformed("WebP: the VP8 frame and its canvas differ in size".into()));
+    }
+    let mut reducer = scaled::Reducer::new(width, height, s, budget)?;
+    vp8::decode_rows(data, budget, &mut |y, rgb| reducer.row(y, rgb))?;
+    let icc = layout.icc.and_then(|r| bytes.get(r)).filter(|p| p.len() <= limits.max_icc).map(<[u8]>::to_vec);
+    Ok(Some(Decoded {
+        width: reducer.out_width as u32,
+        height: reducer.out_height as u32,
+        model: ColorModel::Rgb,
+        alpha: false,
+        samples: Samples::U8(reducer.out),
+        icc,
+        orientation: header.orientation,
+    }))
 }
 
 fn webp_err(e: DecodingError, width: u32, height: u32) -> Error {

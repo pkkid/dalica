@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use dalica_image::{Error, Format, Limits, RawKind, decode, decode_thumbnail, read_header, read_header_file, sniff};
+use dalica_image::{Error, Format, Limits, RawKind, Rgba8, decode, decode_thumbnail, read_header, read_header_file, resize, sniff};
 use dalica_scenes::fingerprint::{self, Fingerprint};
 
 /// The workspace root (this crate is `crates/image`).
@@ -435,4 +435,44 @@ fn heif() {
         panic!("the heif set needs `--features heif` (cargo xtask test-corpus turns it on)");
     }
     run("heif");
+}
+
+/// The PSNR of `small` stretched to `full`'s size (each pixel the one its position falls in)
+/// against `full`, RGB, in dB.
+fn stretched_psnr(small: &Rgba8, full: &Rgba8) -> f64 {
+    let (w, h) = (full.width as usize, full.height as usize);
+    let (sw, sh) = (small.width as usize, small.height as usize);
+    let (mut sum, mut n) = (0f64, 0f64);
+    for y in 0..h {
+        for x in 0..w {
+            let (a, b) = (((y * sh / h) * sw + x * sw / w) * 4, (y * w + x) * 4);
+            for c in 0..3 {
+                sum += (f64::from(small.data[a + c]) - f64::from(full.data[b + c])).powi(2);
+                n += 1.0;
+            }
+        }
+    }
+    10.0 * (255f64 * 255.0 / (sum / n).max(1e-9)).log10()
+}
+
+/// A lossy WebP's thumbnail is decoded scaled (M16.19, `formats.md` §1): measured against the
+/// full decode, its PSNR is within 1 dB of the full decode fitted (the bound of
+/// `tests/webp_gif_bmp.rs`).
+#[test]
+fn webp_thumbnails_within_the_bound() {
+    let Some(entries) = manifest("photos") else { return };
+    let limits = Limits::default();
+    let webps: Vec<&String> = entries.iter().map(|(_, rel)| rel).filter(|rel| rel.ends_with(".webp")).collect();
+    assert!(webps.len() >= 2, "the photos set's WebPs: {webps:?}");
+    for rel in webps {
+        let path = root().join("corpus").join("photos").join(rel);
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}: run `cargo xtask corpus --all`", path.display()));
+        let full = decode(&bytes, &limits).unwrap();
+        let thumb = decode_thumbnail(&bytes, 256, &limits).unwrap();
+        let fitted = resize::fit(&full, 256).unwrap();
+        assert_eq!((thumb.width, thumb.height), (fitted.width, fitted.height), "{rel}");
+        let (own, scaled) = (stretched_psnr(&fitted, &full), stretched_psnr(&thumb, &full));
+        println!("{rel}: {} × {}, thumbnail {scaled:.2} dB, the full decode fitted {own:.2} dB", full.width, full.height);
+        assert!(scaled >= own - 1.0, "{rel}: {scaled:.2} dB against the fit's {own:.2} dB");
+    }
 }

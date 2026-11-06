@@ -10,7 +10,8 @@
 //! is charged to one [`Budget`] per decode. Third-party decoders run inside `catch_unwind`: a panic
 //! in one is a damaged file ([`Error::Panic`]), never a crash. For thumbnails, `zune-jpeg` has no
 //! DCT scaling, so [`decode_thumbnail`] decodes in full and resizes (`resize`), up to a 64 MP
-//! source; past that it uses the embedded thumbnail or refuses.
+//! source; past that it uses the embedded thumbnail or refuses. A lossy WebP's thumbnail is
+//! decoded scaled at any size (`formats::webp::thumbnail`): its rows are reduced as they come.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -146,6 +147,12 @@ pub fn decode_thumbnail_with(bytes: &[u8], long_side: u32, options: &DecodeOptio
     {
         return Ok(t);
     }
+    // A lossy WebP decoded row by row and reduced as it goes (M16.19), whatever its size.
+    if header.format == Format::WebP
+        && let Some(t) = webp_scaled(bytes, &header, long_side, options, limits)?
+    {
+        return Ok(t);
+    }
     let pixels = u64::from(header.width) * u64::from(header.height);
     let stored = if pixels > THUMBNAIL_SOURCE_MAX_PIXELS {
         // Too big to decode just for a thumbnail: the camera's own small copy, if there is one,
@@ -163,6 +170,21 @@ pub fn decode_thumbnail_with(bytes: &[u8], long_side: u32, options: &DecodeOptio
     };
     let fitted = resize::fit(&stored, long_side)?;
     orient::apply(fitted, header.orientation)
+}
+
+/// A lossy WebP's thumbnail through its scaled decode, or `None` when that path does not apply.
+/// Its own [`Budget`] holds the reduced picture, the decoder's rows and the colour stage's output;
+/// the full size is checked against the edge and pixel limits only, as nothing that size is made.
+fn webp_scaled(bytes: &[u8], header: &Header, long_side: u32, options: &DecodeOptions, limits: &Limits) -> Result<Option<Rgba8>> {
+    limits.check_size(header.width, header.height, 0)?;
+    let mut budget = Budget::new(limits, header.width, header.height);
+    let Some(decoded) = guard(Format::WebP, || formats::webp::thumbnail(bytes, header, long_side, &mut budget, limits))? else {
+        return Ok(None);
+    };
+    decoded.check()?;
+    let small = color::to_srgb8(decoded, options, &mut budget, limits)?.image;
+    let fitted = resize::fit(&small, long_side)?;
+    orient::apply(fitted, header.orientation).map(Some)
 }
 
 /// Decodes the stored pixels (before orientation) after checking the declared size.

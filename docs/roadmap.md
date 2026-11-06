@@ -11404,7 +11404,7 @@ under their own key, and a snapshot without them reads as one with none.
     never overwritten; one fault point per class (before the sidecar's commit, after it, a crash,
     `crates/fs`' faults) leaves every file readable and the journal repaired; every existing
     engine file-operation test and `panic_hunt` pass.
-- ⬜ **M16.19 `image`: WebP thumbnails decoded scaled**
+- ✅ **M16.19 `image`: WebP thumbnails decoded scaled**
   - after: M15.R
   - files: `crates/image/src/formats/webp.rs`, `crates/image/src/formats/webp/**`, `crates/image/src/decode.rs`, `crates/image/tests/webp_gif_bmp.rs`, `crates/image/tests/corpus.rs`, `crates/image/README.md`, `docs/formats.md`, `NOTICE`
   - scope: DATA-FMT-WEBP's missing half (`formats.md` §1: thumbnails by scaled decode). A lossy
