@@ -5243,8 +5243,6 @@ checksum = "9408128402e729f7f5b71f05870198b9140bcb597e6e09dddc75f1272f7aec48"
 [[package]]
 name = "rusty_h265"
 version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56850745172ccec10fdb3829ae06b5b6b1bc6995571dd59373e5ef7bc9007d7d"
 dependencies = [
  "rusty_h265-accel",
 ]

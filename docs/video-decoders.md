@@ -38,6 +38,70 @@ What a crate lacks is named. A candidate that passes only with a licence or depe
 counts as failing until the maintainer answers (§8). `unsafe` is counted, not judged: the bar does
 not exclude it, so where a pass rests on `unsafe` code it is said, and §8 asks.
 
+**The playback bar** (M15.R's answer to §8 question 3, 2026-10-20; M16.14). 1080p30 is the
+real-time bar: the player decodes a 1080p30 clip's frame, converted and scaled as it shows it,
+within **16 ms** at p95, so a 60 Hz window shows every frame. The `video_play` bench
+(`development.md` §8) judges it: its procedural `h264 1080p` clip's `decode frame` row against
+`VIDEO_DECODE_CAP_MS` (16; the smaller of it and 1.5 × the first measurement), and the phone
+clips' 1080p30 rows (`IMG_6851.MOV`; `IMG_0445.MOV` in an `hevc` build) against the same cap
+when `corpus/video` is fetched (named as skipped when not). 4K60 (`BTS_iPhone12mini_4K60.MOV`,
+the procedural `h264 4k` clip until the maintainer's Android 4K H.264 clip joins §9), HDR (HLG
+tone mapping) and 1080p60 (`M-6_Fun_Fact.MOV`) are best effort: printed, never held to the cap.
+The bar is judged as `cargo xtask budgets` runs, unpinned on the review machine (the player
+decodes with half its hardware threads, at most eight); the lead's decision, 2026-11-05, logged
+for M16.R. Measured 2026-11-05 on the 24-thread workstation (load 8 to 18), release, p95:
+
+| Row | Unpinned (8 decoding threads) | Two hardware threads (`taskset -c 0,1`, one) |
+|---|---|---|
+| procedural H.264 1080p30 | 4.6 ms | 14.6 to 16.2 ms (two runs; the cores shared with other work) |
+| iPhone 13 H.264 1080p30 (`IMG_6851`) | 11.1 ms | 26.5 to 48.0 ms (misses; not how the bar is judged) |
+| iPhone 7 Plus HEVC 1080p30 (`IMG_0445`, `hevc` build) | 50.8 ms (p50 23.2); 9.4 to 12.3 ms threaded (2026-11-06, below) | not measured |
+| procedural H.264 4K60 (best effort) | 8.2 ms | 28.0 to 31.2 ms |
+| iPhone 12 mini H.264 4K60 (best effort) | 14.8 ms | 40.6 to 69.0 ms |
+| iPhone 13 HEVC Main 10 HLG 1080p60 (best effort) | 36.8 ms | not measured |
+
+Playing on across a key frame no longer starts the decoder again (it used to, at every group of
+pictures: 90 to 130 ms for an HEVC 1080p frame, 65 to 80 ms for the 4K60 H.264 one), which took
+the 4K60 phone row from 19.6 to 14.8 ms.
+
+**HEVC threaded** (the maintainer's answer on M16.14's issue, 2026-11-06: thread the decoder,
+keep the 16 ms bar). The published `rusty_h265` has no threads, and one 1080p picture takes 18 to
+21 ms on one core here; decoding key-frame groups side by side in Dalica's own code does not help
+a frame asked for in turn (the first group, and B-frame reordering's bursts, still wait on one
+decoder), and no newer release threads. So Dalica vendors 0.6.2 (`vendor/rusty_h265`, patched in
+through `[patch.crates-io]`, Apache-2.0, every change listed in its `README.dalica.md` and in
+`NOTICE`) and adds, in safe Rust (the crate keeps `#![forbid(unsafe_code)]`):
+
+- **wavefront rows**: a picture whose one slice segment carries a substream per CTB row
+  (`entropy_coding_sync_enabled_flag`, which the iPhone's encoder sets) decodes its rows on the
+  player's threads, each row two CTBs behind the one above, rows handing each other their edge
+  samples and contexts through channels;
+- **the in-loop filters** (deblocking, SAO) on the same threads, by bands of CTB rows no
+  filter's footprint crosses;
+- `Decoder::end_access_unit`, so a picture is finished when its sample has been pushed rather
+  than when the next picture starts.
+
+And `formats/video/frames/hevc.rs` runs the decoder on a thread of its own up to `HEVC_AHEAD` (3)
+samples ahead of the frames asked for, so the next picture decodes while the player converts
+this one (with no threads, as for posters and thumbnails, it decodes on the caller's thread as
+before). The frames are the serial decoder's, bit for bit: the decoded YUV of every HEVC phone
+clip of §9 and of x265 streams with CTBs of 16, 32 and 64, 8 and 10 bits, sizes that are not
+whole CTBs and several slices per picture (which fall back to one thread) matched at 1, 2, 3, 8
+and 16 threads, and `video_frames`' `hevc_frames_are_the_same_with_threads` keeps the check.
+
+`video_play` (`--features dalica-image/hevc`, release, three runs each, unpinned with 8 decoding
+threads of the 24-thread workstation, load 5 to 11, 2026-11-06), p95 (p50):
+
+| Row | Before (`main`, `rusty_h265` 0.6.2) | After |
+|---|---|---|
+| iPhone 7 Plus HEVC 1080p30 decoded frame (`IMG_0445`) | 42.6 to 44.7 ms (21.0) | **9.4 to 12.3 ms** (5.3 to 6.9) |
+| iPhone 7 Plus HEVC 1080p30 step | 59.1 to 61.4 ms (21.0 to 23.4) | 17.6 to 18.0 ms (8.1 to 8.5) |
+| iPhone 13 HEVC Main 10 HLG 1080p60 decoded frame (best effort) | 41.0 to 49.0 ms (32.7 to 33.7) | 20.4 to 31.4 ms (11.0 to 12.2) |
+
+The H.264 rows are unchanged (the same decoder; within the runs' noise). Memory: each decoding
+thread keeps a private picture and per-4x4 maps (about 9 MB at 1080p), counted by `Gate` with
+the read-ahead's pictures.
+
 One limit came from running the spike: every decoder run was capped at 3 GB of address space
 (`ulimit -v 3000000`), one run at a time, after an uncapped parallel run took the shared machine
 down. A decoder that cannot decode a phone clip inside that cap fails on memory.
@@ -47,7 +111,7 @@ down. A decoder that cannot decode a phone clip inside that cap fails on memory.
 | Codec | Verdict | Crate (pin exactly) | Why |
 |---|---|---|---|
 | **H.264** | **passes** | `altc264` =0.1.1 | every phone file (6, up to 4K60) and every conformance stream measured exact, interlaced included; 61–105 fps at 1080p on one core, 173 fps at 4K60 on 8 threads; MIT, no dependencies; no panic or hang on damaged input. It rests on 257 `unsafe` sites in its decoding core (§7.1), and is five days old: §8 asks |
-| **HEVC** | **passes** | `rusty_h265` =0.6.2 with its default `simd` feature | 147 of 147 conformance streams and every phone file exact (4 iPhone 7 Plus clips, 2 iPhone 13 HDR clips with Dolby Vision, 2 Main 10 clips made from them); 51–56 fps at 1080p30 on one core with `simd`, 22–31 fps without it (below real time); the iPhone 13 HDR clips are 1080p**60** and decode at 48 and 59 fps, just under real time, and 4K60 at 22 fps: the crate has no threading (§6, §8); Apache-2.0, no dependencies but its own `rusty_h265-accel`; no panic or hang. Without `simd` it is `#![forbid(unsafe_code)]` throughout; `simd` adds 702 `unsafe` sites of AVX2/NEON kernels chosen at run time. Patents: §8 |
+| **HEVC** | **passes** | `rusty_h265` =0.6.2 with its default `simd` feature | 147 of 147 conformance streams and every phone file exact (4 iPhone 7 Plus clips, 2 iPhone 13 HDR clips with Dolby Vision, 2 Main 10 clips made from them); 51–56 fps at 1080p30 on one core with `simd`, 22–31 fps without it (below real time); the iPhone 13 HDR clips are 1080p**60** and decode at 48 and 59 fps, just under real time, and 4K60 at 22 fps: the crate has no threading (§6, §8; Dalica's vendored copy adds it, M16.14, §1); Apache-2.0, no dependencies but its own `rusty_h265-accel`; no panic or hang. Without `simd` it is `#![forbid(unsafe_code)]` throughout; `simd` adds 702 `unsafe` sites of AVX2/NEON kernels chosen at run time. Patents: §8 |
 | **AAC-LC** (phone sound) | **passes** | `rusty_aac` =1.1.1, `default-features = false` | every phone track and ISO conformance stream within full accuracy of ffmpeg's float decode; 370–3,200× real time; Apache-2.0, no dependencies; no panic or hang |
 | **MP3** | **passes** | `nanomp3` =0.2.0 | full accuracy on every file, gapless trimming as ffmpeg's; 1,370–3,730× real time; MIT OR Apache-2.0; its own crates `#![forbid(unsafe_code)]` (its SIMD comes from `wide`/`safe_arch`) |
 | **Ogg Vorbis** | **passes** | `lewton` =0.10.2 | within 3.7e-7 of ffmpeg on every file (the Vorbis specification gives no tolerance); 465–790× real time; MIT OR Apache-2.0 (`ogg` BSD-3-Clause); `#![forbid(unsafe_code)]` as Dalica would build it. Last release January 2021 |
@@ -184,7 +248,7 @@ So at 1080p30 on one core `altc264` and `rusty_h265` with `simd` run at about tw
 clips. At 1080p60 (the iPhone 13 HDR clips) `rusty_h265` is just under real time (48 and 59 fps),
 and at 4K60 neither codec is real time on one core: `altc264` is with its own threads (173 fps);
 `rusty_h265` has none, so 1080p60 and 4K HEVC need frame or slice threading of Dalica's own (or
-play below their rate). Every memory peak includes the whole coded stream (14–155 MB) held by the harness.
+play below their rate); M16.14 added wavefront and filter threads in a vendored copy (§1). Every memory peak includes the whole coded stream (14–155 MB) held by the harness.
 
 ### 6.1 Damaged input
 

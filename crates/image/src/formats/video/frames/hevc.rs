@@ -7,8 +7,19 @@
 //! frames, which the crate does not carry. Layers above the base (Dolby Vision's enhancement,
 //! MV-HEVC) are left out by the crate. Every call runs inside `catch_unwind`. A seek starts a new
 //! decoder primed with the parameter sets seen so far.
+//!
+//! The crate is Dalica's vendored copy (`vendor/rusty_h265`, M16.14): with
+//! [`FrameOptions::threads`](super::FrameOptions) above one, a picture's wavefront rows and its
+//! in-loop filters decode on that many threads, and the decoder runs on a thread of its own
+//! ([`Worker`]) up to [`AHEAD`] samples ahead of the frames asked for, so the next picture
+//! decodes while the caller converts this one. Together they take a phone's 1080p30 frame under
+//! the playback bar (`docs/video-decoders.md` §1). With no threads it decodes on the caller's.
 
+use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 
 use rusty_h265::{Decoder, Frame};
 
@@ -22,18 +33,24 @@ const VPS: u8 = 32;
 const SPS: u8 = 33;
 const PPS: u8 = 34;
 
+/// Samples (access units) the decoder's thread may be given ahead of the frames taken.
+pub const AHEAD: usize = super::HEVC_AHEAD;
+
 pub struct Hevc {
-    dec: Decoder,
+    engine: Engine,
     length_size: usize,
     /// The parameter sets seen so far, by type and id order, to prime a new decoder.
     params: Vec<Vec<u8>>,
     colour: Colour,
     kind: VideoKind,
+    /// Threads a picture decodes on (`FrameOptions::threads`; the vendored crate's wavefront
+    /// rows and in-loop filters, `vendor/rusty_h265/README.dalica.md`).
+    threads: usize,
 }
 
 impl Hevc {
-    pub fn new(length_size: usize, params: &[Vec<u8>], kind: VideoKind, gate: &mut Gate) -> Result<Hevc, Refusal> {
-        let mut h = Hevc { dec: Decoder::new(), length_size, params: Vec::new(), colour: Colour::UNSPECIFIED, kind };
+    pub fn new(length_size: usize, params: &[Vec<u8>], threads: usize, kind: VideoKind, gate: &mut Gate) -> Result<Hevc, Refusal> {
+        let mut h = Hevc { engine: Engine::new(threads, kind), length_size, params: Vec::new(), colour: Colour::UNSPECIFIED, kind, threads };
         for p in params {
             h.feed(p, None, gate)?;
         }
@@ -58,7 +75,7 @@ impl Hevc {
                 2 => 2,
                 _ => 4,
             };
-            gate.admit(sps.width, sps.height, u32::from(sps.bit_depth_luma.max(sps.bit_depth_chroma)), chroma_halves, 0)?;
+            gate.admit(sps.width, sps.height, u32::from(sps.bit_depth_luma.max(sps.bit_depth_chroma)), chroma_halves, self.threads)?;
             if let Some(v) = &sps.vui {
                 self.colour = Colour {
                     primaries: v.colour_primaries,
@@ -76,13 +93,7 @@ impl Hevc {
             }
             self.params.push(nal.to_vec());
         }
-        let dec = &mut self.dec;
-        match guard(self.kind, || dec.push_nal(nal, pts))? {
-            Ok(()) => Ok(()),
-            Err(rusty_h265::Error::Unsupported(what)) => Err(Refusal::Unsupported(what)),
-            // A damaged NAL unit: the decoder stays usable and conceals what it lost.
-            Err(_) => Ok(()),
-        }
+        self.engine.send(Job::Nal(nal.to_vec(), pts))
     }
 
     /// Feeds one sample (an access unit), shown as `pts`.
@@ -99,22 +110,25 @@ impl Hevc {
             self.feed(nal, first.then_some(pts), gate)?;
             first = false;
         }
-        Ok(())
+        // A sample is one whole access unit: its picture is done now, not when the next one
+        // starts, so a frame never waits for the picture after it.
+        self.engine.send(Job::EndAu)
     }
 
-    pub fn pull(&mut self) -> Result<Option<Frame>> {
-        let dec = &mut self.dec;
-        guard(self.kind, || dec.next_frame().ok())
+    /// The next frame in output order, or `None` when the decoder wants more samples (or, once
+    /// flushed, has given every frame).
+    pub fn pull(&mut self) -> Result<Option<Frame>, Refusal> {
+        self.engine.pull()
     }
 
-    pub fn flush(&mut self) -> Result<()> {
-        let dec = &mut self.dec;
-        guard(self.kind, || dec.flush())
+    pub fn flush(&mut self) -> Result<(), Refusal> {
+        self.engine.send(Job::Flush)
     }
 
-    /// A new decoder for a seek, primed with the parameter sets seen so far.
+    /// A new decoder for a seek, primed with the parameter sets seen so far (the old one's
+    /// thread, if any, stops after the picture it is decoding).
     pub fn reset(&mut self, gate: &mut Gate) -> Result<(), Refusal> {
-        self.dec = Decoder::new();
+        self.engine = Engine::new(self.threads, self.kind);
         for p in std::mem::take(&mut self.params) {
             self.feed(&p, None, gate)?;
         }
@@ -123,6 +137,226 @@ impl Hevc {
 
     pub fn colour(&self) -> Colour {
         self.colour
+    }
+}
+
+/// A decoder whose pictures decode on `threads` threads where the stream allows (one slice per
+/// picture with a wavefront substream per CTB row, as phones write them), on the calling thread
+/// otherwise; the frames are the same either way.
+fn decoder(threads: usize) -> Decoder {
+    let mut dec = Decoder::new();
+    dec.set_threads(threads);
+    dec
+}
+
+/// What the decoder is told.
+enum Job {
+    Nal(Vec<u8>, Option<i64>),
+    /// The sample's last NAL unit was sent.
+    EndAu,
+    Flush,
+}
+
+/// What the decoder's thread answers.
+enum Out {
+    Frame(Frame),
+    /// A sample (or the flush) is done: every frame it let out was sent before this.
+    Done,
+    Unsupported(String),
+    /// The decoder panicked; its thread is gone.
+    Panicked,
+}
+
+/// Where the decoder runs: on the caller's thread, or on a thread of its own.
+enum Engine {
+    Here { dec: Box<Decoder>, kind: VideoKind },
+    Worker(Worker),
+}
+
+/// The decoder on a thread of its own, at most [`AHEAD`] samples ahead.
+struct Worker {
+    tx: Sender<Job>,
+    rx: Receiver<Out>,
+    /// Set when this worker is replaced: its thread stops at the next job.
+    stop: Arc<AtomicBool>,
+    kind: VideoKind,
+    /// Samples (and a flush) sent but not yet done.
+    in_flight: usize,
+    flushing: bool,
+    frames: VecDeque<Frame>,
+    failed: Option<Out>,
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+impl Engine {
+    fn new(threads: usize, kind: VideoKind) -> Engine {
+        if threads == 0 {
+            return Engine::Here { dec: Box::new(decoder(0)), kind };
+        }
+        let (tx, jobs) = channel::<Job>();
+        let (out, rx) = channel::<Out>();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::clone(&stop);
+        let spawned = std::thread::Builder::new().name("dalica-hevc".into()).spawn(move || work(decoder(threads), kind, jobs, out, stopped));
+        if spawned.is_err() {
+            // No thread to be had: decode here.
+            return Engine::Here { dec: Box::new(decoder(threads)), kind };
+        }
+        Engine::Worker(Worker { tx, rx, stop, kind, in_flight: 0, flushing: false, frames: VecDeque::new(), failed: None })
+    }
+
+    fn send(&mut self, job: Job) -> Result<(), Refusal> {
+        match self {
+            Engine::Here { dec, kind } => run(dec, job, *kind),
+            Engine::Worker(w) => {
+                w.check()?;
+                let counts = matches!(job, Job::EndAu | Job::Flush);
+                if matches!(job, Job::Flush) {
+                    w.flushing = true;
+                }
+                if w.tx.send(job).is_err() {
+                    return Err(Refusal::Error(Error::Panic(Format::Video(w.kind))));
+                }
+                if counts {
+                    w.in_flight += 1;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn pull(&mut self) -> Result<Option<Frame>, Refusal> {
+        match self {
+            Engine::Here { dec, kind } => Ok(guard(*kind, || dec.next_frame().ok())?),
+            Engine::Worker(w) => w.pull(),
+        }
+    }
+}
+
+impl Worker {
+    /// A failure the thread reported, as the synchronous decoder would have returned it.
+    fn check(&mut self) -> Result<(), Refusal> {
+        match self.failed.take() {
+            None => Ok(()),
+            Some(Out::Unsupported(what)) => Err(Refusal::Unsupported(what)),
+            Some(_) => Err(Refusal::Error(Error::Panic(Format::Video(self.kind)))),
+        }
+    }
+
+    fn take(&mut self, m: Out) {
+        match m {
+            Out::Frame(f) => self.frames.push_back(f),
+            Out::Done => self.in_flight = self.in_flight.saturating_sub(1),
+            fail => {
+                self.in_flight = 0;
+                self.failed = Some(fail);
+            }
+        }
+    }
+
+    fn pull(&mut self) -> Result<Option<Frame>, Refusal> {
+        loop {
+            loop {
+                match self.rx.try_recv() {
+                    Ok(m) => self.take(m),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        if self.in_flight > 0 && self.failed.is_none() {
+                            self.in_flight = 0;
+                            self.failed = Some(Out::Panicked);
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(f) = self.frames.pop_front() {
+                return Ok(Some(f));
+            }
+            self.check()?;
+            // More samples may go ahead while fewer than `AHEAD` are in flight; once flushed,
+            // every frame is waited for.
+            if self.in_flight == 0 || (!self.flushing && self.in_flight < AHEAD) {
+                if self.in_flight == 0 {
+                    self.flushing = false;
+                }
+                return Ok(None);
+            }
+            match self.rx.recv() {
+                Ok(m) => self.take(m),
+                Err(_) => {
+                    self.in_flight = 0;
+                    self.failed = Some(Out::Panicked);
+                }
+            }
+        }
+    }
+}
+
+/// One job on a decoder (the frames it lets out are pulled after).
+fn run(dec: &mut Decoder, job: Job, kind: VideoKind) -> Result<(), Refusal> {
+    let r = match job {
+        Job::Nal(nal, pts) => guard(kind, || dec.push_nal(&nal, pts))?,
+        Job::EndAu => {
+            guard(kind, || dec.end_access_unit())?;
+            Ok(())
+        }
+        Job::Flush => {
+            guard(kind, || dec.flush())?;
+            Ok(())
+        }
+    };
+    match r {
+        Ok(()) => {}
+        Err(rusty_h265::Error::Unsupported(what)) => return Err(Refusal::Unsupported(what)),
+        // A damaged NAL unit: the decoder stays usable and conceals what it lost.
+        Err(_) => {}
+    }
+    Ok(())
+}
+
+/// The decoder's thread: jobs in, frames and acknowledgements out, until the owner goes away or
+/// replaces it.
+fn work(mut dec: Decoder, kind: VideoKind, jobs: Receiver<Job>, out: Sender<Out>, stop: Arc<AtomicBool>) {
+    for job in jobs {
+        if stop.load(Ordering::Relaxed) {
+            return;
+        }
+        let done = matches!(job, Job::EndAu | Job::Flush);
+        match run(&mut dec, job, kind) {
+            Ok(()) => {}
+            Err(Refusal::Unsupported(what)) => {
+                let _ = out.send(Out::Unsupported(what));
+                return;
+            }
+            Err(Refusal::Error(_)) => {
+                let _ = out.send(Out::Panicked);
+                return;
+            }
+        }
+        if done {
+            loop {
+                match catch_unwind(AssertUnwindSafe(|| dec.next_frame())) {
+                    Ok(Ok(f)) => {
+                        if out.send(Out::Frame(f)).is_err() {
+                            return;
+                        }
+                    }
+                    Ok(Err(_)) => break,
+                    Err(_) => {
+                        let _ = out.send(Out::Panicked);
+                        return;
+                    }
+                }
+            }
+            if out.send(Out::Done).is_err() {
+                return;
+            }
+        }
     }
 }
 

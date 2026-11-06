@@ -274,7 +274,9 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.path().join("Cargo.lock")).unwrap(), lock);
 
         let changed = set_in(dir.path(), "0.1.0-rc.1", |_| Ok(())).unwrap();
-        let members = lock.matches("[[package]]").count() - lock.matches("\nsource = ").count();
+        // A workspace member is a lock entry with no source at the workspace's version (a
+        // vendored path dependency, `vendor/rusty_h265`, has no source either and keeps its own).
+        let members = lock.split("[[package]]").filter(|p| !p.contains("\nsource = ") && p.contains(&format!("\nversion = \"{old}\"\n"))).count();
         assert_eq!(changed, Changed { old: old.clone(), members });
         assert!(members >= 20, "{members} workspace members");
 

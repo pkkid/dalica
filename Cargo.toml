@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask", "tests/acceptance"]
 # cargo-fuzz workspaces: nightly-only, outside the product graph (security.md §7.1).
-exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz", "crates/fetch/fuzz", "crates/sidecar/fuzz", "crates/scan/fuzz", "crates/store/fuzz", "crates/ui/fuzz", "crates/engine/fuzz", "apps/dalica/fuzz"]
+exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz", "crates/fetch/fuzz", "crates/sidecar/fuzz", "crates/scan/fuzz", "crates/store/fuzz", "crates/ui/fuzz", "crates/engine/fuzz", "apps/dalica/fuzz", "vendor/rusty_h265"]
 
 [workspace.package]
 version = "1.0.0"
@@ -99,6 +99,8 @@ heic-rs = { version = "=0.1.1", default-features = false, features = ["std"] }
 # kernels (the record's real-time pass); AAC through `rusty_aac` (Apache-2.0) without its defaults.
 # Never `rusty_h264` with its default features: they install a process-wide global allocator.
 altc264 = "=0.1.1"
+# `rusty_h265` is patched to `vendor/rusty_h265` (its 0.6.2 with Dalica's threading, M16.14; see
+# `[patch.crates-io]` below and that directory's README.dalica.md).
 rusty_h265 = { version = "=0.6.2", default-features = false, features = ["simd"] }
 rusty_aac = { version = "=1.1.1", default-features = false }
 # Slideshow music (dalica-image `formats::audio`, M15.27), the decoders M15.46's record passes, each
@@ -298,3 +300,9 @@ opt-level = 3
 opt-level = 3
 # Only `opt-level` is raised: `debug-assertions` and `overflow-checks` stay on in every dev and test
 # build, our optimised crates included (`docs/development.md` §3).
+
+# rusty_h265 0.6.2 vendored with Dalica's changes (M16.14): wavefront rows and the in-loop filters
+# on several threads, so a 1080p30 HEVC frame decodes within the playback bar
+# (docs/video-decoders.md §1). Apache-2.0; what changed is in vendor/rusty_h265/README.dalica.md.
+[patch.crates-io]
+rusty_h265 = { path = "vendor/rusty_h265" }

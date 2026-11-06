@@ -132,7 +132,8 @@ fn restore(tree: &Path) {
     for f in ["docs/planted.png", "docs/planted.md"] {
         let _ = std::fs::remove_file(tree.join(f));
     }
-    let _ = std::fs::remove_dir_all(tree.join("vendor"));
+    // Only the planted crate: `vendor/` holds the workspace's own vendored crates too.
+    let _ = std::fs::remove_dir_all(tree.join("vendor/evil-sys"));
 }
 
 #[test]

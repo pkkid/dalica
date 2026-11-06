@@ -56,9 +56,14 @@ pub const MAX_FRAME_PIXELS: u64 = 8192 * 4352;
 /// standards allow (16), the picture being decoded, and the frames waiting to be shown.
 pub const HELD_PICTURES: u64 = 16 + 4;
 
-/// Pictures each decoding thread may add (frame threading keeps several in flight; measured on a
-/// 4K clip with 8 threads, `docs/video-decoders.md` §6).
+/// Pictures each H.264 decoding thread may add (frame threading keeps several in flight; measured
+/// on a 4K clip with 8 threads, `docs/video-decoders.md` §6). An HEVC thread adds one (its
+/// private picture of the wavefront rows), and the in-loop filters one copy for them all.
 pub const PICTURES_PER_THREAD: u64 = 8;
+
+/// Samples an HEVC decoder with threads decodes ahead of the frames asked for, on a thread of its
+/// own (`hevc.rs`); each may hold one more picture.
+pub const HEVC_AHEAD: usize = 3;
 
 /// Frames kept after they were returned, for a step back.
 pub const LOOK_BEHIND: usize = 4;
@@ -78,8 +83,9 @@ pub struct FrameOptions {
     /// The longest side of the frames returned, upright (`None`: the clip's own size). Frames are
     /// never made larger than the clip.
     pub max_side: Option<u32>,
-    /// Decoding threads besides the caller's (0: decode on the calling thread). H.264's decoder
-    /// and the colour conversion use them; at most [`MAX_THREADS`].
+    /// Decoding threads besides the caller's (0: decode on the calling thread). H.264's decoder,
+    /// HEVC's wavefront rows and in-loop filters, and the colour conversion use them; at most
+    /// [`MAX_THREADS`].
     pub threads: usize,
 }
 
@@ -202,7 +208,13 @@ impl Gate {
         let picture = pixels * bytes * (2 + chroma_halves) / 2;
         // HEVC pictures carry motion fields and per-block state besides their samples.
         let picture = if self.wide_samples { picture + picture / 4 } else { picture };
-        let held = HELD_PICTURES + PICTURES_PER_THREAD * threads as u64;
+        let held = if self.wide_samples {
+            // HEVC's threads add a private picture each and the in-loop filters one copy; its
+            // decoding thread holds up to `HEVC_AHEAD` more.
+            HELD_PICTURES + if threads > 0 { threads as u64 + 1 + HEVC_AHEAD as u64 } else { 0 }
+        } else {
+            HELD_PICTURES + PICTURES_PER_THREAD * threads as u64
+        };
         let frames = pixels * 4 * (LOOK_BEHIND as u64 + 2);
         let total = picture.checked_mul(held).and_then(|p| p.checked_add(frames));
         if total.is_none_or(|t| t > self.limits.max_alloc) {
@@ -273,6 +285,8 @@ pub struct FrameSource {
     behind: VecDeque<Frame>,
     buf: Vec<u8>,
     converter: yuv::Converter,
+    /// Times decoding began at a sync sample ([`FrameSource::starts`]).
+    starts: usize,
 }
 
 const HIDDEN: u32 = u32::MAX;
@@ -330,6 +344,7 @@ impl FrameSource {
             behind: VecDeque::new(),
             buf: Vec::new(),
             converter: yuv::Converter::default(),
+            starts: 0,
             track,
         };
         source.index()?;
@@ -373,7 +388,9 @@ impl FrameSource {
             }
             #[cfg(feature = "hevc")]
             (Config::Hevc { length_size, params }, VideoCodec::Hevc) => {
-                hevc::Hevc::new(*length_size, params, self.info.kind, &mut self.gate).map(|h| Codec::Hevc(Box::new(h))).map_err(|r| self.refusal(r))
+                hevc::Hevc::new(*length_size, params, self.options.threads, self.info.kind, &mut self.gate)
+                    .map(|h| Codec::Hevc(Box::new(h)))
+                    .map_err(|r| self.refusal(r))
             }
             _ => Err(FrameError::Image(Error::Malformed(format!("a {} track without its decoder configuration", self.track.code)))),
         }
@@ -461,10 +478,12 @@ impl FrameSource {
             return Ok(f);
         }
         // Going on from where the decoder stands is cheaper than a seek when no sync sample lies
-        // between the two.
+        // between the two, and always for the very next frame: playing on across a key frame
+        // never starts the decoder again (a new start there decodes the key frame's group anew,
+        // and an open group's leading pictures the group before it too).
         if let Some(cur) = self.decoded
             && cur < index
-            && self.sync_before(index) <= self.decode_index(cur)
+            && (index == cur + 1 || self.sync_before(index) <= self.decode_index(cur))
         {
             while let Some((d, raw)) = self.next_raw()? {
                 if d >= index {
@@ -495,6 +514,12 @@ impl FrameSource {
     /// The frame returned last.
     pub fn current_index(&self) -> Option<usize> {
         self.last
+    }
+
+    /// How many times decoding began at a sync sample: the first frame asked for, and each seek
+    /// since (playing on frame after frame, across key frames too, begins none).
+    pub fn starts(&self) -> usize {
+        self.starts
     }
 
     fn decode_index(&self, display: usize) -> usize {
@@ -551,6 +576,7 @@ impl FrameSource {
     /// Starts decoding again at decode index `start`.
     fn restart(&mut self, start: usize) -> FrameResult<()> {
         self.decoded = None;
+        self.starts = self.starts.saturating_add(1);
         match self.decoder.as_mut() {
             Some(Codec::H264(h)) => h.reset()?,
             #[cfg(feature = "hevc")]
@@ -588,7 +614,10 @@ impl FrameSource {
                 #[cfg(feature = "hevc")]
                 Codec::Hevc(h) => {
                     let colour = h.colour();
-                    h.pull()?.map(|f| Raw::Hevc(f, colour))
+                    match h.pull() {
+                        Ok(f) => f.map(|f| Raw::Hevc(f, colour)),
+                        Err(r) => return Err(self.refusal(r)),
+                    }
                 }
             };
             if let Some(raw) = raw {
@@ -621,7 +650,11 @@ impl FrameSource {
                 match decoder {
                     Codec::H264(h) => h.flush()?,
                     #[cfg(feature = "hevc")]
-                    Codec::Hevc(h) => h.flush()?,
+                    Codec::Hevc(h) => {
+                        if let Err(r) = h.flush() {
+                            return Err(self.refusal(r));
+                        }
+                    }
                 }
                 continue;
             }

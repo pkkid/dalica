@@ -554,7 +554,10 @@ nothing needed speeding up.
   dalica-image/hevc --bench video_play`) on the performance cores: iPhone 7 Plus HEVC 1080p30 frame
   19.4 ms (40.7 at p95), none dropped; the iPhone 13's HEVC Main 10 HLG 1080p60 31.0 ms (44.4 at
   p95; the decoder has no threads of its own, and each frame is tone-mapped from HLG), which cannot
-  keep up with its 16.7 ms frames on this machine: 3 of 120 frames shown in two seconds.
+  keep up with its 16.7 ms frames on this machine: 3 of 120 frames shown in two seconds. Since
+  M16.14 the HEVC decoder is threaded (`video-decoders.md` §1): unpinned with 8 decoding threads,
+  the 1080p30 decoded frame takes 5.3 to 6.9 ms (9.4 to 12.3 at p95, under the 16 ms bar) and
+  the HLG 1080p60 one 11.0 to 12.2 ms (20.4 to 31.4 at p95, best effort).
 - **Import from a camera** (the `camera_import` bench, `dalica-engine`): 300 `scenes` JPEGs of
   2048 px (160 px EXIF thumbnails) in `dalica-scan`'s in-memory PTP responder, listed in 50 ms,
   then imported by date taken in 14.3 s (14.40, 14.27, 14.32 s): 20.95 files/s, 2.14 MB/s. Like the
@@ -647,8 +650,9 @@ frame's p95, a planted slowdown added); `--plant-ms 8` misses the layouts and th
 the render (seconds) or the scans (a hundred milliseconds and more), and `--plant-ms 1000` misses
 every M14 time. Since M15 it also runs the `video_probe` bench (a round's median, a planted
 slowdown added once per round), the `video_play` bench (each procedural clip's poster and step
-medians and its playing and decoded frames' p95, a planted slowdown added to each; the phone
-clips' rows printed, never judged), the `camera_import` bench (files per second, a planted slowdown
+medians and its playing and decoded frames' p95, a planted slowdown added to each; since M16.14
+the 1080p30 decoded frames, the procedural clip's and the phone clips' when fetched, never above
+`VIDEO_DECODE_CAP_MS`, 16 ms; the other phone rows printed, never judged), the `camera_import` bench (files per second, a planted slowdown
 counted once per file) and the `a11y_frame` and `i18n_frame` benches (the frame with AccessKit on
 or in the pseudo-locale and its overhead, at p95, a planted slowdown added to the frame and so to
 the overhead); at the first measurement's numbers `--plant-ms 8` misses the probe, the video's
@@ -1255,8 +1259,12 @@ of its own, into a new library on a temporary thumbnail cache. Rows per clip: `p
 60 a second for `--play-ms`, 2 000, with `shown` and `dropped`) and `decode frame <clip>` (a
 `FrameSource` opened as the player opens it, each frame asked in turn, up to `--decode-frames`,
 150; with `frame_time_ms`). A clip this build cannot play is listed under `not_played` with the
-reason; `--no-phones` leaves the corpus out. `--check` judges the procedural clips' rows. Without
-`--bench` it runs two small clips.
+reason; `--no-phones` leaves the corpus out. `--check` judges the procedural clips' rows and the
+playback bar (`video-decoders.md` §1, M16.14): a 1080p30 decoded frame within `DECODE_CAP_MS`
+(16 ms) at p95, the procedural `h264 1080p` clip's always (the smaller of its budget and the
+cap), the phone clips' `phone h264 1080p` and `phone hevc 1080p` when played (named as skipped
+when not); the 4K60 and HDR 1080p60 phone rows are best effort, printed only. Without `--bench`
+it runs two small clips.
 
 `camera_import` (M15.34, `dalica-engine`) makes `--objects` (300) `scenes` JPEGs of `--side`
 (2048) px with EXIF thumbnails, puts them in `dalica-scan`'s in-memory PTP responder and, `--runs`

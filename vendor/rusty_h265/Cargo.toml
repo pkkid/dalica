@@ -1,0 +1,32 @@
+# rusty_h265 0.6.2 (Apache-2.0, https://github.com/Remade-With-Rust/rusty_h265), vendored and
+# changed by Dalica: wavefront rows and the in-loop filters on several threads. What changed, and
+# why, is in README.dalica.md. Used through `[patch.crates-io]` in the workspace's Cargo.toml.
+[package]
+name = "rusty_h265"
+version = "0.6.2"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Mata Network"]
+license = "Apache-2.0"
+description = "Pure-Rust HEVC / H.265 video decoder (rusty_h265 0.6.2 with Dalica's threading changes)."
+repository = "https://github.com/Remade-With-Rust/rusty_h265"
+readme = "README.md"
+publish = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[features]
+default = ["simd"]
+simd = ["rusty_h265-accel/simd"]
+census = ["rusty_h265-accel/census"]
+cabac-trace = []
+prof = []
+
+[dependencies]
+rusty_h265-accel = { version = "=0.6.2", default-features = false }
+
+[lints.clippy]
+needless_range_loop = "allow"
+too_many_arguments = "allow"

@@ -47,7 +47,10 @@
 //! **Budgets** ([`BUDGETS`], `cargo xtask budgets`): each procedural clip's poster and step
 //! (medians) and its playing frame and decoded frame (p95) within 1.5 × their first measurement,
 //! the playing frame (the owner thread's, as the window's frame while a video plays) never above
-//! [`FRAME_CAP_MS`]. A decoded frame slower than the clip's frame time (`frame_time_ms`) means the
+//! [`FRAME_CAP_MS`]; the playback bar (`video-decoders.md` §1): a 1080p30 clip's decoded frame
+//! never above [`DECODE_CAP_MS`], the procedural 1080p clip's always and the phone clips of
+//! [`BAR_PHONES`] when played (named as skipped when not); the 4K60 and HDR 1080p60 phone rows are
+//! best effort, printed only. A decoded frame slower than the clip's frame time (`frame_time_ms`) means the
 //! clip cannot play at its rate on that machine: the play row's `dropped` counts it. `--check` makes the bench judge them itself (in
 //! release), `--plant-ms N` adds N ms to each judged time. Without `--bench` (under `cargo test
 //! --benches`) it runs a smoke pass: two small clips, one sample, a few steps and frames.
@@ -81,6 +84,16 @@ const BUDGETS: [(&str, &str, f64); 8] = [
 /// A playing video's frame on the owner thread: within a 60 Hz frame at p95, whatever the first
 /// measurement.
 const FRAME_CAP_MS: f64 = 16.0;
+/// The playback bar (`video-decoders.md` §1, M16.14): a 1080p30 clip's frame decoded by the player
+/// within a 60 Hz frame at p95, whatever the first measurement. It holds the procedural clips of
+/// [`BAR_CLIPS`] and, when played, the phone clips of [`BAR_PHONES`].
+const DECODE_CAP_MS: f64 = 16.0;
+/// The procedural clips whose decoded frame is held to [`DECODE_CAP_MS`] (the smaller of it and
+/// the row's budget).
+const BAR_CLIPS: [&str; 1] = ["h264 1080p"];
+/// The phone clips at 1080p30 held to [`DECODE_CAP_MS`] when fetched (and, for HEVC, built with
+/// it); named as skipped when not. The 4K60 and HDR 1080p60 clips are best effort: printed only.
+const BAR_PHONES: [&str; 2] = ["phone h264 1080p", "phone hevc 1080p"];
 /// Frames per second the edit view's window runs at.
 const FPS: f64 = 60.0;
 /// The longest one wait may run.
@@ -706,9 +719,24 @@ fn main() {
     }
     if a.check && mode == "release" && a.full {
         let mut missed = Vec::new();
-        for (name, stat, budget) in BUDGETS {
-            let budget = if name.starts_with("play frame") { budget.min(FRAME_CAP_MS) } else { budget };
-            let measured = rows.iter().find(|r| r["name"] == name).and_then(|r| r[stat].as_f64());
+        let bar = |clip: &str| (format!("decode frame {clip}"), "p95_ms", DECODE_CAP_MS);
+        let mut checks: Vec<(String, &str, f64)> = BUDGETS.iter().map(|(name, stat, budget)| (name.to_string(), *stat, *budget)).collect();
+        for check in &mut checks {
+            if check.0.starts_with("play frame") {
+                check.2 = check.2.min(FRAME_CAP_MS);
+            } else if BAR_CLIPS.iter().any(|clip| check.0 == format!("decode frame {clip}")) {
+                check.2 = check.2.min(DECODE_CAP_MS);
+            }
+        }
+        for clip in BAR_PHONES {
+            if rows.iter().any(|r| r["name"] == bar(clip).0) {
+                checks.push(bar(clip));
+            } else {
+                eprintln!("video_play: {} skipped (not played)", bar(clip).0);
+            }
+        }
+        for (name, stat, budget) in checks {
+            let measured = rows.iter().find(|r| r["name"] == name.as_str()).and_then(|r| r[stat].as_f64());
             let judged = measured.map_or(f64::NAN, |m| m + a.plant_ms);
             if judged.is_nan() || judged > budget {
                 missed.push(format!("{name}: {stat} {judged:.2} ms, over the {budget} ms budget"));
