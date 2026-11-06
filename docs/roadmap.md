@@ -388,7 +388,8 @@ waits for.)
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ✅ |
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ✅ |
 | Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ✅ |
-| After 1.0 | M16 | Post-1.0 enhancements | what comes after the honest 1.0, starting with switchable themes | ⬜ |
+| After 1.0 | M16 | Post-1.0 enhancements | what comes after the honest 1.0, starting with switchable themes | ✅ |
+| | M17 | M16's follow-ups | the open items M16 left: large files read in parts, every unshown format on a card, font fallback, instant close | ⬜ |
 
 ## Milestones
 
@@ -11760,7 +11761,7 @@ under their own key, and a snapshot without them reads as one with none.
     A user-visible geotag must never drift by undo/redo (data rule: nothing silently changed).
   - done when: the proptest passes with the recorded seed and at full strength; a unit test sets
     a geotag of 39.3, applies and inverts, and gets 39.3 back bit for bit.
-- ⬜ **M16.R M16 review**
+- ✅ **M16.R M16 review**
   - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31, M16.32, M16.33, M16.34, M16.35, M16.36, M16.37, M16.38, M16.39, M16.40, M16.41
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -11808,6 +11809,351 @@ label adds its line) is also in the `files` of M16.4, M16.5, M16.7 and M16.10, a
 order, though the waves draw some side by side; every `ui` panel or dialog block finishes before M16.8, whose
 `crates/ui/src/panels/**` and `dialogs/**` cover them. 18 of the 23 non-review tasks run in
 waves 1–2, at most ten at once (the machine runs eight agents; `next` picks by order).
+
+### M17 — M16's follow-ups
+
+A follow-up milestone built from the items M16 left open (the maintainer's decision at M16.R,
+2026-11-06): what its tasks, merges and review recorded as still to do, each placed in a task
+below. Nothing here starts before M16.R closes. One `cargo xtask accept M17` (M17.16) covers every
+*Done when* below. Whether M17.R is a release (1.2.0) is a question for its review, not decided
+here.
+
+#### M17 tasks
+
+M17.1 (the lead) fits M16.R's answers into these blocks. Large photos then go in three steps: the
+thumbnailer, the edit view's preview and the viewer's caption take M16.37's streamed path
+(M17.2); a TIFF whose IFD lies after its pixels is read in parts too (M17.3); and the other
+formats over 64 MP get a reduced decode or a recorded reason (M17.12, after M17.3, which shares
+`decode.rs`). Beside them, each open item is its own task so they run side by side: the cards for
+every format a build does not show (M17.4), system fonts for the characters the embedded subset
+leaves out (M17.5), a repeated Auto that changes nothing (M17.6), a fast close (M17.7), Ctrl+0
+(M17.8), a RAW's `.xmp` after a crash (M17.9), the snapshot's dropped colour byte (M17.10), two
+flaky tests (M17.11), Stats for Nerds' missing rows (M17.13), the folder music toast (M17.14) and
+the docs M16 left stale (M17.15). M17.16 is `accept M17`, and M17.R the review. Each task updates
+its `parity.md` rows.
+
+Left out of M17 (from M16's open items, each with its reason):
+
+- M16.R's own items: the red fingerprints of the review's full run and the 512 vs 513 panorama
+  thumbnail, the `cargo xtask budgets` sweep, the checks by hand on Windows and macOS, the Thai
+  drafts' fluent review and the board question about settled threads all belong to M16.R; what it
+  turns into tasks, M17.1 adds here.
+- The 100 % zoom cap of about 268 MP: it is `security.md` §4.2's pixel limit, and changing a
+  limit is the maintainer's decision, not a task.
+- H.264 at two threads (p95 26.5 ms, M16.14's DEFERRED): it waits for the maintainer's answer at
+  M16.R; if the answer is a two-thread budget row, M17.1 adds the task.
+- Duplicate RustCrypto crate versions: they go when `rsa` 0.10 is released, not before.
+- The Open With icon cache and the Stats for Nerds counters held in statics rather than `Session`
+  fields: refactors with no visible change, left for when those files are next worked on.
+- `LIB-LT-VIDEO` and `VIEW-VIDEO` staying 🟡: by design, since release builds leave HEVC out
+  (M15.R's answer); the rows already say so.
+- The `TODO(maintainer)` notes in `crates/mcp/src/tools/organize.rs` and
+  `crates/ui/tests/edit_canvas.rs`: each still names a real gap the maintainer has to weigh; only
+  `scale.rs`'s dangling one is fixed (M17.15).
+- Items already done in M16 (RUSTSEC-2026-0387, the Thai title-break test, the SetGeo proptest,
+  PREF-THEMES, the text cursor) or by design (a photo held by a limit still moving on a repeated
+  Auto, a rescan put off by a file job, the M16.2 thresholds, which `accept M16` passed).
+
+Whole-window baselines belong to no task, as in M5 to M16: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m16-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does; a task that moves one
+re-blesses it on its branch (the diff images on the PR, the reason in the commit body), and the
+maintainer approves them in bulk at M17.R. Fingerprints are made at 1400 × 900 only. A task that
+adds a menu label or `tl!` text adds its Thai line to `crates/ui/src/i18n/th.tsv` (Thai's menus
+are complete), which is in its `files` where one is expected.
+
+Decisions taken while planning (the check-in lists them for reversal). **Large photos:** the
+thumbnailer and the edit view's screen preview call `dalica_image::decode::decode_thumbnail_file`,
+the one path that reads a large file in parts, rather than each reading the file and decoding the
+bytes; the zoomed (100 %) decode keeps its whole read, since it needs every pixel. The viewer's
+caption gives the photo's own size (its header's, turned and cut by the recipe), never the size
+derived from a reduced decode. **The cards:** one card per reason, as M16.39 chose, for every
+still format this build does not show (AVIF in every build; HEIC without its decoder; a RAW kind
+or JPEG XL a build leaves out); a video keeps its tile, which is how videos are shown.
+**Fonts:** the system's fonts are found and read on a helper thread, never on the UI thread, and
+only faces covering what the embedded faces miss are added, after them; a face that fails to load
+is skipped and logged. **Auto:** whether a repeated Auto would change nothing is decided from the
+picture the edit view already holds, never by a new decode on the owner thread; with no picture
+at hand the step is added, as today. **Closing:** the window closes first and the process then
+waits for the writes, so it is instant on Wayland too; every write still lands.
+
+- ⬜ **M17.1 Lead: M16.R's answers in M17's blocks**
+  - after: M16.R
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: M16.R's check-in asks its questions and approves or rejects M16's fingerprints. This
+    task records the answers in M17's intro and fits the blocks they touch: a rejected
+    fingerprint or a red check of the review's full run that M16.R did not fix becomes a fix task
+    here (`task-board.md` §7); the H.264 two-thread answer adds its task or stays in the left-out
+    list; any item the maintainer adds at M16.R gets its block, its `files` checked against the
+    others and the waves note updated. Nothing is guessed: an answer missing from the review's
+    record is a `tasks block` with the question.
+  - done when: `cargo xtask tasks sync --check` parses the fitted blocks and M17's intro records
+    M16.R's answers with the review's date.
+- ⬜ **M17.2 `thumbs` + `engine` + `ui`: large photos' thumbnails and previews read in parts**
+  - after: M16.37, M16.R
+  - files: `crates/thumbs/src/lib.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/src/preview/jobs.rs`, `crates/engine/tests/preview.rs`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/photo.rs`, `crates/ui/tests/viewer.rs`
+  - scope: M16.37's leftovers outside `image`. (1) `dalica_thumbs::thumbnail_with` reads the
+    whole file with `dalica_fs::read` and decodes the bytes; it calls
+    `dalica_image::decode::decode_thumbnail_file` instead (`MAX_FILE` as its cap), so a large
+    panorama's library thumbnail streams as the viewer's already does
+    (`crates/engine/src/viewer.rs`). (2) The edit view's screen preview
+    (`preview/jobs.rs`: the screen-size decode and `settle`) does the same; the zoomed decode
+    (`full`) keeps its whole read. (3) The viewer's caption says 4502 × … for a 4500-wide
+    panorama: its size comes from the shape of the reduced picture (`photo_size` in
+    `viewer/photo.rs`); it comes from the photo's listed size, turned and cut by its recipe, and
+    the reduced picture is only drawn. Errors and their reasons stay as they are for every other
+    file.
+  - done when: a thumbs test makes a procedural panorama over 64 MP (`scenes`' `panorama`) and
+    gets its thumbnail through `thumbnail_with` with peak memory under the file's size; an engine
+    test opens the same file's screen preview the same way; a viewer test captions a 4500 × 1000
+    panorama "(4500 × 1000)"; peak memory and time before and after with `DALICA_PROFILE=1` in the
+    PR.
+- ⬜ **M17.3 `image`: a TIFF whose IFD comes after its pixels, read in parts**
+  - after: M16.37, M16.R
+  - files: `crates/image/src/ifd.rs`, `crates/image/src/decode.rs`, `crates/image/src/formats/tiff.rs`, `crates/image/src/lib.rs`, `crates/image/tests/tiff.rs`, `crates/scenes/src/formats.rs`, `docs/formats.md`, `docs/security.md`
+  - scope: `decode_thumbnail_file` reads a large TIFF in parts only when its IFD and value lists
+    lie in the first `Limits::max_header_bytes`; many stitchers write the IFD after the pixels,
+    and such a file is read whole (M16.37's decision, alternative: a sparse buffer). Read the
+    header's offset, then the IFD and its value lists from where they lie (each read bounded by
+    `max_header_bytes`, offsets checked against the file's length before any read), as a
+    `Tiff` over those ranges with their base offsets (`ifd.rs`'s rebased structure), and hand
+    them to the reduced decode. Hostile headers (an offset past the end, a loop of IFDs, a value
+    list larger than the cap) are refused before allocating; `security.md` §4.2's limit values do
+    not change (a change is a maintainer question, `tasks block`). `scenes`' `panorama` gains the
+    option to write its IFD last. `formats.md` and `security.md` §4 say where the IFD may lie.
+  - done when: an image test decodes a procedural panorama over 64 MP with its IFD at the end to a
+    thumbnail with peak memory under the file's size; the hostile cases above are refused with
+    their reasons; peak memory and time before and after in the PR.
+- ⬜ **M17.4 `ui`: a card for every format this build does not show (AVIF, HEIC, …)**
+  - after: M16.39, M16.R
+  - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/heic_card.rs`, `crates/ui/tests/unshown_cards.rs`, `crates/ui/src/i18n/th.tsv`, `docs/ui-layout.md`, `docs/organizing.md`, `docs/control-protocol.md`
+  - scope: M16.39's card covers HEIC only; an AVIF file (recognised, never decoded, in every
+    build) still draws a "!" format tile. Generalise `split_unshown` and the card to every still
+    format this build does not show (`Format::supported()` false: AVIF always; HEIC without its
+    decoder; a RAW kind or JPEG XL a build leaves out), one card per reason in the section, each
+    with its count ("Not displaying 2 AVIF images") and its reason and what to do from
+    `dalica_image`'s reason text; the cards in a fixed order after the cells; clicking one
+    selects its photos, as the HEIC card does; the slideshow and navigation skip them. A video
+    keeps its tile. The widget id becomes `unshown:<section id>:<format>` (`unshown:folder:12:avif`)
+    and is written in `control-protocol.md` §7 with the other ids; `ui-layout.md` §5.3 and
+    `organizing.md` describe the cards.
+  - done when: a ui test shows a section with JPEGs, two HEICs and three AVIFs in a build without
+    the HEIC decoder as its JPEG cells plus two cards with the right counts and ids, and in a
+    build with it as its JPEG and HEIC cells plus the AVIF card; clicking the AVIF card selects
+    exactly the AVIFs; screenshots at 1400 × 900 and 900 × 600 before and after.
+- ⬜ **M17.5 `ui-kit` + packaging: system fonts for what the embedded subset leaves out**
+  - after: M16.27, M16.R
+  - files: `crates/ui-kit/src/fonts.rs`, `crates/ui-kit/src/system_fonts.rs`, `crates/ui-kit/build.rs`, `crates/ui-kit/tests/fonts.rs`, `crates/ui-kit/README.md`, `docs/development.md`, `docs/design-system.md`, `docs/releasing.md`, `docs/assets.md`, `packaging/README.md`, `packaging/linux/package.sh`, `packaging/linux/flatpak/org.dalica.Dalica.yml`, `packaging/macos/common.sh`, `packaging/windows/package.ps1`
+  - scope: M16.27's leftovers (its option (b), which M16.R's answer (a) put after it). (1) Rare
+    CJK characters outside the embedded subset, and every CJK and Thai character in `dalica-cli`
+    (which embeds no fonts), draw as boxes: a new `system_fonts.rs` finds the system's fonts per
+    OS (Linux's font directories and fontconfig's, Windows' `Fonts`, macOS's `/System/Library/Fonts`
+    and `/Library/Fonts`) on a helper thread, picks faces covering the scripts the embedded faces
+    miss (by their cmap, not their names), and adds them after the embedded faces once loaded (one
+    font reload; the UI never waits on it); a face that fails to parse is skipped and logged; no
+    face is read when the embedded ones cover the language and the text shown. A new dependency
+    for finding fonts, if any, is pure Rust and passes `cargo xtask deps`. (2) The packages still
+    ship OFL texts for the Mincho faces M16.27 dropped: each package script copies the licence
+    only of the families the build embeds (`build.rs` writes the list). (3) `ui-kit/README.md`,
+    `development.md` §12, `design-system.md` §3 and `releasing.md` say what is embedded and what
+    comes from the system.
+  - done when: a ui-kit test loads a system face from a directory of test fonts on a helper thread
+    and draws a character the subset lacks (the fs guard shows the UI thread read nothing); with
+    no system font the character draws as a box and nothing fails; the Linux tar and its file
+    list carry no Mincho OFL text; the package-size budget still passes; the memory a loaded face
+    costs in the PR.
+- ⬜ **M17.6 `engine` + `edit`: an Auto that changes nothing adds no history step**
+  - after: M16.31, M16.33, M16.R
+  - files: `crates/edit/src/ops/auto.rs`, `crates/edit/src/analysis.rs`, `crates/edit/tests/auto.rs`, `crates/engine/src/history.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/src/preview.rs`, `crates/engine/tests/photo_history.rs`, `docs/editing.md`
+  - scope: since M16.31 a second Auto Contrast, Auto Color or Auto Fix on a photo it already
+    fixed changes it within a small tolerance, but the press still adds an entry to the recipe
+    and a step to the History pane. `edit` answers whether an Auto operation would change a given
+    picture (its levels or balance within the tolerance M16.31 chose: `prepare` giving no pass);
+    `photo.history.apply` asks it with the picture the edit view already shows (the preview's
+    screen image of the current recipe) and, when nothing would change, adds no entry, keeps the
+    redo list and answers `{changed: false, reason}`; with no picture at hand the step is added,
+    as today. Batch Edit's Auto in the library is unchanged (it would need a render per photo).
+    `editing.md` §6.3 says so.
+  - done when: an engine test presses Auto Fix twice on a procedural photo in the edit view and
+    finds one recipe entry and one history step, and a press on a photo Auto changes still adds
+    its step; the edit test checks the answer on a fixed and an unfixed picture.
+- ⬜ **M17.7 `dalica` + `engine` + `thumbs`: closing is instant, and the session ends fast**
+  - after: M16.38, M16.R
+  - files: `apps/dalica/src/main.rs`, `apps/dalica/src/window.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/shutdown.rs`, `crates/engine/src/session.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/src/face_models.rs`, `crates/thumbs/src/pool.rs`, `crates/thumbs/tests/pool.rs`, `crates/engine/tests/session_close.rs`
+  - scope: M16.38 hides the window and holds the close until every write lands; on Wayland a
+    window cannot hide, so it shows "Saving changes…" after a second. (1) Close the window at
+    once on every system and wait for the writes after `eframe::run_native` returns in
+    `main.rs` (M16.38's alternative), the process still ending only when every write has landed
+    or its stall hook fires. (2) The session's drop takes about 3 s, mostly the thumbnail pool's
+    and the face model's joins: measure each stage with `DALICA_PROFILE=1`, then let workers stop
+    at their next item (cancel queued thumbnail jobs, drop the face model without waiting for an
+    idle load), never cutting a write short.
+  - done when: a ui test closes with a held metadata write and the window's close returns at once
+    while the write still lands; an engine test drops a session with queued thumbnail jobs and a
+    loading face model within a bound (well under M16.38's 3 s); close times before and after on
+    Wayland in the PR; X11, Windows and macOS are checked at M17.R.
+- ⬜ **M17.9 `engine` + `store`: a RAW's `.xmp` after a crash between the two**
+  - after: M16.18, M16.R
+  - files: `crates/engine/src/fileops_recovery.rs`, `crates/engine/src/raw_sidecars.rs`, `crates/engine/tests/fileops_recovery.rs`, `crates/engine/tests/raw_sidecars.rs`, `crates/store/src/intents.rs`, `crates/store/tests/intents.rs`, `docs/data-model.md`
+  - scope: M16.18 moves, copies and renames a RAW's `.xmp` in the same file-job item, but a crash
+    after the RAW and before its sidecar leaves the `.xmp` at the source, and the repair at the
+    next open follows the RAW only. The journal entry names the sidecar beside the RAW (an entry
+    written before M17 reads as one without); the repair finishes or rolls back the sidecar the
+    way it does the RAW, by the same `intents::plan` rules, never overwriting a sidecar at the
+    destination it did not write (it stays, with the reason); `data-model.md` §8's table gains the
+    sidecar's rows.
+  - done when: engine tests interrupt a move, a copy and a rename of a RAW with its `.xmp` at one
+    fault point after the RAW and one after the sidecar (the `fs` fault points), reopen, and find
+    the RAW and its sidecar together each time, nothing lost; an old entry without a sidecar
+    repairs as before.
+- ⬜ **M17.10 `store` + `engine`: the snapshot's dropped colour byte, reported**
+  - after: M16.9, M16.41, M16.R
+  - files: `crates/store/src/lib.rs`, `crates/store/src/snapshot.rs`, `crates/store/tests/colours.rs`, `crates/store/Cargo.toml`, `crates/store/README.md`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/tests/library_inspect.rs`
+  - scope: (1) a colour summary byte with an unknown bit is left out of the loaded library with a
+    note (`snapshot::read_noted`, M16.9), but `Store::open` drops the note: a `Recovery` variant
+    carries it (the values left out and why), and `library.inspect`'s recoveries name it as the
+    other variants are named. (2) `dalica-store` gets `serde_json`'s `float_roundtrip` only
+    because `dalica-sidecar` turns it on (M16.41): its own `Cargo.toml` asks for it.
+  - done when: a store test opens a snapshot with a bad colour byte and gets the library without
+    that summary and the new recovery; an engine test sees it in `library.inspect`; `cargo tree -e
+    features -p dalica-store` shows `float_roundtrip` from the store itself.
+- ⬜ **M17.11 `ui`: two flaky tests made steady**
+  - after: M16.R
+  - files: `crates/ui/tests/tree.rs`, `crates/ui/tests/legacy_ui.rs`
+  - scope: `tree::a_5k_folder_library_stays_within_the_frame_budget_with_rows_visited_flat`
+    fails under load (M16.22), and `legacy_ui`'s notice test depends on the order folders come in
+    (M16.32). Find why each is flaky: the frame budget measured on a loaded machine (measure the
+    work, not the wall clock, or the median of several frames, as the other frame tests do) and a
+    folder order the test assumes (sort, or wait for the scan to settle). The budget itself and
+    every assertion stay as strong; a cause in the product is fixed there, after asking for the
+    file.
+  - done when: each test passes 50 runs in a row with eight test threads busy beside it (the
+    command in the PR), and fails when the behaviour it checks is broken.
+- ⬜ **M17.8 `ui`: Ctrl+0 reopens the side pane last shown**
+  - after: M16.33, M16.R
+  - files: `crates/ui/src/commands/view.rs`, `crates/ui/src/state.rs`, `crates/ui/tests/view_state.rs`, `docs/menus-and-shortcuts.md`, `docs/ui-layout.md`
+  - scope: `pane.toggle` (Ctrl+0) closes the side pane, or opens Properties when it is closed,
+    whichever pane was open; with five panes since M16.33 it reopens the one last shown (People,
+    Places, Tags, Properties or History), Properties when none was shown yet. The last pane is
+    kept in `UiState` (a surgical edit) and survives a restart as the open pane does.
+    `menus-and-shortcuts.md` §1 and `ui-layout.md` §6.4 say so.
+  - done when: a ui test opens History, presses Ctrl+0 twice and finds History open again; the
+    same after a restart; a fresh state opens Properties.
+- ⬜ **M17.12 `image`: other large photos and WebP's other kinds decoded reduced**
+  - after: M17.3, M16.19
+  - files: `crates/image/src/decode.rs`, `crates/image/src/formats/png.rs`, `crates/image/src/formats/jpeg.rs`, `crates/image/src/formats/psd.rs`, `crates/image/src/formats/webp.rs`, `crates/image/src/formats/webp/scaled.rs`, `crates/image/tests/decode.rs`, `crates/image/tests/psd.rs`, `crates/image/tests/webp_gif_bmp.rs`, `crates/scenes/src/formats.rs`, `docs/formats.md`, `docs/security.md`
+  - scope: a PNG, JPEG or PSD over `THUMBNAIL_SOURCE_MAX_PIXELS` (64 MP) without an embedded
+    thumbnail refuses a thumbnail with `TooLarge`, and a lossless, alpha or animated WebP is
+    decoded whole for its thumbnail (M16.19 reduced only lossy). Check each and give it a reduced
+    path where its decoder allows one (PNG rows reduced as they come, as WebP's are; JPEG's
+    scaled DCT where `zune-jpeg` offers it, else rows; PSD's composite planes a row at a time;
+    WebP lossless rows, its alpha, an animation's first frame), within the same budget and
+    limits; a format that has no such path keeps its error, and the reason and the follow-up go
+    in `formats.md`. `security.md` §4 names the new paths; its limit values do not change.
+  - done when: an image test per format makes a procedural photo over 64 MP (PNG, JPEG and PSD
+    from `scenes`) and gets a thumbnail with peak memory under its full decode, or the recorded
+    reason it does not; WebP lossless, alpha and animated thumbnails decode reduced; times and
+    peak memory before and after in the PR.
+- ⬜ **M17.13 `ui` + `engine` + `dalica`: Stats for Nerds' missing rows**
+  - after: M16.36, M17.7
+  - files: `crates/ui/src/dialogs/stats_for_nerds.rs`, `crates/ui/src/perf.rs`, `crates/ui/src/control/host.rs`, `crates/ui/tests/stats_for_nerds.rs`, `apps/dalica/src/gpu.rs`, `apps/dalica/src/window.rs`, `crates/engine/src/cmd/diagnostics.rs`, `crates/engine/tests/diagnostics.rs`, `crates/ui/src/i18n/th.tsv`, `docs/control-protocol.md`, `docs/menus-and-shortcuts.md`
+  - scope: M16.36's gaps. (1) Rendering shows no GPU adapter: the adapter's name, backend and
+    driver from the window's wgpu state (`gpu.rs`, read once when the window is made), "software"
+    for a software adapter, none in a headless run. (2) The UI frame time comes from the dialog's
+    own frame intervals; it comes from the host's perf counters (`perf.rs`, what `ui.inspect` →
+    perf reports: frame time p95 and the longest), so it matches what tests measure. (3) Resident
+    memory is Linux only (`/proc/self/status`): Windows and macOS report theirs too, through a
+    pure-Rust dependency that passes `cargo xtask deps` (no `unsafe` in `dalica-engine`), else the
+    row says "not available on this system" as now. (4) The edit view's previews (their count and
+    bytes) join the memory group. `control-protocol.md` §6.14 lists the new fields.
+  - done when: an engine test checks the new `app.diagnostics` fields on a small library (the
+    resident memory a number on Linux); a ui test opens the window and finds the GPU, frame time
+    and previews rows and copies them as text; screenshots at 1400 × 900 and 900 × 600; resident
+    memory on Windows and macOS checked at M17.R.
+- ⬜ **M17.14 `ui`: the folder music fallback as a toast**
+  - after: M16.16, M16.R
+  - files: `crates/ui/src/notices.rs`, `crates/ui/tests/notices.rs`, `crates/ui/src/panels/slideshow/show.rs`, `docs/viewing.md`
+  - scope: when a folder's own slideshow music plays nothing and the show falls back to the
+    Options music (M16.16), the engine says so (`Slideshow::music_notice`), but the window shows
+    nothing. The show's first frame after the notice turns it into one `caution` toast (in the
+    window and full screen, once per show), as the session's other notices are. Its text is the
+    engine's notice; a new `tl!` text asks for `th.tsv` first.
+  - done when: a ui test starts a folder's show whose music folder is missing and finds one
+    toast with the notice, and none for a folder whose music plays; screenshots at 1400 × 900.
+- ⬜ **M17.15 docs: what M16 left stale, and a dangling pointer**
+  - after: M16.R
+  - files: `docs/security.md`, `docs/formats.md`, `docs/data-model.md`, `crates/engine/README.md`, `crates/ui/tests/scale.rs`
+  - scope: (1) `security.md`: §8's `rusty_h265` row says =0.6.2 from crates.io and "not in the
+    shipped build"; since M16.14 it is vendored and threaded (wavefront rows, parallel deblock and
+    SAO): the row says so, with its `unsafe` count; §4's video row (line 336) still says neither
+    the engine nor the apps forward `hevc`, which M16.13 changed. (2) `crates/engine/README.md`
+    still names `video::playable` (removed by M16.13) and "the twelve Craft themes" (fifteen with
+    Dark since M16.7). (3) `data-model.md` §4's `theme` ids lack `softDark` and `softLight`.
+    (4) `formats.md` points to `ui-layout.md` §5.3 for the unshown cards (M17.4). (5)
+    `crates/ui/tests/scale.rs` turns the id check off for "`straighten_tool.rs`'s
+    TODO(maintainer)", which no longer exists: if the floating bar's controls have automation ids
+    now, the check comes back on; otherwise the comment points at the real gap. Every statement
+    checked against the code it describes.
+  - done when: `cargo xtask ci`'s docs checks pass; each fix above is in the diff; `scale.rs`
+    passes with the ids checked, or names the real file.
+- ⬜ **M17.16 `accept M17`**
+  - after: M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15
+  - files: `tests/acceptance/m17.rs`, `tests/acceptance/m17_*.rs`, `tests/acceptance/m17.md`, `tests/acceptance/fingerprints/m17-*.json`
+  - scope: every *Done when* of M17 in the real `dalica --headless` over the control channel and
+    through `dalica-cli`: a folder with a procedural panorama over 64 MP (IFD first and IFD last),
+    a large PNG and a lossless WebP gets every thumbnail and opens in the viewer (caption at its
+    real size) and the edit view, within a memory bound; a section with JPEGs, HEICs and AVIFs
+    shows its cards with the right counts and ids (`ui.inspect`); a repeated Auto Fix adds no
+    step (`photo.history`); Ctrl+0 brings History back; `app.diagnostics` has its new fields; a
+    snapshot with a bad colour byte opens with the recovery in `library.inspect`; a RAW and its
+    `.xmp` repaired together after an interrupted move; the music toast. Fingerprints of the
+    library with the cards and of Stats for Nerds at 1400 × 900. The checks by hand in `m17.md`:
+    closing on X11, Windows and macOS; a system CJK font on each OS; resident memory on Windows
+    and macOS.
+  - done when: `cargo xtask accept M17` passes everything in M17's *Done when*.
+- ⬜ **M17.R M17 review**
+  - after: M17.1, M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.16
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M17.R` to prepare it: the check-in page (open a
+    folder of large panoramas and an AVIF, look at the cards, close the window on each system,
+    press Auto Fix twice, Ctrl+0 after History, open Stats for Nerds; written as steps to try);
+    the questions: **whether M17 is a release** ((a) yes, 1.2.0, its version and `whats-new.md`
+    section on the review branch and the release checklist and sign-off on the page; (b) no, a
+    plain review, its work shipping with a later release), the planning decisions above that
+    change behaviour (one card per reason; the window closing before the writes land; system
+    fonts read from the disk), anything the reserved decisions left open; *Where we stand* and
+    the `status.md` numbers (thumbnail memory for large files, close time, the size budget) on a
+    `review/M17.R` branch, a pull request open. Only the maintainer merges that pull request and
+    closes this issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M17.1 lead: M16.R's answers  ‖  M17.2 thumbs + preview + caption  ‖  M17.3 TIFF IFD at the end
+         ‖  M17.4 the unshown cards  ‖  M17.5 system fonts + packaging  ‖  M17.6 a no-op Auto
+         ‖  M17.7 instant close  ‖  M17.9 a RAW's .xmp after a crash  ‖  M17.10 the colour byte's recovery
+         ‖  M17.11 flaky tests
+         (once M16.R is closed)
+wave 2   M17.8 Ctrl+0 (after M17.4: ui-layout.md)  ‖  M17.12 other large formats (after M17.3)
+         ‖  M17.13 Stats for Nerds (after M17.7; M17.4's control-protocol.md and th.tsv)
+         ‖  M17.14 music toast
+wave 3   M17.15 docs (after M17.3, M17.9 and M17.12 free security.md, formats.md, data-model.md)
+wave 4   M17.16 accept M17 → M17.R
+```
+
+Why the placements (the overlaps that decide them): `crates/image/src/decode.rs`,
+`docs/formats.md` and `docs/security.md` are the image hotspot: M17.3 then M17.12 then M17.15,
+which also waits on M17.9 for `data-model.md`. `apps/dalica/src/window.rs` is shared by M17.7 and
+M17.13, so Stats for Nerds follows the close work. `crates/ui/src/i18n/th.tsv` and
+`docs/control-protocol.md` are shared by M17.4 and M17.13; `docs/ui-layout.md` by M17.4 and
+M17.8, which is listed after the wave-1 tasks so `next` offers it once M17.4 merges. The `ui`
+tasks otherwise touch separate files (the light table, the viewer, the side-pane command, the
+dialog, the notices, two test files), and `crates/ui/src/state.rs` is M17.8's alone. Ten of the
+sixteen non-review tasks can run in wave 1, at most ten at once (the machine runs eight agents;
+`next` picks by order).
 
 ## Reserved decisions (the maintainer's, not the agents')
 
