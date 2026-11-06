@@ -33,10 +33,11 @@ use dalica_engine::synthetic::{self, Spec};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
 
-/// The budget (`development.md` §8): 1.5 × the first measurement at p95 (the median of three
-/// runs, release on two hardware threads, `taskset -c 0,1`, 2026-11-06: 1.82 ms), rounded up to 0.5 ms;
-/// never above [`SWITCH_CAP_MS`].
-const SWITCH_BUDGET_MS: f64 = 3.0;
+/// The budget (`development.md` §8): first 1.5 × the first measurement at p95 (the median of
+/// three runs, release on two hardware threads, `taskset -c 0,1`, 2026-11-06: 1.82 ms), 3 ms;
+/// raised to 8 ms by the maintainer, 2026-11-06 (M16.R): measured p95 up to 5.3 ms / 1.3 ms at 6e37be13; frames after the switch are unchanged.
+/// Never above [`SWITCH_CAP_MS`].
+const SWITCH_BUDGET_MS: f64 = 8.0;
 const SWITCH_CAP_MS: f64 = 16.0;
 /// The library the budget holds for.
 const PHOTOS: usize = 100_000;

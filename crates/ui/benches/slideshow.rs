@@ -54,8 +54,9 @@ use serde_json::{Value, json};
 /// cores (2026-10-17, the median of three runs: the advance's median 16.0 ms), rounded up; a
 /// transition frame's p95 an absolute 1 ms (the maintainer's decision at M11.R: 1.5 × its first
 /// measurement, 0.199 ms, left no headroom for load), and within [`FRAME_CAP_MS`] whatever it is.
+/// The transition frame's raised to 2 ms by the maintainer, 2026-11-06 (M16.R): measured p95 up to 5.3 ms / 1.3 ms at 6e37be13; frames after the switch are unchanged.
 const ADVANCE_BUDGET_MS: f64 = 24.0;
-const TRANSITION_BUDGET_MS: f64 = 1.0;
+const TRANSITION_BUDGET_MS: f64 = 2.0;
 const FRAME_CAP_MS: f64 = 16.0;
 /// The photo size the budgets hold for: a 24 MP camera's.
 const FULL: (u32, u32) = (6000, 4000);
