@@ -408,7 +408,7 @@ waits for.)
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ✅ |
 | Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ✅ |
 | After 1.0 | M16 | Post-1.0 enhancements | what comes after the honest 1.0, starting with switchable themes | ✅ |
-| | M17 | M16's follow-ups | the open items M16 left: large files read in parts, every unshown format on a card, font fallback, instant close | ⬜ |
+| | M17 | M16 follow-ups | the open items M16 left: large files read in parts, every unshown format on a card, font fallback, instant close | ⬜ |
 
 ## Milestones
 
@@ -11829,7 +11829,7 @@ order, though the waves draw some side by side; every `ui` panel or dialog block
 `crates/ui/src/panels/**` and `dialogs/**` cover them. 18 of the 23 non-review tasks run in
 waves 1–2, at most ten at once (the machine runs eight agents; `next` picks by order).
 
-### M17 — M16's follow-ups
+### M17 — M16 follow-ups
 
 A follow-up milestone built from the items M16 left open (the maintainer's decision at M16.R,
 2026-11-06): what its tasks, merges and review recorded as still to do, each placed in a task
