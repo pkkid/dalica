@@ -67,8 +67,7 @@ const SLIDER_MIN: f32 = 120.0;
 const SLIDER_MAX: f32 = 420.0;
 /// The slider's height (its hit area), in points.
 const SLIDER_H: f32 = 20.0;
-/// The grid: white at α170 (premultiplied), 1 pt, dashed.
-const GRID_COLOR: Color32 = Color32::from_rgba_premultiplied(170, 170, 170, 170);
+/// The grid: `Tokens::straighten_grid` (white at about 50 % opacity), 1 pt, dashed.
 const GRID_DASH: f32 = 4.0;
 const GRID_GAP: f32 = 4.0;
 /// Angles are kept to this many decimals of a degree, as `photo.straighten.apply` stores them.
@@ -346,7 +345,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let mut shapes = Vec::new();
     for line in guides::grid(image.width(), image.height()) {
         let points: Vec<egui::Pos2> = line.iter().map(|[x, y]| image.lerp_inside(vec2(*x, *y))).collect();
-        Shape::dashed_line_many(&points, Stroke::new(1.0, GRID_COLOR), GRID_DASH, GRID_GAP, &mut shapes);
+        Shape::dashed_line_many(&points, Stroke::new(1.0, t.straighten_grid), GRID_DASH, GRID_GAP, &mut shapes);
     }
     painter.extend(shapes);
 

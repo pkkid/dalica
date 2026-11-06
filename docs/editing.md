@@ -204,7 +204,9 @@ The tab content is replaced by the **Crop** panel:
 
 ### 6.2 Straighten
 
-Clicking Straighten overlays a **dashed white grid** on the photo and floats a dark translucent bar
+Clicking Straighten overlays a **dashed white grid** on the photo (1 pt, white at about 50 %
+opacity, `white α128`, the `straighten_grid` token, so it reads on a light photo without glaring on
+a dark one) and floats a dark translucent bar
 (`black α180`, radius 6) 10 pt above the photo's bottom edge, centred: a wide slider (thumb centred =
 0°), then **Apply** and **Cancel** buttons. Range ±10°; the photo rotates live and is scaled up so no
 empty corners show. Arrow keys nudge 0.1°. Esc = Cancel.

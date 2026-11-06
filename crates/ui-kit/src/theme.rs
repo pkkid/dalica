@@ -136,6 +136,9 @@ pub struct Tokens {
     pub crosshair: Color32,
     /// … and the dark edge under it that keeps it readable on a bright photo, `black α160`.
     pub crosshair_outer: Color32,
+    /// `white α128` (about 50 % opaque): the Straighten tool's dashed grid over the photo
+    /// (`editing.md` §6.2), so it reads on a light photo without glaring on a dark one.
+    pub straighten_grid: Color32,
     /// White: the 2 pt outline of the focused (anchor) photo.
     pub photo_focus: Color32,
     /// `gray 170`: the 2 pt outline of the other selected photos.
@@ -459,6 +462,7 @@ impl Tokens {
         face_box_outer: Color32::from_black_alpha(160),
         crosshair: grey(0xf0),
         crosshair_outer: Color32::from_black_alpha(160),
+        straighten_grid: Color32::from_rgba_premultiplied(128, 128, 128, 128),
         photo_focus: Color32::WHITE,
         photo_selected: grey(170),
         badge_plate: Color32::from_black_alpha(130),
@@ -772,6 +776,7 @@ mod tests {
         assert_eq!((t.radius, t.window_radius, t.toast_radius, t.filter_radius, t.focus_width), (4, 6, 6, 5, 1.5));
         assert_eq!(t.overlay_radius, 10);
         assert_eq!((t.overlay_hover, t.overlay_pressed), (Color32::from_white_alpha(28), Color32::from_white_alpha(48)));
+        assert_eq!(t.straighten_grid, Color32::from_white_alpha(128));
         assert_eq!(
             [t.body, t.small, t.title, t.heading, t.button_label, t.caption, t.detail, t.count, t.large, t.empty_title],
             [13.0, 11.0, 15.0, 16.0, 11.5, 10.5, 12.5, 12.0, 14.0, 18.0]
