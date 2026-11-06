@@ -11283,7 +11283,7 @@ under their own key, and a snapshot without them reads as one with none.
     Classic and of a colour search's results; the checks by hand in `m16.md` (each theme looked at
     in the real window on each OS, the title bar and native dialogs beside it).
   - done when: `cargo xtask accept M16` passes everything in M16's *Done when*.
-- ⬜ **M16.13 `engine` + `thumbs` + `create` + apps: the `hevc` feature forwarded, as `heif` is**
+- ✅ **M16.13 `engine` + `thumbs` + `create` + apps: the `hevc` feature forwarded, as `heif` is**
   - after: M15.R
   - files: `crates/engine/Cargo.toml`, `crates/thumbs/Cargo.toml`, `crates/create/Cargo.toml`, `apps/dalica/Cargo.toml`, `apps/dalica-cli/Cargo.toml`, `crates/engine/src/video.rs`, `crates/engine/tests/hevc.rs`, `xtask/src/ci.rs`, `docs/formats.md`, `docs/video-decoders.md`, `docs/development.md`
   - scope: the M15.R answer (Q1): HEVC stays a non-default feature, as HEIC is. `hevc =

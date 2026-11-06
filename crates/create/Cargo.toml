@@ -18,6 +18,9 @@ path = "tests/all.rs"
 [features]
 # `dalica-fs`'s named fault points, so tests can fail or "crash" every step of a Save (M8.18).
 faults = ["dalica-fs/faults"]
+# HEVC video frames (formats.md §1), off by default: with it Export and the collage take an HEVC
+# clip's frames.
+hevc = ["dalica-image/hevc"]
 
 [dependencies]
 # The name sanitizer and collision names (M8.13).

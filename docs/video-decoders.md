@@ -267,6 +267,14 @@ task waits on them: the later tasks build on §2 and keep the tile path.
    behind the same non-default feature as HEIC (iPhone clips then stay tiles in official builds)?
    H.264 and AAC carry the same kind of question, in fewer countries (many of their patents have
    expired).
+   *Answered at M15.R (2026-10-20): HEVC stays a non-default feature, as HEIC is.* The `hevc`
+   feature of `dalica-image` is forwarded by `dalica-thumbs`, `dalica-create`, `dalica-engine`,
+   `dalica` and `dalica-cli` (M16.13): `cargo build -p dalica --features hevc` plays HEVC clips in
+   the player, the slideshow, Export and the collage, and their posters are their thumbnails; the
+   default build, and so the release packages (`releasing.md`), keeps "This video can't be played
+   (HEVC support isn't included in this build)". `crates/engine/tests/hevc.rs` checks both builds
+   with a procedural clip (PCM-coded pictures under an `hvc1` sample entry), and the review's
+   `cargo xtask ci --full` runs it with the feature (`test hevc`, `development.md` §3).
 2. **`unsafe` in the passing video decoders.** H.264 passes only with `altc264`, whose decoding core
    uses 257 `unsafe` sites on hostile input (raw pointers into shared pictures, unchecked indexing,
    a lifetime `transmute` in its thread pool); it was first published 2026-10-14 and has one

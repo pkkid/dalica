@@ -11,8 +11,8 @@
 //! - **Whether Dalica plays it** ([`playback`]): from the facts the scan read, never the file: the
 //!   video by its codec (H.264 always, HEVC with the `hevc` build feature; `docs/video-decoders.md`),
 //!   else "This video can't be played (ProRes)"; the sound when it is AAC, else the clip plays
-//!   muted with the reason. The edit view's player (M15.26) asks [`playback`]; [`playable`] is
-//!   no longer asked.
+//!   muted with the reason. The edit view's player (M15.26), the slideshow, Export and the collage
+//!   ask it.
 //! - **The still-only paths** ask [`edit_refusal`] and [`CROP_REFUSED`]: a video takes only its
 //!   own edits (a rotation and the trim, `editing.md` §11), never an effect, a tuning, a crop or a
 //!   pasted recipe; Save refuses it by its extension (`cmd/save.rs`), Export and the slideshow
@@ -153,12 +153,6 @@ pub fn add_listed_kind(out: &mut Value, facts: Option<&VideoFacts>) {
     if let (Some(out), Value::Object(fields)) = (out.as_object_mut(), fields) {
         out.extend(fields);
     }
-}
-
-/// The edit view's question before its player (M15.26), which now asks [`playback`]: every video
-/// answers [`CANNOT_PLAY`] here. Nothing calls it any more.
-pub fn playable(_facts: &VideoFacts) -> Result<(), &'static str> {
-    Err(CANNOT_PLAY)
 }
 
 /// What Dalica plays of a video: its pictures, or why not, and its sound.

@@ -16,12 +16,13 @@
 //!   share files.
 //! - **`cargo xtask ci --full`** (the review gate, `M<n>.R`): every test of every package at full
 //!   strength (`DALICA_FULL_TESTS=1`), the heif decoder's tests and the engine's HEIC Save, the
+//!   engine's HEVC clip with the `hevc` feature and the apps checked with it (`test hevc`), the
 //!   parity check against the registered commands (and the `KEY-*` rows against the keymap), and
 //!   the acceptance test of every finished milestone, and the RustSec advisory check
 //!   (`crate::advisories`, which fetches the advisory database unless `DALICA_ADVISORY_DB` names a
 //!   checkout). With `--platform` (the Windows and macOS runs of the review) it
-//!   leaves out what is the same on every system: the format and static checks, the heif tests and
-//!   the packages in [`PURE`].
+//!   leaves out what is the same on every system: the format and static checks, the heif and hevc
+//!   tests and the packages in [`PURE`].
 //!
 //! `--full` also takes `--tests-only` or `--accept-only`, which split it into two parts that run
 //! side by side as separate GitHub jobs (each within its time limit; Windows took 65 minutes for
@@ -509,6 +510,23 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                     strength,
                 );
                 image.and(save)
+            }),
+        ));
+        // The optional HEVC decoder (`docs/formats.md` §1, `docs/video-decoders.md` §8) is off by
+        // default too: the engine's HEVC clip through the player, the thumbnails, Export, the
+        // slideshow and the collage (`crates/engine/tests/hevc.rs`), and the two apps built with it.
+        // All three run even when one fails.
+        steps.push((
+            "test hevc".into(),
+            Box::new(|| {
+                let engine = cargo_env(
+                    root,
+                    &["test", "--no-fail-fast", "-p", "dalica-engine", "--features", "hevc", "--test", "all", "-j", &n, "--", "hevc::", &threads],
+                    strength,
+                );
+                let app = cargo_env(root, &["check", "-p", "dalica", "--features", "hevc", "-j", &n], &[]);
+                let cli = cargo_env(root, &["check", "-p", "dalica-cli", "--features", "hevc", "-j", &n], &[]);
+                engine.and(app).and(cli)
             }),
         ));
     }
