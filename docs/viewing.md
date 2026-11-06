@@ -23,8 +23,22 @@ zoom and compare modes) is in [`editing.md`](editing.md).
 
 ### 1.2 Presentation
 
-- Full screen, pure black background, photo fitted (never upscaled beyond 2× of its pixel size),
-  centred. Rendered at screen resolution (always full quality).
+- **In the window** (M16.32, the default): the show plays in the **photo area** of the view it
+  started from: the light table's place (the light table and its scroll bar) in the library, the
+  photo's place in the edit view. The menu bar, toolbar, folder/album tree, side pane, status line
+  and bottom area stay in view around it, dimmed with the dialog backdrop and not usable while it
+  plays (the menu bar stays live); clicking them does nothing, so a click in the tree never ends
+  the show. A show started from the photo viewer, or with a room in front, fills the window.
+- **Full screen**: the Full Screen button on the control bar (§1.3) switches the running show to
+  full screen without restarting it (the same photo, play/pause state and timer: a change due at
+  3 s still comes at 3 s) and asks the system for full screen; a second press, or Esc, brings it
+  back to the window (the window's own full screen as it was before). Esc in the window, or Exit
+  in either, ends the show. Options → Slideshow's **Start slideshows full screen** (off) starts
+  every show full screen, as before M16.32.
+- Pure black background, photo fitted (never upscaled beyond 2× of its pixel size), centred.
+  Rendered at the area's resolution (always full quality): switching to full screen or resizing
+  the window refits the photo shown at once (its preview made again at the new size in the
+  background, the one it has scaled meanwhile).
 - The next photo is decoded ahead of time; a transition never waits on the disk.
 - Captions (when the caption toggle is on): the photo's caption centred near the bottom, 22 pt
   Inter on a `black α160` rounded plate, max 70 % of the screen width, wrapping to 2 lines.
@@ -36,20 +50,25 @@ zoom and compare modes) is in [`editing.md`](editing.md).
 
 ### 1.3 Control bar
 
-A rounded translucent dark panel (`black α170`, radius 10) centred along the bottom: shown for 2 s
+A rounded translucent dark panel (`black α170`, radius 10) centred along the bottom of the show's
+area (the photo area in the window, the screen when full screen): shown for 2 s
 when the show starts, for 2.5 s after a mouse move or Space, for good at the end, and kept while the
 pointer rests on it or its drop-up is open; it fades in and out over 0.2 s. Left → right:
 
 ```text
-╭──────────────────────────────────────────────────────────────────────────────────────────────╮
-│ [⇦ Exit] [🔍]○━━━━━━  [↺][↻]   ⇦   (▶/❚❚)   ⇨   [★]   [Dissolve     ▴]  [▭ ☑]   Display time  │
-│                                                                                  [−] 3 s [+] │
-╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ [⇦ Exit] [🔍]○━━━━━━  [↺][↻]   ⇦   (▶/❚❚)   ⇨   [★]   [Dissolve     ▴]  [▭ ☑]   Display time   [⛶] │
+│                                                                                  [−] 3 s [+]       │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
+
+In an area too narrow for the whole bar (a small window, the side pane open), Exit and Transition
+keep only their icons, then the zoom slider and the rotate buttons go, then the display time;
+each stays reachable by its key or in Options → Slideshow.
 
 | # | Control | Behaviour |
 |---|---|---|
-| 1 | **Exit** | ends the show (Esc) and returns to where it started, with the last shown photo selected |
+| 1 | **Exit** | ends the show (Esc in the window) and returns to where it started, with the last shown photo selected |
 | 2 | **Zoom** (magnifier + slider) | zooms the current photo (pauses while zoomed; drag to pan) |
 | 3–4 | **Rotate left / right** | rotates the photo (the same non-destructive rotation as in the library) |
 | 5 | **Previous** | disabled on the first photo when Loop is off |
@@ -59,6 +78,7 @@ pointer rests on it or its drop-up is open; it fades in and out over 0.2 s. Left
 | 9 | **Transition** (drop-up list) | **Cut**, **Pan and Zoom**, **Dissolve** (default), **Wipe**, **Circle**, **Push**, **Rectangle** |
 | 10 | **Captions** toggle | caption icon + checkbox |
 | 11 | **Display time** | `[−] 3 seconds [+]`, 1–60 s in 1 s steps (default 3) |
+| 12 | **Full Screen** | corner marks; switches the show between the window's photo area and full screen (lit while full screen) without restarting it (§1.2) |
 
 Transition, display time and caption settings persist (Options → Slideshow mirrors them): the bar's
 controls store them at once (`options.set`, no undo step), and the edit view's caption-bar toggle
@@ -71,7 +91,7 @@ centre).
 
 | Input | Action |
 |---|---|
-| Esc | exit |
+| Esc | full screen: back to the window; in the window: exit |
 | Space | pause / resume (and show the bar) |
 | → / ↓ / PgDn | next |
 | ← / ↑ / PgUp | previous |
@@ -85,14 +105,14 @@ centre).
 
 ### 1.5 Options → Slideshow
 
-**Loop slideshow** (off) · **Play music during slideshows** (off) + music folder [Browse…] (every
+**Loop slideshow** (off) · **Start slideshows full screen** (off; M16.32) · **Play music during slideshows** (off) + music folder [Browse…] (every
 MP3/OGG/FLAC/WAV in the folder plays in name order, looping) · **Display time** · **Transition** ·
 **Show captions** (on) · **Play video sound** (off). A folder's own music (Folder Properties →
 Music for slideshows, `organizing.md` §10) overrides this music folder in a show of that folder
 (§1.5.1).
 
 The tab groups Play music, the music folder and Play video sound under **Sound**, below Loop, Show
-captions, Display time (a 1–60 s slider with its number field) and Transition. On a system with no
+captions, Start slideshows full screen, Display time (a 1–60 s slider with its number field) and Transition. On a system with no
 sound output (no sound server or output device) the three are greyed with the reason "No sound
 output on this system".
 

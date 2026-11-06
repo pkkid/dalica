@@ -19,6 +19,9 @@
 //!
 //! While a room is open the room tab strip sits under the menu bar (`ui-layout.md` §8): the edit
 //! view is the Library tab's content.
+//!
+//! A slideshow started here plays in the photo's place (`viewing.md` §1.2, M16.32): the regions
+//! around it are drawn dimmed and inert (the menu bar aside) and the show over the canvas.
 
 pub mod basic;
 pub mod canvas;
@@ -46,12 +49,13 @@ pub mod zoom;
 
 use egui::{Ui, UiBuilder, vec2};
 
-use super::{Panels, bottom, layout, light_table, menubar, region, rooms, side_pane, status};
+use super::{Panels, around_show, bottom, dim, layout, light_table, menubar, region, rooms, side_pane, slideshow_region, status};
 use crate::app::App;
 use crate::state::ToolKind;
 
-/// Lays out and paints the edit view's regions, and registers them.
-pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
+/// Lays out and paints the edit view's regions, and registers them; with `slideshow`, a show plays
+/// in the photo's place and the other regions (the menu bar aside) are dimmed and inert.
+pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, slideshow: bool) {
     let t = *app.tokens();
     let mut l = layout::compute_edit(ui.max_rect(), app.state());
     // A collage's Edit Collage sits left of the compare toggle: the filmstrip gives way (M14.20).
@@ -65,6 +69,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         let mut inner = ui.new_child(UiBuilder::new().max_rect(ui.max_rect().shrink2(vec2(8.0, 0.0))));
         menubar::show(p, app, &mut inner);
     });
+    let outer = ui;
+    let ui = &mut around_show(outer, slideshow);
     if let Some(rect) = l.tab_strip {
         region(ui, "tabStrip", rect, t.chrome, |ui| rooms::show(app, ui));
     }
@@ -73,7 +79,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     if let Some(rect) = l.edit_panel {
         region(ui, "editPanel", rect, t.chrome, |ui| panel::show(app, ui));
     }
-    region(ui, "canvas", l.canvas, t.canvas, |ui| {
+    // The show is drawn last, over the dimming.
+    let canvas = if slideshow { egui::Rect::NOTHING } else { l.canvas };
+    region(ui, "canvas", canvas, t.canvas, |ui| {
         canvas::show(app, ui);
         compare::show(app, ui);
         match app.state().edit.tool {
@@ -95,4 +103,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
     region(ui, "bottom", l.bottom, t.chrome, |ui| bottom::show(p, app, ui));
+    if slideshow {
+        dim(outer, &t, l.menu_bar.max.y);
+        slideshow_region(app, outer, l.canvas);
+    }
 }

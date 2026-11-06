@@ -26,7 +26,8 @@
 //! **1:1** buttons (`button:zoom.fit`, `button:zoom.1to1`: `edit.zoom.fit`, `edit.zoom.actual`)
 //! and the zoom slider (`slider:zoom`, 0 fit, ½ 100 %, 1 400 %: `edit.zoom.set`), and the star and
 //! rotate buttons act on the photo shown (the rotations a step of its history). The library view's
-//! frames also close the edit view's preview once it is left (`canvas::release`).
+//! frames also close the edit view's preview once it is left (`canvas::release`), except while a
+//! slideshow plays in the window around it (M16.32), whose preview panes they are.
 
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::icons::{self, Icon};
@@ -217,7 +218,11 @@ fn plate(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, tooltip: &str, size: Vec
 
 /// Paints and runs the bottom area in `ui`'s rect (the bottom region of [`super::layout`]).
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
-    canvas::release(app);
+    // A slideshow playing in the window (M16.32) draws this area around it: its preview panes are
+    // the show's.
+    if app.state().view != crate::state::View::Slideshow {
+        canvas::release(app);
+    }
     let area = ui.max_rect();
     let parts = parts(area);
     tray::show(p, app, ui, parts.tray);

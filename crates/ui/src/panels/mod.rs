@@ -6,9 +6,11 @@
 //!
 //! M11's surfaces, stubs until the tasks that draw them: the room tab strip ([`rooms`]), the Import
 //! room ([`import`]), the slideshow ([`slideshow`]), the quick full-screen preview ([`peek`]) and
-//! the photo viewer ([`viewer`]); compare is the edit view's (`edit::compare`). A slideshow and the
-//! viewer fill the window; a room in front replaces the library's content under the tab strip;
-//! the quick preview covers whatever is shown.
+//! the photo viewer ([`viewer`]); compare is the edit view's (`edit::compare`). The viewer fills the
+//! window; a slideshow plays in the photo area of the view it started from (the light table's place
+//! or the edit view's photo), the rest of that view drawn dimmed and inert around it, unless it is
+//! full screen, when it fills the window (M16.32, [`slideshow_place`]); a room in front replaces
+//! the library's content under the tab strip; the quick preview covers whatever is shown.
 //!
 //! M13's surfaces, stubs until the tasks that draw them: the Unnamed grid ([`faces`], in the light
 //! table's region while `unnamed.open`), the People pane ([`people_pane`]) and the Places pane
@@ -138,12 +140,16 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         use crate::state::{Room, View};
         peek::watch(app, ui);
         match (app.state().view, app.state().room) {
-            (View::Slideshow, _) => slideshow::show(app, ui),
+            (View::Slideshow, _) => match slideshow_place(app.state()) {
+                Some(ShowPlace::Library) => regions(p, app, ui, true),
+                Some(ShowPlace::Edit) => edit::show(p, app, ui, true),
+                None => slideshow::show(app, ui),
+            },
             (View::Viewer, _) => viewer::show(app, ui),
             (_, Room::Import | Room::Collage) => room(p, app, ui),
-            (View::Library, Room::Library) => regions(p, app, ui),
+            (View::Library, Room::Library) => regions(p, app, ui, false),
             (View::Edit, Room::Library) => {
-                edit::show(p, app, ui);
+                edit::show(p, app, ui, false);
                 edit::video::show(app, ui);
             }
         }
@@ -152,12 +158,73 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     });
 }
 
+/// Where a slideshow playing in the window sits (M16.32): the light table's place, or the edit view's
+/// photo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShowPlace {
+    Library,
+    Edit,
+}
+
+/// Where the slideshow of `state` plays in the window, or `None` when it fills the window: full
+/// screen, started from the photo viewer, or with a room in front.
+pub fn slideshow_place(state: &crate::state::UiState) -> Option<ShowPlace> {
+    use crate::state::{Room, ShowFrom, View};
+    let s = state.slideshow.as_ref().filter(|s| state.view == View::Slideshow && !s.full_screen)?;
+    match (s.from, state.room) {
+        (ShowFrom::Library, Room::Library) => Some(ShowPlace::Library),
+        (ShowFrom::Edit, Room::Library) if state.edit.photo.is_some() => Some(ShowPlace::Edit),
+        _ => None,
+    }
+}
+
+/// The slideshow's rect in `window` for `state`: the photo area it plays in, else the window.
+pub fn slideshow_rect(window: Rect, state: &crate::state::UiState) -> Rect {
+    match slideshow_place(state) {
+        Some(ShowPlace::Library) => {
+            let l = layout::compute(window, state);
+            l.light_table.union(l.scrollbar)
+        }
+        Some(ShowPlace::Edit) => layout::compute_edit(window, state).canvas,
+        None => window,
+    }
+}
+
+/// Draws the slideshow over `rect` (clipped to it), on top of what is drawn there.
+fn slideshow_region(app: &mut App, ui: &mut Ui, rect: Rect) {
+    if !rect.is_positive() {
+        return;
+    }
+    let mut child = ui.new_child(UiBuilder::new().id_salt(("region", "slideshow")).max_rect(rect));
+    child.set_clip_rect(rect.intersect(ui.clip_rect()));
+    slideshow::show(app, &mut child);
+}
+
+/// While a slideshow plays in the window: a child of `ui` over the whole window that takes no input
+/// (the regions around the show, dimmed after with [`dim`]); otherwise `ui`'s own child, live.
+fn around_show(ui: &mut Ui, show: bool) -> Ui {
+    let mut child = ui.new_child(UiBuilder::new().id_salt("aroundShow").max_rect(ui.max_rect()));
+    if show {
+        child.disable();
+    }
+    child
+}
+
+/// Dims the window under the menu bar (`below`) with the dialog backdrop, while a slideshow plays
+/// in the window: the regions around it stay in view, plainly not in use.
+fn dim(ui: &Ui, t: &dalica_ui_kit::Tokens, below: f32) {
+    let w = ui.max_rect();
+    ui.painter().rect_filled(Rect::from_min_max(egui::pos2(w.min.x, below), w.max), 0, t.backdrop);
+}
+
 /// Where toasts show for `state` in `window`: at the bottom of the light table, of the photo area
-/// in the edit view, of a room's content, of the whole window over a slideshow or the viewer.
+/// in the edit view, of a room's content, of the whole window over a full-screen slideshow or the
+/// viewer, of the show's own area over a slideshow in the window.
 pub fn toast_area(window: Rect, state: &crate::state::UiState) -> Rect {
     use crate::state::{Room, View};
     match (state.view, state.room) {
-        (View::Slideshow | View::Viewer, _) => window,
+        (View::Slideshow, _) => slideshow_rect(window, state),
+        (View::Viewer, _) => window,
         (_, Room::Import | Room::Collage) => layout::compute_room(window).room,
         (View::Library, Room::Library) => layout::compute(window, state).light_table,
         (View::Edit, Room::Library) => layout::compute_edit(window, state).toast_area(),
@@ -184,7 +251,9 @@ fn room(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
 }
 
-fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
+/// The library's regions; with `show`, a slideshow plays in the light table's place and the other
+/// regions (the menu bar aside) are drawn dimmed and inert around it.
+fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui, show: bool) {
     let t = *app.tokens();
     // The side pane slides in and out; the light table follows its edge.
     let slid = side_pane::slide(ui.ctx(), app.state(), ui.max_rect().width());
@@ -196,6 +265,8 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         let mut inner = ui.new_child(UiBuilder::new().max_rect(ui.max_rect().shrink2(vec2(8.0, 0.0))));
         menubar::show(p, app, &mut inner);
     });
+    let outer = ui;
+    let ui = &mut around_show(outer, show);
     if let Some(rect) = l.tab_strip {
         region(ui, "tabStrip", rect, t.chrome, |ui| rooms::show(app, ui));
     }
@@ -214,7 +285,9 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     // The light table and its scroll bar, side by side; the Unnamed grid in their place while it
     // is open.
-    if app.state().unnamed.open {
+    if show {
+        // Drawn last, over the dimming.
+    } else if app.state().unnamed.open {
         region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| faces::show(app, ui));
     } else {
         region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| light_table::show(p, app, ui, l.light_table, l.scrollbar));
@@ -224,4 +297,8 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
     region(ui, "bottom", l.bottom, t.chrome, |ui| bottom::show(p, app, ui));
+    if show {
+        dim(outer, &t, l.menu_bar.max.y);
+        slideshow_region(app, outer, l.light_table.union(l.scrollbar));
+    }
 }

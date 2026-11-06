@@ -36,6 +36,10 @@
 //! also when a budget is missed (in release, at the full photo size or larger). Without `--bench`
 //! (under `cargo test --benches`) it runs a smoke pass: three photos of 640 × 427, one advance per
 //! transition.
+//!
+//! The show plays in the window's photo area, as it starts by default (M16.32); `--full-screen`
+//! turns on Options ▸ Slideshow's "Start slideshows full screen", so it fills the window as
+//! before. The budgets hold in both.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -70,6 +74,7 @@ struct Args {
     advances: u64,
     json: bool,
     check: bool,
+    full_screen: bool,
 }
 
 fn args() -> Result<Args, String> {
@@ -81,6 +86,7 @@ fn args() -> Result<Args, String> {
         advances: if full { 5 } else { 1 },
         json: false,
         check: false,
+        full_screen: false,
     };
     let mut it = all.iter();
     while let Some(arg) = it.next() {
@@ -92,8 +98,13 @@ fn args() -> Result<Args, String> {
             "--advances" => a.advances = value()?.parse().map_err(|e| format!("--advances: {e}"))?,
             "--json" => a.json = true,
             "--check" => a.check = true,
+            "--full-screen" => a.full_screen = true,
             "--bench" => {}
-            other => return Err(format!("unknown argument `{other}` (use --photos N, --width PX, --height PX, --advances N, --check, --json)")),
+            other => {
+                return Err(format!(
+                    "unknown argument `{other}` (use --photos N, --width PX, --height PX, --advances N, --full-screen, --check, --json)"
+                ));
+            }
         }
     }
     if !(2..=100).contains(&a.photos) {
@@ -198,7 +209,7 @@ fn bench(a: &Args) -> Vec<Value> {
     let mut s = Session::open(&dir.path().join("library"), Arc::new(SystemClock)).expect("the library opens");
     s.execute("folders.add", &json!({ "path": folder })).expect("folders.add");
     s.wait_idle();
-    s.execute("options.set", &json!({ "values": { "slideshow.loop": true } })).expect("Loop on");
+    s.execute("options.set", &json!({ "values": { "slideshow.loop": true, "slideshow.fullScreen": a.full_screen } })).expect("Loop on");
     let any = s.library().photos().next().expect("a photo").folder;
     let section = format!("folder:{any}");
     let list = s.execute("slideshow.list", &json!({ "section": section })).expect("slideshow.list");
@@ -245,6 +256,7 @@ fn main() {
         "photos": a.photos,
         "photo_px": [a.size.0, a.size.1],
         "window": [WINDOW.0, WINDOW.1],
+        "full_screen": a.full_screen,
         "rows": rows,
     });
     if a.json {

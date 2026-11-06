@@ -11628,7 +11628,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: each issue's *Done when* holds; the #721 test: two presses render within a small
     tolerance of one; screenshots before and after for #720; fingerprints that move are looked at
     and the why is in the commit body; the PR closes #720 and #721.
-- ⬜ **M16.32 `ui` + `engine`: the slideshow in the window, with a Full Screen button (#725)**
+- ✅ **M16.32 `ui` + `engine`: the slideshow in the window, with a Full Screen button (#725)**
   - after: M16.12
   - files: `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/bar.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow/transition.rs`, `crates/ui/src/panels/slideshow/zoom.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `docs/viewing.md`
   - scope: issue #725 as written (maintainer request, 2026-11-06): a slideshow starts in the

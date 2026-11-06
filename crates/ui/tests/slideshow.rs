@@ -1,5 +1,8 @@
 //! The slideshow in the window (`viewing.md` §1.1–§1.4, `roadmap.md` M11.19), headless on a
-//! virtual session clock: Ctrl+4 with a photo selected plays its section from it; three display
+//! virtual session clock: Ctrl+4 with a photo selected plays its section from it in the light
+//! table's place (M16.32); the bar's Full Screen switches it to full screen and back on the same
+//! photo and timer, Esc from full screen goes back to the window and Esc in the window ends it;
+//! "Start slideshows full screen" starts it full screen as before; three display
 //! times advance three photos; Space pauses and a mouse move does not; → ← Home End; Esc returns
 //! to the library with the last photo shown selected and gives the window back; started from the
 //! edit view's Play it returns to the edit view on that photo; Ctrl+8 stars and Ctrl+R rotates the
@@ -16,7 +19,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{FRAMES, LARGE, SMALL, check_fits, check_rect, new_driver, shot, widget};
+use crate::common::{FRAMES, LARGE, SMALL, check_fits, check_rect, new_driver, shot, try_widget, widget};
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
 use dalica_engine::Session;
 use dalica_ui::commands::slideshow as cmd;
@@ -102,7 +105,7 @@ fn run(f: &mut Fx, id: &str, params: Value) -> Value {
     v
 }
 
-/// Ctrl+4 plays the selected photo's section from it, full screen; three display times advance
+/// Ctrl+4 plays the selected photo's section from it, in the light table's place; three display times advance
 /// three photos; a mouse move shows the bar and the show plays on, Space pauses it (and the clock
 /// then moves nothing) and plays it again; → ← End Home step; Esc goes back to the library with
 /// the last photo shown selected and the window as it was.
@@ -116,8 +119,8 @@ fn ctrl_4_plays_the_section_and_esc_returns_with_the_last_photo_selected() {
     let s = show(&f);
     assert_eq!(f.d.state().view, dalica_ui::state::View::Slideshow);
     assert_eq!((s.photos.clone(), s.index, s.playing), (o.clone(), 2, true), "the folder in display order, from the selected photo");
-    assert!(f.d.state().full_screen, "full screen asked through the view state");
-    assert!(widget(&f.d, cmd_canvas()).rect[2] >= LARGE.0 as f32, "the show fills the window");
+    assert!(!f.d.state().full_screen && !s.full_screen, "it plays in the window");
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, photo_area(&f.d), "the show fills the light table's place");
 
     pass(&mut f, 3 * DISPLAY_MS + 100);
     assert_eq!(index(&f), 5, "three display times, three photos");
@@ -161,6 +164,131 @@ fn ctrl_4_plays_the_section_and_esc_returns_with_the_last_photo_selected() {
 
 fn cmd_canvas() -> &'static str {
     dalica_ui::panels::slideshow::ID
+}
+
+/// The light table's place: the light table and its scroll bar.
+fn photo_area(d: &Driver) -> [f32; 4] {
+    let (t, s) = (widget(d, "region:lightTable").rect, widget(d, "region:scrollbar").rect);
+    [t[0], t[1], s[0] + s[2] - t[0], t[3]]
+}
+
+/// Turns on Options ▸ Slideshow's "Start slideshows full screen".
+fn start_full_screen(f: &mut Fx) {
+    session(f).execute("options.set", &json!({ "values": { "slideshow.fullScreen": true } })).unwrap();
+}
+
+/// A show starts in the window; the bar's Full Screen switches it to full screen without restarting
+/// it (the same photo, play state and timer: the change due at 3 s still comes at 3 s), a second
+/// press brings it back to the window, Esc from full screen goes back to the window, and Esc in the
+/// window ends the show with the window as it was. With "Start slideshows full screen" on, the show
+/// starts full screen as before M16.32, and Esc there goes back to the window first.
+#[test]
+fn full_screen_switches_both_ways_on_the_same_photo_and_timer() {
+    let mut f = setup(6, (96, 64), LARGE);
+    let o = f.order.clone();
+    run(&mut f, "select.set", json!({ "ids": [o[1]] }));
+    key(&mut f, "Ctrl+4");
+    let area = photo_area(&f.d);
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, area, "in the window, in the light table's place");
+    assert!(try_widget(&f.d, "region:tree").is_some() && try_widget(&f.d, "button:edit.play").is_none(), "the tree around it");
+    pass(&mut f, 1_000);
+    assert_eq!(index(&f), 1);
+
+    // The bar is up for 2 s from the start: its Full Screen.
+    f.d.click(dalica_ui::panels::slideshow::bar::FULL_SCREEN_ID).unwrap();
+    f.d.step();
+    let s = show(&f);
+    assert!(s.full_screen && f.d.state().full_screen, "full screen, the window asked to fill the screen");
+    assert_eq!((s.index, s.playing), (1, true), "the same photo, still playing");
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, [0.0, 0.0, LARGE.0 as f32, LARGE.1 as f32], "the show fills the window");
+    assert!(widget(&f.d, dalica_ui::panels::slideshow::bar::FULL_SCREEN_ID).active, "the button lit while full screen");
+    pass(&mut f, 1_800);
+    assert_eq!(index(&f), 1, "2.8 s in: not yet");
+    pass(&mut f, 400);
+    assert_eq!(index(&f), 2, "the timer went on: the change came at 3 s");
+
+    // Back with the button, then full screen again by the command and back by Esc.
+    run(&mut f, "slideshow.pause", json!({ "on": true }));
+    f.d.click(dalica_ui::panels::slideshow::bar::FULL_SCREEN_ID).unwrap();
+    f.d.step();
+    let s = show(&f);
+    assert!(!s.full_screen && !f.d.state().full_screen, "back in the window, the window given back");
+    assert_eq!((s.index, s.playing), (2, false), "the same photo, still paused");
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, area);
+    run(&mut f, "slideshow.fullScreen", json!({}));
+    assert!(show(&f).full_screen && f.d.state().full_screen, "the command switches the show");
+    key(&mut f, "Esc");
+    let st = f.d.state();
+    assert!(st.slideshow.as_ref().is_some_and(|s| !s.full_screen && s.index == 2) && !st.full_screen, "Esc from full screen: back in the window");
+    key(&mut f, "Esc");
+    let st = f.d.state();
+    assert_eq!((st.view, st.slideshow.is_none(), st.full_screen), (dalica_ui::state::View::Library, true, false), "Esc in the window ends the show");
+    assert_eq!(st.selection.ids, vec![o[2]]);
+
+    // The setting: full screen from the start; Esc goes back to the window, then ends it.
+    start_full_screen(&mut f);
+    key(&mut f, "Ctrl+4");
+    let s = show(&f);
+    assert!(s.full_screen && f.d.state().full_screen, "the setting starts it full screen");
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, [0.0, 0.0, LARGE.0 as f32, LARGE.1 as f32]);
+    run(&mut f, "slideshow.exit", json!({}));
+    let st = f.d.state();
+    assert_eq!((st.slideshow.is_none(), st.full_screen), (true, false), "Exit ends it from full screen, the window given back");
+}
+
+/// In the window and full screen, at 1400 × 900 and 900 × 600: the bar (with its Full Screen
+/// button) lies inside the show's area, which a resize refits; the frames go to the test output.
+#[test]
+fn the_bar_fits_the_show_in_the_window_and_full_screen_at_both_sizes() {
+    let mut f = setup(3, (640, 420), LARGE);
+    let o = f.order.clone();
+    session(&mut f).execute("photo.caption.set", &json!({ "ids": [o[0]], "caption": "Morning light over the harbour" })).unwrap();
+    run(&mut f, "select.set", json!({ "ids": [o[0]] }));
+    key(&mut f, "Ctrl+4");
+    for (size, name) in [(LARGE, "1400x900"), (SMALL, "900x600")] {
+        f.d.resize(size.0, size.1);
+        for full in [false, true] {
+            run(&mut f, "slideshow.fullScreen", json!({ "on": full }));
+            run(&mut f, "slideshow.pause", json!({ "on": true }));
+            pass(&mut f, 300);
+            shot(&f.d, &format!("slideshow-{}-{name}", if full { "full-screen" } else { "in-window" }));
+            let area = widget(&f.d, cmd_canvas()).rect;
+            let window = [0.0, 0.0, size.0 as f32, size.1 as f32];
+            if full {
+                assert_eq!(area, window);
+            } else {
+                assert_eq!(area, photo_area(&f.d), "{name}: the light table's place");
+            }
+            let bar = widget(&f.d, dalica_ui::panels::slideshow::bar::BAR_ID).rect;
+            let inside =
+                bar[0] >= area[0] && bar[1] >= area[1] && bar[0] + bar[2] <= area[0] + area[2] + 0.01 && bar[1] + bar[3] <= area[1] + area[3] + 0.01;
+            assert!(inside, "{name} full {full}: the bar {bar:?} inside {area:?}");
+            let button = widget(&f.d, dalica_ui::panels::slideshow::bar::FULL_SCREEN_ID).rect;
+            assert!(button[0] + button[2] <= bar[0] + bar[2] + 0.01, "{name}: Full Screen on the bar");
+            check_fits(&f.d, &format!("slideshow {name} full {full}"));
+        }
+    }
+}
+
+/// Started from the edit view, the show plays in the photo's place with the edit view dimmed
+/// around it; full screen and back it stays there.
+#[test]
+fn from_the_edit_view_it_plays_in_the_photos_place() {
+    let mut f = setup(3, (96, 64), LARGE);
+    let o = f.order.clone();
+    run(&mut f, "view.edit", json!({ "id": o[0] }));
+    f.d.settle(FRAMES).unwrap();
+    let canvas = widget(&f.d, "region:canvas").rect;
+    f.d.click("button:edit.play").unwrap();
+    f.d.step();
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, canvas, "in the photo's place");
+    assert!(try_widget(&f.d, "button:edit.play").is_some_and(|w| !w.enabled), "the top bar is there, inert");
+    run(&mut f, "slideshow.fullScreen", json!({}));
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, [0.0, 0.0, LARGE.0 as f32, LARGE.1 as f32]);
+    run(&mut f, "slideshow.fullScreen", json!({ "on": false }));
+    assert_eq!(widget(&f.d, cmd_canvas()).rect, canvas);
+    pass(&mut f, 300);
+    shot(&f.d, "slideshow-edit-window-1400x900");
 }
 
 /// The edit top bar's Play plays the photo's folder from it, and Esc returns to the edit view on
@@ -304,6 +432,8 @@ fn pan_and_zoom_moves_toward_a_named_face() {
 #[test]
 fn each_transition_at_its_midpoint_and_a_captioned_photo() {
     let mut f = setup(2, (640, 420), LARGE);
+    // Full screen, the photo over the whole window (M11.19's fingerprints).
+    start_full_screen(&mut f);
     let o = f.order.clone();
     let full = [0.0, 0.0, LARGE.0 as f32, LARGE.1 as f32];
     // The header's ▶ passes its section (and the selection inside it).

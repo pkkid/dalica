@@ -77,7 +77,12 @@ pub fn keys_wheel_and_bar(exe: &Path, home: &Path) {
     let c = &mut cl;
     resize(c, LARGE);
     run(c, "folders.add", json!({ "path": folder }));
-    run(c, "options.set", json!({ "values": { "slideshow.displayTime": 60, "slideshow.loop": false, "slideshow.transition": "dissolve" } }));
+    // M11's show fills the screen: since M16.32, "Start slideshows full screen".
+    run(
+        c,
+        "options.set",
+        json!({ "values": { "slideshow.displayTime": 60, "slideshow.loop": false, "slideshow.transition": "dissolve", "slideshow.fullScreen": true } }),
+    );
     let by_path = app::photos(c, &home.join("Pictures"));
     let o: Vec<Value> = (0..6).map(|n| by_path[&format!("Show/IMG_{n:04}.jpg")].id.clone()).collect();
 
@@ -164,8 +169,12 @@ pub fn keys_wheel_and_bar(exe: &Path, home: &Path) {
         "  the bar on a mouse move (matches its fingerprint): Next, Previous greyed on the first photo, Play, Wipe, Captions, 59 and 60 seconds"
     );
 
-    // Esc: back to the library with the last photo shown selected.
+    // Esc: from full screen back to the window (M16.32), then back to the library with the last
+    // photo shown selected.
     key(c, "Right");
+    key(c, "Escape");
+    let st = c.state();
+    assert_eq!((st["slideshow"]["fullScreen"].clone(), st["fullScreen"].clone()), (json!(false), json!(false)), "Esc full screen: the window: {st}");
     key(c, "Escape");
     let st = c.state();
     assert_eq!((st["view"].clone(), st["slideshow"].clone(), st["fullScreen"].clone()), (json!("library"), Value::Null, json!(false)), "{st}");
@@ -205,6 +214,9 @@ fn setup(n: usize, (w, h): (u32, u32)) -> Fx {
     let mut s = Session::open(&dir.path().join("library"), clock.clone()).unwrap();
     s.execute("folders.add", &json!({ "path": folder })).unwrap();
     s.wait_idle();
+    // M11's show fills the screen; since M16.32 that is Options ▸ Slideshow's "Start slideshows
+    // full screen".
+    s.execute("options.set", &json!({ "values": { "slideshow.fullScreen": true } })).unwrap();
     let any = s.execute("library.query", &json!({ "limit": 1 })).unwrap()["photos"][0]["id"].as_u64().unwrap();
     let section = format!("folder:{}", s.library().photo(PhotoId::new(any)).unwrap().folder);
     let list = s.execute("slideshow.list", &json!({ "section": section })).unwrap();

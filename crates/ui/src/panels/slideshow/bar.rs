@@ -1,10 +1,10 @@
 //! The slideshow's control bar (`viewing.md` §1.3), on `ui-kit`'s overlay bar:
 //!
 //! ```text
-//! ╭────────────────────────────────────────────────────────────────────────────────────────╮
-//! │ [⇦ Exit] [🔍]○━━━━  [↺][↻]  [⇤][❚❚][⇥]  [★]  [▧ Dissolve]▴  [▭☑]     Display time      │
-//! │                                                                  [−] 3 seconds [+]    │
-//! ╰────────────────────────────────────────────────────────────────────────────────────────╯
+//! ╭─────────────────────────────────────────────────────────────────────────────────────────────╮
+//! │ [⇦ Exit] [🔍]○━━━━  [↺][↻]  [⇤][❚❚][⇥]  [★]  [▧ Dissolve]▴  [▭☑]     Display time      [⛶] │
+//! │                                                                  [−] 3 seconds [+]         │
+//! ╰─────────────────────────────────────────────────────────────────────────────────────────────╯
 //! ```
 //!
 //! Exit (`slideshow.exit`), the magnifier (fitted ⇄ [`zoom::MAGNIFIER_ZOOM`]) and the zoom slider
@@ -12,8 +12,13 @@
 //! `.rotateRight`), Previous (greyed on the first photo without Loop), Play / Pause
 //! (`slideshow.pause`), Next, Star (lit while the photo is starred), the Transition drop-up of the
 //! seven (`slideshow.transition`), the Captions toggle (`slideshow.captions`) and Display time
-//! (`slideshow.displayTime`, 1–60 s). The three settings are Options ▸ Slideshow's, kept through
+//! (`slideshow.displayTime`, 1–60 s), and at the right end Full Screen (`slideshow.fullScreen`,
+//! M16.32: lit while the show is full screen, a second press back to the window). The three settings are Options ▸ Slideshow's, kept through
 //! `options.set` by their commands.
+//!
+//! **A narrow area** (M16.32: a show in a small window's photo area): Exit and Transition keep
+//! only their glyphs, then the zoom slider and the rotate buttons go, then the display time
+//! ([`Level`]); each stays reachable by its key or in Options ▸ Slideshow.
 //!
 //! **When it shows** (`viewing.md` §1.2, M11.4's timing): for 2 s when the show starts, for 2.5 s
 //! after a mouse move or Space, for good at the end; while the pointer rests on the bar or the
@@ -28,7 +33,7 @@
 //! drop-up's rows `menuitem:slideshow.transition/<id>` (`cut`, `panAndZoom`, `dissolve`, `wipe`,
 //! `circle`, `push`, `rectangle`), `check:slideshow.captions`, and the display time's stepper
 //! `stepper:slideshow.displayTime` (its text) with `stepper:slideshow.displayTime/minus` and
-//! `/plus`.
+//! `/plus`, and `button:slideshow.fullScreen` (active while full screen).
 
 use dalica_create::slideshow::{DISPLAY_MAX, DISPLAY_MIN, State, Transition};
 use dalica_engine::cmd::slideshow::Frame;
@@ -59,6 +64,10 @@ pub const STAR_ID: &str = "button:slideshow.star";
 pub const TRANSITION_ID: &str = "button:slideshow.transition";
 pub const CAPTIONS_ID: &str = "check:slideshow.captions";
 pub const DISPLAY_TIME_ID: &str = "stepper:slideshow.displayTime";
+pub const FULL_SCREEN_ID: &str = "button:slideshow.fullScreen";
+/// The Full Screen button's tooltips: in the window, and full screen.
+pub const TO_FULL_SCREEN: &str = "Full screen";
+pub const TO_WINDOW: &str = "Back to the window (Esc)";
 /// The label over the display time's stepper.
 pub const DISPLAY_TIME: &str = "Display time";
 /// Why Previous is greyed on the first photo without Loop.
@@ -127,6 +136,8 @@ pub fn text(english: &str) -> String {
         "Transition" => tl!("Transition"),
         "Show captions" => tl!("Show captions"),
         "Display time" => tl!("Display time"),
+        "Full screen" => tl!("Full screen"),
+        "Back to the window (Esc)" => tl!("Back to the window (Esc)"),
         other => crate::i18n::tr(other),
     }
 }
@@ -149,6 +160,7 @@ struct Shown {
     transition: Transition,
     captions: bool,
     display: i32,
+    full_screen: bool,
 }
 
 /// What a click asks for.
@@ -181,30 +193,59 @@ fn display_w(ui: &Ui, t: &Tokens) -> f32 {
 
 /// The bar's width: every control, the spacing between them and the padding.
 pub fn bar_width(ui: &Ui, t: &Tokens) -> f32 {
-    width(ui, t, false)
+    width(ui, t, Level::FULL)
 }
 
-/// The bar's width, `compact`: Exit and the Transition button without their words (a longer
-/// language in a narrow window), their tooltips still saying them.
-fn width(ui: &Ui, t: &Tokens, compact: bool) -> f32 {
-    let (exit, transition) =
-        if compact { (OVERLAY_BUTTON, OVERLAY_BUTTON + CHEVRON_W) } else { (labelled_w(ui, t, &text("Exit")), transition_w(ui, t) + CHEVRON_W) };
-    let items = [
-        exit,
-        OVERLAY_BUTTON,
-        SLIDER_W,
-        OVERLAY_BUTTON,
-        OVERLAY_BUTTON,
-        OVERLAY_BUTTON,
-        OVERLAY_BUTTON,
-        OVERLAY_BUTTON,
-        OVERLAY_BUTTON,
-        transition,
-        CAPTIONS_W,
-        display_w(ui, t),
+/// How much of the bar a narrow area leaves room for (M16.32: in the window the show's area can
+/// be narrow). Each level drops more; what it drops is still reachable (by key, in Options).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Level {
+    /// Exit and the Transition button without their words (their tooltips still say them).
+    pub compact: bool,
+    /// The zoom slider and the rotate buttons left out (the magnifier and the keys stay).
+    pub narrow: bool,
+    /// The display time left out too (Options ▸ Slideshow keeps it).
+    pub narrowest: bool,
+}
+
+impl Level {
+    pub const FULL: Level = Level { compact: false, narrow: false, narrowest: false };
+    /// From the fullest to the barest.
+    pub const ALL: [Level; 4] = [
+        Level::FULL,
+        Level { compact: true, narrow: false, narrowest: false },
+        Level { compact: true, narrow: true, narrowest: false },
+        Level { compact: true, narrow: true, narrowest: true },
     ];
-    let groups = 6.0;
+}
+
+/// The bar's width at `level`.
+fn width(ui: &Ui, t: &Tokens, level: Level) -> f32 {
+    let (exit, transition) = if level.compact {
+        (OVERLAY_BUTTON, OVERLAY_BUTTON + CHEVRON_W)
+    } else {
+        (labelled_w(ui, t, &text("Exit")), transition_w(ui, t) + CHEVRON_W)
+    };
+    let mut items = vec![exit, OVERLAY_BUTTON];
+    let mut groups = 7.0;
+    if !level.narrow {
+        items.extend([SLIDER_W, OVERLAY_BUTTON, OVERLAY_BUTTON]);
+    } else {
+        groups -= 1.0;
+    }
+    items.extend([OVERLAY_BUTTON, OVERLAY_BUTTON, OVERLAY_BUTTON, OVERLAY_BUTTON, transition, CAPTIONS_W]);
+    if !level.narrowest {
+        items.push(display_w(ui, t));
+    } else {
+        groups -= 1.0;
+    }
+    items.push(OVERLAY_BUTTON);
     items.iter().sum::<f32>() + SPACING * (items.len() - 1) as f32 + GROUP_GAP * groups + 2.0 * OVERLAY_PAD.x + 2.0
+}
+
+/// The fullest level whose bar fits `room` (the barest when none does).
+pub fn level_for(ui: &Ui, t: &Tokens, room: f32) -> Level {
+    Level::ALL.into_iter().find(|l| width(ui, t, *l) <= room).unwrap_or(Level { compact: true, narrow: true, narrowest: true })
 }
 
 /// The fade kept between frames, per egui context.
@@ -222,7 +263,7 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, frame: &Frame) -> BarOut {
     let settings = session.settings().slideshow();
     let v = frame.view;
     let starred = frame.photo.and_then(|(id, _)| session.library().photo(id)).is_some_and(|p| p.star);
-    let zoom_now = cmd::show(app).map_or(1.0, |s| s.zoom);
+    let (zoom_now, full_screen) = cmd::show(app).map_or((1.0, false), |s| (s.zoom, s.full_screen));
     let shown = Shown {
         playing: v.state == State::Playing,
         can_previous: v.can_previous,
@@ -231,13 +272,15 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, frame: &Frame) -> BarOut {
         transition: Transition::from_id(settings.transition.id()).unwrap_or_default(),
         captions: settings.captions,
         display: i32::try_from(settings.display_time).unwrap_or(DISPLAY_MAX as i32),
+        full_screen,
     };
 
-    // Kept up while the pointer rests on it or the drop-up is open. Too wide for the window (a
-    // longer language), Exit and Transition keep only their glyphs.
+    // Kept up while the pointer rests on it or the drop-up is open. Too wide for the area (a
+    // longer language, a narrow window), Exit and Transition keep only their glyphs, then the
+    // zoom slider and the rotate buttons go, then the display time ([`Level`]).
     let room = area.width() - 16.0;
-    let compact = bar_width(ui, &t) > room;
-    let rect = widgets::overlay_bar_rect(area, vec2(width(ui, &t, compact).min(room), BAR_H));
+    let level = level_for(ui, &t, room);
+    let rect = widgets::overlay_bar_rect(area, vec2(width(ui, &t, level).min(room), BAR_H));
     let over = ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p));
     let menu_open = Popup::is_id_open(&ctx, transition_popup());
     let mut fade = ctx.data(|d| d.get_temp::<OverlayFade>(fade_id())).unwrap_or_else(|| OverlayFade::new(v.bar));
@@ -250,7 +293,7 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, frame: &Frame) -> BarOut {
     ctx.data_mut(|d| d.insert_temp(fade_id(), fade));
 
     let mut act = None;
-    let drawn = widgets::overlay_bar(ui, &t, BAR_ID, rect, opacity, |ui| controls(ui, &t, &shown, compact, &mut act));
+    let drawn = widgets::overlay_bar(ui, &t, BAR_ID, rect, opacity, |ui| controls(ui, &t, &shown, level, &mut act));
     match act {
         Some(Act::Run(id, params)) => {
             let _ = app.run(id, &params);
@@ -264,7 +307,8 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, frame: &Frame) -> BarOut {
 }
 
 /// The bar's controls, left to right.
-fn controls(ui: &mut Ui, t: &Tokens, s: &Shown, compact: bool, act: &mut Option<Act>) {
+fn controls(ui: &mut Ui, t: &Tokens, s: &Shown, level: Level, act: &mut Option<Act>) {
+    let compact = level.compact;
     let run = |act: &mut Option<Act>, id: &'static str, params: Value| *act = Some(Act::Run(id, params));
     let exit = text("Exit");
     let label = (!compact).then_some(exit.as_str());
@@ -276,15 +320,17 @@ fn controls(ui: &mut Ui, t: &Tokens, s: &Shown, compact: bool, act: &mut Option<
     if widgets::overlay_button(ui, t, ZOOM_ID, Icon::Search.into(), None, zoomed, true, &text("Zoom (pauses the slideshow)")).clicked() {
         *act = Some(Act::Zoom(if zoomed { 1.0 } else { zoom::MAGNIFIER_ZOOM }));
     }
-    if let Some(z) = zoom_slider(ui, t, s.zoom) {
-        *act = Some(Act::Zoom(z));
-    }
-    ui.add_space(GROUP_GAP);
-    if widgets::overlay_button(ui, t, ROTATE_LEFT_ID, Icon::RotateCcw.into(), None, false, true, &text("Rotate counterclockwise")).clicked() {
-        run(act, "slideshow.rotateLeft", json!({}));
-    }
-    if widgets::overlay_button(ui, t, ROTATE_RIGHT_ID, Icon::RotateCw.into(), None, false, true, &text("Rotate clockwise")).clicked() {
-        run(act, "slideshow.rotateRight", json!({}));
+    if !level.narrow {
+        if let Some(z) = zoom_slider(ui, t, s.zoom) {
+            *act = Some(Act::Zoom(z));
+        }
+        ui.add_space(GROUP_GAP);
+        if widgets::overlay_button(ui, t, ROTATE_LEFT_ID, Icon::RotateCcw.into(), None, false, true, &text("Rotate counterclockwise")).clicked() {
+            run(act, "slideshow.rotateLeft", json!({}));
+        }
+        if widgets::overlay_button(ui, t, ROTATE_RIGHT_ID, Icon::RotateCw.into(), None, false, true, &text("Rotate clockwise")).clicked() {
+            run(act, "slideshow.rotateRight", json!({}));
+        }
     }
     ui.add_space(GROUP_GAP);
     let tip = text(if s.can_previous { "Previous photo" } else { FIRST_PHOTO });
@@ -311,10 +357,45 @@ fn controls(ui: &mut Ui, t: &Tokens, s: &Shown, compact: bool, act: &mut Option<
     if captions(ui, t, s.captions).clicked() {
         run(act, "slideshow.captions", json!({ "on": !s.captions }));
     }
-    ui.add_space(GROUP_GAP);
-    if let Some(secs) = display_time(ui, t, s.display) {
-        run(act, "slideshow.displayTime", json!({ "seconds": secs }));
+    if !level.narrowest {
+        ui.add_space(GROUP_GAP);
+        if let Some(secs) = display_time(ui, t, s.display) {
+            run(act, "slideshow.displayTime", json!({ "seconds": secs }));
+        }
     }
+    ui.add_space(GROUP_GAP);
+    if full_screen(ui, t, s.full_screen).clicked() {
+        run(act, "slideshow.fullScreen", json!({ "on": !s.full_screen }));
+    }
+}
+
+/// The Full Screen button: four corner marks pointing out (in the window) or in (full screen), lit
+/// while the show is full screen.
+fn full_screen(ui: &mut Ui, t: &Tokens, on: bool) -> Response {
+    let (_, rect) = ui.allocate_space(Vec2::splat(OVERLAY_BUTTON));
+    let r = ui.interact(rect, Id::new(FULL_SCREEN_ID), Sense::click());
+    let p = ui.painter();
+    if on || r.is_pointer_button_down_on() {
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.overlay_pressed);
+    } else if r.hovered() {
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.overlay_hover);
+    }
+    widgets::focus_ring(p, t, &r, rect, t.radius);
+    let color = if on || r.hovered() { t.overlay_text } else { t.overlay_icon };
+    let g = Rect::from_center_size(rect.center(), Vec2::splat(OVERLAY_GLYPH - 2.0));
+    let arm = g.width() * 0.35;
+    let stroke = Stroke::new(1.6, color);
+    for (corner, sx, sy) in [(g.left_top(), 1.0, 1.0), (g.right_top(), -1.0, 1.0), (g.left_bottom(), 1.0, -1.0), (g.right_bottom(), -1.0, -1.0)] {
+        // In the window the marks are the frame's corners (go out to it); full screen they turn
+        // inward (come back from it).
+        let (at, dx, dy) = if on { (corner + vec2(sx * arm, sy * arm), -sx, -sy) } else { (corner, sx, sy) };
+        p.line_segment([at, at + vec2(dx * arm, 0.0)], stroke);
+        p.line_segment([at, at + vec2(0.0, dy * arm)], stroke);
+    }
+    let tip = text(if on { TO_WINDOW } else { TO_FULL_SCREEN });
+    widgets::register(ui.ctx(), FULL_SCREEN_ID, Role::Button, &tip, Target::Widget(&r), on);
+    r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, true, on, &tip));
+    widgets::tooltip(r, t, &tip, None)
 }
 
 /// The zoom slider (1 fitted … [`SLIDE_ZOOM_MAX`], light on dark); answers the zoom a click or a
