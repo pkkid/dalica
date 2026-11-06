@@ -304,6 +304,57 @@ fn a_pinned_header_keeps_its_save_button() {
     assert_eq!(asked, edited, "Save names the folder's edited photos");
 }
 
+/// Discard sits beside Save under the same condition (M16.34): a click asks Undo All Edits' question
+/// for exactly the photos "%d edited" counts; Remove Edits removes those edits and nothing else,
+/// the count and both buttons go, and one Undo brings every edit back.
+#[test]
+fn discard_beside_save_asks_then_removes_the_counted_edits_in_one_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), LARGE.0, LARGE.1, 1.0);
+    d.settle(FRAMES).unwrap();
+    let target = info(&d).headers[0].0;
+    let other = info(&d).headers[1].0;
+    let id = format!("section:{target}/discardEdited");
+    assert!(d.widgets().iter().all(|w| !w.id.ends_with("/discardEdited")), "no unsaved edits, no Discard");
+    let photos = d.app().panels().unwrap().sections.get(target).unwrap().photos.clone();
+    let elsewhere = d.app().panels().unwrap().sections.get(other).unwrap().photos[0];
+    for p in [photos[0], photos[1], elsewhere] {
+        d.run("photo.history.apply", &json!({ "id": p, "op": "autofix()" })).unwrap();
+    }
+    d.settle(FRAMES).unwrap();
+    let widgets = d.widgets();
+    let (discard, save_button) = (get(&widgets, &id), get(&widgets, &format!("section:{target}/saveEdited")));
+    assert!(discard.enabled, "{discard:?}");
+    assert_eq!(discard.label, "Discard");
+    assert!(rect(save_button).max.x <= rect(discard).min.x, "Discard is to the right of Save");
+    save(&d, "section-header-discard");
+
+    d.click(&id).unwrap();
+    d.settle(FRAMES).unwrap();
+    let dialog = d.state().dialogs.last().expect("the question").clone();
+    assert_eq!(dialog.kind.name(), "undoAllEdits");
+    let mut asked: Vec<u64> = serde_json::from_value(dialog.fields["ids"].clone()).unwrap();
+    asked.sort_unstable();
+    let mut counted: Vec<u64> = photos[..2].iter().map(|p| p.get()).collect();
+    counted.sort_unstable();
+    assert_eq!(asked, counted, "Discard names the section's edited photos only");
+    assert!(d.app().session().unwrap().library().has_unsaved_edits(photos[0]), "nothing removed before the answer");
+
+    d.click("button:dialog.removeEdits").unwrap();
+    d.settle(FRAMES).unwrap();
+    let lib = d.app().session().unwrap().library();
+    assert!(!lib.has_unsaved_edits(photos[0]) && !lib.has_unsaved_edits(photos[1]));
+    assert!(lib.has_unsaved_edits(elsewhere), "another folder's edit stays");
+    assert_eq!(d.app().panels().unwrap().light_table.headers.edited(target), Some(0));
+    assert!(d.widgets().iter().all(|w| w.id != id), "the count and Discard go");
+
+    d.run("edit.undo", &json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
+    let lib = d.app().session().unwrap().library();
+    assert!(lib.has_unsaved_edits(photos[0]) && lib.has_unsaved_edits(photos[1]), "one Undo brings both back");
+    assert!(get(&d.widgets(), &id).enabled);
+}
+
 /// Checks the rect `r` of the last frame against `tests/fingerprints/<name>.json` (`DALICA_BLESS=1`
 /// stores a new one; the region goes to the test output, `-actual` when it differs).
 fn check_rect(d: &Driver, r: Rect, name: &str) {
