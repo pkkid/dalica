@@ -23,6 +23,7 @@ mod delete;
 mod diagnostics;
 mod duplicates;
 mod edit_keys;
+mod edited_filter;
 mod edited_thumbs;
 mod effects;
 mod execute_group;

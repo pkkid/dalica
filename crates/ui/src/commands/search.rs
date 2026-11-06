@@ -134,7 +134,7 @@ pub(crate) fn push(app: &mut App) -> Result<Value, CmdError> {
     let f = q.filters;
     let params = json!({
         "text": q.text,
-        "filters": { "starred": f.starred, "faces": f.faces, "videos": f.videos, "geotagged": f.geotagged },
+        "filters": { "starred": f.starred, "faces": f.faces, "videos": f.videos, "geotagged": f.geotagged, "edited": f.edited },
         "age": q.days,
         "people": q.people,
     });
@@ -228,7 +228,7 @@ pub fn sync(app: &mut App, ctx: &egui::Context) {
 }
 
 fn ui_filters(f: dalica_library::search::Filters) -> Filters {
-    Filters { starred: f.starred, faces: f.faces, videos: f.videos, geotagged: f.geotagged }
+    Filters { starred: f.starred, faces: f.faces, videos: f.videos, geotagged: f.geotagged, edited: f.edited }
 }
 
 /// The search album's name for the text typed: `Search results for "x"` (the library's), or

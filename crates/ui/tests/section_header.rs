@@ -355,6 +355,54 @@ fn discard_beside_save_asks_then_removes_the_counted_edits_in_one_step() {
     assert!(get(&d.widgets(), &id).enabled);
 }
 
+/// The toolbar's Edited filter (M16.34) shows exactly the photos with unsaved edits, the ones the
+/// header counts and Discard would clear, under the search banner; Show All clears it. Shot at both
+/// window sizes, the five filters joined in the light table's column.
+#[test]
+fn the_edited_filter_shows_exactly_the_counted_photos_and_show_all_clears_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), LARGE.0, LARGE.1, 1.0);
+    d.settle(FRAMES).unwrap();
+    let first = info(&d).headers[0].0;
+    let second = info(&d).headers[1].0;
+    let mut edited =
+        vec![d.app().panels().unwrap().sections.get(first).unwrap().photos[1], d.app().panels().unwrap().sections.get(second).unwrap().photos[0]];
+    for p in &edited {
+        d.run("photo.history.apply", &json!({ "id": p, "op": "autofix()" })).unwrap();
+    }
+    d.settle(FRAMES).unwrap();
+    let id = "button:filter.edited";
+    assert!(!get(&d.widgets(), id).active);
+    d.click(id).unwrap();
+    d.step();
+    d.app_mut().session_mut().unwrap().wait_search();
+    d.settle(FRAMES).unwrap();
+    assert!(get(&d.widgets(), id).active, "the toggle is on");
+    assert!(d.state().search.filters.edited);
+    let mut found = d.app().session().unwrap().search_state().result.as_ref().unwrap().photos().to_vec();
+    found.sort();
+    edited.sort();
+    assert_eq!(found, edited, "exactly the photos with unsaved edits");
+    let shown: BTreeSet<_> =
+        d.app().panels().unwrap().sections.list.iter().filter(|s| s.folder.is_some()).flat_map(|s| s.photos.iter().copied()).collect();
+    assert_eq!(shown, edited.iter().copied().collect(), "the light table shows them only");
+    assert!(d.widgets().iter().any(|w| w.id == "banner:search"), "under the filter banner");
+    for (w, h) in [LARGE, SMALL] {
+        d.resize(w, h);
+        d.settle(FRAMES).unwrap();
+        let widgets = d.widgets();
+        let filters: Vec<Rect> = dalica_ui::panels::toolbar::FILTER_IDS.iter().map(|f| rect(get(&widgets, f))).collect();
+        assert!(filters.windows(2).all(|p| p[0].max.x == p[1].min.x), "{w}x{h}: the five are joined");
+        assert!(filters[4].max.x <= rect(get(&widgets, "slider:age")).min.x, "{w}x{h}: Edited before the age slider");
+        save(&d, &format!("toolbar-edited-filter-{w}x{h}"));
+    }
+    d.resize(LARGE.0, LARGE.1);
+    d.settle(FRAMES).unwrap();
+    d.click("button:search.showAll").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(!d.state().search.filters.edited && !d.app().session().unwrap().search_state().active(), "Show All clears it");
+}
+
 /// Checks the rect `r` of the last frame against `tests/fingerprints/<name>.json` (`DALICA_BLESS=1`
 /// stores a new one; the region goes to the test output, `-actual` when it differs).
 fn check_rect(d: &Driver, r: Rect, name: &str) {

@@ -45,7 +45,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Search",
             menu: "",
             keys: &[],
-            params: r#"{"text"?:string (at most 16 KiB; the grammar reads 1 KiB), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days|0|null (0 or null: every age), "people"?:[PersonId] (the People pane's filter: photos holding a face of every one; at most 1024; [] clears it), "withholdNames"?:bool (this call only, default false: people's names and nicknames take no part, person: matches nothing and is unavailable; automation without --automation-allow-people always sends true)}: what is left out stays (but withholdNames); runs the search after the debounce, on the worker, without an undo step. Replies library.inspect's search: {active, mode, text, filters, age, people, matches, folders, bytes, seconds, sections, unavailable, truncated, pending, generation} and changed"#,
+            params: r#"{"text"?:string (at most 16 KiB; the grammar reads 1 KiB), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool, "edited"?:bool (photos with unsaved edits, as is:edited)}, "age"?:days|0|null (0 or null: every age), "people"?:[PersonId] (the People pane's filter: photos holding a face of every one; at most 1024; [] clears it), "withholdNames"?:bool (this call only, default false: people's names and nicknames take no part, person: matches nothing and is unavailable; automation without --automation-allow-people always sends true)}: what is left out stays (but withholdNames); runs the search after the debounce, on the worker, without an undo step. Replies library.inspect's search: {active, mode, text, filters, age, people, matches, folders, bytes, seconds, sections, unavailable, truncated, pending, generation} and changed"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -113,6 +113,7 @@ pub(crate) struct FilterParams {
     faces: Option<bool>,
     videos: Option<bool>,
     geotagged: Option<bool>,
+    edited: Option<bool>,
 }
 
 impl FilterParams {
@@ -123,6 +124,7 @@ impl FilterParams {
             faces: self.faces.unwrap_or(base.faces),
             videos: self.videos.unwrap_or(base.videos),
             geotagged: self.geotagged.unwrap_or(base.geotagged),
+            edited: self.edited.unwrap_or(base.edited),
         }
     }
 }

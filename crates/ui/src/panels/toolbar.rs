@@ -11,7 +11,8 @@
 //! ([`VIEW_OPTIONS_ROWS`]).
 //!
 //! **Search** (`organizing.md` §8, `ui-layout.md` §9) edits the view state's `search`, which
-//! [`crate::commands::search::sync`] sends to the engine: the filter toggles (Faces shows only the
+//! [`crate::commands::search::sync`] sends to the engine: the filter toggles (Edited, M16.34, shows
+//! only the photos with unsaved edits, the ones the edited badge marks; Faces shows only the
 //! photos with a named or unnamed face, M13.27), the age slider (`ui-kit`'s, its position in the view state,
 //! its label in the caption while hovered), and the search field (live; × and Esc leave search
 //! mode; Ctrl+F and F3 focus it). Under the focused field the engine's suggestions for the last word
@@ -54,7 +55,10 @@ pub const NEW_ALBUM_ID: &str = "button:toolbar.newAlbum";
 pub const FLAT_ID: &str = "button:tree.flat";
 pub const TREE_ID: &str = "button:tree.tree";
 pub const VIEW_OPTIONS_ID: &str = "button:toolbar.viewOptions";
-pub const FILTER_IDS: [&str; 4] = ["button:filter.starred", "button:filter.faces", "button:filter.videos", "button:filter.geotagged"];
+pub const FILTER_IDS: [&str; 5] =
+    ["button:filter.starred", "button:filter.faces", "button:filter.videos", "button:filter.geotagged", "button:filter.edited"];
+/// How many filter toggles there are.
+pub const FILTER_COUNT: usize = FILTER_IDS.len();
 pub const AGE_ID: &str = "slider:age";
 pub const SEARCH_ID: &str = "field:search";
 pub const SEARCH_CLEAR_ID: &str = "button:search.clear";
@@ -74,10 +78,14 @@ pub const NEW_ALBUM: Vec2 = vec2(30.0, 28.0);
 /// One segment of the Flat | Tree pair.
 pub const SEGMENT: Vec2 = vec2(30.0, 28.0);
 pub const VIEW_OPTIONS: Vec2 = vec2(22.0, 28.0);
-/// A filter toggle's edge; the four are joined.
+/// A filter toggle's edge; the five are joined.
 pub const FILTER: f32 = 26.0;
 /// The age slider: 100 wide, as high as the thin slider.
 pub const AGE: Vec2 = vec2(100.0, 20.0);
+/// The age slider when the group would not fit in the light table's column at full width (a wide
+/// tree in a narrow window): 80 wide, so the five filters and the slider stay right of the splitter
+/// beside the widest tree the window allows (M16.34).
+pub const AGE_NARROW: Vec2 = vec2(80.0, 20.0);
 /// The search field is 28 high, starts at 0.4·W (or further right, to leave the filters room in
 /// the light table's column), ends at W − 64 and never gets narrower than 160
 /// (`design-system.md` §11.1).
@@ -110,8 +118,8 @@ pub struct ToolbarLayout {
     pub flat: Rect,
     pub tree: Rect,
     pub view_options: Rect,
-    /// Starred, Faces, Videos, Geotagged.
-    pub filters: [Rect; 4],
+    /// Starred, Faces, Videos, Geotagged, Edited.
+    pub filters: [Rect; FILTER_COUNT],
     pub age: Rect,
     /// The "Filters" caption above the toggles; `None` below [`CAPTION_MIN_WINDOW`].
     pub caption: Option<Rect>,
@@ -141,9 +149,11 @@ pub fn compute(toolbar: Rect, tree_width: f32) -> ToolbarLayout {
 
     // The right-hand group lives in the light table's column, right of the splitter.
     let column = left + layout::tree_width(tree_width, width) + layout::SPLITTER;
-    let group = 4.0 * FILTER + AGE_GAP + AGE.x;
     let search_right = (right - SEARCH_END_INSET).max(left);
     let group_left_min = (column + MARGIN).max(view_options.max.x + GROUP_GAP);
+    let room = search_right - SEARCH_MIN - GROUP_GAP - group_left_min;
+    let age_size = if room >= FILTER_COUNT as f32 * FILTER + AGE_GAP + AGE.x { AGE } else { AGE_NARROW };
+    let group = FILTER_COUNT as f32 * FILTER + AGE_GAP + age_size.x;
     let search_left = (left + SEARCH_START * width).max(group_left_min + group + GROUP_GAP).min(search_right - SEARCH_MIN).max(left).round();
     let search = at(search_left, cy, vec2((search_right - search_left).max(0.0), SEARCH_HEIGHT));
     let activity = at((right - MARGIN - ACTIVITY).max(left), cy, Vec2::splat(ACTIVITY));
@@ -153,7 +163,7 @@ pub fn compute(toolbar: Rect, tree_width: f32) -> ToolbarLayout {
     // With the caption the toggles sit under it, on the bottom rule; without it, centred.
     let filter_cy = if show_caption { top + CAPTION_HEIGHT + FILTER / 2.0 } else { cy };
     let filters = std::array::from_fn(|i| at(group_left + i as f32 * FILTER, filter_cy, Vec2::splat(FILTER)));
-    let age = at(group_left + 4.0 * FILTER + AGE_GAP, filter_cy, AGE);
+    let age = at(group_left + FILTER_COUNT as f32 * FILTER + AGE_GAP, filter_cy, age_size);
     let caption = show_caption.then(|| Rect::from_min_size(pos2(group_left, top), vec2(group, CAPTION_HEIGHT)));
 
     ToolbarLayout { import, new_album, flat, tree, view_options, filters, age, caption, search, activity }
@@ -339,11 +349,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         (Icon::Faces, tl!("Show only photos with faces")),
         (Icon::Videos, tl!("Show videos only")),
         (Icon::Geotagged, tl!("Show only geotagged photos")),
+        (Icon::Edited, tl!("Show only edited photos")),
     ];
     let mut hovered: Option<String> = None;
     for (i, ((id, (icon, tip)), rect)) in FILTER_IDS.iter().zip(filters).zip(l.filters).enumerate() {
         let f = &app.state().search.filters;
-        let on = [f.starred, f.faces, f.videos, f.geotagged].get(i).copied().unwrap_or(false);
+        let on = [f.starred, f.faces, f.videos, f.geotagged, f.edited].get(i).copied().unwrap_or(false);
         let r = place(ui, rect, true, |ui| widgets::toggle_filter(ui, &t, id, icon, on, &tip));
         if r.contains_pointer() {
             hovered = Some(tip);
@@ -355,6 +366,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 1 => f.faces = !f.faces,
                 2 => f.videos = !f.videos,
                 3 => f.geotagged = !f.geotagged,
+                4 => f.edited = !f.edited,
                 _ => {}
             }
         }
@@ -362,7 +374,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     // The age slider: its position is view state; its label shows in the caption while hovered.
     let age_tip = tl!("Show only recent photos");
     let mut days = widgets::age_days(app.state().search.age);
-    let r = place(ui, l.age, true, |ui| widgets::age_slider(ui, &t, AGE_ID, &mut days, AGE.x, &age_tip));
+    let r = place(ui, l.age, true, |ui| widgets::age_slider(ui, &t, AGE_ID, &mut days, l.age.width(), &age_tip));
     if r.changed() {
         app.state_mut().search.age = widgets::age_position(days);
     }
@@ -699,12 +711,15 @@ mod tests {
                     assert_eq!(pair[0].max.x, pair[1].min.x, "the filters are joined");
                 }
                 assert!(l.filters.iter().all(|f| f.size() == Vec2::splat(FILTER)));
-                assert_eq!(l.age.size(), AGE);
+                assert!(l.age.size() == AGE || l.age.size() == AGE_NARROW, "{w} {tree}");
+                if tree <= 240.0 {
+                    assert_eq!(l.age.size(), AGE, "{w} {tree}: full width beside a usual tree");
+                }
                 assert_eq!((l.search.height(), l.search.max.x), (SEARCH_HEIGHT, w - SEARCH_END_INSET));
                 assert!(l.search.min.x >= SEARCH_START * w && l.search.width() >= SEARCH_MIN, "{w} {tree}: {:?}", l.search);
                 assert_eq!(l.activity.size(), Vec2::splat(ACTIVITY));
                 // Left to right, never overlapping, inside the toolbar.
-                let row = [l.import, l.new_album, l.flat, l.tree, l.view_options, l.filters[0], l.filters[3], l.age, l.search, l.activity];
+                let row = [l.import, l.new_album, l.flat, l.tree, l.view_options, l.filters[0], l.filters[4], l.age, l.search, l.activity];
                 for pair in row.windows(2) {
                     assert!(pair[0].max.x <= pair[1].min.x, "{w} {tree}: {:?} then {:?}", pair[0], pair[1]);
                 }

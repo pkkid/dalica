@@ -12,8 +12,8 @@ use proptest::prelude::*;
 use crate::seed::*;
 
 /// Queries over the generator's vocabulary: tags, captions, album and folder names, file names,
-/// dates, cameras, operators and their combinations.
-const QUERIES: [&str; 24] = [
+/// dates, cameras, operators (`is:edited` among them) and their combinations.
+const QUERIES: [&str; 26] = [
     "",
     "beach",
     "BEA",
@@ -38,6 +38,8 @@ const QUERIES: [&str; 24] = [
     "camera:canon",
     "camera:z -nikon",
     "person:ana -beach",
+    "is:edited",
+    "-is:edited beach",
 ];
 
 fn scopes() -> [Scope; 3] {
@@ -94,7 +96,7 @@ proptest! {
     fn an_updated_index_equals_a_fresh_one(
         seeds in proptest::collection::vec(seed(), 1..32),
         undo in proptest::collection::vec(any::<bool>(), 32),
-        filters in (any::<bool>(), any::<bool>(), any::<bool>()),
+        filters in (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()),
         age in proptest::option::of(any::<u8>()),
     ) {
         let mut lib = start();
@@ -113,7 +115,7 @@ proptest! {
             }
             prop_assert!(index == SearchIndex::from_library(&lib), "after {:?}", s);
         }
-        let filters = Filters { starred: filters.0, videos: filters.1, geotagged: filters.2, faces: false };
+        let filters = Filters { starred: filters.0, videos: filters.1, geotagged: filters.2, edited: filters.3, faces: false };
         check_answers(&lib, &index, filters, age)?;
         check_answers(&lib, &index, Filters::default(), None)?;
     }
