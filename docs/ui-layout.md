@@ -512,6 +512,12 @@ box stay. At 900 × 600 both rows and the six tabs fit the 280 pt panel.
   layout: every region and control is where these rules put it for the screen's size, the menus
   and the caption buttons included, so leaving needs no hidden gesture. The window frame's own
   behaviour stops while full screen: no resize edges.
+- **A slideshow** (`viewing.md` §1.2, M16.32) plays in the photo area of the view it started
+  from: the light table's place (the light table and its scroll bar) or the edit view's photo.
+  Every other region keeps its rect, dimmed with the dialog backdrop and not usable while the show
+  plays (the menu bar stays live). Its control bar sits along the bottom of that area and sheds
+  controls when the area is narrow. Full screen, the show fills the window as the photo viewer
+  does.
 - **Themes** (`design-system.md` §2, Themes) change colours, corner radii and Classic's bevels,
   never the layout: every region, control and size here is the same in each of the fifteen
   themes, so a theme switch moves nothing (at 900 × 600 the library in Pro (Light) puts every
