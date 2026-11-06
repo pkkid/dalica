@@ -45,7 +45,7 @@ pub(crate) fn tls_config(roots: Option<&[Vec<u8>]>) -> Result<Arc<rustls::Client
             store
         }
     };
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls_rustcrypto::provider()))
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(super::provider::provider()))
         .with_safe_default_protocol_versions()
         .map_err(|e| TransportError::Tls(e.to_string()))?
         .with_root_certificates(store)

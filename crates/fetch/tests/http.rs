@@ -1,9 +1,11 @@
 //! The HTTPS transport against local servers on loopback (`security.md` §8.2): a download and a
 //! ranged resume, redirects (an https → http one refused, a loop capped), a truncated body, a
 //! stalled server, oversized headers, a proxy `CONNECT` used when set and skipped for a `NO_PROXY`
-//! host, and certificates that do not validate. No internet: every server listens on 127.0.0.1
-//! with a certificate signed by a test root made for these tests (below; ECDSA P-256, valid
-//! 2026–2125), and the transport trusts that root only, or the bundled web roots.
+//! host, certificates that do not validate, and a handshake in TLS 1.2 and 1.3 with every cipher
+//! suite, key exchange group and signature scheme the provider (`http::provider`) offers. No
+//! internet: every server listens on 127.0.0.1 with a certificate signed by a test root made for
+//! these tests (below; ECDSA P-256, and RSA-2048, ECDSA P-384 and Ed25519 for the handshakes, all
+//! valid 2026–2125), and the transport trusts those roots only, or the bundled web roots.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -12,10 +14,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use dalica_fetch::http::provider::{ALL_CIPHER_SUITES, provider};
 use dalica_fetch::spec::hex;
 use dalica_fetch::{Consent, Downloaded, FetchError, FileSpec, HttpsTransport, Options, Proxy, TransportError, USER_AGENT, download};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::sign::{CertifiedKey, SigningKey, SingleCertAndKey};
+use rustls::{CipherSuite, NamedGroup, SignatureAlgorithm, SignatureScheme, SupportedProtocolVersion};
 use sha2::{Digest, Sha256};
 
 /// The test root (CN "Dalica test root").
@@ -72,6 +77,135 @@ Ge6zC3MW99SKrlzsnRH49SPX3+652LvytL5LBucJOBWpwm4PWfcc9L/h
 -----END PRIVATE KEY-----
 ";
 
+/// Roots, `localhost` and 127.0.0.1 certificates and their keys of the other key types, for the
+/// handshakes (an RSA root signs with PKCS#1 SHA-256, P-384 with ECDSA SHA-384, Ed25519 with itself).
+const RSA_ROOT: &str = "-----BEGIN CERTIFICATE-----
+MIIDEDCCAfigAwIBAgIUEFoQI9ah6ToEZhG8ZHNBXOQrGe8wDQYJKoZIhvcNAQEL
+BQAwHzEdMBsGA1UEAwwURGFsaWNhIHRlc3Qgcm9vdCByc2EwIBcNMjYwMTAxMDAw
+MDAwWhgPMjEyNTEyMzEwMDAwMDBaMB8xHTAbBgNVBAMMFERhbGljYSB0ZXN0IHJv
+b3QgcnNhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1U/E0oXi+UMu
+T5qJGBigU/F17+g06iVEloKfsiJO0j9gF0/FdamzMQfkOF2C1BRzYakEndgwa5XL
+XMB+m3sfUF7OB0/ofm6xk6dsHmnj4cR6k+WKugTR8fqONPWJAYZMqYabifwzkBKX
+U19eAUk87oRiovHwpGFgplkggVjx4N4PmF72xTgI6HhMiOzQ7a+ufkivDFEPRXzn
+5Xn87tdcR3P4mO12LY9iim9da1x+wFhuTD8GFiKyUA2GHcW9SonmlpWXO01HpKUv
+WWhFU24XK6C67FIXX80M0fod+oqO+YtgxGNZgQVdTBMpPqaIkCApd3LNdnqpyc+z
+Jw5VbWaySQIDAQABo0IwQDAdBgNVHQ4EFgQUw8ubERMTsfWwOh+Aqrh9nYVM0cYw
+DwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwDQYJKoZIhvcNAQELBQAD
+ggEBANBK3z3zxf9QSHFgbzZXOrFNx2Ck1aOlK8S8aRTzGkHMdrrxh7HjD+8t1uhP
+QphSW6OwMBzkayliuyYfbp1rIyh4GFpvcTxHodxMetFrlChxDt3VLkKHZeizuRV7
+ZqqvVnTvBM5uKxEpHGOq0XfsRrHi9I+lMt33N88zMnzrRr1T5kb7hh8v0VZLKYLL
+kvUR1TNeFrc/fai1ddjooBG1mS/k2b1NBdpCA55wjM2uFawxtBNvx2NcMqypdngn
+1eGzNbI6WbDIMbpBgQqrru+vKaGI1fSeY+Q0iyOnCmV33f3qUObgyJqCexgHrk6T
+q3PN+J+hxxywLkTzkgRu433KwcE=
+-----END CERTIFICATE-----
+";
+const RSA_LOCAL: &str = "-----BEGIN CERTIFICATE-----
+MIIDDTCCAfWgAwIBAgIRANtqEkXvnr4QWQJpNWAe3/MwDQYJKoZIhvcNAQELBQAw
+HzEdMBsGA1UEAwwURGFsaWNhIHRlc3Qgcm9vdCByc2EwIBcNMjYwMTAxMDAwMDAw
+WhgPMjEyNTEyMzEwMDAwMDBaMBAxDjAMBgNVBAMMBWxvY2FsMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEArqA+vfaIvd3Wu7hWTsYvoqjNuhxDA+PLBHuI
+JCkwYPppJsb9xAJ7BanMD31b0jnVm62h+cXlmZ1kCECY8bfw4a5GJT61nmi0weqm
+qacwiLfI4n2Ens8i/6TvcxzB3odTMy9aRwQLEMj6tfGb7WzHmPK+XHLxYI141GI0
+lwa8beHGCyA0yYg4Gxg6DPNG95BgGRLwOBHSF5XA/blsDjUhiOKLSYkBy77r4WOg
+TkNjnBI9GT6xC515TGVfpgYYqSySYKnjsHMB/AoFDg/sc27u5apQaDwP7PCmFFI8
+7eKR/8ONy4fQwQ7D379emTL9sPExCvLYU0STEbb1mmbtscePgQIDAQABo1EwTzAM
+BgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD
+ATAaBgNVHREEEzARgglsb2NhbGhvc3SHBH8AAAEwDQYJKoZIhvcNAQELBQADggEB
+AM405wKL5rBHtlF6DE/korjOozWPhoI7Xnrv3FpVhgXclNWxMdI998XDq576Uq7p
+GXmFEySpEhh61T3syaV35s98IJhJq5jfouNThTJDTqsTQNnZrHfgeYvo1Rh99NER
+Eo2IzaN3OX2eOiytkl1QpLSUq1F4JNCpsHLvedS5uYDdxvdpR1MP5KtySAOTfD53
+ZxKga5EjVMFIrX5VoU1H7kMtWMMCO5Q3YnzY+qv1Kie7KBZZLs5TJsXihU4VumHo
+Xzgk7fIPxYVlR+HMr4ANZS7eEHFwOBa+5rxmQ715EMh5JoDVJTubRLIfbzbLbZFv
+len2eK+5iVLKbzh1erVnm+k=
+-----END CERTIFICATE-----
+";
+const RSA_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCuoD699oi93da7
+uFZOxi+iqM26HEMD48sEe4gkKTBg+mkmxv3EAnsFqcwPfVvSOdWbraH5xeWZnWQI
+QJjxt/DhrkYlPrWeaLTB6qappzCIt8jifYSezyL/pO9zHMHeh1MzL1pHBAsQyPq1
+8ZvtbMeY8r5ccvFgjXjUYjSXBrxt4cYLIDTJiDgbGDoM80b3kGAZEvA4EdIXlcD9
+uWwONSGI4otJiQHLvuvhY6BOQ2OcEj0ZPrELnXlMZV+mBhipLJJgqeOwcwH8CgUO
+D+xzbu7lqlBoPA/s8KYUUjzt4pH/w43Lh9DBDsPfv16ZMv2w8TEK8thTRJMRtvWa
+Zu2xx4+BAgMBAAECggEACnx9+AtXb8tkCzbJHAbjsmlfnUb4MUIbHWRLqxw8Fv7C
+lL0LXRtnBtKI+f8lpeyqKqSVHvomzQA6ExLJ/G32zZ6ZAMCQyHfyLtjn9DUhgXxD
+2HIAJkc7C038wRVfgPzwXpj/21bfUT04bPeazPmkzMb67nNKkmk8cciJ7u3NH+3+
+4Gx/Q2Bnaan8gCZUyZuBGeAvKHzRFVxH4ntWLAiqMDInWgKsOQPCTNXCdVmQQI7f
+Y2v+1YH13RJq4cAzZxAxq8gdJ/xQFX4UhWmtYhpAjZ20O1abKl2TdzRBbUqjss8C
+hkmrg3+tuqYYa74MXhiXgcy+7GRsY5GAPYjEgR6UIQKBgQDpyMyhbYj7adFCFTPi
++Kd7ychKY8R8sawzY3QjKsepdpzxcrDrw4meKTm75nKn9pIwA1taMBF0hWc5pdLi
+5TEbH9kU+R9Y0VLbSL4LqDt6l7DlIuHFbKYxWzKTQN98GvDm1HivFzjB4jj59QSd
+lqRLzkXsds2SfEfiISXeBM1fGQKBgQC/OFEwbZ1JgLE3HxSkK6T3msMmD+N2PHwo
+Tevdb55fEbJcEIp3sNlFfA33lnyNlX1z4EuYlt5hA7rsY5bjM4julkV6DGms4yan
+91Rc/IgjS3QDe4yKgtg1YTpsAaLpTmI529LPwYBS0ygyoRfk013/Ii8ifkizoaNB
++ziq23MIqQKBgEUs5V/eyWmbJhAntfKzINvAGUPpwXokGJAcHYFKZ0n9jvLivPcG
+JPJnwG2ZAtQwYZFTbPSCxKd10dV8+6mnp6AfDFzoWh4t0haQr6tDXFYqDG3ApI2G
+WKbCFXT8/SP71Mx4kj084c584d8UYQlASd0kbAxMGwf9PkfrBwlq4loBAoGAfocg
+SeAuNGXAXY3mVZ8/gEtal8PpqeHp8a1lxddGvvdxwrN7PCm8CttETrC35+Oj6Fnh
+C63ApgcW17YqMFp4YA71GAZAopKHkJr6qrC60EfsEyXcYAamU+PrCW6nwqMIIerP
++oK6i5OHRMENk289AkY3VCalqp7o7Q7zdzLQUkkCgYA/IZdNJ6+PeosT75QiYzR4
+bL8Ls+bSSkmawMCgCR33ptReQ8eld11fG5CkYJ1F+tFrxwoycBf6m912yy5ZKPhM
+qs3MJBH4OGl1bzZTbBGx4UYc7x80blQBhrlKXEpnHpQpFqPCUIdnpWppbviB/RIy
+JHewxr/BSqs7EFHe+1Jjqg==
+-----END PRIVATE KEY-----
+";
+const P384_ROOT: &str = "-----BEGIN CERTIFICATE-----
+MIIBwzCCAUmgAwIBAgIUDqd5H3zn8/BbRWeTWKWAjRcEZIswCgYIKoZIzj0EAwMw
+IDEeMBwGA1UEAwwVRGFsaWNhIHRlc3Qgcm9vdCBwMzg0MCAXDTI2MDEwMTAwMDAw
+MFoYDzIxMjUxMjMxMDAwMDAwWjAgMR4wHAYDVQQDDBVEYWxpY2EgdGVzdCByb290
+IHAzODQwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAASV3xwaF83KO4jdYuuQFBTmGbZz
+5o0kj2c1bq093Cn5hCgeVYTSFwYk/D7OQwiHoFZJYjE+7oGlQCUYohHzvY7hH/4R
+2zF78gCy+CfbTmNs/M0CauRGKgmbgp6hXFy7l7WjQjBAMB0GA1UdDgQWBBQB9Va1
+8tTQ1Z6jRcD0Crtjyy/e0zAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIB
+BjAKBggqhkjOPQQDAwNoADBlAjEAnko3y8URiiaqfoxyf29kGm00S4xQY4iMObkl
+P4duTG5sR4fiD1+v6db5TjumCxW7AjAbZiFSazkZrad3Vy88t9Z2D9Z3el8GULLU
+PuQApLEv7Kpv9UBmgu3dsIns7FOh0sw=
+-----END CERTIFICATE-----
+";
+const P384_LOCAL: &str = "-----BEGIN CERTIFICATE-----
+MIIBvzCCAUSgAwIBAgIQKwsIwC8OC61RWviOAMIjIDAKBggqhkjOPQQDAzAgMR4w
+HAYDVQQDDBVEYWxpY2EgdGVzdCByb290IHAzODQwIBcNMjYwMTAxMDAwMDAwWhgP
+MjEyNTEyMzEwMDAwMDBaMBAxDjAMBgNVBAMMBWxvY2FsMHYwEAYHKoZIzj0CAQYF
+K4EEACIDYgAEjdckbVkup+ljFFFhf67K81uEeGTjoQtl9yMqh0iuoQ6lKCdQglWq
+tfh2VtoJKQLZS3G+afAbVvQ7De/X+OWVpa1NwTeEejZ726P1BZMk0s3A0zZT4w+2
+A1D4RbQoxZPro1EwTzAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNV
+HSUEDDAKBggrBgEFBQcDATAaBgNVHREEEzARgglsb2NhbGhvc3SHBH8AAAEwCgYI
+KoZIzj0EAwMDaQAwZgIxANOUx5S36zONXtxUI0vwaleGjg0cwoVXr7GCJuaw9tfG
+9VVOZFlqYtEecYupXPJC/QIxAN0Sy8JDgAb8dHICikL0P8XMslCr0eqpqNP5MJHq
+VFTwqrA7yDbnUPyAH4UYFWCJaQ==
+-----END CERTIFICATE-----
+";
+const P384_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDB6g6GJjwZDxAR0itTO
+o39AEMZqsbPk7bwLgk0hQ7zaDjeW3wGZwGf5nHP1b7K8LGGhZANiAASN1yRtWS6n
+6WMUUWF/rsrzW4R4ZOOhC2X3IyqHSK6hDqUoJ1CCVaq1+HZW2gkpAtlLcb5p8BtW
+9DsN79f45ZWlrU3BN4R6Nnvbo/UFkyTSzcDTNlPjD7YDUPhFtCjFk+s=
+-----END PRIVATE KEY-----
+";
+const ED25519_ROOT: &str = "-----BEGIN CERTIFICATE-----
+MIIBSzCB/qADAgECAhQoSQykr6bleS0mt+bjBgN/UWqf6DAFBgMrZXAwIzEhMB8G
+A1UEAwwYRGFsaWNhIHRlc3Qgcm9vdCBlZDI1NTE5MCAXDTI2MDEwMTAwMDAwMFoY
+DzIxMjUxMjMxMDAwMDAwWjAjMSEwHwYDVQQDDBhEYWxpY2EgdGVzdCByb290IGVk
+MjU1MTkwKjAFBgMrZXADIQA/ZJLEDTpeIX+Nlqctu832hNjAfHCY2iHI/rwvtptE
+OKNCMEAwHQYDVR0OBBYEFDeA8Xq8CluYGGTUIa9YOJ/D7yJlMA8GA1UdEwEB/wQF
+MAMBAf8wDgYDVR0PAQH/BAQDAgEGMAUGAytlcANBAH8EuUFkLt6JfqHaGF3P0gUB
+hvAiRkdU38mVAsM9UurTvi/fuZTQMD/B0HpH7bYfuYRGzbZyJpAlAiU0R2Dp1gQ=
+-----END CERTIFICATE-----
+";
+const ED25519_LOCAL: &str = "-----BEGIN CERTIFICATE-----
+MIIBRDCB96ADAgECAhEAhfUdI6NqKMZagFx15VOzUTAFBgMrZXAwIzEhMB8GA1UE
+AwwYRGFsaWNhIHRlc3Qgcm9vdCBlZDI1NTE5MCAXDTI2MDEwMTAwMDAwMFoYDzIx
+MjUxMjMxMDAwMDAwWjAQMQ4wDAYDVQQDDAVsb2NhbDAqMAUGAytlcAMhAJ+fjGgN
+wK500y0v5DiaXmLI3I1wt3YcL/nrO5FHQ/hNo1EwTzAMBgNVHRMBAf8EAjAAMA4G
+A1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAaBgNVHREEEzARggls
+b2NhbGhvc3SHBH8AAAEwBQYDK2VwA0EA+GXCdtqgrynlifaJwtUZiHf1S9AF7WRB
+piKY01PKtiU42Mzchj9GTWx2H2lXfQuKUlic9RosE8QXYm7Eu6e7DQ==
+-----END CERTIFICATE-----
+";
+const ED25519_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIHrSp45DGqFgmyduU4+bmWncxQm7PCAPLGNdYNa5rR2B
+-----END PRIVATE KEY-----
+";
+
 fn root() -> Vec<Vec<u8>> {
     vec![CertificateDer::from_pem_slice(ROOT.as_bytes()).unwrap().to_vec()]
 }
@@ -102,13 +236,16 @@ impl Server {
     fn start(cert: &str, key: &str, answer: impl Fn(usize, &str) -> Answer + Send + Sync + 'static) -> Server {
         let chain = vec![CertificateDer::from_pem_slice(cert.as_bytes()).unwrap()];
         let key = PrivateKeyDer::from_pem_slice(key.as_bytes()).unwrap();
-        let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls_rustcrypto::provider()))
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(provider()))
             .with_safe_default_protocol_versions()
             .unwrap()
             .with_no_client_auth()
             .with_single_cert(chain, key)
             .unwrap();
-        let config = Arc::new(config);
+        Server::with_config(Arc::new(config), answer)
+    }
+
+    fn with_config(config: Arc<rustls::ServerConfig>, answer: impl Fn(usize, &str) -> Answer + Send + Sync + 'static) -> Server {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let heads = Arc::new(Mutex::new(Vec::new()));
@@ -445,4 +582,110 @@ fn a_certificate_that_does_not_validate_fails() {
     // the same server, trusted, by name too
     let done = get(&transport(Proxy::direct()), &format!("https://localhost:{}/f", server.port), tmp.path(), &once()).unwrap();
     assert_eq!(std::fs::read(&done.path).unwrap(), b"secret");
+}
+
+/// A server key that signs with one scheme only, so a handshake proves that scheme works.
+#[derive(Debug)]
+struct Only(Arc<dyn SigningKey>, SignatureScheme);
+
+impl SigningKey for Only {
+    fn choose_scheme(&self, offered: &[SignatureScheme]) -> Option<Box<dyn rustls::sign::Signer>> {
+        if offered.contains(&self.1) { self.0.choose_scheme(&[self.1]) } else { None }
+    }
+
+    fn algorithm(&self) -> SignatureAlgorithm {
+        self.0.algorithm()
+    }
+}
+
+/// A server allowing only `version`, `suite`, `group` and `scheme`, with `cert` and `key`.
+fn strict_server(
+    version: &'static SupportedProtocolVersion,
+    suite: CipherSuite,
+    group: NamedGroup,
+    scheme: SignatureScheme,
+    (cert, key): (&str, &str),
+) -> Server {
+    let mut p = provider();
+    p.cipher_suites.retain(|s| s.suite() == suite);
+    p.kx_groups.retain(|g| g.name() == group);
+    assert_eq!((p.cipher_suites.len(), p.kx_groups.len()), (1, 1), "{suite:?} {group:?}");
+    let chain = vec![CertificateDer::from_pem_slice(cert.as_bytes()).unwrap()];
+    let signer = p.key_provider.load_private_key(PrivateKeyDer::from_pem_slice(key.as_bytes()).unwrap()).unwrap();
+    let certified = CertifiedKey::new(chain, Arc::new(Only(signer, scheme)));
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(p))
+        .with_protocol_versions(&[version])
+        .unwrap()
+        .with_no_client_auth()
+        .with_cert_resolver(Arc::new(SingleCertAndKey::from(certified)));
+    Server::with_config(Arc::new(config), |_, _| Answer::Send(ok(b"shaken")))
+}
+
+#[test]
+fn every_suite_group_and_signature_scheme_handshakes() {
+    use rustls::version::{TLS12, TLS13};
+    let p256 = (LOCAL, LOCAL_KEY);
+    let rsa = (RSA_LOCAL, RSA_KEY);
+    let ecdsa = SignatureScheme::ECDSA_NISTP256_SHA256;
+    let pss = SignatureScheme::RSA_PSS_SHA256;
+    let x25519 = NamedGroup::X25519;
+    let mut cases = Vec::new();
+    // every suite: TLS 1.2's ECDSA ones with the P-256 key, its RSA ones with the RSA key
+    for s in ALL_CIPHER_SUITES {
+        let name = format!("{:?}", s.suite());
+        let (version, scheme, key) = match (s.tls13().is_some(), name.contains("_RSA_")) {
+            (true, _) => (&TLS13, ecdsa, p256),
+            (false, true) => (&TLS12, pss, rsa),
+            (false, false) => (&TLS12, ecdsa, p256),
+        };
+        cases.push((version, s.suite(), x25519, scheme, key));
+    }
+    // every group, in each version
+    for group in [NamedGroup::X25519, NamedGroup::secp256r1, NamedGroup::secp384r1] {
+        cases.push((&TLS13, CipherSuite::TLS13_AES_128_GCM_SHA256, group, ecdsa, p256));
+        cases.push((&TLS12, CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, group, ecdsa, p256));
+    }
+    // every signature scheme (TLS 1.3 has no PKCS#1 v1.5 handshake signatures)
+    let schemes = [
+        (SignatureScheme::ECDSA_NISTP256_SHA256, p256),
+        (SignatureScheme::ECDSA_NISTP384_SHA384, (P384_LOCAL, P384_KEY)),
+        (SignatureScheme::ED25519, (ED25519_LOCAL, ED25519_KEY)),
+        (SignatureScheme::RSA_PSS_SHA256, rsa),
+        (SignatureScheme::RSA_PSS_SHA384, rsa),
+        (SignatureScheme::RSA_PSS_SHA512, rsa),
+        (SignatureScheme::RSA_PKCS1_SHA256, rsa),
+        (SignatureScheme::RSA_PKCS1_SHA384, rsa),
+        (SignatureScheme::RSA_PKCS1_SHA512, rsa),
+    ];
+    for (scheme, key) in schemes {
+        let rsa_key = key == rsa;
+        let tls12 = if rsa_key { CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 } else { CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 };
+        cases.push((&TLS12, tls12, x25519, scheme, key));
+        if !format!("{scheme:?}").contains("PKCS1") {
+            cases.push((&TLS13, CipherSuite::TLS13_AES_128_GCM_SHA256, x25519, scheme, key));
+        }
+    }
+    assert_eq!(cases.len(), 9 + 6 + 9 + 6);
+
+    let roots: Vec<Vec<u8>> =
+        [ROOT, RSA_ROOT, P384_ROOT, ED25519_ROOT].iter().map(|r| CertificateDer::from_pem_slice(r.as_bytes()).unwrap().to_vec()).collect();
+    let client = HttpsTransport::with_roots(Proxy::direct(), &roots).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    for (i, (version, suite, group, scheme, key)) in cases.into_iter().enumerate() {
+        let server = strict_server(version, suite, group, scheme, key);
+        let done = get(&client, &server.url("/f"), &tmp.path().join(i.to_string()), &once());
+        let done = done.unwrap_or_else(|e| panic!("{:?} {suite:?} {group:?} {scheme:?}: {e}", version.version));
+        assert_eq!(std::fs::read(&done.path).unwrap(), b"shaken");
+        assert_eq!(server.heads().len(), 1);
+    }
+
+    // a chain from a root the client does not trust is refused, with any key type
+    let only_p256 = transport(Proxy::direct());
+    for (key, suite) in [(rsa, CipherSuite::TLS13_AES_128_GCM_SHA256), ((ED25519_LOCAL, ED25519_KEY), CipherSuite::TLS13_AES_256_GCM_SHA384)] {
+        let scheme = if key == rsa { pss } else { SignatureScheme::ED25519 };
+        let server = strict_server(&TLS13, suite, x25519, scheme, key);
+        let r = get(&only_p256, &server.url("/f"), &tmp.path().join("untrusted"), &once());
+        assert!(matches!(&r, Err(FetchError::Transport(TransportError::Tls(m))) if m.contains("UnknownIssuer")), "{r:?}");
+        assert!(server.heads().is_empty());
+    }
 }

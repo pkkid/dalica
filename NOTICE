@@ -239,6 +239,15 @@ file and revision in its first lines:
                                              LightCraft crates/ui-egui/tests/accessibility.rs @ d999e382
                                              (M15.14)
 
+Other third-party code, adapted into Dalica (each file names its source in its first lines):
+
+  crates/fetch/src/http/provider.rs          rustls-rustcrypto 0.0.2-alpha (github.com/RustCrypto/rustls-rustcrypto,
+                                             crates.io release), src/lib.rs, aead.rs, aead/gcm.rs,
+                                             aead/chacha20.rs, hash.rs, hmac.rs, kx.rs, sign.rs, sign/*.rs,
+                                             verify.rs, verify/*.rs; Copyright the RustCrypto Developers,
+                                             licensed under the MIT License or the Apache License, Version
+                                             2.0 (M16.17; with crates/fetch/src/http/provider/**)
+
 Any other third-party code ever vendored will be listed here with its source and revision.
 
 Third-party material
