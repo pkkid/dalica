@@ -220,6 +220,60 @@ One click, no panel, one undo step each:
 - **Auto Color**: removes colour casts (grey-world / white-patch balance with clamping).
 Each result depends on the current image, so cropping first changes the outcome (as users expect).
 
+**Pressing a fix again settles** (decided 2026-11-06, #721). A fix pressed on a photo it already
+fixed finds (almost) nothing to change: the photo stays as the first press left it (within half an
+8-bit level), alone or after another fix (Auto Contrast or Auto Color after Auto Fix changes
+nothing). The press still records a step in the photo's history; the step renders as nothing. How:
+
+- **Black and white points:** the darkest of the channels' 0.5th percentiles and the brightest of
+  their 99.5th, half a level further out. After a press those percentiles already sit at 0 and 1
+  (the clipped pixels pile up there), so a second press finds the same ends and no stretch.
+- **Midtones:** the gamma brings the median luma into the band 0.4 to 0.6 (to its nearer edge)
+  instead of pulling it a share of the way to 0.5 on every press, which was what made presses
+  stack. A median already in the band gets no gamma. The gamma stays within 0.8 to 1.25.
+- **Colour:** Auto Color's gains are measured again on the balanced picture, and what is left over
+  is folded back in, round after round (at most 12), until under 0.2 % is left. Auto Fix then
+  measures the colour on the levelled picture too (a second press reads that picture), taking half
+  of each correction at a time and stopping under 1 %. A correction under 1 % in every channel is
+  dropped, and so are levels that move no value by half a level.
+- **Fill light** (Auto Fix): only for a median still under 0.4 once the levels are done, the band's
+  lower edge, so a photo Auto Fix already fixed gets none.
+- **The limits still hold for each press:** at most 4 times the contrast, gains within 1/1.35 to
+  1.35, the gamma within 0.8 to 1.25. A photo one of those limits held back (a very flat picture, a
+  cast too strong for the gains, midtones out of the gamma's reach) moves again on the next press,
+  again within the limits: pressing again is how to ask for more on such a photo. Every other
+  photo settles on the first press.
+
+Measured on procedural scenes (300 × 200, `crates/edit/tests/auto.rs`): before, a second press
+moved Auto Contrast by 2.5 to 3.9 of 255 on average, Auto Fix by 1.5 to 5.6 (up to 14 per pixel)
+and Auto Color by up to 1.5. Now a second and a third press of each change nothing (0.0) on every
+scene within the limits.
+
+How other open-source editors do it (research for #721):
+
+| Editor | Method | Reads | Clip | Midtones | A second press |
+|---|---|---|---|---|---|
+| darktable *levels* (automatic mode), *rgb levels* (auto) | black, grey and white from percentiles of the module's input (default 0 %, 50 %, 100 %); *rgb levels* uses the exact minimum and maximum, linked or per channel, and puts grey half way between ([source][dt-levels], [source][dt-rgblevels], [manual][dt-manual]) | the module's input | none by default | grey point at the midpoint: no gamma change | sets the same parameters again: the module's input has not changed |
+| RawTherapee *Auto Levels* | exposure, black, brightness, contrast and highlight compression from the raw histogram's median, mean and octiles ([`getAutoExp`][rt-autoexp]) | the raw data before the tool | *Clip %*, default 0.02 % ([default][rt-clip]) | brightness moves the mean towards middle grey | sets the same slider values again |
+| GIMP *Levels ▸ Auto Input Levels* | per channel, the bins where 0.6 % of the pixels lie beyond, gamma 1 ([`gimp_levels_config_stretch`][gimp-levels]) | the current layer | 0.6 % per end | none (gamma reset to 1) | nearly nothing: the clipped pixels sit at the ends |
+| GIMP *Colors ▸ Auto ▸ Stretch Contrast* | each channel's minimum and maximum to the full range, or linked with *Keep colors* ([manual][gimp-stretch]) | the current layer | none | none | nothing: already full range |
+| ImageMagick `-auto-level`, `-contrast-stretch`, `-normalize`, `-auto-gamma` | exact minimum and maximum; at most a given share black-out and white-out; `-normalize` is `-contrast-stretch 2%x1%`; `-auto-gamma` sets the mean to 50 % ([options][im-options]) | the current image | none, given, or 2 % and 1 % | only `-auto-gamma` | `-auto-level`: nothing; the stretches: nearly nothing; `-auto-gamma`: nothing (the mean is already 50 %) |
+
+What they share: the parameters come from the tool's own input (darktable, RawTherapee), or the
+method finds nothing to do on its own output (a stretch already at full range, a mean already at
+50 %). None pulls the midtones "part of the way" on every run. Dalica's fixes are steps in a
+recipe, each reading the picture the steps before it made, so they take the second route: each
+fix is built to find nothing to do on its own output.
+
+[dt-levels]: https://github.com/darktable-org/darktable/blob/master/src/iop/levels.c
+[dt-rgblevels]: https://github.com/darktable-org/darktable/blob/master/src/iop/rgblevels.c
+[dt-manual]: https://docs.darktable.org/usermanual/development/en/module-reference/processing-modules/rgb-levels/
+[rt-autoexp]: https://github.com/Beep6581/RawTherapee/blob/dev/rtengine/improcfun.cc
+[rt-clip]: https://github.com/Beep6581/RawTherapee/blob/dev/rtengine/procparams.cc
+[gimp-levels]: https://gitlab.gnome.org/GNOME/gimp/-/blob/master/app/operations/gimplevelsconfig.c
+[gimp-stretch]: https://docs.gimp.org/2.10/en/gimp-filter-stretch-contrast.html
+[im-options]: https://imagemagick.org/command-line-options/
+
 ### 6.4 Retouch
 
 Panel "Retouch": instruction "Click a blemish, then click a clean area to copy from."; **Brush size**
