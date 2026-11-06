@@ -21,6 +21,86 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 1.1.0 — November 2026
+
+Dalica 1.1 comes in fifteen themes, finds photos by colour, plays slideshows inside its window,
+shows a photo's edit history, and downloads at half the size.
+
+### Library
+
+- View ▸ Theme ▸ switches between fifteen themes: Dark (still the default), Pro and Studio in
+  dark, medium and light, Classic with raised buttons, Adwaita, Solarized Dark, Breeze and Soft
+  Dark and Light. Options ▸ General ▸ Theme previews a theme before you keep it, and Dalica opens
+  in the theme you chose last.
+- Search by colour: type `color:green` (red, orange, yellow, green, blue, purple, or `bw` for black
+  and white), or pick one from Tools ▸ Experimental ▸ Search for ▸. `-color:` leaves a colour out.
+  Colours come from the thumbnails Dalica already has, so nothing is scanned again.
+- The Edited filter on the toolbar (the pencil) shows only photos with unsaved edits; agents can
+  search `is:edited`.
+- A section with unsaved edits now has Discard next to Save. It asks first, removes that section's
+  edits, and Edit ▸ Undo brings them back. Saved photos are never touched.
+- In a build without HEIC support, a section's HEIC photos show as one "Not displaying N HEIC
+  images" card instead of a row of blank cells. Clicking it selects them, so you can still move or
+  delete them.
+- Very large TIFF panoramas (well over 64 megapixels) now get thumbnails and open in the viewer
+  and the edit view, without needing much memory. 100 % zoom works up to about 268 megapixels.
+- Side panes slide in and out. A cell focused with Tab shows a focus ring.
+- Help ▸ Stats for Nerds… shows how much memory and disk Dalica uses, where it keeps its files and
+  what it is working on, with Copy as Text for bug reports and Clear Thumbnail Cache….
+
+### Editing
+
+- View ▸ History (Ctrl+Shift+Y), or the clock on the bottom bar, lists every edit of the photo,
+  including the ones you can redo. Click a row to go back to that step.
+- Auto Contrast, Auto Color and Auto Fix settle: pressing one again on a photo it already fixed
+  barely changes it, instead of making it harsher every time. A second press still adds an Undo
+  step that does nothing; that will go in a later release.
+- Straighten's grid is now half transparent, so it no longer glares over dark photos.
+- Starring a photo in the edit view plays a short, calm burst around the star; unstarring lets it
+  drop and fade. Turn animations off in Options to skip them.
+- The Basic Fixes labels no longer get cut off in a small window.
+
+### Viewing
+
+- Slideshows now play inside the window, with the library around them. The new Full Screen button
+  on the slideshow bar switches without restarting the show; Esc goes back to the window, and Esc
+  again ends the show. Options ▸ Slideshow ▸ Start slideshows full screen brings back the old way.
+- A folder can have its own slideshow music: Folder ▸ Folder Properties ▸ Music. Its slideshow plays
+  that music, or the music from Options when the folder has none.
+
+### Folders
+
+- A RAW photo's .xmp file now moves, copies and renames together with the photo.
+- Open With ▸ shows each program's icon on Linux and Windows.
+- After you change Options ▸ File Types, the toolbar says it is rescanning your folders.
+
+### Reliability
+
+- Closing Dalica no longer freezes the window while it finishes saving, and closing during a scan
+  stops the scan instead of waiting for it. On Linux with Wayland the window may stay up for a
+  moment with "Saving changes…" until your changes are written.
+- WebP thumbnails are made with far less memory.
+
+### Languages
+
+- Thai text breaks lines only between words in forty more places, dates in Adjust Date follow your
+  language's order, and the text cursor is easy to see in the light themes.
+
+### Downloads
+
+- The downloads are half the size: about 48 MB on Linux, 37 MB on Windows and 44 MB on macOS. To
+  get there, Chinese, Japanese and Korean text uses the characters in everyday use: a rare
+  character shows as an empty box, East Asian bold text shows as regular, and the two Japanese
+  serif fonts are gone.
+
+### Not in this release yet
+
+- HEVC (most iPhone) videos still show a video tile in the downloads: the decoder is faster now and
+  plays 1080p smoothly, but it is only in builds made with HEVC support turned on.
+- AVIF files still show one "!" cell each; they get their own card later.
+- Stats for Nerds does not show the graphics card or the window's own frame time yet, and shows
+  the process's memory on Linux only.
+
 ## 1.0.0 — October 2026
 
 Dalica 1.0 plays your videos, speaks Thai as well as English, works with a screen reader and the

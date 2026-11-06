@@ -1204,7 +1204,7 @@ dependencies = [
 
 [[package]]
 name = "dalica"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "arboard",
  "cpal",
@@ -1239,7 +1239,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-acceptance"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-create",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-cli"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-engine",
@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "proptest",
  "serde",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-create"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "ab_glyph",
  "allocation-counter",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-edit"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-image",
  "dalica-scenes",
@@ -1325,7 +1325,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-engine"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-create",
@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-faces"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "matrixmultiply",
  "ndarray",
@@ -1369,7 +1369,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-fetch"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-fs"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "dalica-core",
@@ -1405,7 +1405,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-image"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "allocation-counter",
  "altc264",
@@ -1440,7 +1440,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-library"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "proptest",
@@ -1451,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-mcp"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-create",
@@ -1469,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-meta"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-image",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-scan"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-edit",
@@ -1503,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-scenes"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "fdeflate",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-sidecar"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "proptest",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-store"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-fs",
@@ -1549,7 +1549,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-thumbs"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-edit",
@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-ui"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dalica-core",
  "dalica-create",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-ui-kit"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "ab_glyph",
  "dalica-core",
@@ -7083,7 +7083,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
