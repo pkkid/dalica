@@ -152,6 +152,15 @@ pub fn effective_tree_width(state: &UiState, width: f32) -> f32 {
 /// gesture). The window's own frame stops there: the title bar has no resize edges while full
 /// screen.
 pub fn compute(window: Rect, state: &UiState) -> Layout {
+    let width = if window.is_finite() { window.width().max(0.0) } else { 0.0 };
+    compute_with_pane(window, state, state.pane.map(|_: Pane| side_pane_width(state.pane_large, width)))
+}
+
+/// [`compute`] with the side pane `pane` wide as drawn this frame (`None`: not shown), which differs
+/// from `state`'s while the pane slides in or out (`side_pane::slide`): the light table and its
+/// scroll bar follow the pane's edge. The tree takes its width for `state`'s pane at once, so it and
+/// the toolbar's filters never move during a slide; the narrowing order is [`compute`]'s.
+pub fn compute_with_pane(window: Rect, state: &UiState, pane: Option<f32>) -> Layout {
     let window = if window.is_finite() { window } else { Rect::ZERO };
     let (left, right, top, bottom_edge) = (window.min.x, window.max.x.max(window.min.x), window.min.y, window.max.y.max(window.min.y));
     let width = right - left;
@@ -167,7 +176,7 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
 
     // Columns of the middle: tree, splitter, light table, its scroll bar, the side pane. The tree
     // makes room for the pane first.
-    let pane_w = state.pane.map(|_: Pane| side_pane_width(state.pane_large, width));
+    let pane_w = pane.map(|w| if w.is_finite() { w.max(0.0) } else { 0.0 });
     let tree = span(left, (left + effective_tree_width(state, width)).min(right), mid_top, mid_bottom);
     let splitter = span(tree.max.x, (tree.max.x + SPLITTER).min(right), mid_top, mid_bottom);
     let pane_left = pane_w.map_or(right, |w| (right - w).max(splitter.max.x));

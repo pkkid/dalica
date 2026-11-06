@@ -5,12 +5,19 @@
 //! Properties pane ([`super::properties`]), the Tags pane ([`super::tags`]), the People pane
 //! ([`super::people_pane`]) and the Places pane ([`super::places`]). When the window narrows so far that the light table would drop below 480
 //! the pane gives up its large width, then closes itself.
+//!
+//! Opening slides the pane in over [`SLIDE_SECONDS`] (ease-out) and closing slides it out, the
+//! light table following its edge each frame ([`slide`], on the frame clock, which is virtual in
+//! headless runs). The pane is drawn at its full width and clipped to the part slid in, so its
+//! contents never reflow during a slide. A switch of pane, a change of the large width, a close
+//! because the window narrowed, Use animations off and a change made while a control request drives
+//! the window take effect at once.
 
 use dalica_ui_kit::fonts;
 use dalica_ui_kit::icons::Icon;
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
-use egui::{Align2, Id, Rect, Ui, UiBuilder, pos2, vec2};
+use egui::{Align2, Context, Id, Rect, Ui, UiBuilder, pos2, vec2};
 
 use super::layout::side_pane_width;
 use crate::app::App;
@@ -21,6 +28,97 @@ use crate::tl;
 pub const HEADER: f32 = 30.0;
 pub const BUTTON: f32 = 24.0;
 const INSET: f32 = 3.0;
+/// How long the pane takes to slide in or out (seconds; `ui-layout.md` §7).
+pub const SLIDE_SECONDS: f64 = 0.2;
+
+/// The slide's state between frames (egui temp data under [`SLIDE_ID`]): the pane shown (kept
+/// while it slides out), its full width, and the drawn width easing from `from` to `to` since
+/// `start`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Slide {
+    pane: Option<Pane>,
+    full: f32,
+    from: f32,
+    to: f32,
+    start: f64,
+    drawn: f32,
+    /// The next change of width happens at once (a close because the window narrowed).
+    jump: bool,
+}
+
+const SLIDE_ID: &str = "pane:slide";
+
+/// What the side pane draws this frame: the pane, the width slid in, and its full width.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Drawn {
+    pub pane: Pane,
+    pub width: f32,
+    pub full: f32,
+}
+
+/// Advances the side pane's slide for a frame in a window `width` wide and says what to draw:
+/// `None` once the pane is closed and slid out. Opening starts a slide in from 0, closing a slide
+/// out from the width drawn; a pane open at the first frame (restored from the settings) shows at
+/// once. Asks for another frame while the slide runs, so the headless loop keeps painting until
+/// it ends.
+pub fn slide(ctx: &Context, state: &UiState, width: f32) -> Option<Drawn> {
+    let id = Id::new(SLIDE_ID);
+    let now = ctx.input(|i| i.time);
+    let target = state.pane.map_or(0.0, |_| side_pane_width(state.pane_large, width));
+    let target = if target.is_finite() { target.max(0.0) } else { 0.0 };
+    let before = ctx.data(|d| d.get_temp::<Slide>(id));
+    let mut s = before.unwrap_or(Slide { pane: state.pane, full: target, from: target, to: target, start: now, drawn: target, jump: false });
+    if state.pane.is_some() {
+        s.pane = state.pane;
+        s.full = target;
+    }
+    if target != s.to {
+        // Opening or closing slides; a width change of an open pane (« or the window's width), a
+        // close forced by the window, Use animations off and a change made while a control request
+        // drives the window (so its next call, a click inside the pane, finds it in place) jump.
+        let resized = target > 0.0 && s.to > 0.0;
+        let at_once = !crate::scale::animations(ctx) || crate::control::automated().is_some();
+        if resized || s.jump || at_once || !now.is_finite() {
+            s.from = target;
+            s.drawn = target;
+        } else {
+            // The frame that sees the change is the slide's first step, so a pane just opened is
+            // drawn (a sliver of it) the frame its toggle lands in.
+            let dt = ctx.input(|i| i.predicted_dt);
+            let dt = if dt.is_finite() { f64::from(dt).clamp(0.0, SLIDE_SECONDS) } else { 0.0 };
+            s.from = s.drawn;
+            s.start = now - dt;
+        }
+        s.to = target;
+    }
+    s.jump = false;
+    let p = if now.is_finite() && s.start.is_finite() { ((now - s.start) / SLIDE_SECONDS).clamp(0.0, 1.0) } else { 1.0 };
+    if s.drawn != s.to {
+        if p >= 1.0 - 1e-6 {
+            s.drawn = s.to;
+        } else {
+            let eased = 1.0 - (1.0 - p).powi(3);
+            s.drawn = s.from + (s.to - s.from) * eased as f32;
+            ctx.request_repaint();
+        }
+    }
+    if s.to == 0.0 && s.drawn == 0.0 {
+        s.pane = None;
+    }
+    ctx.data_mut(|d| d.insert_temp(id, s));
+    let pane = s.pane?;
+    (s.drawn > 0.0).then_some(Drawn { pane, width: s.drawn, full: s.full.max(s.drawn) })
+}
+
+/// Makes the pane's next change of width happen at once (the window narrowed and closed it).
+fn jump(ctx: &Context) {
+    let id = Id::new(SLIDE_ID);
+    ctx.data_mut(|d| {
+        if let Some(s) = d.get_temp::<Slide>(id) {
+            d.insert_temp(id, Slide { jump: true, ..s });
+        }
+    });
+}
 
 /// The pane's title and its protocol name.
 pub fn title(pane: Pane) -> (String, &'static str) {
@@ -57,11 +155,23 @@ pub fn on_resize(state: &mut UiState, before: f32, width: f32) -> bool {
     true
 }
 
-/// Paints the side pane into `ui`'s rect (the side-pane region of [`super::layout`]); called only
-/// while a pane is open.
+/// Paints the open side pane into `ui`'s rect (the side-pane region of [`super::layout`]) at once,
+/// with no slide (the edit view's pane).
 pub fn show(app: &mut App, ui: &mut Ui) {
+    let Some(pane) = app.state().pane else { return };
+    let width = ui.max_rect().width();
+    show_slid(app, ui, Drawn { pane, width, full: width });
+}
+
+/// Paints the side pane `drawn` says into `ui`'s rect, the part of it slid in: the pane at its full
+/// width from the rect's left edge, clipped to the rect. While it slides out (closed already) only
+/// its frame and contents are drawn; its buttons do nothing.
+pub fn show_slid(app: &mut App, ui: &mut Ui, drawn: Drawn) {
     let t = *app.tokens();
-    let rect = ui.max_rect();
+    let shown = ui.max_rect();
+    let full = if drawn.full.is_finite() { drawn.full.max(shown.width()) } else { shown.width() };
+    let rect = Rect::from_min_size(shown.min, vec2(full, shown.height()));
+    ui.set_clip_rect(shown.intersect(ui.clip_rect()));
     let ctx = ui.ctx().clone();
     // The window's width the last pass, to see it narrow (only if the pane was drawn then: a pane
     // just opened compares with nothing).
@@ -75,8 +185,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     ctx.data_mut(|d| d.insert_temp(seen, (pass, width)));
     if on_resize(app.state_mut(), before, width) {
         ctx.request_repaint();
+        if app.state().pane.is_none() {
+            // Closed by the window: gone at once, no slide.
+            jump(&ctx);
+            return;
+        }
     }
-    let Some(pane) = app.state().pane else { return };
+    let open = app.state().pane.is_some();
+    let pane = drawn.pane;
     let (name, id) = title(pane);
     let painter = ui.painter().clone();
     painter.rect_filled(rect, 0, t.chrome);
@@ -104,7 +220,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // The body: each pane draws its own.
     let body = Rect::from_min_max(pos2(rect.min.x, header.max.y), rect.max);
-    widgets::register(&ctx, &format!("pane:{id}"), Role::Other, &name, Target::Painted { rect: body, clip: rect }, false);
+    widgets::register(&ctx, &format!("pane:{id}"), Role::Other, &name, Target::Painted { rect: body, clip: shown }, false);
     if body.is_positive() {
         let mut inner = ui.new_child(UiBuilder::new().id_salt(("pane", id)).max_rect(body));
         inner.set_clip_rect(body.intersect(ui.clip_rect()));
@@ -116,10 +232,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     }
 
-    if widen.clicked() {
+    if open && widen.clicked() {
         app.state_mut().pane_large = !large;
     }
-    if close.clicked() {
+    if open && close.clicked() {
         let state = app.state_mut();
         state.pane = None;
         state.pane_large = false;
