@@ -139,11 +139,19 @@ fn every_checkable_item_follows_its_command_and_ui_set() {
         ("view.folderView".into(), json!({ "mode": "flat" }), true),
         ("view.folderView".into(), json!({ "mode": "tree" }), true),
         plain("view.simplifiedTree", false),
-        sort(json!({ "by": "date" }), true),
-        sort(json!({ "by": "name" }), true),
-        sort(json!({ "by": "size" }), true),
-        sort(json!({ "reverse": true }), false),
     ];
+    // View ▸ Theme ▸ (M16.5): a radio row per theme; its marks are `theme_switch.rs`'s.
+    let themes = dalica_ui_kit::theme::ThemeKind::ALL.map(|k| plain(&format!("theme.{}", k.id()), true));
+    let expected: Vec<_> = expected
+        .into_iter()
+        .chain(themes)
+        .chain([
+            sort(json!({ "by": "date" }), true),
+            sort(json!({ "by": "name" }), true),
+            sort(json!({ "by": "size" }), true),
+            sort(json!({ "reverse": true }), false),
+        ])
+        .collect();
     assert_eq!(listed, expected, "every checkable row of the bar, in the order the tree lists them (a submenu's rows after its menu's own)");
     for (id, params, _, live) in rows(&mut t) {
         assert_eq!(live, id != "view.simplifiedTree", "{id} {params}");

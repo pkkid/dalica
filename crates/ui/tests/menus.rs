@@ -113,6 +113,7 @@ fn expected() -> Vec<(&'static str, Vec<String>)> {
                 ]),
                 sub("Thumbnail Caption", &["None", "Filename", "Caption", "Tags", "Resolution", "Date"]),
                 sub("Folder View", &["Flat Folder View", "Tree View", "—", "Simplified Tree View"]),
+                sub("Theme", &dalica_ui_kit::theme::ThemeKind::ALL.map(|k| k.label())),
                 s(&["—", "Full Screen"]),
             ]),
         ),
