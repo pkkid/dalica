@@ -181,11 +181,25 @@ pub fn search(exe: &Path, home: &Path) {
         let (found, r) = query(c, &by_id, json!({ "text": text }));
         assert_eq!(&found, want, "the query {text:?}: {r}");
     }
-    for (text, op) in [("person:ana", "person"), ("color:red", "color")] {
-        let (found, r) = query(c, &by_id, json!({ "text": text }));
-        assert!(found.is_empty(), "{text} matches nothing before its milestone");
-        assert!(r["unavailable"].as_array().is_some_and(|u| u.iter().any(|x| x == op)), "{text}: reported unavailable: {r}");
-    }
+    let unavailable = |r: &Value, op: &str| r["unavailable"].as_array().is_some_and(|u| u.iter().any(|x| x == op));
+    let (found, r) = query(c, &by_id, json!({ "text": "person:ana" }));
+    assert!(found.is_empty(), "person:ana matches nothing in a library without people");
+    assert!(unavailable(&r, "person"), "person:ana: reported unavailable: {r}");
+    // `color:` (M16.10, `organizing.md` §8.1 Colours) reads the colour summaries the thumbnail
+    // jobs make: once they are in, `color` is no longer unavailable and `color:red` finds the one
+    // picture whose summary holds red (Beach/IMG_0202.jpg, seed 32), read as an operator, not as plain
+    // words (no photo is named "color" or "red"). Each colour's rules are `m16_colours`' to prove.
+    let end = Instant::now() + Duration::from_secs(120);
+    let (found, r) = loop {
+        let (found, r) = query(c, &by_id, json!({ "text": "color:red" }));
+        if !unavailable(&r, "color") {
+            break (found, r);
+        }
+        assert!(Instant::now() < end, "color: still unavailable two minutes after the scan: {r}");
+        c.ok("ui.wait", json!({ "ms": 200 }));
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(found, set(&[&[B[1]]]), "color:red: {r}");
     println!(
         "  the grammar: {} queries (words, prefixes and case, -word, tag:, camera:, dates, sizes, albums, folders, unknown fields, person: and color:)",
         cases.len() + 2

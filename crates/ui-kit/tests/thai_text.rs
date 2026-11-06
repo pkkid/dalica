@@ -315,7 +315,9 @@ fn the_search_title_breaks_only_between_its_words() {
         assert_eq!(linebreak::unmark(&marked), text);
     }
     // Wrapped at every width from its widest word up (the screenshot's among them), the filled
-    // title breaks only at a mark or the space.
+    // title breaks only at a mark or the space: a row ends with one, or the next row starts with
+    // one (egui moves a space that does not fit to the next row, as at 36 px with the fonts,
+    // where สำหรับ fills its row).
     let ctx = thai_ctx();
     let size = 13.0;
     let title = linebreak::mark("ผลการค้นหาสำหรับ \"ทะเล\"").into_owned();
@@ -326,9 +328,11 @@ fn the_search_title_breaks_only_between_its_words() {
     let mut wrapped = 0;
     while width < full {
         let galley = layout(&ctx, &title, size, width);
-        for row in &galley.rows[..galley.rows.len() - 1] {
-            let last = row.row.glyphs.last().map(|g| g.chr);
-            assert!(last == Some(MARK) || last == Some(' '), "at {width} px a row broke inside a word, after {last:?}");
+        let at_a_break = |c: Option<char>| c == Some(MARK) || c == Some(' ');
+        for rows in galley.rows.windows(2) {
+            let last = rows[0].row.glyphs.last().map(|g| g.chr);
+            let next = rows[1].row.glyphs.first().map(|g| g.chr);
+            assert!(at_a_break(last) || at_a_break(next), "at {width} px a row broke inside a word, between {last:?} and {next:?}");
         }
         wrapped += usize::from(galley.rows.len() > 1);
         width += 1.0;

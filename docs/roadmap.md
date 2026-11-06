@@ -11732,7 +11732,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: the issue's *Done when* holds; a ui test shows a mixed section with its JPEGs plus
     one two-cell card with the right count, and an all-HEIC section with only the card;
     screenshots at 1400 x 900 and 900 x 600 before and after; the PR closes #724.
-- ⬜ **M16.40 `acceptance` + `ui-kit`: main's full-run failures after M16's merges**
+- ✅ **M16.40 `acceptance` + `ui-kit`: main's full-run failures after M16's merges**
   - after: M16.12
   - files: `tests/acceptance/m3.rs`, `tests/acceptance/fingerprints/m3-900x600-view-menu.json`, `tests/acceptance/m9_search.rs`, `tests/acceptance/m9_app.rs`, `tests/acceptance/m10_looks.rs`, `tests/acceptance/fingerprints/m10-1400x900-options-general.json`, `crates/ui-kit/tests/thai_text.rs`, `crates/ui-kit/src/linebreak.rs`
   - scope: the branch CI runs of M16.14 and M16.27 (2026-11-06; `ci --full`) found failures that
