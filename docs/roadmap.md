@@ -11580,7 +11580,7 @@ under their own key, and a snapshot without them reads as one with none.
     session's scans and flushes, and returns at once with the job cancelled, nothing removed and
     no file past the held folder read; closing the window mid-scan of a large folder exits within
     a second.
-- ⬜ **M16.29 `fetch`: the TLS provider on the 0.14 elliptic curves (RUSTSEC-2026-0387)**
+- ✅ **M16.29 `fetch`: the TLS provider on the 0.14 elliptic curves (RUSTSEC-2026-0387)**
   - after: M16.17
   - files: `crates/fetch/Cargo.toml`, `crates/fetch/src/http/provider.rs`, `crates/fetch/src/http/provider/**`, `crates/fetch/tests/http.rs`, `crates/fetch/README.md`, `docs/security.md`, `xtask/src/advisories.rs`, `NOTICE`
   - scope: RUSTSEC-2026-0387 (published 2026-10-23) is a timing side channel in `crypto-bigint`

@@ -6,7 +6,6 @@
 
 use rsa::pkcs1::DecodeRsaPublicKey;
 use rsa::signature::Verifier;
-use rsa::signature::hazmat::PrehashVerifier;
 use rsa::{RsaPublicKey, pkcs1v15, pss};
 use rustls::SignatureScheme;
 use rustls::crypto::WebPkiSupportedAlgorithms;
@@ -41,7 +40,9 @@ pub(super) static ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorit
     ],
 };
 
-/// An ECDSA verifier: the curve's key, a DER signature over the message hashed with `$hash`.
+/// An ECDSA verifier: the curve's key, a DER signature over the message hashed with `$hash` (the
+/// curves on the `p256`/`p384` 0.14 line since M16.29, RUSTSEC-2026-0387; the prehash is plain
+/// bytes, so `sha2` 0.10 serves both lines).
 macro_rules! ecdsa_verifier {
     ($name:ident, $ty:ident, $public_key_alg:expr, $signature_alg:expr, $curve:ident, $hash:ty) => {
         #[derive(Debug)]
@@ -57,6 +58,7 @@ macro_rules! ecdsa_verifier {
             }
 
             fn verify_signature(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<(), InvalidSignature> {
+                use $curve::ecdsa::signature::hazmat::PrehashVerifier as _;
                 let signature = $curve::ecdsa::DerSignature::try_from(signature).map_err(|_| InvalidSignature)?;
                 let key = $curve::ecdsa::VerifyingKey::from_sec1_bytes(public_key).map_err(|_| InvalidSignature)?;
                 key.verify_prehash(&<$hash>::digest(message), &signature).map_err(|_| InvalidSignature)

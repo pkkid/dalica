@@ -163,8 +163,10 @@ rustls = { version = "0.23.46", default-features = false, features = ["std", "tl
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false }
 hmac = { version = "0.12.1", default-features = false }
-p256 = { version = "0.13.2", default-features = false, features = ["alloc", "pem", "ecdsa", "ecdh"] }
-p384 = { version = "0.13.1", default-features = false, features = ["alloc", "pem", "ecdsa", "ecdh"] }
+# The P-256/P-384 curves on the 0.14 line (M16.29): its `crypto-bigint` 0.7 is free of the 0.5 timing
+# side channel (RUSTSEC-2026-0387); `getrandom` takes the operating system's random numbers itself.
+p256 = { version = "0.14.0", default-features = false, features = ["alloc", "pkcs8", "ecdsa", "ecdh", "getrandom"] }
+p384 = { version = "0.14.0", default-features = false, features = ["alloc", "pkcs8", "ecdsa", "ecdh", "getrandom"] }
 ed25519-dalek = { version = "2.2", default-features = false, features = ["pkcs8", "std", "zeroize"] }
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["zeroize"] }
 rsa = { version = "0.9.10", default-features = false, features = ["sha2"] }
