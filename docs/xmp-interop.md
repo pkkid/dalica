@@ -313,7 +313,23 @@ file into an XMP sidecar next to it; the RAW itself is never modified.
   `<name>.xmp.corrupt-<time>` and a new one is written (on the next write; reading falls back to
   the embedded XMP meanwhile); a blank one counts as none; one that cannot be read at all (permissions)
   is left alone and the write fails.
-- Moving or renaming a RAW inside Dalica moves its `.xmp` with it (`data-model.md` §8).
+- **Moving, copying and renaming** a RAW inside Dalica takes its `.xmp` along (`data-model.md` §8;
+  built by M16.18, `crates/engine/src/raw_sidecars.rs`). The sidecar is the one the RAW reads (as
+  above: only RAWs have one, so the JPEG of a RAW+JPEG pair moves alone, and its stem sidecar stays
+  with the RAW) and goes in the same item of the file job, right after the RAW, through `fs`: a
+  move or rename moves it, a copy copies it, never replacing a file. It is named after the RAW's new
+  name in its own form: `IMG_0001.xmp` of `IMG_0001.CR3` renamed `trip.CR3` becomes `trip.xmp`, an
+  `IMG_0002.CR3.xmp` becomes `trip2.CR3.xmp` for `trip2.CR3`, the `-001` a clash gave the RAW names
+  the sidecar the same, and the extension keeps its spelling; where another RAW of the destination
+  has the new stem, it takes the `<file>.xmp` form. Undo and redo take it back and forth with the
+  RAW (undoing a copy sends the copied sidecar to the trash with the copy). A sidecar name already
+  taken at the destination is never overwritten, and a sidecar that could not go (a failure of the
+  disk) is not either: it stays where it was, the RAW's item is done, and a notice names it. A
+  crash between the RAW and its sidecar leaves both readable; the repair at the next open follows
+  the RAW as for any item, and the sidecar stays where it was. Which photos are RAWs is told by
+  name, as the metadata writes do (an extension no other photo format has). A folder move needs
+  nothing (the sidecar is inside), and **Delete leaves the `.xmp`** (decision: the trash takes only
+  what the user chose; alternative: trash it with the RAW).
 
 ## 8. Round-trip tests
 
