@@ -401,7 +401,8 @@ buttons appear to its left.
 
 ### 6.5 Action buttons
 
-Second row (below a 1 pt separator): `action_button`s (64 × 56: icon over label) acting on the
+Second row (below a 1 pt separator): `action_button`s (64 × 56: icon over label; wider when
+the label needs it, at the Large font or in a longer translation, never ellipsized) acting on the
 tray: **Export** ┆ **Collage**, **Slideshow**. The set is fixed (not configurable). Collage opens
 the Collage room on the tray's photos (the held ones and the selection; with none the engine's
 refusal lands on the status line). When the

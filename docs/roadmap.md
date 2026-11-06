@@ -11538,7 +11538,7 @@ under their own key, and a snapshot without them reads as one with none.
     the in-memory camera's strip reads "Leave files on the camera", a card's "… the card";
     `cargo xtask i18n` passes; `widget_ids` passes and changed fingerprints re-blessed with their
     images on the PR.
-- ⬜ **M16.26 `ui`: the 1.0 release's findings: the bottom bar at the Large font, a flaky drag test**
+- ✅ **M16.26 `ui`: the 1.0 release's findings: the bottom bar at the Large font, a flaky drag test**
   - after: M15.R
   - files: `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/drag.rs`, `crates/ui/tests/large_font.rs`
   - scope: two findings made while releasing 1.0 (2026-10-20). (1) At the Large font the bottom
