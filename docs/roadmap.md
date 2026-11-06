@@ -11749,7 +11749,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: `cargo xtask accept M3`, `M9` and `M10` pass and the Thai test passes with
     `CRAFT_FONTS_DIR` at the CI pin; a lead-dispatched CI run on the branch is green on the three
     OSes except for failures it shows on main too (named in the PR).
-- ⬜ **M16.41 `library`: SetGeo's inverse restores a geotag exactly**
+- ✅ **M16.41 `library`: SetGeo's inverse restores a geotag exactly**
   - after: M16.12
   - files: `crates/library/src/op.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/ops.proptest-regressions`
   - scope: found by M16.40 (2026-11-06): the proptest

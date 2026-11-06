@@ -19,7 +19,9 @@ thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-serde_json.workspace = true
+# The journal (`dalica-store`) parses floats exactly (`float_roundtrip`, through `dalica-sidecar`):
+# the op tests do too, so an op with a typed geotag survives the JSON bit for bit (M16.41).
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 
 [[test]]
 name = "all"

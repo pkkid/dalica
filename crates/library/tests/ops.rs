@@ -262,6 +262,38 @@ fn library_with(n: usize) -> (Library, FolderId, Vec<PhotoId>) {
     (lib, folder, ids)
 }
 
+/// A geotag of 39.3 comes back bit for bit through an apply, its inverse and the journal's JSON,
+/// and so does a typed value the model rounds (`38.7 + 0.6` is 39.300000000000004): the op that
+/// carries it survives the JSON exactly, so a journal replay never moves a pin (M16.41).
+#[test]
+fn a_geotag_survives_apply_inverse_and_the_journal_bit_for_bit() {
+    use dalica_core::geo::LatLon;
+    use dalica_library::Geo;
+    let (mut lib, _, ids) = library_with(1);
+    let id = ids[0];
+    let exact = LatLon::new(39.3, -9.1).unwrap();
+    let typed = LatLon::new(38.7 + 0.6, -9.1).unwrap();
+    assert_ne!(typed.lat().to_bits(), exact.lat().to_bits());
+    let lat = |lib: &Library| match lib.geo(id) {
+        Some(Geo::At(p)) => Some(p.lat().to_bits()),
+        _ => None,
+    };
+    lib.apply(Op::SetGeo { geo: vec![(id, Some(Geo::At(exact)))] }).unwrap();
+    assert_eq!(lat(&lib), Some(39.3f64.to_bits()));
+    for (place, other) in [(exact, LatLon::new(41.15, -8.61).unwrap()), (typed, exact)] {
+        let op = Op::SetGeo { geo: vec![(id, Some(Geo::At(place)))] };
+        let json = serde_json::to_string(&op).unwrap();
+        assert_eq!(serde_json::from_str::<Op>(&json).unwrap(), op, "{json}");
+        lib.apply(Op::SetGeo { geo: vec![(id, Some(Geo::At(other)))] }).unwrap();
+        let undo = lib.apply(op).unwrap();
+        assert_eq!(lat(&lib), Some(39.3f64.to_bits()));
+        let json = serde_json::to_string(&undo).unwrap();
+        let undo: Op = serde_json::from_str(&json).unwrap();
+        lib.apply(undo).unwrap();
+        assert_eq!(lat(&lib), Some(other.round6().lat().to_bits()));
+    }
+}
+
 #[test]
 fn star_three_undo_one() {
     let (mut lib, _, ids) = library_with(5);
