@@ -247,6 +247,12 @@ Other third-party code, adapted into Dalica (each file names its source in its f
                                              verify.rs, verify/*.rs; Copyright the RustCrypto Developers,
                                              licensed under the MIT License or the Apache License, Version
                                              2.0 (M16.17; with crates/fetch/src/http/provider/**)
+  crates/image/src/formats/webp/vp8.rs       image-webp 0.2.4 (github.com/image-rs/image-webp, crates.io
+                                             release), src/vp8.rs, src/vp8_arithmetic_decoder.rs,
+                                             src/loop_filter.rs, src/transform.rs, src/yuv.rs; Copyright
+                                             the image-rs developers, licensed under the MIT License or the
+                                             Apache License, Version 2.0 (M16.19; with
+                                             crates/image/src/formats/webp/vp8/**)
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 
