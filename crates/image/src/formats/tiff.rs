@@ -49,8 +49,11 @@ const TAG_STRIP_OFFSETS: u16 = 273;
 const TAG_ORIENTATION: u16 = 274;
 const TAG_SAMPLES_PER_PIXEL: u16 = 277;
 const TAG_STRIP_BYTE_COUNTS: u16 = 279;
+const TAG_ROWS_PER_STRIP: u16 = 278;
 const TAG_PLANAR_CONFIGURATION: u16 = 284;
 const TAG_COLOR_MAP: u16 = 320;
+const TAG_TILE_WIDTH: u16 = 322;
+const TAG_TILE_LENGTH: u16 = 323;
 const TAG_TILE_OFFSETS: u16 = 324;
 const TAG_TILE_BYTE_COUNTS: u16 = 325;
 const TAG_INK_SET: u16 = 332;
@@ -127,6 +130,61 @@ pub fn thumbnail(bytes: &[u8], long_side: u32, options: &DecodeOptions, limits: 
     let stored = color::to_srgb8(decoded, options, &mut budget, limits)?.image;
     let fitted = resize::fit(&stored, long_side)?;
     orient::apply(fitted, main.orientation).map(Some)
+}
+
+/// The large-image path (issue #722): the page decoded one strip or tile at a time and reduced by
+/// a whole factor as it goes, so memory holds one chunk and the reduced picture, never the page.
+/// The reduced picture's longer side is at least `long_side`; it goes through the colour stage,
+/// is fitted to `long_side` and turned upright. The page's size is checked against the edge and
+/// pixel limits only (nothing that size is made); the chunk buffer, the reduced sums and the
+/// decoder's own memory are charged to one budget first. Palette pages and samples under 8 bits
+/// answer `Unsupported` (the caller then refuses as before).
+pub fn thumbnail_reduced(bytes: &[u8], long_side: u32, options: &DecodeOptions, limits: &Limits) -> Result<Rgba8> {
+    thumbnail_reduced_from(bytes, Cursor::new(bytes), bytes.len() as u64, long_side, options, limits)
+}
+
+/// [`thumbnail_reduced`] with the page's IFD read from `head` (the start of the file, at least
+/// the IFD and its value lists) and its strips or tiles read from `source` as the decoder asks
+/// (the whole file, `len` bytes long). `OutOfRange` when `head` stops before what the IFD needs.
+pub fn thumbnail_reduced_from<R: Read + Seek>(
+    head: &[u8],
+    source: R,
+    len: u64,
+    long_side: u32,
+    options: &DecodeOptions,
+    limits: &Limits,
+) -> Result<Rgba8> {
+    let t = open(head)?;
+    let page = first_page(&t, limits)?;
+    limits.check_size(page.width, page.height, 0)?;
+    let mut budget = Budget::new(limits, page.width, page.height);
+    let decoded = guard(Format::Tiff, || reduce(&t, &page, source, len, long_side, &mut budget, limits))?;
+    decoded.check()?;
+    let small = color::to_srgb8(decoded, options, &mut budget, limits)?.image;
+    let fitted = resize::fit(&small, long_side)?;
+    orient::apply(fitted, page.orientation)
+}
+
+/// The large-image full decode (zoomed to 100%, issue #722): when the page's samples and its 8-bit
+/// output would not fit in the budget together, the page is decoded a band of rows at a time and
+/// each band goes through the colour stage into the output, so memory holds the output and one
+/// band. `Ok(None)` when the whole-page decode fits (or for palette pages and samples under 8
+/// bits): the caller decodes the page whole. The output is in the stored orientation.
+pub fn decode_banded(bytes: &[u8], header: &Header, options: &DecodeOptions, limits: &Limits) -> Result<Option<Rgba8>> {
+    let t = open(bytes)?;
+    let page = first_page(&t, limits)?;
+    if (page.width, page.height) != (header.width, header.height) {
+        return Err(Error::Malformed(format!("page of {} × {}, header says {} × {}", page.width, page.height, header.width, header.height)));
+    }
+    let l = Layout::read(&t, &page, limits)?;
+    let raw = l.raw_bytes().unwrap_or(u64::MAX);
+    let whole = raw.saturating_mul(2).saturating_add(u64::from(l.width) * u64::from(l.height) * 4);
+    if whole <= limits.max_alloc || l.bits < 8 || matches!(l.kind, Kind::Palette(_)) {
+        return Ok(None);
+    }
+    limits.check_size(l.width, l.height, 4)?;
+    let mut budget = Budget::new(limits, l.width, l.height);
+    guard(Format::Tiff, || bands(&t, &page, &l, Cursor::new(bytes), bytes.len() as u64, options, &mut budget, limits)).map(Some)
 }
 
 // ---- Pages ----------------------------------------------------------------------------------
@@ -521,16 +579,26 @@ fn grey_label(t: &Tiff, ifd: &Ifd) -> Result<(u64, [u8; 4])> {
 
 // ---- Decoding -------------------------------------------------------------------------------
 
-/// The file's bytes as the `tiff` decoder reads them, with an optional 4-byte patch laid over.
-struct Patched<'a> {
-    inner: Cursor<&'a [u8]>,
+/// The file's bytes as the `tiff` decoder reads them (held in memory, or read from the file as it
+/// asks), with an optional 4-byte patch laid over.
+struct Patched<R> {
+    inner: R,
+    /// Where the next read starts.
+    pos: u64,
     patch: Option<(u64, [u8; 4])>,
 }
 
-impl Read for Patched<'_> {
+impl<R> Patched<R> {
+    fn new(inner: R, patch: Option<(u64, [u8; 4])>) -> Patched<R> {
+        Patched { inner, pos: 0, patch }
+    }
+}
+
+impl<R: Read> Read for Patched<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let start = self.inner.position();
+        let start = self.pos;
         let n = self.inner.read(buf)?;
+        self.pos = self.pos.saturating_add(n as u64);
         if let Some((at, bytes)) = self.patch {
             for (k, b) in bytes.iter().enumerate() {
                 let Some(pos) = (at + k as u64).checked_sub(start) else { continue };
@@ -543,9 +611,10 @@ impl Read for Patched<'_> {
     }
 }
 
-impl Seek for Patched<'_> {
+impl<R: Seek> Seek for Patched<R> {
     fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
-        self.inner.seek(to)
+        self.pos = self.inner.seek(to)?;
+        Ok(self.pos)
     }
 }
 
@@ -600,7 +669,7 @@ fn decode_page(bytes: &[u8], t: &Tiff, page: &Page, budget: &mut Budget, limits:
     tl.intermediate_buffer_size = usize::try_from(compressed).map_err(|_| too_large())?;
     tl.ifd_value_size = usize::try_from(values).map_err(|_| too_large())?;
     let err = tiff_err(width, height);
-    let mut decoder = Decoder::new(Patched { inner: Cursor::new(bytes), patch: l.patch }).map_err(&err)?.with_limits(tl);
+    let mut decoder = Decoder::new(Patched::new(Cursor::new(bytes), l.patch)).map_err(&err)?.with_limits(tl);
     decoder.seek_to_image(page.index).map_err(&err)?;
     if decoder.dimensions().map_err(&err)? != (width, height) {
         return Err(Error::Malformed("the TIFF decoder found another page size".into()));
@@ -648,6 +717,336 @@ fn decode_page(bytes: &[u8], t: &Tiff, page: &Page, budget: &mut Budget, limits:
         Kind::Rgb | Kind::Palette(_) | Kind::YCbCr => ColorModel::Rgb,
     };
     Ok(Decoded { width, height, model, alpha: l.alpha.is_some(), samples, icc: l.icc, orientation: page.orientation })
+}
+
+// ---- Reduced decoding (the large-image path) --------------------------------------------------
+
+/// Where one strip or tile of a page lies: its stored sample (0 for chunky pages, the plane for
+/// planar ones), first column and row, and the size of its data (edge tiles cut to the page).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Chunk {
+    plane: usize,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+/// How a page is cut into strips or tiles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Grid {
+    /// The chunk's width and height (a strip: the page's width and its rows).
+    chunk: (u32, u32),
+    across: u32,
+    per_plane: u64,
+}
+
+impl Grid {
+    fn read(t: &Tiff, l: &Layout, ifd: &Ifd) -> Result<Grid> {
+        let uint = |tag| ifd.get(tag).and_then(|e| t.uint(e));
+        let malformed = |what: &str| Error::Malformed(format!("a TIFF page with {what}"));
+        let chunk = match (uint(TAG_TILE_WIDTH), uint(TAG_TILE_LENGTH), ifd.get(TAG_TILE_OFFSETS)) {
+            (Some(w), Some(h), Some(_)) if w > 0 && h > 0 => (w, h),
+            (_, _, Some(_)) => return Err(malformed("tiles of no size")),
+            // RowsPerStrip defaults to "the whole page in one strip".
+            _ => (l.width, uint(TAG_ROWS_PER_STRIP).filter(|&r| r > 0).unwrap_or(u32::MAX).min(l.height)),
+        };
+        let across = l.width.div_ceil(chunk.0);
+        let per_plane = u64::from(across) * u64::from(l.height.div_ceil(chunk.1));
+        let planes = if l.planar { l.samples as u64 } else { 1 };
+        if per_plane.checked_mul(planes) != Some(l.chunks) {
+            return Err(malformed(&format!("{} strips or tiles for {per_plane} × {planes}", l.chunks)));
+        }
+        Ok(Grid { chunk, across, per_plane })
+    }
+
+    /// Chunk `index` in file order.
+    fn at(&self, l: &Layout, index: u64) -> Chunk {
+        let plane = (index / self.per_plane.max(1)) as usize;
+        let k = index % self.per_plane.max(1);
+        let (col, row) = ((k % u64::from(self.across.max(1))) as u32, (k / u64::from(self.across.max(1))) as u32);
+        let (x, y) = (col.saturating_mul(self.chunk.0), row.saturating_mul(self.chunk.1));
+        Chunk { plane, x, y, width: self.chunk.0.min(l.width.saturating_sub(x)), height: self.chunk.1.min(l.height.saturating_sub(y)) }
+    }
+}
+
+/// The reduced picture's size: the page divided by `factor`, edge cells partial.
+fn reduced_size(l: &Layout, factor: u32) -> (u32, u32) {
+    (l.width.div_ceil(factor), l.height.div_ceil(factor))
+}
+
+/// The whole factor by which to reduce a `width × height` page so its longer side stays at least
+/// `long_side` (1 when it is not larger).
+pub fn reduce_factor(width: u32, height: u32, long_side: u32) -> u32 {
+    (width.max(height) / long_side.max(1)).max(1)
+}
+
+/// Decodes `page` chunk by chunk from `source`, summing every stored sample into its cell of the
+/// reduced picture, then hands the cell means to [`finish`] as a page of the reduced size.
+fn reduce<R: Read + Seek>(t: &Tiff, page: &Page, source: R, len: u64, long_side: u32, budget: &mut Budget, limits: &Limits) -> Result<Decoded> {
+    let l = Layout::read(t, page, limits)?;
+    if l.bits < 8 || matches!(l.kind, Kind::Palette(_)) {
+        return Err(Error::Unsupported(Format::Tiff));
+    }
+    let (width, height) = (l.width, l.height);
+    let too_large = || Error::TooLarge { width, height };
+    let grid = Grid::read(t, &l, &page.ifd)?;
+    // A strip or tile cut by the end of the file: damaged.
+    if chunk_tags(&page.ifd).and_then(|(o, c)| data_end(t, o, c)).is_some_and(|end| end > len) {
+        return Err(Error::Truncated);
+    }
+    let in_chunk = if l.planar { 1 } else { l.samples };
+    let sample_bytes = u64::from(l.bits / 8);
+    let chunk_bytes = u64::from(grid.chunk.0)
+        .checked_mul(u64::from(grid.chunk.1))
+        .and_then(|p| p.checked_mul(in_chunk as u64 * sample_bytes))
+        .filter(|&b| b <= limits.max_alloc)
+        .ok_or_else(too_large)?;
+    let factor = reduce_factor(width, height, long_side);
+    let (rw, rh) = reduced_size(&l, factor);
+    let cells = (rw as usize).checked_mul(rh as usize).and_then(|c| c.checked_mul(l.samples)).ok_or_else(too_large)?;
+    // The decoder's own memory, as for a whole page, with one chunk (and its JPEG copy) in place of
+    // the page.
+    let compressed = l.largest_chunk.min(len);
+    let first = match page.index {
+        0 => 0,
+        _ => chunks(t, &t.ifd(t.first_ifd()?, &mut Visited::default(), limits)?)?.0,
+    };
+    let values = l.chunks.saturating_mul(BYTES_PER_CHUNK).saturating_add(DECODER_OVERHEAD);
+    let own = values.saturating_add(first.saturating_mul(BYTES_PER_CHUNK)).saturating_add(compressed);
+    budget.charge(own.saturating_add(if l.jpeg { chunk_bytes } else { 0 }))?;
+    let mut sums = budget.vec(cells, 0f64)?;
+    let mut buffer = budget.vec(usize::try_from(chunk_bytes).map_err(|_| too_large())?, 0u8)?;
+    let mut tl = tiff::decoder::Limits::default();
+    tl.decoding_buffer_size = usize::try_from(values).map_err(|_| too_large())?;
+    tl.intermediate_buffer_size = usize::try_from(compressed).map_err(|_| too_large())?;
+    tl.ifd_value_size = usize::try_from(values).map_err(|_| too_large())?;
+    let err = tiff_err(width, height);
+    let mut decoder = Decoder::new(Patched::new(source, l.patch)).map_err(&err)?.with_limits(tl);
+    decoder.seek_to_image(page.index).map_err(&err)?;
+    if decoder.dimensions().map_err(&err)? != (width, height) {
+        return Err(Error::Malformed("the TIFF decoder found another page size".into()));
+    }
+    let cell = Cells { factor, across: rw as usize, samples: l.samples };
+    for index in 0..l.chunks {
+        let c = grid.at(&l, index);
+        let used = c.width as usize * c.height as usize * in_chunk * sample_bytes as usize;
+        let data = buffer.get_mut(..used).ok_or_else(too_large)?;
+        let chunk_index = u32::try_from(index).map_err(|_| Error::TooMany("TIFF strips or tiles"))?;
+        decoder.read_chunk_bytes(chunk_index, data).map_err(&err)?;
+        let data: &[u8] = data;
+        match (l.float, l.bits) {
+            (false, 8) => cell.add::<1>(&mut sums, data, &c, in_chunk, |b| f64::from(b[0])),
+            (false, 16) => cell.add::<2>(&mut sums, data, &c, in_chunk, |b| f64::from(u16::from_ne_bytes(b))),
+            // Narrowed to 16 bits, as `finish` narrows them.
+            (false, 32) => cell.add::<4>(&mut sums, data, &c, in_chunk, |b| f64::from(u32::from_ne_bytes(b) >> 16)),
+            (true, 16) => cell.add::<2>(&mut sums, data, &c, in_chunk, |b| f64::from(f16_to_f32(u16::from_ne_bytes(b)))),
+            (true, 32) => cell.add::<4>(&mut sums, data, &c, in_chunk, |b| f64::from(f32::from_ne_bytes(b))),
+            (true, 64) => cell.add::<8>(&mut sums, data, &c, in_chunk, f64::from_ne_bytes),
+            _ => return Err(Error::Unsupported(Format::Tiff)),
+        }
+    }
+    drop(decoder);
+    budget.refund(chunk_bytes.saturating_add(own).saturating_add(if l.jpeg { chunk_bytes } else { 0 }));
+    drop(buffer);
+    // The cell means, as a chunky page of the reduced size at 8 or 16 bits, or as 32-bit floats.
+    let small = Layout { width: rw, height: rh, planar: false, ..l.clone() };
+    let count = |i: usize| -> f64 {
+        let (x, y) = ((i / l.samples) % rw as usize, (i / l.samples) / rw as usize);
+        let side = |at: usize, len: u32| u64::from(factor).min(u64::from(len).saturating_sub(at as u64 * u64::from(factor))).max(1);
+        (side(x, width) * side(y, height)) as f64
+    };
+    let means = sums.iter().enumerate().map(|(i, s)| s / count(i));
+    let raw = match (l.float, l.bits) {
+        (false, 8) => {
+            let mut v = budget.vec(cells, 0u8)?;
+            for (o, m) in v.iter_mut().zip(means) {
+                *o = m.round().clamp(0.0, 255.0) as u8;
+            }
+            Raw::U8(v)
+        }
+        (false, _) => {
+            let mut v = budget.vec(cells, 0u16)?;
+            for (o, m) in v.iter_mut().zip(means) {
+                *o = m.round().clamp(0.0, 65_535.0) as u16;
+            }
+            Raw::U16(v)
+        }
+        (true, _) => {
+            let mut v = budget.vec(cells, 0f32)?;
+            for (o, m) in v.iter_mut().zip(means) {
+                *o = m as f32;
+            }
+            Raw::F32(v)
+        }
+    };
+    drop(sums);
+    budget.refund(cells as u64 * 8);
+    let small = Layout { bits: if l.float { 32 } else { l.bits.min(16) }, ..small };
+    let samples = finish(raw, &small, budget)?;
+    let model = match l.kind {
+        Kind::Gray => ColorModel::Gray,
+        Kind::Cmyk => ColorModel::Cmyk,
+        Kind::Rgb | Kind::Palette(_) | Kind::YCbCr => ColorModel::Rgb,
+    };
+    Ok(Decoded { width: rw, height: rh, model, alpha: l.alpha.is_some(), samples, icc: l.icc, orientation: page.orientation })
+}
+
+/// Bytes of raw samples a band aims at: few enough colour-stage calls, little memory.
+const BAND_BYTES: u64 = 16 << 20;
+
+/// [`decode_banded`]'s work: rows of chunks gathered into bands of whole pages' rows (planes one
+/// after the other, as the `tiff` decoder lays out a whole page), each band through [`finish`] and
+/// the colour stage under a budget of what the output and the chunk buffer left.
+#[allow(clippy::too_many_arguments)]
+fn bands<R: Read + Seek>(
+    t: &Tiff,
+    page: &Page,
+    l: &Layout,
+    source: R,
+    len: u64,
+    options: &DecodeOptions,
+    budget: &mut Budget,
+    limits: &Limits,
+) -> Result<Rgba8> {
+    let (width, height) = (l.width, l.height);
+    let too_large = || Error::TooLarge { width, height };
+    let grid = Grid::read(t, l, &page.ifd)?;
+    if chunk_tags(&page.ifd).and_then(|(o, c)| data_end(t, o, c)).is_some_and(|end| end > len) {
+        return Err(Error::Truncated);
+    }
+    let in_chunk = if l.planar { 1 } else { l.samples };
+    let sample_bytes = (l.bits / 8) as usize;
+    let chunk_bytes = u64::from(grid.chunk.0)
+        .checked_mul(u64::from(grid.chunk.1))
+        .and_then(|p| p.checked_mul((in_chunk * sample_bytes) as u64))
+        .filter(|&b| b <= limits.max_alloc)
+        .ok_or_else(too_large)?;
+    let row_bytes = width as usize * l.samples * sample_bytes;
+    let chunk_rows = grid.chunk.1.max(1);
+    let compressed = l.largest_chunk.min(len);
+    let first = match page.index {
+        0 => 0,
+        _ => chunks(t, &t.ifd(t.first_ifd()?, &mut Visited::default(), limits)?)?.0,
+    };
+    let values = l.chunks.saturating_mul(BYTES_PER_CHUNK).saturating_add(DECODER_OVERHEAD);
+    let own = values.saturating_add(first.saturating_mul(BYTES_PER_CHUNK)).saturating_add(compressed);
+    budget.charge(own.saturating_add(if l.jpeg { chunk_bytes } else { 0 }))?;
+    let mut out = budget.vec(width as usize * height as usize * 4, 255u8)?;
+    let mut chunk = budget.vec(usize::try_from(chunk_bytes).map_err(|_| too_large())?, 0u8)?;
+    // A band holds its raw bytes about four times over (the gathered rows, typed samples, the
+    // arranged or converted samples, the colour stage's output): a sixth of what is left each.
+    let target = BAND_BYTES.min(budget.left() / 6);
+    let per_band = (target / (row_bytes as u64 * u64::from(chunk_rows)).max(1)).clamp(1, u64::from(u32::MAX)) as u32;
+    let band_rows = chunk_rows.saturating_mul(per_band).min(height);
+    let mut band = budget.vec(row_bytes.checked_mul(band_rows as usize).ok_or_else(too_large)?, 0u8)?;
+    let mut tl = tiff::decoder::Limits::default();
+    tl.decoding_buffer_size = usize::try_from(values).map_err(|_| too_large())?;
+    tl.intermediate_buffer_size = usize::try_from(compressed).map_err(|_| too_large())?;
+    tl.ifd_value_size = usize::try_from(values).map_err(|_| too_large())?;
+    let err = tiff_err(width, height);
+    let mut decoder = Decoder::new(Patched::new(source, l.patch)).map_err(&err)?.with_limits(tl);
+    decoder.seek_to_image(page.index).map_err(&err)?;
+    if decoder.dimensions().map_err(&err)? != (width, height) {
+        return Err(Error::Malformed("the TIFF decoder found another page size".into()));
+    }
+    let planes = if l.planar { l.samples } else { 1 };
+    let mut y0 = 0u32;
+    while y0 < height {
+        let rows = band_rows.min(height - y0);
+        let band_len = row_bytes * rows as usize;
+        let plane_len = band_len / planes;
+        let data = band.get_mut(..band_len).ok_or_else(too_large)?;
+        // Every chunk whose rows fall in the band, copied to its place in the band.
+        let first_row = u64::from(y0 / chunk_rows);
+        for chunk_row in first_row..first_row + u64::from(rows.div_ceil(chunk_rows)) {
+            for plane in 0..planes {
+                for col in 0..u64::from(grid.across) {
+                    let index = plane as u64 * grid.per_plane + chunk_row * u64::from(grid.across) + col;
+                    let c = grid.at(l, index);
+                    let line = c.width as usize * in_chunk * sample_bytes;
+                    let used = line * c.height as usize;
+                    let buf = chunk.get_mut(..used).ok_or_else(too_large)?;
+                    decoder.read_chunk_bytes(u32::try_from(index).map_err(|_| Error::TooMany("TIFF strips or tiles"))?, buf).map_err(&err)?;
+                    let plane_row = width as usize * in_chunk * sample_bytes;
+                    for (r, src) in buf.chunks(line.max(1)).take(c.height as usize).enumerate() {
+                        let y = (c.y - y0) as usize + r;
+                        let at = plane * plane_len + y * plane_row + c.x as usize * in_chunk * sample_bytes;
+                        if let Some(dst) = data.get_mut(at..at + src.len()) {
+                            dst.copy_from_slice(src);
+                        }
+                    }
+                }
+            }
+        }
+        let data: &[u8] = data;
+        let mut sub = Budget::new(&Limits { max_alloc: budget.left(), ..*limits }, width, rows);
+        let raw = match (l.float, l.bits) {
+            (false, 8) => {
+                let mut v = sub.vec(band_len, 0u8)?;
+                v.copy_from_slice(data);
+                Raw::U8(v)
+            }
+            (false, 16) => Raw::U16(typed(data, &mut sub, u16::from_ne_bytes)?),
+            (false, 32) => Raw::U32(typed(data, &mut sub, u32::from_ne_bytes)?),
+            (true, 16) => Raw::F16(typed(data, &mut sub, u16::from_ne_bytes)?),
+            (true, 32) => Raw::F32(typed(data, &mut sub, f32::from_ne_bytes)?),
+            (true, 64) => Raw::F64(typed(data, &mut sub, u64::from_ne_bytes)?),
+            _ => return Err(Error::Unsupported(Format::Tiff)),
+        };
+        let part = Layout { height: rows, ..l.clone() };
+        let samples = finish(raw, &part, &mut sub)?;
+        let model = match l.kind {
+            Kind::Gray => ColorModel::Gray,
+            Kind::Cmyk => ColorModel::Cmyk,
+            Kind::Rgb | Kind::Palette(_) | Kind::YCbCr => ColorModel::Rgb,
+        };
+        let decoded = Decoded { width, height: rows, model, alpha: l.alpha.is_some(), samples, icc: l.icc.clone(), orientation: page.orientation };
+        let converted = color::to_srgb8(decoded, options, &mut sub, limits)?.image;
+        let at = y0 as usize * width as usize * 4;
+        out.get_mut(at..at + converted.data.len()).ok_or_else(too_large)?.copy_from_slice(&converted.data);
+        y0 += rows;
+    }
+    Ok(Rgba8 { width, height, data: out })
+}
+
+/// Bytes in the machine's order as `N`-byte samples, in a vector charged to `budget`.
+fn typed<T: Copy + Default, const N: usize>(data: &[u8], budget: &mut Budget, from: impl Fn([u8; N]) -> T) -> Result<Vec<T>> {
+    let words = data.as_chunks::<N>().0;
+    let mut v = budget.vec(words.len(), T::default())?;
+    for (o, w) in v.iter_mut().zip(words) {
+        *o = from(*w);
+    }
+    Ok(v)
+}
+
+/// The reduced picture's cells: `factor × factor` pixels of the page each, `across` to a row,
+/// `samples` sums per cell.
+struct Cells {
+    factor: u32,
+    across: usize,
+    samples: usize,
+}
+
+impl Cells {
+    /// Adds the samples of chunk `c` (rows of `c.width` pixels of `in_chunk` samples of `B` bytes,
+    /// read by `value`) to their cells.
+    fn add<const B: usize>(&self, sums: &mut [f64], data: &[u8], c: &Chunk, in_chunk: usize, value: impl Fn([u8; B]) -> f64) {
+        let values = data.as_chunks::<B>().0;
+        let f = self.factor as usize;
+        let row_len = c.width as usize * in_chunk;
+        for (r, row) in values.chunks(row_len.max(1)).take(c.height as usize).enumerate() {
+            let at_row = (c.y as usize + r) / f * self.across;
+            for (i, px) in row.chunks(in_chunk.max(1)).enumerate() {
+                let base = (at_row + (c.x as usize + i) / f) * self.samples + c.plane;
+                for (s, v) in px.iter().enumerate() {
+                    if let Some(slot) = sums.get_mut(base + s) {
+                        *slot += value(*v);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Raw samples → the decoded samples: low bit depths unpacked, planes interleaved, extra samples
@@ -837,7 +1236,7 @@ mod tests {
     #[test]
     fn the_patch_lies_over_whatever_is_read() {
         let data = [0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let mut p = Patched { inner: Cursor::new(&data[..]), patch: Some((3, [30, 40, 50, 60])) };
+        let mut p = Patched::new(Cursor::new(&data[..]), Some((3, [30, 40, 50, 60])));
         let mut buf = [0u8; 4];
         p.seek(SeekFrom::Start(1)).unwrap();
         assert_eq!(p.read(&mut buf).unwrap(), 4);

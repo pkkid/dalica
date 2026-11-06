@@ -184,18 +184,16 @@ impl Images {
 }
 
 /// Decodes the photo at `path` to fit `long_side` pixels, upright, under `limits`, and draws
-/// `edits` over it (on a worker).
+/// `edits` over it (on a worker). A large TIFF is read a strip or tile at a time, not whole
+/// ([`dalica_image::decode::decode_thumbnail_file`], issue #722).
 fn decode(path: &Path, long_side: u32, options: &DecodeOptions, limits: &Limits, edits: &[String], cancel: &AtomicBool) -> Result<Rgba8, String> {
-    let bytes = match dalica_fs::read(path, dalica_thumbs::MAX_FILE) {
-        Ok(Some(r)) => r.bytes,
-        Ok(None) => return Err("the file is missing".into()),
-        Err(e) => return Err(e.to_string()),
-    };
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return Err("cancelled".into());
     }
-    dalica_image::read_header(&bytes, limits).map_err(|e| e.reason())?;
-    let image = dalica_image::decode_thumbnail_with(&bytes, long_side, options, limits).map_err(|e| e.reason())?;
+    if !path.is_file() {
+        return Err("the file is missing".into());
+    }
+    let image = dalica_image::decode::decode_thumbnail_file(path, long_side, options, limits, dalica_thumbs::MAX_FILE).map_err(|e| e.reason())?;
     let recipe = dalica_edit::Recipe::parse(edits).unwrap_or_default();
     if recipe.ops().is_empty() {
         return Ok(image);
