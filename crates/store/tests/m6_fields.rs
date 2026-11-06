@@ -199,6 +199,7 @@ fn folder_info() -> impl Strategy<Value = FolderInfo> {
         date: date.map(|(y, m, d)| Date::new(y, m, d).unwrap()),
         place: dalica_library::clean_place(&p),
         hidden,
+        music: String::new(),
     })
 }
 

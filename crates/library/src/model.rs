@@ -115,10 +115,15 @@ pub struct FolderInfo {
     /// Hidden with Hide Folder: the folder leaves Folders for Hidden Folders.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// The folder of music files this folder's slideshows play (M16, Folder Properties' Music for
+    /// slideshows): a path as the folder picker gives it, at most [`MAX_MUSIC`] bytes
+    /// ([`clean_music`]); empty for none, when Options' music folder plays.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub music: String,
 }
 
 impl FolderInfo {
-    pub const EMPTY: FolderInfo = FolderInfo { description: String::new(), date: None, place: String::new(), hidden: false };
+    pub const EMPTY: FolderInfo = FolderInfo { description: String::new(), date: None, place: String::new(), hidden: false, music: String::new() };
 
     pub fn is_empty(&self) -> bool {
         *self == FolderInfo::EMPTY
@@ -142,6 +147,21 @@ pub struct Synced {
     pub place: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date: Option<u64>,
+}
+
+/// The most bytes of a [`FolderInfo::music`] path (UTF-8): room for any platform's usual path
+/// limit (4 KiB on Linux).
+pub const MAX_MUSIC: usize = 4096;
+
+/// A folder's music path as stored: trimmed and cut to [`MAX_MUSIC`] bytes at a character
+/// boundary. Empty means none. Inner characters are kept as they are: they are the path's.
+pub fn clean_music(text: &str) -> String {
+    let text = text.trim();
+    let mut end = text.len().min(MAX_MUSIC);
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or_default().trim_end().to_string()
 }
 
 /// The most bytes of a [`Saved::digest`] (`security.md` §4.4: input-derived text is capped).

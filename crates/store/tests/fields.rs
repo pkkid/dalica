@@ -1,4 +1,4 @@
-//! Every field Dalica keeps, M6's, M8's, M9's and M13's together, through each way the store keeps
+//! Every field Dalica keeps, M6's, M8's, M9's, M13's and M16's together, through each way the store keeps
 //! it (`data-model.md` §3, §4, §6, §7, §10.1): a rebuild from the folders after the index is deleted
 //! gives back everything but the derived data (synced hashes, search facts, digests and times);
 //! journal replay and snapshots keep everything; clearing a field takes its keys out; and an entry
@@ -143,7 +143,8 @@ fn m13_ops(lib: &Library, ids: &[Vec<PhotoId>]) -> Vec<Op> {
 }
 
 /// M6's user fields: stars, captions, tags, hidden photos, recipes with an unknown operation and a
-/// redo list, dates, a folder's description, date and place, a hidden folder; and synced hashes.
+/// redo list, dates, a folder's description, date, place and slideshow music (M16), a hidden folder;
+/// and synced hashes.
 fn m6_ops(folders: &[FolderId], ids: &[Vec<PhotoId>]) -> Vec<Op> {
     let (a, b) = (&ids[0], &ids[1]);
     vec![
@@ -167,6 +168,7 @@ fn m6_ops(folders: &[FolderId], ids: &[Vec<PhotoId>]) -> Vec<Op> {
                     date: Some("2026-06-04".parse().unwrap()),
                     place: "Lisbon, Portugal".into(),
                     hidden: false,
+                    music: "/home/ana/Music/Fado \"ao vivo\" 東京".into(),
                 },
             )],
         },
@@ -326,6 +328,11 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
     let (first, second) = (sidecar(paths[0]), sidecar(paths[1]));
     assert_eq!(second.folder().hidden, Field::Value(true), "a hidden folder says so in its own sidecar");
     assert_eq!(
+        (first.folder().music, second.folder().music),
+        (Field::Value("/home/ana/Music/Fado \"ao vivo\" 東京".into()), Field::Absent),
+        "a folder's music in its own sidecar; none is no key"
+    );
+    assert_eq!(
         first.saved_as("東京 タワー.CR2"),
         Field::Value(dalica_sidecar::SavedAs { name: "東京 タワー.jpg".into(), recipe: strings(&["sepia()"]) })
     );
@@ -391,6 +398,7 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
     assert_eq!(rebuilt.tag_index().counts(), lib.tag_index().counts());
     assert_eq!(rebuilt.unsaved_counts(), lib.unsaved_counts());
     assert!(rebuilt.is_folder_hidden(folders[1]) && rebuilt.is_hidden(ids[0][2]));
+    assert_eq!(rebuilt.folder_info(folders[0]).music, "/home/ana/Music/Fado \"ao vivo\" 東京", "the folder's music comes back");
     assert_eq!((rebuilt.geo(ids[0][1]), rebuilt.is_geotagged(ids[0][1])), (Some(Geo::Removed), false), "a removed location stays removed");
     assert_eq!(rebuilt.person(&ana()).and_then(|p| p.thumbnail), Some(FaceKey { photo: ids[1][2], rect: rect(0.123457, 0.25, 0.5, 1.0) }));
     assert!(rebuilt.can_undo_save(ids[0][0]) && rebuilt.can_revert(ids[1][1]) && !rebuilt.can_undo_save(ids[0][4]));
@@ -465,7 +473,7 @@ fn journal_replay_and_snapshots_keep_every_field() {
     assert_eq!((snapped.report.clone(), snapped.library.model()), (vec![], lib.model()));
     assert_eq!(snapped.store.seq(), snapped.store.snapshot_seq());
     let snap = std::fs::read_to_string(dir.path().join(dalica_store::snapshot::FILE)).unwrap();
-    for key in ["\"saved\"", "\"savedAs\"", "\"projects\"", "\"facts\"", "\"digests\"", "\"people\"", "\"faces\"", "\"geo\""] {
+    for key in ["\"saved\"", "\"savedAs\"", "\"projects\"", "\"facts\"", "\"digests\"", "\"people\"", "\"faces\"", "\"geo\"", "\"music\""] {
         assert!(snap.contains(key), "{key} in {snap}");
     }
     // The snapshot taken half way holds the model as it was then.
@@ -513,6 +521,7 @@ fn clearing_every_field_removes_its_keys() {
     assert_eq!(doc["photos"]["a]b \"c\";=.jpg"]["savedAs"], json!({"name": "b.jpg"}));
     assert_eq!(doc["folder"]["project"], "exported");
     assert_eq!((&doc["folder"]["sort"], &doc["folder"]["reverse"]), (&json!("name"), &json!(true)));
+    assert!(doc["folder"]["music"].is_string(), "{doc}");
     assert_eq!(doc["photos"]["IMG_0001.jpg"]["faces"], json!([{"person": ana().as_str(), "rect": [0.0, 0.0, 1.0, 1.0]}]));
     assert_eq!((&doc["photos"]["IMG_0001.jpg"]["geo"], &doc["people"][ana().as_str()]["name"]), (&Value::Null, &json!("Ana")));
     for op in undo.into_iter().rev() {

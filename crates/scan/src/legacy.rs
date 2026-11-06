@@ -148,6 +148,8 @@ pub(crate) fn folder_info(sidecar: &LegacySidecar, lossy: &mut usize) -> FolderI
         date: f.date.map(|d| d.date()),
         place: text(f.place, dalica_library::clean_place, lossy),
         hidden: f.hidden,
+        // The legacy folder file has no slideshow music of its own: Options' folder plays.
+        music: String::new(),
     }
 }
 

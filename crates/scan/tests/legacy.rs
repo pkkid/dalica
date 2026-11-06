@@ -97,7 +97,8 @@ fn a_legacy_only_folder_gives_every_field() {
             description: "Planting the beds".into(),
             date: Some(Date::new(2015, 3, 15).unwrap()),
             place: "Atlanta, GA".into(),
-            hidden: true
+            hidden: true,
+            music: String::new()
         }
     );
     let legacy = f.legacy.as_ref().unwrap();

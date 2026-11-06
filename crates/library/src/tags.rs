@@ -143,6 +143,9 @@ pub(crate) fn check_folder_info(info: &FolderInfo) -> Result<()> {
     if info.place.len() > MAX_PLACE {
         return Err(Error::TooLong { what: "folder place", max: MAX_PLACE });
     }
+    if info.music.len() > crate::MAX_MUSIC {
+        return Err(Error::TooLong { what: "folder music", max: crate::MAX_MUSIC });
+    }
     Ok(())
 }
 
