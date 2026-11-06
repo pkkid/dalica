@@ -7,6 +7,25 @@ and git.
 
 ## Current
 
+- **Milestone:** M16, post-1.0 enhancements and Release 1.1.0, is done: M16.1–M16.41 are merged (41 tasks with 7
+  workers, plus the review's three fixes #1214, #1215 and the budgets) and `accept M16` passes. Fifteen themes, colour
+  search, HEVC threaded behind the non-default `hevc` feature, packages halved, and the maintainer's ten backlog items
+  (slideshow in the window, History pane, Discard and the Edited filter, the star's burst, Stats for Nerds, the
+  Straighten grid, settling Auto fixes, large TIFF previews, closing without freezing, the HEIC card). Version 1.1.0:
+  M16.R is its release gate, published once the review PR's runs are green and the maintainer merges it. Next: M17,
+  M16's follow-ups; its issues open when the M16.R review PR is merged.
+- **M16 review (2026-11-06):** ship 1.1.0 when green; M17 is M16's follow-ups; all fingerprint baselines approved
+  (100 from the run, 31 from the review's fix); the lead stops linking its own roadmap-only PRs to the T3 thread during
+  runs; mid-run answers: HEVC threaded with the 16 ms bar kept (met), the CJK subset (option a), the star's burst at
+  about a second, Stats for Nerds named so; the theme switch and slideshow transition budgets raised to 8 and 2 ms.
+- **Numbers (M16.R, 6e37be13 + #1214, 2026-11-06):** `cargo xtask ci --full` 18.6 min (i7-13700K): tests 4 857 passed,
+  17 failed (all from the run's last merges, fixed by #1214 and green on Linux, Windows and macOS), 2 ignored on purpose;
+  release budgets 26 / 28 held, the two others raised by the maintainer (100 k scroll 1.00 ms p95, first screenful 117 /
+  500 ms for 1 k / 10 k, cold start 213 ms, idle 90 MiB, import 35.7 files/s, camera import 20.3 files/s, colour
+  summaries 950 ms, `color:green` 2.9 ms, Linux tar 47.9 MB); `edit_preview` held; parity ✅ 200 · 🟡 43 · ⬜ 15 · 🚫 17
+  (275 rows, 454 commands); +81 313 / −8 595 lines. Run: 41 tasks with 7 workers, typical claim→merge 18 to 38 min;
+  three send-backs; three workers stopped others' gates with a pattern kill (now forbidden); one silent worker death
+  (about 6 h idle).
 - **Milestone:** M15, video, languages, the OS and Release 1.0, is done: M15.1–M15.54 are merged (53 tasks with 7
   workers, plus 13 fix PRs during the run and the review's fixes) and `accept M15` passes (7 / 7, 168 s). Videos in the
   library, the player with trim, Save Frame and Export Clip on a pure-Rust H.264 decoder with AAC sound (HEVC behind the
