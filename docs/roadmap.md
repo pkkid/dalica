@@ -11656,13 +11656,15 @@ under their own key, and a snapshot without them reads as one with none.
     and 900 x 600; the PR closes #726.
 - ⬜ **M16.34 `ui` + `engine`: Discard edits next to Save, and an Edited filter (#727)**
   - after: M16.31
-  - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/engine/src/cmd/edit.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/search.rs`, `crates/engine/tests/edited_filter.rs`, `crates/ui/tests/section_header.rs`, `docs/ui-layout.md`, `docs/organizing.md`, `docs/editing.md`
+  - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/engine/src/cmd/edit.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/search.rs`, `crates/engine/tests/edited_filter.rs`, `crates/ui/tests/section_header.rs`, `docs/organizing.md`
   - scope: issue #727 as written (maintainer request, 2026-11-06): (1) a Discard text button
     beside the section header's Save when the section has unsaved edits, confirming first and
     undoing every edit of that section's photos (one command, one undo step where the history
     allows; originals untouched); (2) an Edited filter in the toolbar's Filters group that shows
     only photos with edits, as a search filter the CLI and MCP can use too. Surgical edits to
-    `menu_catalog.rs`, `state.rs` and `cmd/mod.rs` are allowed.
+    `menu_catalog.rs`, `state.rs` and `cmd/mod.rs` are allowed. Its own paragraphs in
+    `ui-layout.md` (the section header, the Filters group) and `editing.md` §5.1 (Discard) go
+    in its last commit, rebased over M16.33, which holds those files (lead, 2026-11-06).
   - done when: the issue's *Done when* holds; an engine test discards a section's edits and
     finds no edited photo left, and filters a mixed library to exactly its edited photos; a ui
     test clicks Discard and the filter; screenshots at 1400 x 900 and 900 x 600; the PR closes
