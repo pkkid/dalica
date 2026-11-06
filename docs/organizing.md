@@ -590,6 +590,21 @@ How the search reads the text and answers (decided while building it, M9.8 and M
   `--automation-allow-people` leaves people's names out of the match (`withholdNames`): `person:`
   matches nothing and is `unavailable` as in a library without people, plain words skip names and
   nicknames, everything else matches as before. The window's own searches always match names.
+- **Colours** (M16.2, the classifier; the search follows in M16.9 and M16.10). `color:` takes one
+  of seven words, in any case: `red`, `orange`, `yellow`, `green`, `blue`, `purple` and `bw` (black
+  and white); Tools ▸ Experimental ▸ Search for ▸ names them Red … Purple and Black and White. Each
+  photo has a colour summary made from its colour sketch (no file read; an edit redraws the sketch,
+  so the summary follows it): every cell of the sketch's grid is read as hue, saturation and value;
+  a cell under 0.2 saturation or 0.2 value has no colour (greys, whites, black, a faint tint, deep
+  shadow). The others count toward the colour their hue falls in, weighted by their saturation:
+  red 320° … 15° (so pink is red), orange 15° … 45° (brown too), yellow 45° … 70°, green 70° … 165°,
+  blue 165° … 255° (cyan too), purple 255° … 320° (magenta too); each bound belongs to the colour
+  it starts. When the coloured weight is under 4 % of the picture's cells, the photo is `bw` and
+  nothing else, so a speck of colour or the noise in a grey picture never makes it red. Otherwise
+  a colour belongs to the summary when it has at least 15 % of the coloured weight, and the
+  largest is the photo's main colour: a red barn under a blue sky is red and blue, a green field
+  with a small red flower is green only. The thresholds are named constants in
+  `dalica-core`'s `color_summary`.
 - **Hidden and small pictures** count only when View ▸ Hidden Pictures and Small Pictures show
   them, so the banner counts what the light table shows.
 - **Order.** Results come in light-table order: by folder in the order the tree lists the folders
