@@ -25,7 +25,10 @@
 //!   disk (`plan_on_disk`: every source still there, a taken target that is not the photo itself
 //!   moves on), then the first item of each folder renames all of that folder's photos, all or
 //!   nothing (`rename_all`), and brings their library ops and sidecar entries (`Carry::rename`);
-//!   the folder's other items report how their photo fared. Undo and redo run the renames that
+//!   the folder's other items report how their photo fared. A RAW's `.xmp` sidecar is renamed
+//!   right after it, in its own form (`trip.xmp`, `trip.CR3.xmp`), found from one listing of the
+//!   folder before the first rename ([`crate::raw_sidecars`]); one that cannot follow stays, with a
+//!   notice, and never holds the renames back. Undo and redo run the renames that
 //!   happened, the same way, as the step's one job. A batch over several folders is all or nothing
 //!   per folder (each folder's renames are one item's work); the names are checked for every
 //!   folder before the first file moves.
@@ -45,13 +48,14 @@ use dalica_core::{Date, DateTime, FolderId, PhotoId};
 use dalica_fs::Identity;
 use dalica_fs::transfer::{self, Outcome};
 use dalica_library::{Library, Op, Photo};
-use dalica_store::carry::Carry;
+use dalica_store::carry::{Carry, Mode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::cmd::photo::{has_ids, known};
 use crate::error::CmdError;
 use crate::fileops::{Driver, FileOp, FileOpKind, Ran};
+use crate::raw_sidecars::{self, Side, maybe_raw};
 use crate::registry::{CommandSpec, Disabled, Effect, History, params};
 use crate::session::Session;
 
@@ -233,12 +237,14 @@ fn plan_on_disk(spec: &Spec) -> Result<HashMap<PhotoId, String>, String> {
     Ok(spec.wants.iter().map(|w| w.photo).zip(names).collect())
 }
 
-/// One rename of a batch: photo `photo`'s file `from` becomes `to` in the item's folder.
+/// One rename of a batch: photo `photo`'s file `from` becomes `to` in the item's folder, and a
+/// RAW's `.xmp` sidecar `side.from` becomes `side.to` right after it ([`raw_sidecars`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pair {
     pub photo: PhotoId,
     pub from: String,
     pub to: String,
+    pub side: Option<Side>,
 }
 
 /// Why [`rename_all`] failed, and the renames that could not be moved back (those files keep
@@ -259,10 +265,24 @@ fn rename_one(dir: &Path, from: &str, to: &str) -> Result<(), String> {
     }
 }
 
-/// Renames every pair that changes a name in `dir`, all or nothing: after a failure the renames
-/// done are moved back, last first. Returns the renames done.
-fn rename_all(dir: &Path, pairs: &[Pair]) -> Result<Vec<Pair>, Failed> {
+/// Renames pair `p`'s sidecar in `dir` after its RAW: the pair as done (its sidecar's names only
+/// when it went), and what is to be said about one that stayed in `notes`.
+fn with_sidecar(dir: &Path, p: &Pair, notes: &mut Vec<String>) -> Pair {
+    let side = p.side.clone().and_then(|side| {
+        let went = raw_sidecars::carry(Mode::Move, dir, side, dir);
+        notes.extend(went.note(dir));
+        went.side().cloned()
+    });
+    Pair { side, ..p.clone() }
+}
+
+/// Renames every pair that changes a name in `dir`, all or nothing (a RAW's sidecar right after
+/// it, never holding the rename back: one that stays is said in the notes): after a failure the
+/// renames done are moved back, last first, their sidecars with them. Returns the renames done and
+/// the notes.
+fn rename_all(dir: &Path, pairs: &[Pair]) -> Result<(Vec<Pair>, Vec<String>), Failed> {
     let mut done: Vec<Pair> = Vec::new();
+    let mut notes = Vec::new();
     for p in pairs.iter().filter(|p| p.from != p.to) {
         #[cfg(feature = "faults")]
         planted::reach(&dir.join(&p.from));
@@ -274,22 +294,31 @@ fn rename_all(dir: &Path, pairs: &[Pair]) -> Result<Vec<Pair>, Failed> {
                 && matches!(dalica_fs::identity(&dir.join(&p.from)), Ok(None))
                 && matches!(dalica_fs::identity(&dir.join(&p.to)), Ok(now) if now == before);
             if moved {
-                done.push(p.clone());
+                done.push(with_sidecar(dir, p, &mut notes));
             }
             let mut why = format!("{} could not be renamed {}: {e}", p.from, p.to);
             let mut stuck = Vec::new();
             for d in done.iter().rev() {
-                if let Err(e) = rename_one(dir, &d.to, &d.from) {
-                    why.push_str(&format!("; {} could not get its name back ({e}): it is now {}", d.from, d.to));
-                    stuck.push(d.clone());
+                match rename_one(dir, &d.to, &d.from) {
+                    Ok(()) => {
+                        let back = Pair { photo: d.photo, from: d.to.clone(), to: d.from.clone(), side: d.side.as_ref().map(Side::reversed) };
+                        with_sidecar(dir, &back, &mut notes);
+                    }
+                    Err(e) => {
+                        why.push_str(&format!("; {} could not get its name back ({e}): it is now {}", d.from, d.to));
+                        stuck.push(d.clone());
+                    }
                 }
+            }
+            for note in notes {
+                log::warn!("{note}");
             }
             stuck.reverse();
             return Err(Failed { why, stuck });
         }
-        done.push(p.clone());
+        done.push(with_sidecar(dir, p, &mut notes));
     }
-    Ok(done)
+    Ok((done, notes))
 }
 
 /// Planted failures for tests (the `faults` feature): the batch's rename of a given file fails
@@ -352,11 +381,13 @@ pub struct Item {
     planned: bool,
 }
 
-/// What an item did: its photo's name now, and the renames it performed.
+/// What an item did: its photo's name now, the renames it performed, and what is to be said about
+/// the RAW sidecars that stayed.
 #[derive(Clone, Debug)]
 pub struct Renamed {
     name: String,
     group: Vec<Pair>,
+    stayed: Vec<String>,
 }
 
 /// The names a batch's photos get, by photo.
@@ -391,15 +422,55 @@ impl Photos {
             .filter(|w| w.dir == dir)
             .map(|w| {
                 let to = plan.get(&w.photo).cloned().ok_or_else(|| format!("no name was decided for {}", w.from))?;
-                Ok(Pair { photo: w.photo, from: w.from.clone(), to })
+                Ok(Pair { photo: w.photo, from: w.from.clone(), to, side: None })
             })
             .collect()
     }
 
+    /// Doing: `pairs` (of `dir`) with their RAWs' sidecars, found from one listing of the folder,
+    /// and what is to be said when the folder could not be listed. On the job's thread.
+    fn with_sides(&self, dir: &Path, pairs: Vec<Pair>) -> (Vec<Pair>, Vec<String>) {
+        let renames_raw = |p: &Pair| p.from != p.to && maybe_raw(&p.from);
+        if !pairs.iter().any(renames_raw) {
+            return (pairs, Vec::new());
+        }
+        let held = self.spec.held.get(dir);
+        let batch: HashSet<String> = pairs.iter().map(|p| fold(&p.from)).collect();
+        let is_raw = |n: &str| maybe_raw(n) && (batch.contains(&fold(n)) || held.is_some_and(|h| h.contains(&fold(n))));
+        let sidecars = match raw_sidecars::resolve(dir, is_raw) {
+            Ok(s) => s,
+            Err(e) => {
+                return (pairs, vec![format!("The .xmp sidecars in {} kept their names: the folder could not be listed ({e}).", dir.display())]);
+            }
+        };
+        // How many RAWs have each stem once renamed: a stem shared keeps a sidecar in `<file>.xmp`.
+        let mut stems: HashMap<String, usize> = HashMap::new();
+        let after = held.into_iter().flatten().map(String::as_str).chain(pairs.iter().map(|p| p.to.as_str()));
+        for name in after.filter(|n| maybe_raw(n)) {
+            *stems.entry(raw_sidecars::stem_key(name)).or_default() += 1;
+        }
+        let pairs = pairs
+            .into_iter()
+            .map(|p| {
+                let existing = renames_raw(&p).then(|| sidecars.get(&p.from).and_then(|s| s.existing.clone())).flatten();
+                let side = existing.map(|name| {
+                    let taken = stems.get(&raw_sidecars::stem_key(&p.to)).is_some_and(|n| *n > 1);
+                    Side { to: raw_sidecars::renamed(&name, &p.from, &p.to, taken), from: name }
+                });
+                Pair { side, ..p }
+            })
+            .collect();
+        (pairs, Vec::new())
+    }
+
     fn perform(&self, item: &Item) -> Result<Ran<Renamed>, String> {
-        let pairs = if item.planned { self.planned_pairs(&item.dir)? } else { item.group.clone() };
+        let (pairs, mut stayed) =
+            if item.planned { self.with_sides(&item.dir, self.planned_pairs(&item.dir)?) } else { (item.group.clone(), Vec::new()) };
         let (done, failed) = match rename_all(&item.dir, &pairs) {
-            Ok(done) => (done, None),
+            Ok((done, notes)) => {
+                stayed.extend(notes);
+                (done, None)
+            }
             Err(Failed { why, stuck }) => (stuck, Some(why)),
         };
         {
@@ -420,7 +491,7 @@ impl Photos {
             log::warn!("photo.rename in {}: {why}", item.dir.display());
         }
         let name = done.iter().find(|d| d.photo == item.photo).map_or_else(|| item.from.clone(), |d| d.to.clone());
-        Ok(Ran::Done(Renamed { name, group: done }))
+        Ok(Ran::Done(Renamed { name, group: done, stayed }))
     }
 
     fn follow(&self, item: &Item) -> Result<Ran<Renamed>, String> {
@@ -429,10 +500,10 @@ impl Photos {
         }
         let fared = self.fared.lock().unwrap_or_else(PoisonError::into_inner).get(&item.photo).cloned();
         match fared {
-            Some(Ok(name)) => Ok(Ran::Done(Renamed { name, group: Vec::new() })),
+            Some(Ok(name)) => Ok(Ran::Done(Renamed { name, group: Vec::new(), stayed: Vec::new() })),
             Some(Err(why)) => Err(why),
             None if item.planned => Err("its folder's renames did not run".into()),
-            None => Ok(Ran::Done(Renamed { name: item.to.clone(), group: Vec::new() })),
+            None => Ok(Ran::Done(Renamed { name: item.to.clone(), group: Vec::new(), stayed: Vec::new() })),
         }
     }
 }
@@ -453,7 +524,7 @@ impl Driver for Photos {
         match item.role {
             Role::Perform => self.perform(item),
             Role::Follow => self.follow(item),
-            Role::Idle => Ok(Ran::Done(Renamed { name: item.to.clone(), group: Vec::new() })),
+            Role::Idle => Ok(Ran::Done(Renamed { name: item.to.clone(), group: Vec::new(), stayed: Vec::new() })),
         }
     }
 
@@ -467,7 +538,12 @@ impl Driver for Photos {
     }
 
     fn reverse(&self, item: &Item, done: &Renamed) -> Result<Item, String> {
-        let group: Vec<Pair> = done.group.iter().rev().map(|p| Pair { photo: p.photo, from: p.to.clone(), to: p.from.clone() }).collect();
+        let group: Vec<Pair> = done
+            .group
+            .iter()
+            .rev()
+            .map(|p| Pair { photo: p.photo, from: p.to.clone(), to: p.from.clone(), side: p.side.as_ref().map(Side::reversed) })
+            .collect();
         Ok(Item {
             photo: item.photo,
             dir: item.dir.clone(),
@@ -494,6 +570,14 @@ impl Driver for Photos {
 
     fn carry(&self, item: &Item, done: &Renamed) -> Option<Carry> {
         (!done.group.is_empty()).then(|| Carry::rename(&item.dir, done.group.iter().map(|p| (p.from.clone(), p.to.clone())).collect()))
+    }
+
+    /// The RAW sidecars that stayed behind are said (notices), in every direction.
+    fn followed(&self, s: &mut Session, _: &Item, done: &Renamed) {
+        for note in &done.stayed {
+            log::warn!("{note}");
+            s.notices.push(note.clone());
+        }
     }
 }
 

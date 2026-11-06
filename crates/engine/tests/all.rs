@@ -70,6 +70,7 @@ mod places;
 mod preview;
 mod preview_panes;
 mod progressive_scan;
+mod raw_sidecars;
 mod read_only;
 mod recently_updated;
 mod recipe_set;

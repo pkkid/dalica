@@ -41,6 +41,7 @@ pub mod os;
 mod people_file;
 pub mod places;
 pub mod preview;
+pub mod raw_sidecars;
 pub mod registry;
 pub mod save_recovery;
 pub mod scanning;

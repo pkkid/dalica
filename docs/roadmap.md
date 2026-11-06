@@ -11384,7 +11384,7 @@ under their own key, and a snapshot without them reads as one with none.
     `crates/fetch/tests/http.rs`: the existing handshakes against the local test server (TLS 1.2
     and 1.3, each signature scheme the provider offers) pass and an untrusted chain is refused;
     every existing `dalica-fetch` test passes unchanged.
-- ⬜ **M16.18 `engine`: a RAW's `.xmp` moves, copies and renames with it**
+- ✅ **M16.18 `engine`: a RAW's `.xmp` moves, copies and renames with it**
   - after: M15.R
   - files: `crates/engine/src/raw_sidecars.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/cmd/rename.rs`, `crates/engine/tests/raw_sidecars.rs`, `docs/xmp-interop.md`
   - scope: DATA-XMP-RAW's missing half (`xmp-interop.md` §7, last bullet): when a move, copy or

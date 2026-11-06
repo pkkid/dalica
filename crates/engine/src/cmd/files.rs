@@ -37,6 +37,9 @@
 //!   items again with the names they got. A move
 //!   whose source's volume had no trash became a copy (the source and its entry kept) and cannot
 //!   be undone.
+//! - **A RAW's `.xmp` sidecar** goes in the same item, right after the RAW, named after its new
+//!   name; undo and redo take it back with it, undoing a copy trashes the copied one, and one that
+//!   cannot go stays with a notice ([`crate::raw_sidecars`]).
 //! - **The journal.** Every item names a `from` and a `to`: a photo's file and where it goes; the
 //!   new folder's item and its undo name the folder twice; undoing a copy names the copy and the
 //!   photo it was copied from.
@@ -45,7 +48,7 @@
 //! pending: true, total, folder}` (Move to New Folder adds `folderId`). The operation's end is a
 //! [`crate::FileOpEvent`] with the counts, skips and failures.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -64,6 +67,7 @@ use crate::cmd::photo::{has_ids, known};
 use crate::error::CmdError;
 use crate::fileops::{self, Driver, FileOp, FileOpKind, Ran};
 use crate::jobs::JobId;
+use crate::raw_sidecars::{self, Finder, Went};
 use crate::registry::{CommandSpec, Effect, History, params};
 use crate::session::Session;
 use crate::settings::OrganizeSettings;
@@ -216,6 +220,8 @@ struct Transfer {
     made_folder: bool,
     /// Back out of a folder this operation made (its undo).
     leaves_made_folder: bool,
+    /// The RAW's `.xmp` sidecar, which goes right after it ([`raw_sidecars`]).
+    side: raw_sidecars::Plan,
 }
 
 /// The new folder of Move to New Folder.
@@ -237,6 +243,8 @@ enum Step {
     Uncopy {
         path: PathBuf,
         expect: Identity,
+        /// The RAW's copied `.xmp` sidecar, which goes to the trash after it.
+        side: Option<PathBuf>,
     },
     MakeFolder(MakeFolder),
     /// Undoing a new folder: the folder to the trash, while it holds nothing but bookkeeping.
@@ -257,19 +265,23 @@ pub struct Item {
 /// What an item did.
 #[derive(Clone, Debug)]
 pub enum Did {
-    /// Moved to `to`/`name`; `kept` when the source's volume had no trash (the move became a copy).
+    /// Moved to `to`/`name`; `kept` when the source's volume had no trash (the move became a copy);
+    /// what became of a RAW's sidecar.
     Moved {
         to: PathBuf,
         name: String,
         kept: bool,
+        side: Went,
     },
-    /// Copied to `to`/`name`, the copy's identity.
+    /// Copied to `to`/`name`, the copy's identity; what became of a RAW's sidecar.
     Copied {
         to: PathBuf,
         name: String,
         identity: Identity,
+        side: Went,
     },
-    Uncopied,
+    /// The copy went to the trash; why its sidecar stayed, if it did.
+    Uncopied(Option<String>),
     MadeFolder {
         path: PathBuf,
         name: String,
@@ -302,6 +314,8 @@ impl Files {
             return Ok(Ran::Skipped(format!("{} already has a file named {}", file_name(&to), t.new_name)));
         }
         let identity = dalica_fs::identity(&t.from.join(&t.name)).map_err(fs_err)?.ok_or_else(|| format!("{} is no longer there", t.name))?;
+        // A RAW's sidecar, looked for while the RAW is still in its folder.
+        let found = raw_sidecars::find(&t.side, &t.from, &t.name);
         for (i, name) in names_for(&t.name, &t.new_name).enumerate() {
             let path = to.join(&name);
             if i > 0 && dalica_fs::stat(&path).map_err(fs_err)?.is_some() {
@@ -310,15 +324,18 @@ impl Files {
             if path != item.target {
                 fileops::retarget(&path)?;
             }
+            // The RAW's sidecar goes right after it, named after its new name.
+            let side = || raw_sidecars::follow(t.mode, &found, &t.from, &t.name, &to, &name);
             let did = match t.mode {
                 Mode::Move => match transfer::move_file(&t.from, &t.name, identity, &to, &name).map_err(fs_err)? {
                     Outcome::Done(m) => {
-                        Some(Did::Moved { to: to.clone(), name: name.clone(), kept: matches!(m, Moved::Copied { source: Finished::NoTrash, .. }) })
+                        let kept = matches!(m, Moved::Copied { source: Finished::NoTrash, .. });
+                        Some(Did::Moved { to: to.clone(), name: name.clone(), kept, side: side() })
                     }
                     Outcome::Exists => None,
                 },
                 Mode::Copy => match transfer::copy_file(&t.from, &t.name, identity, &to, &name).map_err(fs_err)? {
-                    Outcome::Done(identity) => Some(Did::Copied { to: to.clone(), name: name.clone(), identity }),
+                    Outcome::Done(identity) => Some(Did::Copied { to: to.clone(), name: name.clone(), identity, side: side() }),
                     Outcome::Exists => None,
                 },
             };
@@ -353,9 +370,9 @@ impl Files {
         Err(format!("no free name for the folder {}", m.name))
     }
 
-    fn uncopy(path: &Path, expect: Identity) -> Result<Ran<Did>, String> {
+    fn uncopy(path: &Path, expect: Identity, side: Option<&Path>) -> Result<Ran<Did>, String> {
         match dalica_fs::identity(path).map_err(fs_err)? {
-            None => Ok(Ran::Done(Did::Uncopied)),
+            None => Ok(Ran::Done(Did::Uncopied(side.and_then(raw_sidecars::uncopy)))),
             Some(id) if id != expect => Err(format!("The copy {} changed since it was made, so it stays.", file_name(path))),
             Some(_) => match trash::send(path).map_err(fs_err)? {
                 Sent::Trashed(_) => {
@@ -366,7 +383,7 @@ impl Files {
                             log::warn!("undoing the copy {}: its kept original stays: {e}", path.display());
                         }
                     }
-                    Ok(Ran::Done(Did::Uncopied))
+                    Ok(Ran::Done(Did::Uncopied(side.and_then(raw_sidecars::uncopy))))
                 }
                 Sent::NoTrash => Err(format!("The copy {} stays: its drive has no trash.", file_name(path))),
             },
@@ -515,7 +532,7 @@ impl Driver for Files {
     fn run(&self, item: &Item) -> Result<Ran<Did>, String> {
         match &item.step {
             Step::Transfer(t) => Files::transfer(item, t),
-            Step::Uncopy { path, expect } => Files::uncopy(path, *expect),
+            Step::Uncopy { path, expect, side } => Files::uncopy(path, *expect, side.as_deref()),
             Step::MakeFolder(m) => Files::make_folder(item, m),
             Step::RemoveFolder { path } => Files::remove_folder(path),
         }
@@ -552,7 +569,7 @@ impl Driver for Files {
             (Step::Transfer(_), Did::Moved { kept: true, name, .. }) => {
                 Err(format!("Moving {name} became a copy (its drive has no trash), so it cannot be moved back."))
             }
-            (Step::Transfer(t), Did::Moved { to, name, .. }) => Ok(Item {
+            (Step::Transfer(t), Did::Moved { to, name, side, .. }) => Ok(Item {
                 source: to.join(name),
                 target: t.from.join(&t.name),
                 step: Step::Transfer(Transfer {
@@ -569,11 +586,14 @@ impl Driver for Files {
                     skip: false,
                     made_folder: false,
                     leaves_made_folder: t.made_folder,
+                    side: raw_sidecars::Plan::Exact(side.side().map(raw_sidecars::Side::reversed)),
                 }),
             }),
-            (Step::Transfer(t), Did::Copied { to, name, identity }) => {
-                Ok(Item { source: to.join(name), target: t.from.join(&t.name), step: Step::Uncopy { path: to.join(name), expect: *identity } })
-            }
+            (Step::Transfer(t), Did::Copied { to, name, identity, side }) => Ok(Item {
+                source: to.join(name),
+                target: t.from.join(&t.name),
+                step: Step::Uncopy { path: to.join(name), expect: *identity, side: side.side().map(|s| to.join(&s.to)) },
+            }),
             (Step::MakeFolder(_), Did::MadeFolder { path, .. }) => {
                 Ok(Item { source: path.clone(), target: path.clone(), step: Step::RemoveFolder { path: path.clone() } })
             }
@@ -583,7 +603,7 @@ impl Driver for Files {
 
     fn settled(&self, item: &Item, done: &Did) -> Item {
         match (&item.step, done) {
-            (Step::Transfer(t), Did::Moved { to, name, .. } | Did::Copied { to, name, .. }) => Item {
+            (Step::Transfer(t), Did::Moved { to, name, side, .. } | Did::Copied { to, name, side, .. }) => Item {
                 source: item.source.clone(),
                 target: to.join(name),
                 step: Step::Transfer(Transfer {
@@ -591,6 +611,7 @@ impl Driver for Files {
                     new_name: name.clone(),
                     policy: Policy::Exact,
                     skip: false,
+                    side: raw_sidecars::Plan::Exact(side.side().cloned()),
                     ..t.clone()
                 }),
             },
@@ -608,11 +629,24 @@ impl Driver for Files {
             // Back out of a folder this operation made, which goes once empty: only what is there
             // to carry, so the carry never meets the folder gone.
             (Step::Transfer(t), Did::Moved { .. }) if t.leaves_made_folder && !has_data(&t.from, &t.name) => None,
-            (Step::Transfer(t), Did::Moved { to, name, kept }) => {
+            (Step::Transfer(t), Did::Moved { to, name, kept, .. }) => {
                 Some(Carry::one(if *kept { Mode::Copy } else { Mode::Move }, &t.from, &t.name, to, name))
             }
             (Step::Transfer(t), Did::Copied { to, name, .. }) => Some(Carry::one(Mode::Copy, &t.from, &t.name, to, name)),
             _ => None,
+        }
+    }
+
+    /// A RAW's sidecar that stayed behind is said (a notice), in every direction.
+    fn followed(&self, s: &mut Session, item: &Item, done: &Did) {
+        let note = match (&item.step, done) {
+            (Step::Transfer(t), Did::Moved { side, .. } | Did::Copied { side, .. }) => side.note(&t.from),
+            (_, Did::Uncopied(why)) => why.clone(),
+            _ => None,
+        };
+        if let Some(note) = note {
+            log::warn!("{note}");
+            s.notices.push(note);
         }
     }
 }
@@ -699,6 +733,7 @@ fn transfers(s: &mut Session, mode: Mode, ids: &[PhotoId], into: Destination<'_>
         Some(Collisions::Skip) => Policy::Skip,
         Some(Collisions::Rename) | None => Policy::Rename,
     };
+    let finder = Arc::new(raw_finder(s, mode, ids, to_id));
     let mut items = Vec::with_capacity(ids.len());
     for id in ids {
         let lib = s.library();
@@ -718,6 +753,7 @@ fn transfers(s: &mut Session, mode: Mode, ids: &[PhotoId], into: Destination<'_>
             taken.insert(new_name.to_lowercase());
         }
         let copy = (mode == Mode::Copy).then(|| s.library.next_photo_id());
+        let side = raw_sidecars::Plan::for_photo(&name, &finder);
         items.push(Item {
             source: from.join(&name),
             target: to_path.join(&new_name),
@@ -735,10 +771,30 @@ fn transfers(s: &mut Session, mode: Mode, ids: &[PhotoId], into: Destination<'_>
                 skip,
                 made_folder,
                 leaves_made_folder: false,
+                side,
             }),
         });
     }
     Ok(items)
+}
+
+/// What finds the sidecars of the RAWs among `ids` (those a move leaves where they are aside):
+/// the library's RAW names of their folders, and the stems of `into`'s RAWs.
+fn raw_finder(s: &Session, mode: Mode, ids: &[PhotoId], into: FolderId) -> Finder {
+    let lib = s.library();
+    let mut raws = HashMap::new();
+    for p in ids.iter().filter_map(|id| lib.photo(*id)) {
+        if !raw_sidecars::maybe_raw(&p.name) || (mode == Mode::Move && p.folder == into) {
+            continue;
+        }
+        if let Some(folder) = lib.folder(p.folder)
+            && !raws.contains_key(&folder.path)
+        {
+            raws.insert(folder.path.clone(), raw_sidecars::raws_in(lib, p.folder));
+        }
+    }
+    let dest = if raws.is_empty() { Vec::new() } else { raw_sidecars::raws_in(lib, into) };
+    Finder::new(raws, &dest)
 }
 
 /// The library folder `id`'s path, refused when unknown or offline.
