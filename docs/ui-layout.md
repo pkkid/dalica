@@ -417,9 +417,9 @@ F4, the rotate keys) and menu items act on the same photos: the held ones and th
 ### 6.4 Thumbnail size, loupe, pane toggles
 
 Top row, right side: **loupe** icon (24 × 24; drag to magnify, §5.5), the **thumbnail-size slider** (128 wide;
-Ctrl+1 / Ctrl+2 jump to small (96) / normal (144)), then the four **side-pane toggles** (joined
+Ctrl+1 / Ctrl+2 jump to small (96) / normal (144)), then the five **side-pane toggles** (joined
 32 × 24 icon segments): **People** ("Show/hide the People pane"), **Places**, **Tags**,
-**Properties** (Info). In the edit view the slider becomes the zoom slider and **Fit** | **1:1**
+**Properties** (Info), **History** (a clock; Dalica addition, §7). In the edit view the slider becomes the zoom slider and **Fit** | **1:1**
 buttons appear to its left.
 
 ### 6.5 Action buttons
@@ -442,13 +442,29 @@ window, Use animations off and a toggle made by automation (the control channel)
 once; open state and pane persisted. When the window narrows until the light table (with the
 tree at its minimum) would drop below 480, a large pane first takes its normal width, then the pane
 closes; a pane opened on purpose in an already narrow window stays open. Header 30 high: « at left, centred SemiBold title
-("People", "Places", "Tags", "Properties"), × at right. Toggles: bottom-bar segments, View →
-People/Places/Tags/Properties, **Ctrl+0** (toggle the pane), Ctrl+T (Tags). Contents follow the
+("People", "Places", "Tags", "Properties", "History"), × at right. Toggles: bottom-bar segments, View →
+People/Places/Tags/Properties/History, **Ctrl+0** (toggle the pane), Ctrl+T (Tags), Ctrl+Shift+Y
+(History). Contents follow the
 current selection (or the selected folder). Pane contents: People, Places and Tags in
 `organizing.md` §5–7; Properties: header "Properties of IMG_0361.jpg", then label/value rows (Path,
 File size, Dimensions, Date taken, Date digitized, File modified, Camera, Lens, Exposure, Aperture,
 ISO, Focal length, Flash, Orientation, Color space, GPS, Caption, Tags), with a [Show All Metadata]
 link listing every EXIF/XMP/IPTC field.
+
+**History** (Dalica addition, issue #726): the edits of one photo, in the library and the edit
+view alike. In the edit view it shows the open photo; in the library the selected photo, and with
+several or none selected it says "Select one photo to see its history". The rows, 26 high, oldest at
+the top: a first row **Original** (the photo with no edits), then one row per step of the photo's
+history (`editing.md` §5.1) with its glyph (the edit panel's for its tools and fixes, a rotation's
+arrow, the Effects brush for an effect), its name ("Crop", "Straighten", "Tuning", "Sepia") and a
+short detail at the right in `text_dim` ("3:4", "1.4°", "Fill Light 0.30"). The **current** row is
+filled `tool_active` with a 3 pt `accent` bar at its left and its name in SemiBold; the redoable
+rows after it are dimmed. For a saved photo with no newer edits the first row is **Save** instead,
+with the Save disk glyph, in SemiBold and with a rule under it: the steps below it are made on the
+saved pixels, and only Undo Save (edit panel, Edit → Undo) goes behind it. A click on a row moves
+the photo there as one command (`photo.history.goto`); the rows after it stay redoable, so a click
+is never destructive. Each row is `history:<index>`; the list scrolls with the wheel. Hovering a
+row shows what a click does; it previews nothing.
 
 ## 8. Rooms (tabs)
 
