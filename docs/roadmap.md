@@ -11613,8 +11613,35 @@ under their own key, and a snapshot without them reads as one with none.
     default; an engine test switches to `classic` and finds exactly `theme.classic` checked in
     `engine.commands`; no existing fingerprint moves except where the cursor is drawn (looked at,
     the why in the commit body).
+- ⬜ **M16.31 `edit` + `image` + `ui` + `dalica`: the backlog's bugs: Straighten's grid, Auto Contrast's repeats, large panoramas, closing, HEIC cells**
+  - after: M16.12
+  - files: `crates/ui/src/panels/edit/straighten.rs`, `crates/ui-kit/src/theme.rs`, `crates/edit/src/ops/auto.rs`, `crates/edit/src/analysis.rs`, `crates/edit/tests/auto.rs`, `crates/image/src/decode.rs`, `crates/image/src/formats/tiff.rs`, `crates/image/src/limits.rs`, `crates/image/tests/tiff.rs`, `crates/scenes/src/formats.rs`, `crates/engine/src/viewer.rs`, `crates/thumbs/src/pool.rs`, `apps/dalica/src/window.rs`, `crates/ui/src/app.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table/layout.rs`, `docs/editing.md`, `docs/formats.md`, `docs/security.md`, `docs/ui-layout.md`, `docs/organizing.md`
+  - scope: the five open `bug` issues the maintainer asked to fix in M16 (2026-11-06), one
+    commit each, each issue's *Done when* as written there. (1) #720: Straighten's grid at about
+    50% opacity, its colour a `Tokens` entry. (2) #721: Auto Contrast pressed again stacks
+    clipping and gamma; research how other open-source editors (darktable, RawTherapee,
+    GIMP's Levels Auto, ImageMagick `-auto-level`/`-contrast-stretch`) compute an automatic
+    contrast and whether a repeat is stable, then make Auto Contrast (and Auto Color and Auto
+    Fix if they stack the same way) settle: a repeat on a photo it already fixed changes it
+    within a small tolerance and adds no edit; the findings and the chosen method go in
+    `editing.md` §6.3 and the commit body. (3) #722: a large panorama TIFF (about 100 to 300 MP,
+    8- and 16-bit, strips and tiles, procedural from `scenes`) gets a thumbnail and opens in the
+    viewer and the edit view by a streamed, downsampling decode instead of `Error::TooLarge`;
+    hostile headers are still refused before allocating; `security.md` §4.2's limit values do
+    not change (a change is a maintainer question, `tasks block`); peak memory and time in the
+    PR. (4) #723: closing never leaves a frozen window: M16.28 fixed closing during a scan; the
+    rest of `App::shutdown` (the metadata flush, the session's joins, a long decode) runs with
+    the window hidden or off the UI thread, so the OS never sees a window that stops answering;
+    reproduce first with a slow metadata write or a held decode. (5) #724: a section's HEIC/HEIF
+    photos this build cannot show become one two-cell "Not displaying N HEIC images" card with
+    the caution icon and the why; the issue's suggested choices for its open decisions.
+  - done when: each issue's *Done when* holds, each fix has a test that fails without it (the
+    #721 test: two presses render within a small tolerance of one; the #723 test: closing returns
+    from the UI thread at once while a metadata write is held); screenshots before and after for
+    #720 and #724 at 1400 x 900 (and 900 x 600 for #724); fingerprints that move are looked at
+    and the why is in the commit body; the PR closes #720, #721, #722, #723 and #724.
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; it is the 1.1.0 release gate
