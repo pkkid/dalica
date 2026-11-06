@@ -840,6 +840,7 @@
 ~	Remove the latest edit	เอาการแก้ไขล่าสุดออก
 ~	Remove the selected pictures from this album? The files are not deleted.	เอารูปภาพที่เลือกออกจากอัลบั้มนี้หรือไม่ ไฟล์จะไม่ถูกลบ
 ~	Remove the tag from the selected photos	เอาแท็กออกจากรูปภาพที่เลือก
+~	Remove the unsaved edits from these photos	เอาการแก้ไขที่ยังไม่บันทึกออกจากรูปภาพเหล่านี้
 ~	Remove this face model? Its file and the face data worked out with it are deleted; face rectangles and names stay.	เอาโมเดลใบหน้านี้ออกหรือไม่ ไฟล์ของโมเดลและข้อมูลใบหน้าที่วิเคราะห์ด้วยโมเดลนี้จะถูกลบ กรอบใบหน้าและชื่อจะยังคงอยู่
 ~	Remove this folder and its subfolders from Dalica? The files stay on your disk.	เอาโฟลเดอร์นี้และโฟลเดอร์ย่อยออกจาก Dalica หรือไม่ ไฟล์จะยังอยู่ในดิสก์ของคุณ
 ~	Rename Duplicates	เปลี่ยนชื่อรายการซ้ำ
@@ -991,6 +992,7 @@
 ~	Show in Folder	แสดงในโฟลเดอร์
 ~	Show map tiles from {provider}? Dalica fetches map pictures from the internet while this pane is open.	แสดงไทล์แผนที่จาก {provider} หรือไม่ Dalica จะดึงภาพแผนที่จากอินเทอร์เน็ตขณะที่แผงนี้เปิดอยู่
 ~	Show one photo	แสดงรูปภาพเดียว
+~	Show only edited photos	แสดงเฉพาะรูปภาพที่แก้ไขแล้ว
 ~	Show only geotagged photos	แสดงเฉพาะรูปภาพที่มีแท็กตำแหน่ง
 ~	Show only photos with faces	แสดงเฉพาะรูปภาพที่มีใบหน้า
 ~	Show only recent photos	แสดงเฉพาะรูปภาพล่าสุด
