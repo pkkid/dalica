@@ -51,7 +51,11 @@
 //!   unit a finished scan walked is marked indexed (frozen); [`Session::start_verification`] leaves
 //!   it out from then on. Options → File Types (`settings.json` → `fileTypes`) go to every scan;
 //!   changing them restarts the running scans and scans every unit once
-//!   ([`Session::rescan_for_file_types`], M10.5).
+//!   ([`Session::rescan_for_file_types`], M10.5). While that scan runs,
+//!   [`Session::rescanning_for_file_types`] names its job (M16.22), so the toolbar's activity
+//!   indicator and its popover say "Rescanning your folders…" rather than "Working in the
+//!   background"; a second change restarting it keeps it named, and it is no longer named once
+//!   it ends, is cancelled, put off by a file job or let go when Dalica closes.
 //!
 //! - **Upkeep while scanning** (M5.17, `security.md` §5.8, `data-model.md` §7): each folder handed
 //!   out has its stale `.dalica-tmp-*` files removed on the scan's thread
@@ -220,6 +224,9 @@ pub(crate) struct Scanning {
     /// (`dalica_scan::diff_found`), and while one runs they stay in the library; once none runs,
     /// those still at that path leave it.
     gone: Vec<(JobId, FolderId, PathBuf)>,
+    /// The job of the scan an applied File Types change started ([`Session::rescan_for_file_types`]):
+    /// named while it runs ([`Session::rescanning_for_file_types`]).
+    file_types: Option<JobId>,
 }
 
 impl Scanning {
@@ -802,6 +809,17 @@ impl Session {
         !self.scanning.running.is_empty() || !self.scanning.put_off.is_empty() || self.rescanning()
     }
 
+    /// The job of the scan an applied Options → File Types change started
+    /// ([`Session::rescan_for_file_types`]), while it runs and takes in what it finds: the
+    /// toolbar's activity indicator then says "Rescanning your folders…" (M16.22). `None` for any
+    /// other scan (`folders.add`, the verification pass, a rebuild started on its own, the
+    /// watcher's rescans) and once that scan ends, is cancelled or let go (a file job putting it
+    /// off, closing); a second change restarting it names the new scan.
+    pub fn rescanning_for_file_types(&self) -> Option<JobId> {
+        let job = self.scanning.file_types?;
+        self.scanning.running.iter().any(|j| j.job == job && !j.stopped).then_some(job)
+    }
+
     /// A file job is starting: every running scan is let go with what it read and did not apply
     /// yet, its job ends as put off, and it starts again from the start once no file job runs
     /// ([`Session::resume_put_off_scans`]), as the watcher's rescans are put off
@@ -863,7 +881,9 @@ impl Session {
         if self.resume_put_off_scans() == 0 {
             return None;
         }
-        self.scanning.running.last().map(|j| j.job)
+        let job = self.scanning.running.last().map(|j| j.job);
+        self.scanning.file_types = job;
+        job
     }
 
     /// Lets every running scan go: its walk stops, what it read and did not apply is dropped
@@ -876,6 +896,9 @@ impl Session {
         }
         let now = self.clock.now();
         self.scanning.walking.clear();
+        // The File Types rescan among them is no longer running ([`Session::rescan_for_file_types`]
+        // names the scan that restarts it).
+        self.scanning.file_types = None;
         let mut stopped = Vec::new();
         for mut job in std::mem::take(&mut self.scanning.running) {
             // What it found gone is found again when it starts again.

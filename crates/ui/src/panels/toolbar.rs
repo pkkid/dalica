@@ -24,7 +24,10 @@
 //! stay deterministic. A click toggles the activity popover ([`super::activity`]: the jobs with
 //! their progress and Cancel); while it is open the indicator sits on a `pressed` plate. It takes
 //! clicks while it shows something (a scan running, or the popover open); at rest it is inert as
-//! well as blank, and its tooltip says "No background work".
+//! well as blank, and its tooltip says "No background work". Its name (tooltip and AccessKit
+//! name, [`indicator_label`]) says what runs: "Rescanning your folders…" while the scan an applied
+//! Options → File Types change started runs (`Session::rescanning_for_file_types`, M16.22),
+//! "Working in the background" for any other work.
 
 use std::time::Duration;
 
@@ -626,6 +629,19 @@ fn view_options(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
     }
 }
 
+/// The activity indicator's name (its tooltip and AccessKit name): "Rescanning your folders…" while
+/// the rescan an applied File Types change started runs, "Working in the background" for any other
+/// work, "No background work" at rest.
+pub fn indicator_label(busy: bool, rescanning: bool) -> String {
+    if rescanning {
+        tl!("Rescanning your folders…")
+    } else if busy {
+        tl!("Working in the background")
+    } else {
+        tl!("No background work")
+    }
+}
+
 /// The activity indicator: the spinner while the library is busy, nothing at rest; a click
 /// toggles the activity popover under it, drawn here (`ui-layout.md` §3 item 8).
 fn activity(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
@@ -638,7 +654,8 @@ fn activity(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
         app.state_mut().activity = open;
     }
     let open = app.state().activity;
-    let label = if busy { tl!("Working in the background") } else { tl!("No background work") };
+    let rescanning = app.session().and_then(dalica_engine::Session::rescanning_for_file_types).is_some();
+    let label = indicator_label(busy, rescanning);
     if open {
         ui.painter().rect_filled(rect, CornerRadius::same(t.radius), t.pressed);
     } else if r.hovered() {

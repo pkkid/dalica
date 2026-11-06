@@ -11461,7 +11461,7 @@ under their own key, and a snapshot without them reads as one with none.
     twice falls back to ISO (never a panic); English unchanged; `crates/ui/tests/adjust_date.rs`
     in Thai: the field shows the first photo's date day first and OK sets the typed date;
     `cargo xtask i18n` passes with the entry.
-- ⬜ **M16.22 `engine` + `ui`: the toolbar says when the folders are being rescanned**
+- ✅ **M16.22 `engine` + `ui`: the toolbar says when the folders are being rescanned**
   - after: M15.R
   - files: `crates/engine/src/scanning.rs`, `crates/engine/tests/file_types.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/activity.rs`, `crates/ui/tests/activity.rs`
   - scope: PREF-FILETYPES' missing half: the session tells the rescan an applied File Types

@@ -7,13 +7,15 @@
 //! line are checked against fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
 //! (`activity-1400.json`, `region-status-scanning-1400.json`); renders go to
 //! `target/test-output/ui/`, and `DALICA_BLESS=1` stores new fingerprints. The UI thread is marked
-//! throughout: nothing it does touches the disk.
+//! throughout: nothing it does touches the disk. PNG turned off and applied from Options names the
+//! indicator "Rescanning your folders…" (and the popover's row for that scan) until the rescan
+//! ends (M16.22).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use crate::common::{FRAMES, LARGE, SMALL, check_fits, check_pixels, new_driver, rect_pixels, widget, write_png};
+use crate::common::{FRAMES, LARGE, SMALL, check_fits, check_pixels, new_driver, rect_pixels, shot, widget, write_png};
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{JobState, Session};
 use dalica_scan::HeaderReader;
@@ -269,4 +271,48 @@ fn with_a_selection_the_scan_is_the_last_field() {
     assert!(has(&t.d, "popover:activity"));
     t.d.key("Esc").unwrap();
     assert!(!t.d.state().activity, "Esc closes it");
+}
+
+/// M16.22: PNG off applied from Options: the indicator is named "Rescanning your folders…", and the
+/// popover's row for that scan reads the same, until the rescan ends; then "No background work".
+/// (A scan from Add Folder reads "Working in the background": the first test.)
+#[test]
+fn a_file_types_change_names_the_indicator_rescanning_until_its_scan_ends() {
+    let mut t = setup(LARGE);
+    t.d.run("folders.add", &json!({ "path": t.root })).unwrap();
+    give(&t.permits, FOLDERS.len() * PER_FOLDER);
+    t.d.step_until(|app| app.session().is_some_and(|s| !s.busy()), FRAMES).unwrap();
+    // A photo the rescan has to read: it holds the rescan until it is given a permit.
+    let jpeg = dalica_scenes::jpeg(&dalica_scenes::Scene::new(9, 96, 64), 80, None).unwrap();
+    std::fs::write(t.root.join(FOLDERS[0]).join("IMG_0099.jpg"), jpeg).unwrap();
+
+    t.d.run("app.preferences", &json!({ "tab": "fileTypes" })).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    t.d.click("check:option.fileTypes.png").unwrap();
+    t.d.click("button:dialog.apply").unwrap();
+    t.d.click("button:dialog.cancel").unwrap();
+    t.d.wait(100).unwrap();
+    let rescan = session(&t.d).rescanning_for_file_types().expect("the rescan runs");
+    assert_eq!(widget(&t.d, "indicator:activity").label, "Rescanning your folders…");
+    t.d.hover("indicator:activity", 1500).unwrap();
+    shot(&t.d, "activity-rescanning-tooltip-1400");
+    t.d.click("indicator:activity").unwrap();
+    assert_eq!(widget(&t.d, &format!("job:{rescan}")).label, "Rescanning your folders…");
+    shot(&t.d, "activity-rescanning-1400");
+
+    // Let it go: once it ends, the indicator is at rest.
+    give(&t.permits, 1000);
+    t.d.step_until(
+        |app| {
+            let s = app.session().unwrap();
+            !s.jobs().iter().any(|j| j.job == rescan && !j.state.is_finished())
+        },
+        FRAMES,
+    )
+    .unwrap();
+    t.d.step();
+    assert_eq!(session(&t.d).rescanning_for_file_types(), None);
+    assert_eq!(widget(&t.d, "indicator:activity").label, "No background work");
+    assert_ne!(widget(&t.d, &format!("job:{rescan}")).label, "Rescanning your folders…", "its row keeps the engine's label");
+    assert_eq!(session(&t.d).library().photos().count(), FOLDERS.len() * PER_FOLDER + 1);
 }
