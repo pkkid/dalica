@@ -1,4 +1,4 @@
-//! The palettes of PhotoCraft's twelve themes, a file per family (`design-system.md` §2, Themes),
+//! The palettes of PhotoCraft's fourteen themes, a file per family (`design-system.md` §2, Themes),
 //! so two tasks can port them side by side. Each family file answers [`theme`] for its own kinds;
 //! a kind whose file has not been filled yet answers `None`, and [`Tokens::for_kind`] gives it
 //! Dark's values until it is.
@@ -9,6 +9,7 @@ mod adwaita;
 mod breeze;
 mod classic;
 mod pro;
+mod soft;
 mod solarized;
 mod studio;
 
@@ -25,5 +26,6 @@ pub fn theme(kind: ThemeKind) -> Option<Theme> {
         ThemeKind::Adwaita | ThemeKind::AdwaitaDark => adwaita::theme(kind),
         ThemeKind::SolarizedDark => solarized::theme(kind),
         ThemeKind::BreezeLight | ThemeKind::BreezeDark => breeze::theme(kind),
+        ThemeKind::SoftDark | ThemeKind::SoftLight => soft::theme(kind),
     }
 }

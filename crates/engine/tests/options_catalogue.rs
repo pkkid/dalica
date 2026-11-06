@@ -261,7 +261,7 @@ fn the_theme_row_follows_the_font_size_and_offers_every_theme() {
     assert_eq!(o.default_value(), json!(empty.interface().theme), "the default is the accessor's");
     assert_eq!(o.default_value(), json!("dark"));
     let choices = o.choices(&empty);
-    assert_eq!(choices.len(), 13);
+    assert_eq!(choices.len(), 15);
     assert_eq!(choices.first(), Some(&("dark".to_string(), "Dark".to_string())));
     assert!(choices.contains(&("proLight".to_string(), "Pro (Light)".to_string())));
     let mut st = Settings::default();

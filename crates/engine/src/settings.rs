@@ -1300,6 +1300,8 @@ themes![
     ("solarizedDark", "Solarized Dark"),
     ("breezeLight", "Breeze Light"),
     ("breezeDark", "Breeze Dark"),
+    ("softDark", "Soft Dark"),
+    ("softLight", "Soft Light"),
 ];
 /// The theme used when none is stored, or the stored one is not known: Dark.
 pub const THEME_DEFAULT: &str = "dark";
