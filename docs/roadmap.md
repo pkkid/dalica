@@ -11427,7 +11427,7 @@ under their own key, and a snapshot without them reads as one with none.
     panic; lossless and animated files unchanged; `crates/image/tests/corpus.rs`: both corpus WebPs'
     thumbnails within the bound; a 24 MP WebP's 256 thumbnail time and peak memory before and
     after in the PR.
-- ⬜ **M16.20 `ui`: the side pane slides in and out**
+- ✅ **M16.20 `ui`: the side pane slides in and out**
   - after: M15.R
   - files: `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/tests/tree_status_pane.rs`
   - scope: LIB-PANES' missing half (`ui-layout.md` §7): opening the side pane slides it in over

@@ -3,7 +3,8 @@
 //! the Folders group header (30) and its rows (24); the status-line texts of `ui-layout.md` §6.1 for
 //! no selection, one photo, a folder and several photos, which `ui.state` reports as `status`; the
 //! side pane opened, widened and closed by id, and closing itself when the window narrows; the
-//! regions in `ui.inspect` and `ui.widgets {region}`.
+//! regions in `ui.inspect` and `ui.widgets {region}`; the pane sliding in and out over 0.2 s
+//! (M16.20), stepped frame by frame.
 //!
 //! Tree width and pane persistence across a restart is M3.6's (one owner for `settings.json`).
 
@@ -242,6 +243,86 @@ fn the_side_pane_opens_widens_and_closes_by_id() {
     }
 }
 
+/// The width the side pane is drawn at this frame and the light table's right edge (its scroll
+/// bar's), from the regions registered (`None` while no pane is drawn).
+fn drawn(t: &T) -> (Option<f32>, f32) {
+    let ws = t.d.widgets();
+    let find = |id: &str| ws.iter().find(|w| w.id == id).map(|w| w.rect);
+    let pane = find("region:sidePane");
+    let scroll = find("region:scrollbar").unwrap();
+    if let Some(p) = pane {
+        assert!((scroll[0] + scroll[2] - p[0]).abs() < 0.01, "the light table meets the pane's edge: {scroll:?} {p:?}");
+    }
+    (pane.map(|p| p[2]), scroll[0] + scroll[2])
+}
+
+/// Steps `frames` frames (60 a second on the headless clock).
+fn steps(t: &mut T, frames: usize) {
+    for _ in 0..frames {
+        t.d.step();
+    }
+}
+
+/// M16.20's done-when: opening slides the pane in over 0.2 s (ease-out), the light table following
+/// its edge every frame; closing slides it out the same way; switching panes and « change at once;
+/// a script that toggles and then inspects sees it settled.
+#[test]
+fn the_side_pane_slides_in_and_out() {
+    use dalica_ui::state::Pane;
+    let mut t = setup(1, 3, (1400, 900));
+    assert_eq!(drawn(&t), (None, 1400.0));
+
+    // Opening: the frame the toggle lands in is the slide's first step (1/60 s); 0.1 s after the
+    // toggle (six frames) more than half is in.
+    t.d.app_mut().state_mut().pane = Some(Pane::Properties);
+    let mut widths = Vec::new();
+    for _ in 0..6 {
+        t.d.step();
+        widths.push(drawn(&t).0.unwrap());
+    }
+    let half = widths[5];
+    assert!(half > 140.0 && half < 280.0, "0.1 s after opening: {half}");
+    assert!(widths.windows(2).all(|w| w[0] < w[1]), "it grows every frame: {widths:?}");
+    assert!(widths[0] > widths[5] - widths[4], "ease-out: fast first, slow last: {widths:?}");
+    steps(&mut t, 6);
+    assert_eq!(drawn(&t), (Some(280.0), 1120.0), "0.2 s: all of its 280");
+
+    // A switch of pane and « change at once.
+    t.d.app_mut().state_mut().pane = Some(Pane::Tags);
+    t.d.step();
+    assert_eq!(drawn(&t).0, Some(280.0));
+    assert!(t.d.widgets().iter().any(|w| w.id == "pane:tags"), "the new pane at once");
+    t.d.app_mut().state_mut().pane_large = true;
+    t.d.step();
+    assert_eq!(drawn(&t).0, Some(392.0), "« at once");
+    t.d.app_mut().state_mut().pane_large = false;
+    t.d.step();
+    assert_eq!(drawn(&t).0, Some(280.0));
+
+    // Closing: the reverse, still drawing the closed pane until it is out.
+    t.d.app_mut().state_mut().pane = None;
+    steps(&mut t, 6);
+    let half = drawn(&t).0.unwrap();
+    assert!(half > 0.0 && half < 140.0, "0.1 s after closing more than half is out: {half}");
+    assert!(t.d.widgets().iter().any(|w| w.id == "pane:tags"), "the closing pane is drawn while it slides out");
+    steps(&mut t, 6);
+    assert_eq!(drawn(&t), (None, 1400.0), "0.2 s: gone");
+
+    // Through the control channel, as a script would: the toggle takes effect at once, so the
+    // next call (an inspect, a click inside the pane) finds it in place.
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+0" }));
+    assert!(near(rect(&ok(&mut t, "ui.inspect", json!({}))["regions"]["sidePane"]), [1120.0, 72.0, 280.0, 712.0]));
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+0" }));
+    assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"]["sidePane"], Value::Null);
+
+    // Use animations off: no slide.
+    t.d.app_mut().session_mut().unwrap().execute("options.set", &json!({ "values": { "interface.animations": false } })).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    t.d.app_mut().state_mut().pane = Some(Pane::Tags);
+    t.d.step();
+    assert_eq!(drawn(&t), (Some(280.0), 1120.0), "animations off: at once");
+}
+
 /// A window narrowing until the light table would drop below 480 first takes the pane's large width
 /// away, then closes it (`ui-layout.md` §11).
 #[test]
@@ -261,6 +342,10 @@ fn the_side_pane_closes_itself_when_the_window_narrows() {
     assert_eq!(state(&mut t), (json!("tags"), json!(false)), "965: the large pane no longer fits, the normal one does");
     assert_eq!(rect(&ok(&mut t, "ui.inspect", json!({}))["regions"]["sidePane"])[2], 280.0);
     t.d.resize(900, 600);
+    // Closed by the window at once, with no slide out: the frame that sees it narrow closes it,
+    // the next draws none.
+    steps(&mut t, 2);
+    assert_eq!(drawn(&t), (None, 900.0), "900: gone at once");
     t.d.settle(FRAMES).unwrap();
     assert_eq!(state(&mut t), (Value::Null, json!(false)), "900: closed");
     assert_eq!(ok(&mut t, "ui.inspect", json!({}))["regions"]["sidePane"], Value::Null);

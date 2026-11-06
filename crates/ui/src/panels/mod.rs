@@ -186,7 +186,9 @@ fn room(p: &mut Panels, app: &mut App, ui: &mut Ui) {
 
 fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
-    let l = layout::compute(ui.max_rect(), app.state());
+    // The side pane slides in and out; the light table follows its edge.
+    let slid = side_pane::slide(ui.ctx(), app.state(), ui.max_rect().width());
+    let l = layout::compute_with_pane(ui.max_rect(), app.state(), slid.map(|d| d.width));
     l.register(ui.ctx());
     // The sections every region reads, in tree order, before any region is drawn.
     light_table::refresh(p, app);
@@ -217,8 +219,8 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     } else {
         region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| light_table::show(p, app, ui, l.light_table, l.scrollbar));
     }
-    if let Some(rect) = l.side_pane {
-        region(ui, "sidePane", rect, t.chrome, |ui| side_pane::show(app, ui));
+    if let (Some(rect), Some(drawn)) = (l.side_pane, slid) {
+        region(ui, "sidePane", rect, t.chrome, |ui| side_pane::show_slid(app, ui, drawn));
     }
     region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
     region(ui, "bottom", l.bottom, t.chrome, |ui| bottom::show(p, app, ui));

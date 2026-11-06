@@ -412,7 +412,10 @@ gutter, enabled exactly when the button would be.
 ## 7. Side pane (right)
 
 One pane at a time, 280 wide (« toggles the large width), pushes the light table; slides in/out
-over 0.2 s; open state and pane persisted. When the window narrows until the light table (with the
+over 0.2 s (ease-out; the light table follows its edge each frame, and the pane is drawn at its
+full width and clipped, so its contents never reflow). A switch of pane, «, a close by a narrowing
+window, Use animations off and a toggle made by automation (the control channel) take effect at
+once; open state and pane persisted. When the window narrows until the light table (with the
 tree at its minimum) would drop below 480, a large pane first takes its normal width, then the pane
 closes; a pane opened on purpose in an already narrow window stays open. Header 30 high: « at left, centred SemiBold title
 ("People", "Places", "Tags", "Properties"), × at right. Toggles: bottom-bar segments, View →
