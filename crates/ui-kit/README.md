@@ -4,7 +4,11 @@
 
 - **May depend on:** `core` (+ egui; tests also use `scenes` for fingerprints) (`docs/architecture.md` §2; `cargo xtask layers` enforces it).
 - **Public API:**
-  - `theme`: `Tokens` (`DARK`, `get`, `apply`, `with_font_size`) + `Metrics` (`DEFAULT`,
+  - `theme`: `Tokens` (`DARK`, `get`, `apply`, `with_font_size`; M16.3: `kind`, `bevel`,
+    `for_kind`, `from_palette`, `is_dark`), the themes `ThemeKind` (`ALL`, `id`, `label`,
+    `from_name`, `next`; also at the crate root), `Palette` (PhotoCraft's token set), `Theme` (a
+    palette and its `overrides`, + `no_overrides`), `palettes::theme` (a family file per theme
+    family under `theme/palettes/`), `BEVEL_LIGHT` and `BEVEL_DARK` + `Metrics` (`DEFAULT`,
     `tree_range`, `side_pane_large`; the edit panel's `edit_tabs`, `edit_tab`, `tool_tile`),
     `FontSize`, `UiScale`, `HISTOGRAM`, `HISTOGRAM_FILL_ALPHA` and `histogram_fill` (overlapping
     channels added, M7.5), `contrast` and `over` (WCAG contrast, translucent plates blended as
@@ -37,7 +41,8 @@
     Ctrl + wheel pinch, `classify` + `Input` for tests) and `flick` (`Flick`, `frame`: a pan that
     glides on after a fast drag, `FLICK_TAU`, `FLICK_MIN_START`, `FLICK_MAX_SPEED`,
     `FLICK_MAX_DT`).
-  - `widgets`: `register` + `Target` (the one way to get an automation id; it also writes the
+  - `widgets`: `bevel` (Classic's raised or sunken edges when `Tokens.bevel` is on, M16.3),
+    `register` + `Target` (the one way to get an automation id; it also writes the
     widget's AccessKit role, name and state, M15.14), `focus_ring` + `focus_color` /
     `focus_stroke` (the ring in `accent_hover`, 3:1 on `chrome`), the AccessKit helpers `access`,
     `access_range` (a value, its range, step and text), `access_row` (selected, expanded, level),
@@ -112,4 +117,5 @@
   The gallery, widget-sheet and icon tests write their renders to `target/test-output/ui-kit/`
   (`gallery.png`, `widgets-*.png`, `icons.png`); `DALICA_BLESS=1` stores new fingerprints in
   `tests/fingerprints/` (look at the PNGs first). `tests/contrast.rs` checks every token pair the
-  widgets paint against WCAG (`docs/design-system.md` §9).
+  widgets paint against WCAG (`docs/design-system.md` §9) in every theme; `tests/themes.rs` checks
+  the themes and fingerprints the widget gallery in each (`theme-<id>-1400x900`).

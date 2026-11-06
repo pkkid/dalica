@@ -61,10 +61,22 @@ fn frame(t: &Tokens, rect: Rect, hovered: bool, focused: bool, enabled: bool) ->
     } else {
         (1.0, t.field_border)
     };
-    vec![
+    let mut shapes = vec![
         Shape::rect_filled(rect, CornerRadius::same(t.radius), fill),
         Shape::rect_stroke(rect, CornerRadius::same(t.radius), Stroke::new(width, color), StrokeKind::Inside),
-    ]
+    ];
+    if t.bevel && !focused && rect.is_finite() && rect.is_positive() {
+        // Classic's sunken edge (`super::bevel`), in shapes because the frame goes under the text.
+        let (hi, lo) = (crate::theme::BEVEL_DARK, crate::theme::BEVEL_LIGHT);
+        let (min, max) = (rect.min, rect.max);
+        shapes.extend([
+            Shape::rect_filled(Rect::from_min_max(min, pos2(max.x, min.y + 1.0)), 0, hi),
+            Shape::rect_filled(Rect::from_min_max(min, pos2(min.x + 1.0, max.y)), 0, hi),
+            Shape::rect_filled(Rect::from_min_max(pos2(min.x, max.y - 1.0), max), 0, lo),
+            Shape::rect_filled(Rect::from_min_max(pos2(max.x - 1.0, min.y), max), 0, lo),
+        ]);
+    }
+    shapes
 }
 
 /// A single-line text field `width × 24` showing `hint` in `text_dim` while empty. Text is 13 pt

@@ -221,6 +221,24 @@ fn fill(t: &Tokens, r: &Response, active: bool) -> Color32 {
     }
 }
 
+/// Classic's bevel (`design-system.md` §2, Themes; PhotoCraft's `surface` in
+/// `crates/ui-egui/src/widgets.rs` at revision 3a896a5e): with `t.bevel` on, a 1 pt
+/// [`BEVEL_LIGHT`](crate::theme::BEVEL_LIGHT) edge along the top and left of `rect` and a
+/// [`BEVEL_DARK`](crate::theme::BEVEL_DARK) one along the bottom and right (`raised`: a button at
+/// rest, a panel), or the other way round (sunken: a field, a check box, a button held or toggled
+/// on). Inside `rect`, over its border. Nothing with the bevel off.
+pub fn bevel(painter: &Painter, t: &Tokens, rect: Rect, raised: bool) {
+    if !t.bevel || !rect.is_finite() || !rect.is_positive() {
+        return;
+    }
+    let (hi, lo) = if raised { (crate::theme::BEVEL_LIGHT, crate::theme::BEVEL_DARK) } else { (crate::theme::BEVEL_DARK, crate::theme::BEVEL_LIGHT) };
+    let w = 1.0_f32.min(rect.width()).min(rect.height());
+    painter.rect_filled(Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + w)), 0, hi);
+    painter.rect_filled(Rect::from_min_max(rect.min, egui::pos2(rect.min.x + w, rect.max.y)), 0, hi);
+    painter.rect_filled(Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - w), rect.max), 0, lo);
+    painter.rect_filled(Rect::from_min_max(egui::pos2(rect.max.x - w, rect.min.y), rect.max), 0, lo);
+}
+
 /// The keyboard focus ring (`design-system.md` §9): a `focus_width` outline in [`focus_color`] 1 pt
 /// outside `rect`, so it reads on any fill (the primary button's `accent` included). Painted only
 /// while `r` has the keyboard focus.
@@ -354,6 +372,7 @@ pub fn text_button(ui: &mut Ui, t: &Tokens, id: &str, label: &str, active: bool)
     let r = allocate(ui, id, size, enabled);
     let p = ui.painter();
     p.rect(r.rect, CornerRadius::same(t.radius), fill(t, &r, active), Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    bevel(p, t, r.rect, !(active || r.is_pointer_button_down_on()));
     focus_ring(p, t, &r, r.rect, t.radius);
     let pos = r.rect.center() - galley.size() / 2.0;
     p.galley(pos.round(), galley, t.text);
@@ -399,6 +418,7 @@ pub fn star_toggle(ui: &mut Ui, t: &Tokens, id: &str, on: bool) -> Response {
     let r = allocate(ui, id, t.metrics.star_button, enabled);
     let p = ui.painter();
     p.rect(r.rect, CornerRadius::same(t.radius), fill(t, &r, false), Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    bevel(p, t, r.rect, !r.is_pointer_button_down_on());
     focus_ring(p, t, &r, r.rect, t.radius);
     let glyph = Rect::from_center_size(r.rect.center(), Vec2::splat(16.0));
     let (icon, color) = match (enabled, on) {

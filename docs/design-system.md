@@ -32,8 +32,8 @@ with attribution (`architecture.md` §9).
 
 ## 2. Colour tokens
 
-Dark theme (the only theme until after 1.0; switchable themes, light ones included, are planned
-for M16 in `roadmap.md`, and this dark theme stays the default).
+Dark theme, Dalica's default (`ThemeKind::Dark`, `Tokens::DARK`). The other themes are made
+from these tokens' shape by the rule table of *Themes* below.
 
 | Token | Hex | Used for |
 |---|---|---|
@@ -96,6 +96,83 @@ LightCraft's `theme::label_color`.
 The §3 sizes are `Tokens` fields (`body`, `small`, `title`, `heading`, `button_label`, `caption`,
 `detail`, `count`, `large`, `empty_title`) and the §4 metrics are `Tokens::metrics`
 (`theme::Metrics`), so the UI Font Size and the tests read one source.
+
+### Themes
+
+From M16 the look is switchable among thirteen themes (`theme::ThemeKind`): Dalica's own **Dark**
+(the default, id `dark`: the tokens above, LightCraft's look) and PhotoCraft's twelve, ported from
+its `crates/ui-egui/src/theme.rs` at revision 3a896a5e (`NOTICE`):
+
+| Id | Label | Source |
+|---|---|---|
+| `dark` | Dark | Dalica, `Tokens::DARK` value for value (never derived) |
+| `pro`, `proMedium`, `proLightGray`, `proLight` | Pro (Dark), Pro (Medium Gray), Pro (Light Gray), Pro (Light) | PhotoCraft's four Pro brightness levels (`palettes/pro.rs`, M16.6) |
+| `studio`, `studioLight` | Studio (Dark), Studio (Light) | PhotoCraft (`palettes/studio.rs`, M16.6) |
+| `classic` | Classic | PhotoCraft: grey bevels, square corners, navy selection (`palettes/classic.rs`, M16.6) |
+| `adwaita`, `adwaitaDark` | Adwaita (Light), Adwaita (Dark) | PhotoCraft's mapping of libadwaita (`palettes/adwaita.rs`, M16.7) |
+| `solarizedDark` | Solarized Dark | PhotoCraft's mapping of Solarized, MIT (`palettes/solarized.rs`, M16.7) |
+| `breezeLight`, `breezeDark` | Breeze Light, Breeze Dark | PhotoCraft's adaptation of Breeze (`palettes/breeze.rs`, M16.7) |
+
+`ThemeKind::from_name` takes an id, a label or one of PhotoCraft's aliases (`medium`, `lightgray`,
+`lightest`, `retro`, `solarized`, `breeze`, …), ignoring case, spaces, `_`, `-` and brackets;
+`dark` names Dalica's Dark, and PhotoCraft's `light` and its aliases naming other companies'
+products are not kept. `next` goes round `ThemeKind::ALL` in the table's order.
+
+A theme other than Dark is a `theme::Palette`, PhotoCraft's token set copied value for value (its
+30 colours, `radius_sm`, `radius`, `radius_lg` and `bevel`; PhotoCraft's other layout flags change
+a layout Dalica does not have and are not ported). `Tokens::for_kind(kind)` makes Dalica's tokens
+from it by one rule table (`Tokens::from_palette`), then applies the palette file's overrides
+(`theme::Theme::overrides`): a palette overrides a derived token where the theme would otherwise
+fail a contrast check of §9, with the reason in the file, never by pinning an exception in the
+contrast tests. A theme whose palette has not been ported yet wears Dark's values. The rule table:
+
+| Token | From the palette |
+|---|---|
+| `chrome` | `chrome` |
+| `canvas`, `cell`, `folder_header` | `canvas` |
+| `grid_bg` | `dock` |
+| `cell_selected`, `button` | `card` |
+| `divider` | `separator` |
+| `field`, `inset`, `tray_bg` | `field` |
+| `field_border`, `button_border` | `field_border` |
+| `hover` | `hover` |
+| `pressed`, `tool_active` | `pressed` |
+| `text`, `thumb_hover`, `star`, `pick` | `text` |
+| `text_label` | halfway from `text` to `text_dim` |
+| `text_dim` | `text_dim` |
+| `text_disabled`, `track` | `text_faint` |
+| `icon`, `thumb` | `icon` |
+| `accent`, `drop_target` | `accent` |
+| `accent_hover`, `accent_pressed`, `drop_target_fill` | `accent` 10 % towards white, `accent × 0.85`, `accent × 0.15` (as Dark's) |
+| `on_accent` | white or black, whichever has more contrast on `accent` |
+| `danger`, `caution`, `caption_close` | `danger`, `warning`, `caption_close` |
+| `filter_banner` | `chrome` 15 % towards `accent` |
+| `photo_focus` | white or black, whichever has more contrast on `grid_bg`; `photo_selected` is it 35 % towards `grid_bg` |
+| `badge_plate` | Dark's `black α130` when `text` is lighter than `chrome`, else `white α170` |
+| `placeholder` | `canvas` 6 % towards `text` |
+| `toast_bg` | `card` at α 0.94 |
+| `popup_shadow`, `window_shadow` | Dark's offsets and blurs in `shadow` |
+| `radius`, `filter_radius` | `radius_sm` |
+| `window_radius`, `toast_radius` | `radius` |
+| `overlay_radius` | `radius_lg` |
+| `bevel` | `bevel` |
+
+The palette colours the table does not name (`canvas_dot`, `card_border`, `accent_soft`,
+`accent_border`, `accent_text`, `primary_bg`, `primary_text`, `tab_strip`, `row_selected`,
+`histogram_bg`, `caption_close_text`, `scrim`) are kept for a faithful port and unused.
+
+**What never changes with a theme:** the type sizes (§3), the metrics (§4), the focus width, the
+photo's overlays (`face_box`, `crosshair` and their outlines), the slideshow and the photo viewer
+(`viewer_bg`, `viewer_overlay`, `overlay_bar`, `caption_plate`, the `overlay_*` colours), the dialog
+`backdrop`, `excluded_dim`, the histogram's channel colours and the icons' drawing. `apply` sets
+egui's dark mode from the theme (`Tokens::is_dark`: `text` lighter than `chrome`).
+
+**Classic's bevel** (PhotoCraft's `surface`): with `Tokens.bevel` on, `widgets::bevel` draws a 1 pt
+`BEVEL_LIGHT` (white) edge along the top and left of a control and a `BEVEL_DARK` (`gray 64`) one
+along its bottom and right, inside its rect and over its border: raised for a button at rest
+(`text_button`, `primary_button`, `star_toggle`, the `segmented` row, `dropdown`) and a dialog's
+panel, sunken for a text field and a check box and for a button held or toggled on. Its square
+corners come from the palette's radii (all 0). Off, nothing is drawn.
 
 ## 3. Typography
 
@@ -461,6 +538,10 @@ underneath, pushed up by the next header).
   on `chrome` (2.6:1: the drop-target outline, below WCAG 2.2's 3:1; the focus ring uses the brighter
   focus colour since M15.14), and the slider
   `track` (2.0:1, a guide under the 5.3:1 ring).
+- Every theme (§2, Themes) passes the same checks: `tests/contrast.rs` runs them for each kind of
+  `ThemeKind::ALL`. The three pinned pairs belong to Dark (and to a theme still wearing Dark's
+  values); every other theme passes them at their threshold, overriding a derived token in its
+  palette file where it must.
 
 ## 10. Verification
 

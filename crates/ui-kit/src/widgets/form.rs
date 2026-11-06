@@ -134,6 +134,7 @@ pub fn checkbox(ui: &mut Ui, t: &Tokens, id: &str, label: &str, on: &mut bool) -
         check_mark(p, b.shrink(2.0), t.on_accent);
     } else {
         p.rect(b, radius, t.field, Stroke::new(1.0, outline(t, &r, enabled)), StrokeKind::Inside);
+        super::bevel(p, t, b, false);
         if *on {
             check_mark(p, b.shrink(2.0), t.text_disabled);
         }

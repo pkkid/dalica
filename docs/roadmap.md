@@ -11108,7 +11108,7 @@ under their own key, and a snapshot without them reads as one with none.
     grid holds both; a faint tint stays `bw`; a 4 × 4 green field with a small red dot is green
     only; the byte form round-trips and an unknown bit is refused; proptest: any grid up to
     64 × 64 classifies without a panic and in the same answer twice.
-- ⬜ **M16.3 `ui-kit`: themes' ground: `ThemeKind`, palettes, Classic's bevel, contrast and gallery for every theme**
+- ✅ **M16.3 `ui-kit`: themes' ground: `ThemeKind`, palettes, Classic's bevel, contrast and gallery for every theme**
   - after: M15.6, M15.14, M15.R
   - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/theme/kind.rs`, `crates/ui-kit/src/theme/palette.rs`, `crates/ui-kit/src/theme/palettes.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/contrast.rs`, `crates/ui-kit/tests/themes.rs`, `crates/ui-kit/tests/gallery.rs`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/tests/fingerprints/theme-*.json`, `crates/ui-kit/README.md`, `docs/design-system.md`, `NOTICE`
   - scope: ported from PhotoCraft `crates/ui-egui/src/theme.rs` at 3a896a5e (header naming it,

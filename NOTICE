@@ -196,6 +196,11 @@ file and revision in its first lines:
                                              @ f34c7a8a (M13.10)
   crates/faces/tests/models.rs (tests)       LightCraft crates/faces/src/manifest.rs, catalog.rs, known.rs,
                                              suggest.rs, hash.rs, runtime.rs @ f34c7a8a (M13.10)
+  crates/ui-kit/src/theme/kind.rs            PhotoCraft crates/ui-egui/src/theme.rs @ 3a896a5e (M16.3)
+  crates/ui-kit/src/theme/palette.rs         PhotoCraft crates/ui-egui/src/theme.rs @ 3a896a5e (M16.3)
+  crates/ui-kit/src/theme/palettes/*.rs      PhotoCraft crates/ui-egui/src/theme.rs @ 3a896a5e (the
+                                             palettes of its twelve themes, M16.6, M16.7)
+  crates/ui-kit/src/widgets.rs (bevel)       PhotoCraft crates/ui-egui/src/widgets.rs @ 3a896a5e (M16.3)
   crates/fetch/src/lib.rs                    LightCraft crates/fetch/src/lib.rs @ f34c7a8a, without its HTTP code
                                              (M13.8; with crates/fetch/src/spec.rs, transport.rs)
   crates/fetch/src/http.rs                   LightCraft crates/fetch/src/http.rs @ f34c7a8a, with the name-lookup

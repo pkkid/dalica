@@ -36,6 +36,7 @@ pub fn dropdown(ui: &mut Ui, t: &Tokens, id: &str, text: &str, menu: impl FnOnce
     } else if enabled && r.hovered() {
         p.rect_filled(r.rect, CornerRadius::same(t.radius), t.hover.gamma_multiply(0.7));
     }
+    super::bevel(p, t, r.rect, !(enabled && (open || r.is_pointer_button_down_on())));
     let color = if !enabled {
         t.text_disabled
     } else if open || r.hovered() {
