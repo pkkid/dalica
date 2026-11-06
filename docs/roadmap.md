@@ -11442,7 +11442,7 @@ under their own key, and a snapshot without them reads as one with none.
     edge meets it; at 0.2 s it is 280; closing is the reverse; a switch of pane and « change at
     once; the narrowing order of `layout.rs` unchanged; every existing `ui` test and fingerprint
     passes unchanged.
-- ⬜ **M16.21 `ui-kit` + `ui`: the date field in the language's order**
+- ✅ **M16.21 `ui-kit` + `ui`: the date field in the language's order**
   - after: M15.R
   - files: `crates/ui-kit/src/widgets/datetime.rs`, `crates/ui-kit/src/text.rs`, `crates/ui-kit/tests/datetime.rs`, `crates/ui/src/i18n/th.tsv`, `crates/ui/tests/adjust_date.rs`, `docs/localization.md`, `docs/localization-th.md`
   - scope: ORG-ADJDATE's missing half: `ui-kit`'s text table gains `DateField` (context `date

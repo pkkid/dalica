@@ -87,6 +87,9 @@ their meaning.
   ธันวาคม) and weekday names with วัน (วันจันทร์ …). The year is the Christian Era the formats
   give; showing the Buddhist Era (พ.ศ., +543) would need a change to `i18n::format`, not to the
   catalog (a question for the review).
+- **Typed dates:** the date field (Adjust Date and Time, Folder Properties) writes and reads
+  day, month, year with slashes, `{day}/{month}/{year}` (31/12/2026), two digits for the day and
+  the month and four for the Christian Era year; the time field stays `HH:MM:SS`, 24 hours.
 - **Times:** the formats give a 12-hour clock: "{hour}:{minute} ก่อนเที่ยง" / "หลังเที่ยง".
 - **Numbers and sizes:** Western digits, `.` decimal mark, `,` thousands separator (the registry
   row); units as written in English (KB, MB, GB, px), seconds as วินาที, minutes as นาที, hours as

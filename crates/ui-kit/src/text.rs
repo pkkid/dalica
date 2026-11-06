@@ -10,10 +10,18 @@
 //!
 //! Templates hold named placeholders in braces (`{name}`), filled by [`fill`]; a translation may
 //! move them but must keep their names.
+//!
+//! [`DateFormat`] is the date field's template read once: the order of the year, month and day
+//! and the separators between them (`{year}-{month}-{day}` in English, `{day}/{month}/{year}` in
+//! Thai). A template it cannot use (a part missing or twice, a digit or a brace between the parts)
+//! gives ISO.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use egui::{Context, Id};
+
+use crate::widgets::{DatePart, PickedDate};
 
 macro_rules! texts {
     ($( $(#[$doc:meta])* $name:ident => ($context:literal, $english:literal), )*) => {
@@ -67,6 +75,9 @@ texts! {
     Saturday => ("weekday", "Saturday"),
     /// A long date, the date field's spoken value: `{weekday}`, `{month}`, `{day}`, `{year}`.
     LongDate => ("long date", "{weekday}, {month} {day}, {year}"),
+    /// How a date field writes a date: `{year}`, `{month}` and `{day}`, each once, in the
+    /// language's order with its separators ([`DateFormat`]).
+    DateField => ("date field", "{year}-{month}-{day}"),
     /// The colour picker's saturation and brightness field.
     SaturationBrightness => ("colour picker", "Saturation and brightness"),
     /// The colour picker's hue strip.
@@ -202,6 +213,11 @@ impl Texts {
         DAYS.get(usize::from(weekday)).map_or("", |&t| self.get(t))
     }
 
+    /// The date field's format, from [`Text::DateField`] (ISO when the template cannot be used).
+    pub fn date_format(&self) -> DateFormat {
+        DateFormat::from_template(self.get(Text::DateField))
+    }
+
     /// `year-month-day` as a long date ("Monday, October 19, 2026" in English); empty for a day
     /// that does not exist.
     pub fn long_date(&self, year: u16, month: u8, day: u8) -> String {
@@ -210,6 +226,156 @@ impl Texts {
             self.get(Text::LongDate),
             &[("weekday", self.weekday(weekday)), ("month", self.month(month)), ("day", &day.to_string()), ("year", &year.to_string())],
         )
+    }
+}
+
+/// The order and separators a date field writes and reads a date in (see the module docs). The
+/// parts are always four digits for the year and two for the month and the day.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DateFormat {
+    order: [DatePart; 3],
+    /// The text before the first part, between the first and second, the second and third, and
+    /// after the last.
+    literals: [String; 4],
+}
+
+impl Default for DateFormat {
+    fn default() -> Self {
+        DateFormat::iso()
+    }
+}
+
+impl DateFormat {
+    /// The longest template [`DateFormat::from_template`] takes (characters); a longer one is ISO.
+    pub const MAX_TEMPLATE: usize = 40;
+
+    /// `YYYY-MM-DD`.
+    pub fn iso() -> DateFormat {
+        DateFormat { order: [DatePart::Year, DatePart::Month, DatePart::Day], literals: [String::new(), "-".into(), "-".into(), String::new()] }
+    }
+
+    /// The format `template` gives, its spaces around it dropped: each of `{year}`, `{month}` and
+    /// `{day}` exactly once, and nothing between them that a date could be confused with (an
+    /// ASCII digit, a brace); ISO for anything else.
+    pub fn from_template(template: &str) -> DateFormat {
+        DateFormat::parse_template(template.trim()).unwrap_or_else(DateFormat::iso)
+    }
+
+    fn parse_template(template: &str) -> Option<DateFormat> {
+        if template.chars().count() > DateFormat::MAX_TEMPLATE {
+            return None;
+        }
+        let mut found = Vec::with_capacity(3);
+        for (name, part) in [("{year}", DatePart::Year), ("{month}", DatePart::Month), ("{day}", DatePart::Day)] {
+            let mut at = template.match_indices(name).map(|(i, _)| i);
+            let (Some(i), None) = (at.next(), at.next()) else { return None };
+            found.push((i, i.checked_add(name.len())?, part));
+        }
+        found.sort_by_key(|&(i, _, _)| i);
+        let [a, b, c]: [(usize, usize, DatePart); 3] = found.try_into().ok()?;
+        let mut literals = Vec::with_capacity(4);
+        let mut from = 0;
+        for (start, end, _) in [a, b, c] {
+            literals.push(template.get(from..start)?.to_owned());
+            from = end;
+        }
+        literals.push(template.get(from..)?.to_owned());
+        if literals.iter().any(|l| l.chars().any(|ch| ch.is_ascii_digit() || ch == '{' || ch == '}')) {
+            return None;
+        }
+        let literals: [String; 4] = literals.try_into().ok()?;
+        Some(DateFormat { order: [a.2, b.2, c.2], literals })
+    }
+
+    /// The parts in the order the format writes them.
+    pub fn order(&self) -> [DatePart; 3] {
+        self.order
+    }
+
+    fn width(part: DatePart) -> usize {
+        if part == DatePart::Year { 4 } else { 2 }
+    }
+
+    fn pieces(&self) -> impl Iterator<Item = (&str, DatePart)> {
+        self.literals.iter().map(String::as_str).zip(self.order)
+    }
+
+    fn suffix(&self) -> &str {
+        self.literals.get(3).map_or("", String::as_str)
+    }
+
+    /// `date` written in this format (`31/12/2026`).
+    pub fn write(&self, date: PickedDate) -> String {
+        let mut out = String::new();
+        for (literal, part) in self.pieces() {
+            out.push_str(literal);
+            out.push_str(&match part {
+                DatePart::Year => format!("{:04}", date.year()),
+                DatePart::Month => format!("{:02}", date.month()),
+                DatePart::Day => format!("{:02}", date.day()),
+            });
+        }
+        out.push_str(self.suffix());
+        out
+    }
+
+    /// Reads a date written exactly in this format (spaces around it are fine): the separators as
+    /// they are and four, two and two ASCII digits; `None` for anything else or a day that does
+    /// not exist.
+    pub fn read(&self, text: &str) -> Option<PickedDate> {
+        let mut rest = text.trim();
+        let (mut year, mut month, mut day) = (None, None, None);
+        for (literal, part) in self.pieces() {
+            rest = rest.strip_prefix(literal)?;
+            let width = DateFormat::width(part);
+            let digits = rest.get(..width)?;
+            if !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            rest = rest.get(width..)?;
+            let n: u16 = digits.parse().ok()?;
+            match part {
+                DatePart::Year => year = Some(n),
+                DatePart::Month => month = u8::try_from(n).ok(),
+                DatePart::Day => day = u8::try_from(n).ok(),
+            }
+        }
+        if rest != self.suffix() {
+            return None;
+        }
+        PickedDate::new(year?, month?, day?)
+    }
+
+    /// The part a cursor at character `at` of a written date is in, and that part's characters:
+    /// the first part whose end the cursor is not past, else the last.
+    pub fn part_at(&self, at: usize) -> (DatePart, Range<usize>) {
+        let mut pos = 0usize;
+        let mut last = (DatePart::Day, 0..0);
+        for (literal, part) in self.pieces() {
+            let start = pos.saturating_add(literal.chars().count());
+            let end = start.saturating_add(DateFormat::width(part));
+            last = (part, start..end);
+            if at <= end {
+                return last;
+            }
+            pos = end;
+        }
+        last
+    }
+
+    /// What an empty field shows: the format with `YYYY`, `MM` and `DD` for the parts.
+    pub fn hint(&self) -> String {
+        let mut out = String::new();
+        for (literal, part) in self.pieces() {
+            out.push_str(literal);
+            out.push_str(match part {
+                DatePart::Year => "YYYY",
+                DatePart::Month => "MM",
+                DatePart::Day => "DD",
+            });
+        }
+        out.push_str(self.suffix());
+        out
     }
 }
 

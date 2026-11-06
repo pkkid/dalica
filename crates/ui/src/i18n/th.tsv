@@ -1386,6 +1386,7 @@
 ~date	{weekday}, {month} {day}, {year}	{weekday}ที่ {day} {month} {year}
 ~date	{weekday}, {month} {day}, {year} {hour}:{minute} AM	{weekday}ที่ {day} {month} {year} {hour}:{minute} ก่อนเที่ยง
 ~date	{weekday}, {month} {day}, {year} {hour}:{minute} PM	{weekday}ที่ {day} {month} {year} {hour}:{minute} หลังเที่ยง
+~date field	{year}-{month}-{day}	{day}/{month}/{year}
 ~duration	{hours} h	{hours} ชม.
 ~duration	{minutes} min	{minutes} นาที
 ~duration	{seconds} s	{seconds} วินาที

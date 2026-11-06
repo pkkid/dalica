@@ -1,6 +1,7 @@
 //! Date and time fields (`design-system.md` §6, `organizing.md` §9): [`date_field`] edits a
-//! [`PickedDate`] written `YYYY-MM-DD`, [`time_field`] a [`PickedTime`] written `HH:MM:SS` (24
-//! hours). Both are a [`TextField`], so they edit as every text field does (Esc, Return, a click
+//! [`PickedDate`] written in its language's order ([`crate::text::DateFormat`]: `YYYY-MM-DD` in
+//! English, `DD/MM/YYYY` in Thai), [`time_field`] a [`PickedTime`] written `HH:MM:SS` (24 hours,
+//! in every language). Both are a [`TextField`], so they edit as every text field does (Esc, Return, a click
 //! away, the right-click menu), and add:
 //!
 //! - **Typing**: the value follows the text whenever it reads as a day (or a time) that exists.
@@ -16,8 +17,9 @@
 //!   February).
 //! - **Limits**: years [`MIN_YEAR`] to [`MAX_YEAR`], the range Dalica's dates have.
 //!
-//! No locale formats yet: the text is ISO, and callers show the long date beside it. A date
-//! field speaks its long date as its AccessKit description, in the month and weekday names of
+//! The date's order and separators come from the text table's [`crate::text::Text::DateField`]
+//! template, read from the context each pass, so callers pass nothing; a template the field cannot
+//! use gives ISO. Callers show the long date beside it. A date field speaks its long date as its AccessKit description, in the month and weekday names of
 //! [`crate::text`] ("Monday, October 19, 2026" in English).
 //!
 //! The date rules (month lengths, reading a date strictly, the limits and stopping at them rather
@@ -36,13 +38,13 @@ use egui::{CornerRadius, Key, Modifiers, Stroke, StrokeKind, Ui};
 use super::access;
 use super::field::{FieldOut, TextField, egui_id};
 use crate::Tokens;
-use crate::text::{self, Texts};
+use crate::text::{self, DateFormat, Texts};
 
 /// The earliest year a date can have.
 pub const MIN_YEAR: u16 = 1;
 /// The latest year a date can have.
 pub const MAX_YEAR: u16 = 9999;
-/// What an empty date field shows.
+/// What an empty date field shows in ISO (English); other languages show their own order.
 pub const DATE_HINT: &str = "YYYY-MM-DD";
 /// What an empty time field shows.
 pub const TIME_HINT: &str = "HH:MM:SS";
@@ -233,13 +235,16 @@ fn digits(s: &str, range: Range<usize>) -> Option<u32> {
     part.parse().ok()
 }
 
-/// A value a field edits part by part.
+/// A value a field edits part by part, written in a `Format`.
 trait Parts: Copy + PartialEq {
     type Part: Copy;
-    fn read(text: &str) -> Option<Self>;
-    fn write(&self) -> String;
+    type Format;
+    fn read(format: &Self::Format, text: &str) -> Option<Self>;
+    fn write(&self, format: &Self::Format) -> String;
     /// The part a cursor at character `at` is in, and that part's characters.
-    fn part_at(at: usize) -> (Self::Part, Range<usize>);
+    fn part_at(format: &Self::Format, at: usize) -> (Self::Part, Range<usize>);
+    /// What the empty field shows.
+    fn hint(format: &Self::Format) -> String;
     fn stepped(self, part: Self::Part, delta: i32) -> Self;
     /// The value as a screen reader says it, when that is more than its text.
     fn spoken(&self, _texts: &Texts) -> Option<String> {
@@ -249,21 +254,22 @@ trait Parts: Copy + PartialEq {
 
 impl Parts for PickedDate {
     type Part = DatePart;
+    type Format = DateFormat;
 
-    fn read(text: &str) -> Option<Self> {
-        PickedDate::parse(text)
+    fn read(format: &DateFormat, text: &str) -> Option<Self> {
+        format.read(text)
     }
 
-    fn write(&self) -> String {
-        self.iso()
+    fn write(&self, format: &DateFormat) -> String {
+        format.write(*self)
     }
 
-    fn part_at(at: usize) -> (DatePart, Range<usize>) {
-        match at {
-            0..=4 => (DatePart::Year, 0..4),
-            5..=7 => (DatePart::Month, 5..7),
-            _ => (DatePart::Day, 8..10),
-        }
+    fn part_at(format: &DateFormat, at: usize) -> (DatePart, Range<usize>) {
+        format.part_at(at)
+    }
+
+    fn hint(format: &DateFormat) -> String {
+        format.hint()
     }
 
     fn stepped(self, part: DatePart, delta: i32) -> Self {
@@ -277,16 +283,21 @@ impl Parts for PickedDate {
 
 impl Parts for PickedTime {
     type Part = TimePart;
+    type Format = ();
 
-    fn read(text: &str) -> Option<Self> {
+    fn read(_: &(), text: &str) -> Option<Self> {
         PickedTime::parse(text)
     }
 
-    fn write(&self) -> String {
+    fn write(&self, _: &()) -> String {
         self.iso()
     }
 
-    fn part_at(at: usize) -> (TimePart, Range<usize>) {
+    fn hint(_: &()) -> String {
+        TIME_HINT.to_owned()
+    }
+
+    fn part_at(_: &(), at: usize) -> (TimePart, Range<usize>) {
         match at {
             0..=2 => (TimePart::Hour, 0..2),
             3..=5 => (TimePart::Minute, 3..5),
@@ -312,20 +323,24 @@ pub struct PickerOut {
 
 /// A date field `width` wide, registered as `id`, editing `value`; see the module docs.
 pub fn date_field(ui: &mut Ui, t: &Tokens, id: &str, value: &mut PickedDate, width: f32) -> PickerOut {
-    picker(ui, t, id, DATE_HINT, width, value)
+    let texts = text::texts(ui.ctx());
+    let format = texts.date_format();
+    picker(ui, t, id, width, value, &format, &texts)
 }
 
 /// A time field `width` wide, registered as `id`, editing `value`; see the module docs.
 pub fn time_field(ui: &mut Ui, t: &Tokens, id: &str, value: &mut PickedTime, width: f32) -> PickerOut {
-    picker(ui, t, id, TIME_HINT, width, value)
+    let texts = text::texts(ui.ctx());
+    picker(ui, t, id, width, value, &(), &texts)
 }
 
-fn picker<V: Parts>(ui: &mut Ui, t: &Tokens, id: &str, hint: &str, width: f32, value: &mut V) -> PickerOut {
+fn picker<V: Parts>(ui: &mut Ui, t: &Tokens, id: &str, width: f32, value: &mut V, format: &V::Format, texts: &Texts) -> PickerOut {
+    let hint = V::hint(format);
     let focus = egui_id(id);
     let memo = focus.with("picker");
     let focused = ui.memory(|m| m.has_focus(focus));
     // The text being typed lives here while the field has the focus; otherwise it is the value.
-    let mut text = if focused { ui.data(|d| d.get_temp::<String>(memo)).unwrap_or_else(|| value.write()) } else { value.write() };
+    let mut text = if focused { ui.data(|d| d.get_temp::<String>(memo)).unwrap_or_else(|| value.write(format)) } else { value.write(format) };
     let mut changed = false;
     if focused && ui.is_enabled() {
         let (up, down) =
@@ -333,14 +348,14 @@ fn picker<V: Parts>(ui: &mut Ui, t: &Tokens, id: &str, hint: &str, width: f32, v
         if up + down > 0 {
             let delta = i32::try_from(up).unwrap_or(i32::MAX).saturating_sub(i32::try_from(down).unwrap_or(i32::MAX));
             let at = TextEditState::load(ui.ctx(), focus).and_then(|s| s.cursor.char_range()).map_or(0, |r| usize::from(r.primary.index));
-            let (part, span) = V::part_at(at);
+            let (part, span) = V::part_at(format, at);
             // From what is typed when it reads, else from the value.
-            let next = V::read(&text).unwrap_or(*value).stepped(part, delta);
+            let next = V::read(format, &text).unwrap_or(*value).stepped(part, delta);
             if next != *value {
                 *value = next;
                 changed = true;
             }
-            text = next.write();
+            text = next.write(format);
             let mut state = TextEditState::load(ui.ctx(), focus).unwrap_or_default();
             state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(span.start), CCursor::new(span.end))));
             state.store(ui.ctx(), focus);
@@ -349,8 +364,8 @@ fn picker<V: Parts>(ui: &mut Ui, t: &Tokens, id: &str, hint: &str, width: f32, v
     // Wide enough for a date or time in the font in use (the widths are the Small font's).
     let digits: String = hint.chars().map(|c| if c.is_alphabetic() { '0' } else { c }).collect();
     let fits = ui.painter().layout_no_wrap(digits, crate::fonts::regular(t.body), t.text).size().x + 18.0;
-    let field = TextField::new(id, hint, width.max(fits)).show(ui, t, &mut text);
-    let read = V::read(&text);
+    let field = TextField::new(id, &hint, width.max(fits)).show(ui, t, &mut text);
+    let read = V::read(format, &text);
     if field.response.changed()
         && let Some(v) = read
         && v != *value
@@ -366,7 +381,7 @@ fn picker<V: Parts>(ui: &mut Ui, t: &Tokens, id: &str, hint: &str, width: f32, v
     }
     let valid = read.is_some();
     // The long date ("Monday, October 19, 2026"), in the names the app's text table gives.
-    if let Some(spoken) = value.spoken(&text::texts(ui.ctx())) {
+    if let Some(spoken) = value.spoken(texts) {
         access(&field.response, |node| node.set_description(spoken));
     }
     if field.editing && !valid {
@@ -389,13 +404,18 @@ mod tests {
 
     #[test]
     fn parts_follow_the_cursor() {
-        assert_eq!(<PickedDate as Parts>::part_at(0).0, DatePart::Year);
-        assert_eq!(<PickedDate as Parts>::part_at(4).0, DatePart::Year);
-        assert_eq!(<PickedDate as Parts>::part_at(5).0, DatePart::Month);
-        assert_eq!(<PickedDate as Parts>::part_at(8).0, DatePart::Day);
-        assert_eq!(<PickedDate as Parts>::part_at(usize::MAX).0, DatePart::Day);
-        assert_eq!(<PickedTime as Parts>::part_at(2).0, TimePart::Hour);
-        assert_eq!(<PickedTime as Parts>::part_at(3).0, TimePart::Minute);
-        assert_eq!(<PickedTime as Parts>::part_at(8).0, TimePart::Second);
+        let iso = DateFormat::iso();
+        assert_eq!(<PickedDate as Parts>::part_at(&iso, 0), (DatePart::Year, 0..4));
+        assert_eq!(<PickedDate as Parts>::part_at(&iso, 4).0, DatePart::Year);
+        assert_eq!(<PickedDate as Parts>::part_at(&iso, 5), (DatePart::Month, 5..7));
+        assert_eq!(<PickedDate as Parts>::part_at(&iso, 8), (DatePart::Day, 8..10));
+        assert_eq!(<PickedDate as Parts>::part_at(&iso, usize::MAX).0, DatePart::Day);
+        let dmy = DateFormat::from_template("{day}/{month}/{year}");
+        assert_eq!(<PickedDate as Parts>::part_at(&dmy, 0), (DatePart::Day, 0..2));
+        assert_eq!(<PickedDate as Parts>::part_at(&dmy, 3), (DatePart::Month, 3..5));
+        assert_eq!(<PickedDate as Parts>::part_at(&dmy, 6), (DatePart::Year, 6..10));
+        assert_eq!(<PickedTime as Parts>::part_at(&(), 2).0, TimePart::Hour);
+        assert_eq!(<PickedTime as Parts>::part_at(&(), 3).0, TimePart::Minute);
+        assert_eq!(<PickedTime as Parts>::part_at(&(), 8).0, TimePart::Second);
     }
 }

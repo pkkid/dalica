@@ -5,6 +5,8 @@
 //!   photos, shift mode on; typing a new time shifts all three by +1 h 30 min in one undo step;
 //!   one photo set to a date of its own moves to the front of its folder;
 //! - the date and time fields refuse a day that does not exist and step with the arrows;
+//! - in Thai the date field shows and reads the date day first (`DD/MM/YYYY`), and OK sets the
+//!   typed date;
 //! - an adjusted date re-orders the light table and relabels what shows dates: the Date caption,
 //!   the tooltip, the status line and the section's date;
 //! - undo takes each step back whole, in the library and in the files: with the date writes still
@@ -207,6 +209,29 @@ fn shift_three_photos_and_set_one_by_id_then_undo() {
     assert_eq!(files, taken, "the files read the original dates");
     let dates: Vec<Option<DateTime>> = ids.iter().map(|id| date(&fx.d, *id)).collect();
     assert_eq!(dates, taken);
+}
+
+/// In Thai the date field writes the first photo's date day first, and a date typed day first is
+/// the one OK sets; the time stays `HH:MM:SS`.
+#[test]
+fn in_thai_the_date_field_is_day_first() {
+    let mut fx = fixture((1400, 900));
+    let ids = fx.ids.clone();
+    fx.d.run("options.set", &json!({ "values": { "interface.language": "th" } })).unwrap();
+    select(&mut fx.d, &ids[..1]);
+    fx.d.run("photo.adjustDate", &json!({})).unwrap();
+    fx.d.record_texts(true);
+    fx.d.settle(FRAMES).unwrap();
+    let drawn = fx.d.drawn_texts();
+    assert!(drawn.iter().any(|s| s == "04/06/2026"), "the date, day first: {drawn:?}");
+    assert!(drawn.iter().any(|s| s == "10:00:00"), "the time as before: {drawn:?}");
+    retype(&mut fx.d, DATE_ID, "15/07/2026");
+    fx.d.key("Tab").unwrap();
+    assert_eq!(fields(&fx.d)["set"], "2026-07-15T10:00:00");
+    shot(&fx.d, "adjust-date-th-1400x900");
+    fx.d.click("button:dialog.ok").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(date(&fx.d, ids[0]), Some(dt("2026-07-15T10:00:00")));
 }
 
 /// An adjusted date re-orders the folder and relabels everything that shows a photo's date: the
