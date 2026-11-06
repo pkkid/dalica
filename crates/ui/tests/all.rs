@@ -114,6 +114,7 @@ mod straighten_tool;
 mod suggestions_ui;
 mod tags_pane;
 mod theme_switch;
+mod themes;
 mod titlebar_drag;
 mod toolbar;
 mod tray;

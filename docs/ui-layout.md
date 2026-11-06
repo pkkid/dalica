@@ -512,6 +512,10 @@ box stay. At 900 × 600 both rows and the six tabs fit the 280 pt panel.
   layout: every region and control is where these rules put it for the screen's size, the menus
   and the caption buttons included, so leaving needs no hidden gesture. The window frame's own
   behaviour stops while full screen: no resize edges.
+- **Themes** (`design-system.md` §2, Themes) change colours, corner radii and Classic's bevels,
+  never the layout: every region, control and size here is the same in each of the fifteen
+  themes, so a theme switch moves nothing (at 900 × 600 the library in Pro (Light) puts every
+  widget where Dark does; `crates/ui/tests/themes.rs`).
 - All regions must be verified by screenshot at 1400 × 900 and 900 × 600 (and 1100 × 700, where
   the narrow-window rules begin), with the side pane open and closed, and in full screen.
 

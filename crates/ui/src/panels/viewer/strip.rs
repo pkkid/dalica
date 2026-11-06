@@ -1,6 +1,7 @@
 //! The viewer's filmstrip (`viewing.md` §3.1): a dark band across the full width with square
-//! thumbnails of the folder's photos, centred on the one shown (outlined in `photo_focus`), the
-//! others dimmed; a click on one shows it. Slots before the first photo or after the last stay
+//! thumbnails of the folder's photos, centred on the one shown (outlined in `overlay_text`: the
+//! band is dark in every theme, where `photo_focus` turns black in a light one), the others
+//! dimmed; a click on one shows it. Slots before the first photo or after the last stay
 //! empty, so the photo shown is always in the middle.
 //!
 //! **Pixels.** A photo the library holds draws what the session has in memory, never waiting
@@ -109,7 +110,7 @@ pub fn show(app: &mut App, ui: &mut Ui, band: Rect, listing: &Listing, index: us
         let current = place == index;
         waiting |= !thumbnail(&mut strip, app, &painter, &t, photo, square, ppp, opacity);
         if current {
-            painter.rect_stroke(square, 0, Stroke::new(2.0, t.photo_focus.gamma_multiply(opacity)), StrokeKind::Outside);
+            painter.rect_stroke(square, 0, Stroke::new(2.0, t.overlay_text.gamma_multiply(opacity)), StrokeKind::Outside);
         } else {
             painter.rect_filled(square, 0, Color32::from_black_alpha(DIM_ALPHA).gamma_multiply(opacity));
             if r.hovered() {
