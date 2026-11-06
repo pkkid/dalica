@@ -209,8 +209,16 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
             _ => {
                 // The pseudo-locale is listed only while it is the language chosen (M15.7).
                 let listed = |v: &Value| *v != row.saved && v.as_str() != Some(dalica_ui::i18n::PSEUDO_CODE);
-                let (value, _) = row.choices.iter().rev().find(|(v, _)| listed(v)).unwrap_or_else(|| panic!("{}: no other choice", row.key));
+                // The last choice the open list shows: a long list (Theme's thirteen, M16.4) does
+                // not show its last items without scrolling, and any other choice proves the
+                // row reaches options.set under its key.
                 click(d, &id);
+                let (value, _) = row
+                    .choices
+                    .iter()
+                    .rev()
+                    .find(|(v, _)| listed(v) && try_widget(d, &general::item_id(&row.key, v)).is_some())
+                    .unwrap_or_else(|| panic!("{}: no other choice in view", row.key));
                 click(d, &general::item_id(&row.key, value));
                 value.clone()
             }

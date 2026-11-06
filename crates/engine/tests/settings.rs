@@ -1,4 +1,4 @@
-//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1, M13.3, M14.5, M15.4;
+//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1, M13.3, M14.5, M15.4, M16.4;
 //! `data-model.md` §4 and §6, `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1 and
 //! §4, `creating.md` §2, `organizing.md` §3, §4, §6.1, §7 and §9, `viewing.md` §1.5 and §3.3,
 //! `faces.md` §3–§5), each a row of [`rows`]: nothing stored means its default; every
@@ -94,6 +94,7 @@ fn rows(dir: &Path) -> Vec<Row> {
         row("interface.uiScale", json!(150), json!(160), json!("auto"), |s| s.interface().ui_scale.to_json()),
         row("interface.fontSize", json!("large"), json!("huge"), json!("small"), |s| json!(s.interface().font_size.id())),
         row("interface.language", json!("pt-BR"), json!("secret language"), json!("system"), |s| json!(s.interface().language)),
+        row("interface.theme", json!("classic"), json!("secret-theme"), json!("dark"), |s| json!(s.interface().theme)),
         row("fileTypes.smallPictureThreshold", json!(128), json!(8), json!(SMALL_PICTURE_DEFAULT), |s| json!(s.small_picture_threshold())),
         row("slideshow.loop", json!(true), json!("yes"), json!(false), |s| json!(s.slideshow().looping)),
         row("slideshow.displayTime", json!(10), json!(61), json!(DISPLAY_TIME_DEFAULT), |s| json!(s.slideshow().display_time)),

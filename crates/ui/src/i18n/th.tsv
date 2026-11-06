@@ -64,6 +64,8 @@
 ~	Adjust Date	ปรับวันที่
 ~	Adjust Date and Time…	ปรับวันที่และเวลา…
 ~	Adjust Picture Date	ปรับวันที่ของรูปภาพ
+~	Adwaita (Dark)	Adwaita (มืด)
+~	Adwaita (Light)	Adwaita (สว่าง)
 ~	After copying:	หลังคัดลอก:
 ~	Album Properties	คุณสมบัติอัลบั้ม
 ~	Album Properties…	คุณสมบัติอัลบั้ม…
@@ -113,6 +115,8 @@
 ~	Boost	เพิ่มความเข้ม
 ~	Border	ขอบ
 ~	Bottom of Library	ท้ายคลังภาพ
+~	Breeze Dark	Breeze มืด
+~	Breeze Light	Breeze สว่าง
 ~	Bring to Top	นำขึ้นบนสุด
 ~	Bring to Top / Send to Bottom	นำขึ้นบนสุด / ส่งไปล่างสุด
 ~	Brings out detail with strong local contrast.	ดึงรายละเอียดด้วยคอนทราสต์เฉพาะจุดที่เข้มข้น
@@ -152,6 +156,7 @@
 ~	Choose this if you keep your photos in these folders.	เลือกตัวเลือกนี้หากคุณเก็บรูปภาพไว้ในโฟลเดอร์เหล่านี้
 ~	Choose…	เลือก…
 ~	Circle	วงกลม
+~	Classic	คลาสสิก
 ~	Clear Location	ล้างตำแหน่ง
 ~	Clear Location…	ล้างตำแหน่ง…
 ~	Clear Tray	ล้างถาด
@@ -245,6 +250,7 @@
 ~	Dalica is ready to look for pictures on your computer	Dalica พร้อมค้นหารูปภาพในคอมพิวเตอร์ของคุณแล้ว
 ~	Dalica knows no face model by this name.	Dalica ไม่รู้จักโมเดลใบหน้าชื่อนี้
 ~	Dalica may not open this camera ({detail})	Dalica อาจเปิดกล้องนี้ไม่ได้ ({detail})
+~	Dark	มืด
 ~	Darkens the edges, or takes them toward a colour.	ทำให้ขอบมืดลง หรือเปลี่ยนขอบเป็นสีที่เลือก
 ~	Date	วันที่
 ~	Date taken (YYYY-MM-DD)	วันที่ถ่าย (YYYY-MM-DD)
@@ -611,6 +617,7 @@
 ~	Next	ถัดไป
 ~	Next Photo	รูปภาพถัดไป
 ~	Next Section	ส่วนถัดไป
+~	Next Theme	ธีมถัดไป
 ~	Next photo	รูปภาพถัดไป
 ~	Next section	ส่วนถัดไป
 ~	Nickname	ชื่อเล่น
@@ -745,6 +752,10 @@
 ~	Previous section	ส่วนก่อนหน้า
 ~	Print, Banner…	พิมพ์, แบนเนอร์…
 ~	Privacy	ความเป็นส่วนตัว
+~	Pro (Dark)	Pro (มืด)
+~	Pro (Light Gray)	Pro (เทาอ่อน)
+~	Pro (Light)	Pro (สว่าง)
+~	Pro (Medium Gray)	Pro (เทากลาง)
 ~	Projects	โครงการ
 ~	Properties	คุณสมบัติ
 ~	Properties of {name}	คุณสมบัติของ {name}
@@ -1010,6 +1021,7 @@
 ~	Soft Focus	โฟกัสนุ่ม
 ~	Soften	ทำให้นุ่ม
 ~	Softens the photo, or only where you paint.	ทำให้รูปภาพนุ่มนวลขึ้น หรือเฉพาะบริเวณที่คุณระบาย
+~	Solarized Dark	Solarized มืด
 ~	Solid color	สีพื้น
 ~	Sort	เรียงลำดับ
 ~	Sort Album By	เรียงอัลบั้มตาม
@@ -1040,6 +1052,8 @@
 ~	Straighten a tilted photo	ปรับรูปภาพที่เอียงให้ตรง
 ~	Straighten angle	มุมปรับให้ตรง
 ~	Stronger colour and contrast.	สีและคอนทราสต์เข้มข้นขึ้น
+~	Studio (Dark)	Studio (มืด)
+~	Studio (Light)	Studio (สว่าง)
 ~	Suggest Crops	แนะนำการครอบตัด
 ~	Suggest names	แนะนำชื่อ
 ~	Suggested crop {n}	การครอบตัดที่แนะนำ {n}
@@ -1082,6 +1096,7 @@
 ~	The soft edges, grain and dark corners of a toy camera.	ขอบนุ่ม เกรน และมุมมืดแบบกล้องของเล่น
 ~	The source cannot be read: {reason}	อ่านแหล่งที่มาไม่ได้: {reason}
 ~	The system offers no other application for this file.	ระบบไม่มีแอปพลิเคชันอื่นสำหรับไฟล์นี้
+~	Theme	ธีม
 ~	There are no release notes in this copy.	สำเนานี้ไม่มีบันทึกประจำรุ่น
 ~	This clip plays without sound ({codec} sound can't be played)	คลิปนี้เล่นโดยไม่มีเสียง (เล่นเสียง {codec} ไม่ได้)
 ~	This file cannot be used.	ใช้ไฟล์นี้ไม่ได้

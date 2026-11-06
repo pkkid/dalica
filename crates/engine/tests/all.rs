@@ -87,6 +87,7 @@ mod slideshow_sound;
 mod suggestions;
 mod synthetic;
 mod tags;
+mod theme;
 mod thumb_cache;
 mod thumbs;
 mod tuning_commands;

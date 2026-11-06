@@ -1,4 +1,4 @@
-//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1, M13.3, M14.5, M15.4) against
+//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1, M13.3, M14.5, M15.4, M16.4) against
 //! `menus-and-shortcuts.md` §5: the eight tabs shown are the catalogue's seven and the shortcut
 //! editor; every option of the General, File Types, Slideshow, Network, People, Photo Viewer and
 //! Export tables is in the catalogue once, on its tab, and nothing else is; keys are unique; each
@@ -8,7 +8,8 @@
 //! rows of reserved decision 4 (M13.20) can be changed, the network log level still waiting; and
 //! "Read photo data left by the previous organizer" can be changed (M14.5); Language lists the
 //! languages the app gives and can be changed, the External editor is a text row (M15.22), and the
-//! Photo Viewer's File Types is a list still waiting on the OS integration (M15.4).
+//! Photo Viewer's File Types is a list still waiting on the OS integration (M15.4); the Theme row
+//! follows UI font size and offers every theme (M16.4).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -243,4 +244,29 @@ fn the_m15_rows_language_external_editor_and_viewer_file_types() {
     let mut st = Settings::default();
     types.store(&mut st, &json!(["png"])).unwrap();
     assert_eq!((types.read)(&st), json!(["png"]), "read back through Settings::viewer");
+}
+
+/// M16.4: General ▸ Interface ▸ Theme, after UI font size: a choice of every theme with its label,
+/// Dark by default as `Settings::interface().theme` reads an empty file, and a stored theme read
+/// back through that accessor.
+#[test]
+fn the_theme_row_follows_the_font_size_and_offers_every_theme() {
+    let keys: Vec<&str> = on_tab(Tab::General).map(|o| o.key).collect();
+    let font = keys.iter().position(|k| *k == "interface.fontSize").unwrap();
+    assert_eq!(keys.get(font + 1), Some(&"interface.theme"), "{keys:?}");
+    let o = find("interface.theme").unwrap();
+    assert_eq!((o.group, o.label, o.available(), o.applies), ("Interface", "Theme", true, Applies::Now));
+    assert_eq!(o.kind, Kind::Choice(dalica_engine::settings::THEMES));
+    let empty = Settings::default();
+    assert_eq!(o.default_value(), json!(empty.interface().theme), "the default is the accessor's");
+    assert_eq!(o.default_value(), json!("dark"));
+    let choices = o.choices(&empty);
+    assert_eq!(choices.len(), 13);
+    assert_eq!(choices.first(), Some(&("dark".to_string(), "Dark".to_string())));
+    assert!(choices.contains(&("proLight".to_string(), "Pro (Light)".to_string())));
+    let mut st = Settings::default();
+    o.store(&mut st, &json!("breezeDark")).unwrap();
+    assert_eq!(st.interface().theme, "breezeDark");
+    assert!(o.store(&mut st, &json!("Breeze Dark")).unwrap_err().starts_with("interface.theme must be one of \"dark\", \"pro\""));
+    assert_eq!(st.interface().theme, "breezeDark", "nothing changed");
 }

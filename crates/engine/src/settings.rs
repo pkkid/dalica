@@ -136,6 +136,13 @@
 //!   list of [`FileType`] ids of [`VIEWER_TYPES`] (none). It was a flag before M15: a stored `true`
 //!   reads as every type, `false` as none; an id this version does not know is kept on a write.
 //!
+//! M16 adds `"interface"` → `theme` (M16.4; `design-system.md` §2, `menus-and-shortcuts.md` §5):
+//! the window's theme, one of the ids of [`THEMES`] (`"dark"`, the default, and the Craft themes;
+//! the ids as PhotoCraft's `prefs.rs` stores them). A stored id this version does not know, or a
+//! value that is not text, reads as `"dark"` and is reported; it stays in the file until the theme
+//! is written again. The engine holds only the ids and their labels: `ui-kit`'s `ThemeKind` maps
+//! an id to its palette, and a `ui` test checks the two lists are the same.
+//!
 //! The languages Options → General → Language offers are not stored: the app gives them at start
 //! ([`Session::set_languages`](crate::Session::set_languages)), so the window's registry is the
 //! one list, and [`Settings::languages`] holds them beside the document.
@@ -1263,6 +1270,51 @@ impl FontSize {
     }
 }
 
+/// Makes [`THEMES`] and [`THEME_COMMANDS`] from one list, so a theme added here gains its command
+/// and its menu row with no other change.
+macro_rules! themes {
+    ($(($id:literal, $label:literal)),* $(,)?) => {
+        /// The themes (`"interface"` → `theme`), `(id, English label)`, in the order View ▸ Theme ▸
+        /// and the Options row list them: Dark (the default, Dalica's own look) first, then the
+        /// Craft themes (ported from PhotoCraft `crates/ui-egui/src/theme.rs` and
+        /// `crates/engine/src/prefs.rs` at 3a896a5e). `ui-kit`'s `ThemeKind::ALL` holds the same
+        /// ids in the same order.
+        pub const THEMES: &[(&str, &str)] = &[$(($id, $label)),*];
+        /// The command of each theme of [`THEMES`], in the same order, `(command id, menu path)`:
+        /// `theme.<id>` under View ▸ Theme ▸ <label> (`cmd/theme.rs`).
+        pub const THEME_COMMANDS: &[(&str, &str)] = &[$((concat!("theme.", $id), concat!("View/Theme/", $label))),*];
+    };
+}
+
+themes![
+    ("dark", "Dark"),
+    ("pro", "Pro (Dark)"),
+    ("proMedium", "Pro (Medium Gray)"),
+    ("proLightGray", "Pro (Light Gray)"),
+    ("proLight", "Pro (Light)"),
+    ("studio", "Studio (Dark)"),
+    ("studioLight", "Studio (Light)"),
+    ("classic", "Classic"),
+    ("adwaita", "Adwaita (Light)"),
+    ("adwaitaDark", "Adwaita (Dark)"),
+    ("solarizedDark", "Solarized Dark"),
+    ("breezeLight", "Breeze Light"),
+    ("breezeDark", "Breeze Dark"),
+];
+/// The theme used when none is stored, or the stored one is not known: Dark.
+pub const THEME_DEFAULT: &str = "dark";
+
+/// The theme stored as `id` (exact, case and all), as the `'static` id of [`THEMES`]; `None` for an
+/// id this version does not know.
+pub fn theme_id(id: &str) -> Option<&'static str> {
+    THEMES.iter().find(|(t, _)| *t == id).map(|(t, _)| *t)
+}
+
+/// The English label of the theme `id`; `None` for an id this version does not know.
+pub fn theme_label(id: &str) -> Option<&'static str> {
+    THEMES.iter().find(|(t, _)| *t == id).map(|(_, l)| *l)
+}
+
 /// A stored language worth keeping: `"system"`, or a tag of ASCII letters, digits and `-` (`pt-BR`)
 /// starting with a letter, at most [`MAX_LANGUAGE_BYTES`].
 pub fn language_ok(tag: &str) -> bool {
@@ -1288,6 +1340,8 @@ pub struct InterfaceSettings {
     pub font_size: FontSize,
     /// The language (`language`): `"system"` (the default) or a language tag.
     pub language: String,
+    /// The theme (`theme`): an id of [`THEMES`]; [`THEME_DEFAULT`] (`"dark"`) by default.
+    pub theme: &'static str,
 }
 
 impl Default for InterfaceSettings {
@@ -1299,6 +1353,7 @@ impl Default for InterfaceSettings {
             ui_scale: UiScaleSetting::Auto,
             font_size: FontSize::Small,
             language: "system".into(),
+            theme: THEME_DEFAULT,
         }
     }
 }
@@ -1634,7 +1689,8 @@ impl Settings {
     }
 
     /// Stores every Interface option under `"interface"` (a language that is not `"system"` or a
-    /// tag is stored as `"system"`); other keys are kept.
+    /// tag is stored as `"system"`, a theme that is not one of [`THEMES`] as `"dark"`); other keys
+    /// are kept.
     pub fn set_interface(&mut self, i: &InterfaceSettings) {
         let language = if language_ok(&i.language) { i.language.as_str() } else { "system" };
         let scale = match i.ui_scale {
@@ -1650,6 +1706,7 @@ impl Settings {
                 ("uiScale", Some(scale.to_json())),
                 ("fontSize", Some(json!(i.font_size.id()))),
                 ("language", Some(json!(language))),
+                ("theme", Some(json!(theme_id(i.theme).unwrap_or(THEME_DEFAULT)))),
             ],
         );
     }
@@ -1695,6 +1752,13 @@ impl Settings {
             None => {}
             Some(Value::String(l)) if language_ok(l) => i.language = l.clone(),
             Some(_) => problems.push("interface.language is not \"system\" or a language tag; the default (system) is used".into()),
+        }
+        match obj.get("theme") {
+            None => {}
+            Some(v) => match v.as_str().and_then(theme_id) {
+                Some(t) => i.theme = t,
+                None => problems.push("interface.theme is not a theme this version knows; the default (dark) is used".into()),
+            },
         }
         i
     }
