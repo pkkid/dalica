@@ -69,6 +69,10 @@
 //! sound, frame rate) are read from its container on scan and kept by the index only, like the
 //! search facts; a rebuild's scan reads them again. A video's star, caption, tags and recipe live in
 //! the sidecar exactly as a photo's: `.dalica.json` does not change shape.
+//!
+//! **M16** (M16.9): each photo's colour summary ([`PHOTO_DATA_M16`]) is derived from its sketch and
+//! kept by the index only, like the sketch: it never reaches a sidecar, and is made again from the
+//! sketch after a rebuild.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -246,6 +250,10 @@ pub const PHOTO_DATA_M14: [(&str, Source); 1] = [("legacyOriginal", Source::Fiel
 /// Per-photo data M15 adds beside [`dalica_library::Photo`]: a video's facts
 /// ([`dalica_library::VideoFacts`]).
 pub const PHOTO_DATA_M15: [(&str, Source); 1] = [("video", Source::Fields("VIDEO_FIELDS"))];
+
+/// Per-photo data M16 adds beside [`dalica_library::Photo`]: its colour summary
+/// (`dalica_core::color_summary::ColourSummary`), derived from the sketch, index-only.
+pub const PHOTO_DATA_M16: [(&str, Source); 1] = [("colours", Source::Index)];
 
 /// Every field of [`dalica_library::VideoFacts`]: probed from the container on scan, kept by the
 /// index only (a rebuild's scan probes again; the video file is never written).

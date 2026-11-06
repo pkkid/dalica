@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use dalica_core::color_summary::SearchColour;
 use dalica_core::{DateTime, FolderId, PersonId, PhotoId, Timestamp};
 use serde::{Deserialize, Serialize};
 
@@ -187,7 +188,8 @@ pub(crate) fn passes(doc: &PhotoDoc, filters: &Filters, age: Option<&Age>, cutof
 /// does. A word matches when each of its tokens starts one of the photo's terms in the word's
 /// field (ignoring case): for plain words its file name, caption, tags, date words, camera, pixel
 /// size, its folder's name, description and place, its albums' names and its people's names and
-/// nicknames; for `person:` its people's names and nicknames.
+/// nicknames; for `person:` its people's names and nicknames. A `color:` word matches when the
+/// photo's colour summary holds the colour (a photo without a summary holds none).
 pub fn text_matches(parsed: &Parsed, photo: &PhotoDoc, folder: Option<&FolderDoc>, albums: &[&AlbumDoc], people: &[&PersonDoc]) -> bool {
     let mut any: Option<BTreeSet<String>> = None;
     let mut tags: Option<BTreeSet<String>> = None;
@@ -212,10 +214,14 @@ pub fn text_matches(parsed: &Parsed, photo: &PhotoDoc, folder: Option<&FolderDoc
             Field::Camera => camera.get_or_insert_with(|| photo.camera_terms()),
             Field::Person => names.get_or_insert_with(|| people.iter().flat_map(|p| p.terms()).collect()),
             Field::Color => {
-                if atom.negated {
-                    continue;
+                let hit = atom.tokens.iter().all(|t| {
+                    let colour = SearchColour::from_word(t);
+                    colour.is_some_and(|c| photo.colours.is_some_and(|s| s.contains(c)))
+                });
+                if hit == atom.negated {
+                    return false;
                 }
-                return false;
+                continue;
             }
         };
         let hit = atom.tokens.iter().all(|t| terms.iter().any(|term| term.starts_with(t.as_str())));

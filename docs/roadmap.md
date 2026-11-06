@@ -11214,7 +11214,7 @@ under their own key, and a snapshot without them reads as one with none.
     checked paints its theme's token, and switching back to Dark gives the Dark fingerprints
     unchanged; the per-theme fingerprints exist with their images on the PR; at 900 × 600 the
     library in Pro (Light) fits as in Dark; `panic_hunt` and `widget_ids` pass.
-- ⬜ **M16.9 `library` + `store`: colour summaries in the model, the index and the search**
+- ✅ **M16.9 `library` + `store`: colour summaries in the model, the index and the search**
   - after: M15.3, M16.2
   - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/search.rs`, `crates/library/src/search/**`, `crates/library/tests/colours.rs`, `crates/library/tests/search.rs`, `crates/library/tests/ops.rs`, `crates/library/README.md`, `crates/store/src/snapshot.rs`, `crates/store/src/mapping.rs`, `crates/store/tests/colours.rs`, `crates/store/README.md`
   - scope: `Op::SetColours { colours: Vec<(PhotoId, Option<ColourSummary>)> }`, derived as

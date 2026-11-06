@@ -247,6 +247,7 @@ pub fn pick(text: &str, s: &Suggestion) -> String {
     let word = match s.kind {
         SuggestionKind::Tag => crate::commands::search::tag_word(&s.text),
         SuggestionKind::Folder | SuggestionKind::Album => s.text.split_whitespace().collect::<Vec<_>>().join(" "),
+        SuggestionKind::Color => format!("color:{}", s.text),
     };
     format!("{head}{not}{word}")
 }
@@ -495,6 +496,7 @@ fn suggestion_list(ui: &mut Ui, t: &Tokens, field: Rect, list: &[Suggestion], hi
                     SuggestionKind::Tag => Icon::Tags,
                     SuggestionKind::Folder => Icon::Folder,
                     SuggestionKind::Album => Icon::Album,
+                    SuggestionKind::Color => Icon::Search,
                 };
                 let size = t.metrics.icon_menu;
                 icons::paint(p, Rect::from_center_size(pos2(rect.min.x + 8.0 + size / 2.0, rect.center().y), Vec2::splat(size)), icon, dim);

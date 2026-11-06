@@ -207,6 +207,71 @@ fn person_and_color_match_nothing_and_are_reported() {
     assert!(r.ids.is_empty() && r.unavailable == vec!["faces"]);
 }
 
+/// `color:` (M16): a photo whose colour summary holds the colour, in any case; `-color:`
+/// excludes them; a word naming no colour is plain words; `color` stays unavailable only while no
+/// photo has a summary; the index follows the summaries op by op.
+#[test]
+fn color_matches_the_photos_whose_summary_holds_the_colour() {
+    use dalica_core::color_summary::{ColourSummary, SearchColour};
+    let mut lib = fixture();
+    let mut index = SearchIndex::from_library(&lib);
+    assert_eq!(index.search(&Query::text("color:green"), &Scope::default()).unavailable, vec!["color"]);
+    let summaries = vec![
+        (TRAM, Some(ColourSummary::new(SearchColour::Red, &[SearchColour::Blue]).unwrap())),
+        (TILES, Some(ColourSummary::new(SearchColour::Green, &[SearchColour::Yellow]).unwrap())),
+        (SWIM, Some(ColourSummary::new(SearchColour::Bw, &[]).unwrap())),
+    ];
+    let op = Op::SetColours { colours: summaries };
+    lib.apply(op.clone()).unwrap();
+    index.apply(Update::for_op(&lib, &op));
+    assert_eq!(index, SearchIndex::from_library(&lib), "the index follows the summaries");
+    assert!(index.search(&Query::text("color:green"), &Scope::default()).unavailable.is_empty());
+    assert_eq!(text(&index, &lib, "color:green"), vec![TILES]);
+    assert_eq!(text(&index, &lib, "color:GREEN"), vec![TILES]);
+    assert_eq!(text(&index, &lib, "color:red"), vec![TRAM]);
+    assert_eq!(text(&index, &lib, "color:blue"), vec![TRAM], "a colour beside the main one matches too");
+    assert_eq!(text(&index, &lib, "color:purple"), Vec::<PhotoId>::new());
+    assert_eq!(text(&index, &lib, "-color:bw"), vec![TRAM, TILES]);
+    assert_eq!(text(&index, &lib, "color:bw"), vec![SWIM]);
+    assert_eq!(text(&index, &lib, "color:red color:blue tram"), vec![TRAM]);
+    // A word naming no colour is plain words.
+    let p = Parsed::new("color:teal");
+    assert_eq!((p.atoms[0].field, p.atoms[0].tokens.clone()), (Field::Any, vec!["color".to_string(), "teal".to_string()]));
+    assert!(p.unavailable.is_empty());
+    assert_eq!(text(&index, &lib, "color:teal"), Vec::<PhotoId>::new());
+    lib.apply(Op::SetCaptions { captions: vec![(SWIM, "Color teal sea".into())] }).unwrap();
+    let index = SearchIndex::from_library(&lib);
+    assert_eq!(text(&index, &lib, "color:teal"), vec![SWIM]);
+    // Clearing the last summary makes `color` unavailable again.
+    let op = Op::SetColours { colours: vec![(TRAM, None), (TILES, None), (SWIM, None)] };
+    lib.apply(op.clone()).unwrap();
+    let mut followed = index.clone();
+    followed.apply(Update::for_op(&lib, &op));
+    assert_eq!(followed, SearchIndex::from_library(&lib));
+    assert_eq!(followed.search(&Query::text("color:green"), &Scope::default()).unavailable, vec!["color"]);
+}
+
+#[test]
+fn suggestions_after_color_list_the_seven_with_counts() {
+    use dalica_core::color_summary::{ColourSummary, SearchColour};
+    let mut lib = fixture();
+    let green = ColourSummary::new(SearchColour::Green, &[SearchColour::Blue]).unwrap();
+    lib.apply(Op::SetColours { colours: vec![(TRAM, Some(green)), (TILES, Some(green)), (DOG, Some(green))] }).unwrap();
+    let index = SearchIndex::from_library(&lib);
+    let got = |t: &str| index.suggest(t, &Scope::default(), 20).into_iter().map(|s| (s.kind, s.text, s.count, s.section)).collect::<Vec<_>>();
+    let all = got("color:");
+    let words: Vec<&str> = all.iter().map(|(_, w, _, _)| w.as_str()).collect();
+    assert_eq!(words, vec!["red", "orange", "yellow", "green", "blue", "purple", "bw"]);
+    assert!(all.iter().all(|(kind, _, _, section)| *kind == SuggestionKind::Color && section.is_none()));
+    let counts: Vec<usize> = all.iter().map(|(_, _, n, _)| *n).collect();
+    assert_eq!(counts, vec![0, 0, 0, 2, 2, 0, 0], "the hidden photo is not counted");
+    let words = |t: &str| got(t).into_iter().map(|(_, w, _, _)| w).collect::<Vec<_>>();
+    assert_eq!(words("tram COLOR:B"), vec!["blue", "bw"]);
+    assert_eq!(words("-color:g"), vec!["green"]);
+    assert!(words("color:teal").is_empty());
+    assert_eq!(index.suggest("color:", &Scope::default(), 3).len(), 3);
+}
+
 #[test]
 fn an_unknown_field_is_searched_as_plain_words() {
     let lib = fixture();

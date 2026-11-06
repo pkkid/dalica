@@ -45,10 +45,16 @@
 //! M15's op: each photo's video facts ([`Op::SetVideos`]), a derived fact the scan sets from the
 //! container's probe; a photo with a record is a video ([`Library::kind`]). Removing a photo takes
 //! its record; the inverse puts it back. The Video Frames mark is one more [`Project`].
+//!
+//! M16's op: each photo's colour summary ([`Op::SetColours`], `organizing.md` §8.1), derived data
+//! made from its sketch as the sketch is made from the file: journaled, no undo step, no library
+//! revision; the search index follows it. Removing a photo takes its summary; the inverse puts it
+//! back.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
+use dalica_core::color_summary::ColourSummary;
 use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 use serde::{Deserialize, Serialize};
 
@@ -288,6 +294,12 @@ pub enum Op {
     SetVideos {
         videos: Vec<(PhotoId, Option<VideoFacts>)>,
     },
+    /// Colour summaries of photos (`None` clears one), applied in order (M16). Derived data (made
+    /// from the sketch): see [`Op::is_derived`]. In the journal each is its byte form.
+    SetColours {
+        #[serde(with = "crate::model::colour_bytes")]
+        colours: Vec<(PhotoId, Option<ColourSummary>)>,
+    },
     /// Several ops as one: all or nothing, one revision.
     Batch {
         ops: Vec<Op>,
@@ -297,9 +309,10 @@ pub enum Op {
 impl Op {
     /// Whether the op changes only derived data (sketches, synced hashes, saved records, search
     /// facts, digests, first-indexed and last-changed times, the sidecar in effect, legacy
-    /// originals, video facts): [`Op::SetSketches`], [`Op::SetSynced`], [`Op::SetSaved`],
-    /// [`Op::SetFacts`], [`Op::SetDigests`], [`Op::SetFirstIndexed`], [`Op::SetLastChanged`],
-    /// [`Op::SetFolderSidecars`], [`Op::SetLegacyOriginals`], [`Op::SetVideos`], or a non-empty
+    /// originals, video facts, colour summaries): [`Op::SetSketches`], [`Op::SetSynced`],
+    /// [`Op::SetSaved`], [`Op::SetFacts`], [`Op::SetDigests`], [`Op::SetFirstIndexed`],
+    /// [`Op::SetLastChanged`], [`Op::SetFolderSidecars`], [`Op::SetLegacyOriginals`],
+    /// [`Op::SetVideos`], [`Op::SetColours`], or a non-empty
     /// batch of nothing else. Such
     /// an op bumps neither [`Library::revision`] nor any folder revision (one with sketches bumps
     /// [`Library::thumbnail_revision`]), and its inverse is derived too. It is journaled like any
@@ -315,7 +328,8 @@ impl Op {
             | Op::SetLastChanged { .. }
             | Op::SetFolderSidecars { .. }
             | Op::SetLegacyOriginals { .. }
-            | Op::SetVideos { .. } => true,
+            | Op::SetVideos { .. }
+            | Op::SetColours { .. } => true,
             Op::Batch { ops } => !ops.is_empty() && ops.iter().all(Op::is_derived),
             _ => false,
         }
@@ -883,6 +897,10 @@ impl Library {
                 }
                 Ok(Op::SetVideos { videos: set_all(&mut self.model.videos, videos) })
             }
+            Op::SetColours { colours } => {
+                self.check_photos(colours.iter().map(|(id, _)| *id))?;
+                Ok(Op::SetColours { colours: set_all(&mut self.model.colours, colours) })
+            }
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
                 for op in ops {
@@ -906,7 +924,8 @@ impl Library {
 
     /// Removes the photos `ids` (all known, no repeats) with their info, synced hashes, saved
     /// records, copies saved beside, sketches, search facts, digests, times, album memberships and
-    /// the covers they were, faces, geotags, legacy originals and video facts, and returns the ops that put them back, in order:
+    /// the covers they were, faces, geotags, legacy originals, video facts and colour summaries,
+    /// and returns the ops that put them back, in order:
     /// [`Op::AddPhotos`] first, then only what there was (memberships before covers).
     fn remove_photos(&mut self, ids: &[PhotoId], fx: &mut Effects) -> Vec<Op> {
         let sketches: Vec<(PhotoId, Option<Sketch>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.sketches.remove(id)?)))).collect();
@@ -923,6 +942,7 @@ impl Library {
         let legacy: Vec<(PhotoId, Option<LegacyOriginal>)> =
             ids.iter().filter_map(|id| Some((*id, Some(self.model.legacy_originals.remove(id)?)))).collect();
         let videos: Vec<(PhotoId, Option<VideoFacts>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.videos.remove(id)?)))).collect();
+        let colours: Vec<(PhotoId, Option<ColourSummary>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.colours.remove(id)?)))).collect();
         let gone: HashSet<PhotoId> = ids.iter().copied().collect();
         let mut covers = Vec::new();
         self.model.covers.retain(|album, photo| {
@@ -995,6 +1015,9 @@ impl Library {
         }
         if !videos.is_empty() {
             ops.push(Op::SetVideos { videos });
+        }
+        if !colours.is_empty() {
+            ops.push(Op::SetColours { colours });
         }
         if !sketches.is_empty() {
             fx.sketches = true;
