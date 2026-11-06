@@ -88,8 +88,8 @@ centre).
 **Loop slideshow** (off) · **Play music during slideshows** (off) + music folder [Browse…] (every
 MP3/OGG/FLAC/WAV in the folder plays in name order, looping) · **Display time** · **Transition** ·
 **Show captions** (on) · **Play video sound** (off). A folder's own music (Folder Properties →
-Music) is meant to override the global music folder; Dalica does not keep it yet (the row is
-greyed and says so), so the global music folder plays for every show.
+Music for slideshows, `organizing.md` §10) overrides this music folder in a show of that folder
+(§1.5.1).
 
 The tab groups Play music, the music folder and Play video sound under **Sound**, below Loop, Show
 captions, Display time (a 1–60 s slider with its number field) and Transition. On a system with no
@@ -115,6 +115,15 @@ output on this system".
   "This music file can't be played (…)" in the log). It pauses while the show is paused and while
   a video's sound plays (one sound at a time), and fades out over 1 s when the show ends (at its
   last photo without Loop, or on Exit); Play at the end starts it again from the first file.
+- **Which music** (M16.16), while Play music during slideshows is on (off: none plays): a show of
+  one folder (its header's Play, or the folder or one of its photos selected, so the show is the
+  folder's whole list in its display order) plays the folder's own music folder when it has one;
+  every other show (an album, a search's results, the Photo Tray, photos of several folders), and
+  a folder without one, plays the music folder of Options ▸ Slideshow. An album that holds exactly
+  one folder's photos in that folder's order counts as the folder's show. A folder's music folder
+  that plays nothing (gone missing, unreadable or holding no music) gives way to the Options one,
+  with a notice naming it ("<folder>: The music folder can't be read: …; the music folder in
+  Options › Slideshow plays instead"), among the session's notices.
 
 ### 1.6 Decisions (M11.4, M11.11, M11.21, M13.23)
 

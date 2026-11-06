@@ -11344,7 +11344,7 @@ under their own key, and a snapshot without them reads as one with none.
     folder keys kept; `crates/store/tests/fields.rs`: the field survives a sidecar write, a
     rebuild from the folders and a snapshot; the mapping test passes with the field placed; every
     existing `library`, `sidecar`, `store` and `scan` test passes unchanged.
-- ⬜ **M16.16 `engine` + `ui`: a folder's music in `folder.info.set`, the slideshow and Folder Properties**
+- ✅ **M16.16 `engine` + `ui`: a folder's music in `folder.info.set`, the slideshow and Folder Properties**
   - after: M16.15
   - files: `crates/engine/src/cmd/folder_info.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/folder_info.rs`, `crates/engine/tests/slideshow_sound.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/folder_properties.rs`, `docs/organizing.md`, `docs/viewing.md`, `docs/data-model.md`
   - scope: `folder.info.set {id, music?}` ("" clears; a path that is not a folder is

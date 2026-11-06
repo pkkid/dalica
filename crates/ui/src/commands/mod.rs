@@ -152,6 +152,7 @@ const AREAS: &[&[UiCommand]] = &[
     scroll::COMMANDS,
     tray::COMMANDS,
     dialogs::COMMANDS,
+    crate::dialogs::folder_properties::COMMANDS,
     caption::COMMANDS,
     info::COMMANDS,
     help::COMMANDS,

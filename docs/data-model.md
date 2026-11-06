@@ -41,7 +41,7 @@ deletes files.
 | Album membership and order | `"albums": { "<album id>": "<position key>" }` per photo (§3.2); the album names at the top level | — | yes | album definitions, covers and a copy of the order: `albums.json` (§4) |
 | Last-changed time (when Dalica last changed what is said about a photo: Recently Updated) | `"changed": "2026-06-04T19:45:02.250Z"` | — | yes | |
 | Search facts (camera, video, geotagged), content digests, first-indexed times | — | read from the file (facts, digests) | yes (only there) | |
-| Folder description/date/place, hidden folder | `"folder"` object (`"hidden": true` in the folder's own sidecar, so it stays hidden when the folder moves) | — | yes | |
+| Folder description/date/place/music, hidden folder | `"folder"` object (`"hidden": true` in the folder's own sidecar, so it stays hidden when the folder moves) | — | yes | |
 | Folder photo sort (Sort Folder By, Reverse Order) | `"folder": { "sort", "reverse" }` | — | yes | |
 | Custom folder sort order | `"folder": { "order" }` | — | yes | |
 | Face rectangles + person | `"faces"` | XMP MWG Regions when "Store people names in photos" is on (default **off**) | yes | |
@@ -82,6 +82,7 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
     "date": "2026-06-04",
     "place": "Lisbon, Portugal",
     "hidden": true,
+    "music": "/home/me/Music/Lisbon",
     "sort": "name",
     "reverse": true,
     "order": ["IMG_0003.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]
@@ -128,7 +129,9 @@ Format rules:
   photo: `star`, `caption` (string), `tags` (list of strings), `hidden`, `edits` and `redo` (lists
   of operation strings, §3.1), `date` (a local date and time, `2026-06-04T19:42:10`; the EXIF
   spelling `2026:06:04 19:42:10` is read too). Per folder, in `"folder"`: `description`, `date`
-  (`2026-06-04`), `place`, `hidden`. An empty value (`false`, `""`, `[]`, no date) is written as
+  (`2026-06-04`), `place`, `hidden`, `music` (the folder of music the folder's slideshows play,
+  an absolute path as the folder picker gives it, at most 4096 bytes; `viewing.md` §1.5.1). An
+  empty value (`false`, `""`, `[]`, no date) is written as
   no key at all, and a photo entry or the `"folder"` object left with no keys goes; `"hidden":
   false` written by hand reads as not hidden and is left alone.
   - Reading: a value of the wrong type (a date that does not parse counts) is not used, the model

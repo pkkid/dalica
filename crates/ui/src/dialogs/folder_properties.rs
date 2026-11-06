@@ -8,7 +8,7 @@
 //!                        [x] Use the date of the oldest photo
 //! Place:                 [Lisbon, Portugal               ]
 //! Description:           [A weekend of trams             ]
-//! Music for slideshows:  [                     ] [Browse…]  (disabled: not kept per folder yet)
+//! Music for slideshows:  [/home/me/Music/Lisbon ] [Browse…]
 //! Photo data:            Kept in Dalica's file in this folder.
 //!                                                   [Cancel] [OK]
 //! ```
@@ -19,10 +19,10 @@
 //! both (Dalica's in use, the old one no longer read), or none yet. It is worked out when the
 //! library or the folder's fact changes, never per frame.
 //!
-//! The draft is `{folder, name, date, useOldest, place, description}`: the folder's id and name,
-//! the date the Date field shows (`"YYYY-MM-DD"`; `null` when the folder has none: no photo with a
-//! date and none set), whether "Use the date of the oldest photo" is on, its place and its
-//! description. It starts from what the library holds: the date set in Folder Properties (the box
+//! The draft is `{folder, name, date, useOldest, place, description, music}`: the folder's id and
+//! name, the date the Date field shows (`"YYYY-MM-DD"`; `null` when the folder has none: no photo
+//! with a date and none set), whether "Use the date of the oldest photo" is on, its place, its
+//! description and its music (the folder of music its slideshows play, `""` for none). It starts from what the library holds: the date set in Folder Properties (the box
 //! off), else the oldest photo's (the box on, the field disabled). Turning the box on shows the
 //! oldest photo's date again; turning it off keeps the date shown (today's when the folder has
 //! none). The Date field is `ui-kit`'s date field (M10.25): typed as `YYYY-MM-DD`, ↑ and ↓ step the
@@ -32,20 +32,24 @@
 //! draft through `ui.set` can leave it so). The name renames the folder on disk (M9.20): OK is
 //! disabled while it is blank.
 //!
+//! **Music for slideshows** (`viewing.md` §1.5.1, M16.16): the field shows the folder's music
+//! ("No folder" while it has none) and may be typed in or cleared; Browse… opens the folder picker
+//! titled "Music Folder" (as Options ▸ Slideshow's does), starting in the folder shown, and the
+//! folder chosen goes into the draft ([`MUSIC_COMMAND`]); a cancel changes nothing.
+//!
 //! OK runs `folder.rename {folder, name}` first when the name changed (a file job, one undo step
 //! "Rename Folder"; the folder keeps its id, so the tree row and the section title follow it once
 //! the job is done), then `folder.info.set` once (one undo step, none when nothing changed), with
-//! `date: "oldest"` while the box is on. A rename the engine refuses (a name another library folder
+//! `date: "oldest"` while the box is on and `music` only when the draft's is not the folder's now
+//! (so a music folder that has gone missing never stops OK). A rename the engine refuses (a name another library folder
 //! has, an offline folder) leaves the dialog open with the reason and changes nothing; Cancel
 //! changes nothing.
 //!
 //! Widget ids (`control-protocol.md` §7, the dialog row): `field:dialog.name`,
 //! `field:dialog.date`, `check:dialog.useOldest`, `field:dialog.place`, `field:dialog.description`,
-//! `field:dialog.music` and `button:dialog.browse` (both disabled with [`music_reason`]: Dalica
-//! plays slideshow music since M15.27, but a folder's own music needs a field of the folder's data
-//! that is not kept yet, so Options ▸ Slideshow's music folder plays for every folder),
-//! `button:dialog.cancel`,
-//! `button:dialog.ok`.
+//! `field:dialog.music`, `button:dialog.browse`, `button:dialog.cancel`, `button:dialog.ok`.
+
+use std::path::PathBuf;
 
 use dalica_core::{Date, DateTime, FolderId};
 use dalica_engine::CmdError;
@@ -53,12 +57,15 @@ use dalica_library::Library;
 use dalica_ui_kit::widgets::{self, ButtonKind, DATE_WIDTH, PickedDate, TextField, checkbox, date_field};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align, Layout, RichText, Ui, vec2};
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::{Button, Dialog, DialogKind, Look, form_label};
 use crate::app::App;
+use crate::commands::{UiCommand, parse_object};
 use crate::i18n::format::long_date_with_weekday;
 use crate::panels::light_table::folder_name;
+use crate::picker::FolderRequest;
 use crate::tl;
 
 pub const TITLE: &str = "Folder Properties";
@@ -72,13 +79,58 @@ const GAP: f32 = 8.0;
 pub const USE_OLDEST: &str = "Use the date of the oldest photo";
 /// What the Music field says while it is empty.
 pub const MUSIC_HINT: &str = "No folder";
-/// Why the Music row is greyed: a folder's own music is not kept yet (M15.27).
-pub const FOLDER_MUSIC_LATER: &str = "A folder's own music isn't kept yet: the music folder in Options › Slideshow plays";
+/// The title of the music folder's picker (Options ▸ Slideshow's).
+pub const MUSIC_TITLE: &str = "Music Folder";
+/// What the music folder's picker runs with the folder chosen.
+pub const MUSIC_COMMAND: &str = "folderProperties.music";
+/// Why [`MUSIC_COMMAND`] cannot run: Folder Properties is not open.
+pub const NOT_OPEN: &str = "Folder Properties is not open.";
+/// The most bytes of a music path in the draft ([`dalica_library::MAX_MUSIC`]).
+const MAX_MUSIC: usize = dalica_library::MAX_MUSIC;
 
-/// Why the Music row is greyed ([`FOLDER_MUSIC_LATER`]).
-pub fn music_reason() -> String {
-    tl!("A folder's own music isn't kept yet: the music folder in Options › Slideshow plays")
+pub const COMMANDS: &[UiCommand] = &[UiCommand {
+    id: MUSIC_COMMAND,
+    label: "Music Folder",
+    menu: "",
+    keys: &[],
+    params: r#"{"path":string (absolute)}: put the folder into the open Folder Properties' Music for slideshows (what its Browse… folder picker runs with the folder chosen; OK commits it; replies {music}); disabled while Folder Properties is closed"#,
+    run: set_music,
+}];
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Music {
+    path: PathBuf,
 }
+
+/// The open Folder Properties dialog, the top one.
+fn open_dialog(app: &mut App) -> Option<&mut Dialog> {
+    app.state_mut().dialogs.iter_mut().rev().find(|d| d.kind == DialogKind::FolderProperties)
+}
+
+/// [`MUSIC_COMMAND`]: the draft's music becomes `path` (absolute, valid Unicode of at most
+/// [`MAX_MUSIC`] bytes).
+fn set_music(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    let p: Music = parse_object(params)?;
+    let text = p.path.to_str().ok_or_else(|| CmdError::BadParams("path: not valid Unicode".into()))?.to_string();
+    if text.len() > MAX_MUSIC {
+        return Err(CmdError::Limit(format!("path: at most {MAX_MUSIC} bytes")));
+    }
+    if !p.path.is_absolute() || text.contains('\0') {
+        return Err(CmdError::BadParams("path: an absolute folder".into()));
+    }
+    let d = open_dialog(app).ok_or_else(|| CmdError::Disabled(NOT_OPEN.into()))?;
+    d.fields.insert("music".into(), Value::String(text.clone()));
+    Ok(json!({ "music": text }))
+}
+
+/// The music folder's picker, starting in the folder the field shows.
+pub fn music_request(fields: &Map<String, Value>) -> FolderRequest {
+    let folder = Some(PathBuf::from(text(fields, "music").trim())).filter(|p| p.is_absolute());
+    FolderRequest { title: tl!("Music Folder"), folder, command: MUSIC_COMMAND, params: json!({}), output: false }
+}
+/// Why OK refuses a music folder typed as a relative path.
+pub const BAD_MUSIC: &str = "Choose the music folder with Browse… or type its full path.";
 /// Why OK is disabled when the draft's date does not read as a day.
 pub const BAD_DATE: &str = "Type the date as YYYY-MM-DD.";
 /// Why OK is disabled while the Name field is blank.
@@ -143,7 +195,9 @@ pub fn dialog(app: &App, folder: FolderId) -> Dialog {
             let name = library.folder(folder).map(|f| folder_name(&f.path)).unwrap_or_default();
             let info = library.folder_info(folder);
             let date = info.date.or_else(|| oldest_date(library, folder));
-            draft(folder, &name, date, info.date.is_none(), &info.place, &info.description)
+            let mut fields = draft(folder, &name, date, info.date.is_none(), &info.place, &info.description);
+            fields.insert("music".into(), Value::String(info.music.clone()));
+            fields
         }
         None => draft(folder, "", None, true, "", ""),
     };
@@ -165,6 +219,7 @@ pub fn draft(folder: FolderId, name: &str, date: Option<Date>, use_oldest: bool,
         "useOldest": use_oldest,
         "place": place,
         "description": description,
+        "music": "",
     });
     match v {
         Value::Object(o) => o,
@@ -292,18 +347,20 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     });
     row(ui, &t, &form_label(&tl!("Place")), |ui| field(ui, &t, fields, "place", PLACE_ID, &tl!("Where these photos were taken"), full));
     row(ui, &t, &form_label(&tl!("Description")), |ui| field(ui, &t, fields, "description", DESCRIPTION_ID, &tl!("Add a description"), full));
-    row(ui, &t, &form_label(&tl!("Music for slideshows")), |ui| {
-        // A folder's own music is not kept yet: the row is there, disabled with its reason.
-        ui.add_enabled_ui(false, |ui| {
-            let browse = tl!("Browse…");
-            let bw = (ui.painter().layout_no_wrap(browse.clone(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
-            let mut music = String::new();
-            let field = TextField::new(MUSIC_ID, &tl!("No folder"), (full - bw - GAP).max(24.0)).show(ui, &t, &mut music);
-            let browse = widgets::text_button(ui, &t, BROWSE_ID, &browse, false);
-            widgets::tooltip(field.response, &t, &music_reason(), None);
-            widgets::tooltip(browse, &t, &music_reason(), None);
-        });
+    let can_browse = app.can_pick();
+    let browse = row(ui, &t, &form_label(&tl!("Music for slideshows")), |ui| {
+        let label = tl!("Browse…");
+        let bw = (ui.painter().layout_no_wrap(label.clone(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
+        field(ui, &t, fields, "music", MUSIC_ID, &tl!("No folder"), (full - bw - GAP).max(24.0));
+        let browse = ui.add_enabled_ui(can_browse.is_ok(), |ui| widgets::text_button(ui, &t, BROWSE_ID, &label, false)).inner;
+        if let Err(why) = &can_browse {
+            widgets::tooltip(browse.clone(), &t, why, None);
+        }
+        browse.clicked()
     });
+    if browse && let Err(why) = app.pick_folder_for(music_request(fields)) {
+        app.state_mut().status = why;
+    }
     let folder = fields.get("folder").and_then(|v| serde_json::from_value::<FolderId>(v.clone()).ok());
     if let Some(folder) = folder {
         let said = source_text(source(app, ui.ctx(), folder));
@@ -326,8 +383,9 @@ pub fn rename_params(app: &App, fields: &Map<String, Value>) -> Result<Option<Va
 }
 
 /// OK: `folder.rename {folder, name}` when the name changed, then `folder.info.set {id,
-/// description, place, date}`, `date` being `"oldest"` while "Use the date of the oldest photo" is
-/// on. The reply is `folder.info.set`'s, with the rename's under `rename` when there was one.
+/// description, place, date, music?}`, `date` being `"oldest"` while "Use the date of the oldest
+/// photo" is on, `music` given only when it is not the folder's now. The reply is
+/// `folder.info.set`'s, with the rename's under `rename` when there was one.
 pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> {
     let f = &d.fields;
     let id = f.get("folder").cloned().ok_or_else(|| CmdError::Internal("the Folder Properties draft has no folder".into()))?;
@@ -336,13 +394,23 @@ pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> 
         Ok(Some(day)) => json!(day.to_string()),
         Err(why) => return Err(CmdError::BadParams(why.into())),
     };
+    let music = text(f, "music").trim().to_string();
+    let folder: Option<FolderId> = serde_json::from_value(id.clone()).ok();
+    let now = folder.and_then(|fo| app.session().map(|s| s.library().folder_info(fo).music.clone()));
+    let music = (now.as_deref() != Some(music.as_str())).then_some(music);
+    if music.as_deref().is_some_and(|m| !m.is_empty() && !std::path::Path::new(m).is_absolute()) {
+        return Err(CmdError::BadParams(BAD_MUSIC.into()));
+    }
     // The rename first: a refusal (a name taken, an offline folder) changes nothing at all.
     let renamed = match rename_params(app, f)? {
         Some(params) => Some(app.run("folder.rename", &params)?),
         None => None,
     };
-    let mut reply =
-        app.run("folder.info.set", &json!({ "id": id, "description": text(f, "description"), "place": text(f, "place"), "date": date }))?;
+    let mut params = json!({ "id": id, "description": text(f, "description"), "place": text(f, "place"), "date": date });
+    if let (Some(m), Some(o)) = (music, params.as_object_mut()) {
+        o.insert("music".into(), Value::String(m));
+    }
+    let mut reply = app.run("folder.info.set", &params)?;
     if let (Some(r), Some(o)) = (renamed, reply.as_object_mut()) {
         o.insert("rename".into(), r);
     }

@@ -711,8 +711,13 @@ By ▸.
   day that read), with the long date beside it; while the box is ticked the field shows the
   oldest photo's date, and unticking it keeps that day (today's when the folder has none). OK
   renames the folder
-  first when the Name changed (its own undo step), then sets the rest; Music stays greyed until
-  slideshows (M11) arrive.
+  first when the Name changed (its own undo step), then sets the rest in one undo step
+  (`folder.info.set`). **Music for slideshows** (M16.16) shows the folder's own music folder
+  ("No folder" while it has none); Browse… opens the folder picker titled "Music Folder", as
+  Options ▸ Slideshow's does, and the field may be typed in or cleared (cleared: the folder has no
+  music of its own). OK commits it with the other fields, and only when it changed, so a music
+  folder that has gone missing never stops OK; `folder.info.set` refuses a path that is not a
+  folder. A show of this folder plays it (`viewing.md` §1.5.1).
 
 ## 11. Open questions (reserved for the maintainer)
 
