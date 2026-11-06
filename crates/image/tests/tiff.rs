@@ -702,14 +702,26 @@ fn peak<T>(run: impl FnOnce() -> T) -> (T, u64) {
     (out.unwrap(), info.bytes_max)
 }
 
-/// The thumbnail a panorama should give at `factor`: each cell's mean of `p`'s channels (each
-/// linear across the cell, so the mean of its first and last value), at 8 bits.
-fn assert_panorama_thumbnail(p: &Panorama, thumb: &Rgba8, factor: u32) {
-    assert_eq!((thumb.width, thumb.height), (p.width.div_ceil(factor), p.height.div_ceil(factor)), "{p:?}");
+/// The thumbnail a panorama should give at `factor`, fitted to `long_side`: the reduced picture
+/// (the page divided by `factor`, edge cells partial) shrunk to fit when its longer side is past
+/// `long_side`, as every thumbnail is. Each pixel is the mean of `p`'s channels over the part of
+/// the page it covers (each channel linear across it, so the mean of its first and last value), at
+/// 8 bits.
+fn assert_panorama_thumbnail(p: &Panorama, thumb: &Rgba8, factor: u32, long_side: u32) {
+    let (rw, rh) = (p.width.div_ceil(factor), p.height.div_ceil(factor));
+    let long = rw.max(rh);
+    let fit =
+        |v: u32| if long <= long_side { v } else { ((u64::from(v) * u64::from(long_side) + u64::from(long) / 2) / u64::from(long)).max(1) as u32 };
+    assert_eq!((thumb.width, thumb.height), (fit(rw), fit(rh)), "{p:?}");
     let max = f64::from(p.max());
+    // The page pixels output pixel `i` of `out` covers, of `cells` reduced cells over `len` pixels.
+    let span = |i: u32, out: u32, cells: u32, len: u32| {
+        let at = |i: u32| (u64::from(i) * u64::from(cells) * u64::from(factor) / u64::from(out)).min(u64::from(len)) as u32;
+        (at(i), at(i + 1).max(at(i) + 1).min(len) - 1)
+    };
     let mean = |c: usize, x: u32, y: u32| {
-        let (x1, y1) = ((x * factor + factor - 1).min(p.width - 1), (y * factor + factor - 1).min(p.height - 1));
-        let (a, b) = (p.sample(x * factor, y * factor, c), p.sample(x1, y1, c));
+        let ((x0, x1), (y0, y1)) = (span(x, thumb.width, rw, p.width), span(y, thumb.height, rh, p.height));
+        let (a, b) = (p.sample(x0, y0, c), p.sample(x1, y1, c));
         (f64::from(a) + f64::from(b)) / 2.0 / max * 255.0
     };
     for y in 0..thumb.height {
@@ -734,7 +746,7 @@ fn a_panorama_past_the_old_cap_gets_a_thumbnail_within_a_memory_bound() {
     let bytes = panorama_file(&p);
     let (thumb, held) = peak(|| decode_thumbnail(&bytes, 256, &l).unwrap());
     assert!(held < PANORAMA_PEAK, "{held} bytes held at once");
-    assert_panorama_thumbnail(&p, &thumb, 64);
+    assert_panorama_thumbnail(&p, &thumb, 64, 256);
     // At full strength: 100 MP at 16 bits in tiles, and 8 bits in strips.
     if crate::common::full() {
         for p in [
@@ -744,7 +756,7 @@ fn a_panorama_past_the_old_cap_gets_a_thumbnail_within_a_memory_bound() {
             let bytes = panorama_file(&p);
             let (thumb, held) = peak(|| decode_thumbnail(&bytes, 512, &l).unwrap());
             assert!(held < PANORAMA_PEAK, "{p:?}: {held} bytes held at once");
-            assert_panorama_thumbnail(&p, &thumb, p.width / 512);
+            assert_panorama_thumbnail(&p, &thumb, p.width / 512, 512);
         }
     }
 }
@@ -763,7 +775,7 @@ fn a_panorama_file_is_read_a_strip_at_a_time() {
         let len = panorama(&p, &mut f).unwrap();
         drop(f);
         let (thumb, held) = peak(|| dalica_image::decode::decode_thumbnail_file(&path, 256, &ON, &l, 1 << 30).unwrap());
-        assert_panorama_thumbnail(&p, &thumb, 64);
+        assert_panorama_thumbnail(&p, &thumb, 64, 256);
         if ifd_at_end {
             assert!(held > len, "read whole: {held} bytes held for a file of {len}");
         } else {
