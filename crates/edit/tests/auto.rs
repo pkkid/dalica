@@ -284,10 +284,11 @@ fn the_fixes_take_no_parameters_and_have_labels_and_versions() {
         let op = Op::parse(text);
         assert_eq!(op.typed(), Some(Ok(typed.clone())));
         assert_eq!(op.label(), Some(label));
-        assert_eq!(op.version(), Some(1));
+        assert_eq!(op.version(), Some(2));
         assert_eq!(Op::from(typed).to_string(), text);
     }
-    assert_eq!((AutoFix::VERSION, AutoContrast::VERSION, AutoColor::VERSION), (1, 1, 1));
+    // 2: the fixes settle when pressed again (#721), so thumbnails made with 1 are remade.
+    assert_eq!((AutoFix::VERSION, AutoContrast::VERSION, AutoColor::VERSION), (2, 2, 2));
     // Parameters are refused; the entry is kept and skipped.
     let img = scene(15, 60, 40);
     for bad in ["autofix(1)", "autocontrast(0.5)", "autocolor(x)"] {
@@ -302,6 +303,32 @@ fn the_fixes_take_no_parameters_and_have_labels_and_versions() {
             let out = run(&img, &[op]);
             assert_eq!((out.width, out.height), (8, 8));
             assert!(out.data.chunks(4).zip(img.data.chunks(4)).all(|(a, b)| a[3] == b[3]), "{op}: alpha kept");
+        }
+    }
+}
+
+#[test]
+fn a_second_press_settles() {
+    // Option 1 of #721 (`editing.md` §6.3): a fix pressed again on its own result finds (almost)
+    // nothing to change, alone or after another fix, so presses never stack. Stated: two (and
+    // three) presses render within 0.5 of 255 on average and 2 per pixel of one press.
+    let blobs = common::rgba(&Scene::new(5, 300, 200).with_kind(Kind::Blobs).render().unwrap());
+    let cast = with_cast(&grey_scene(6, 300, 200));
+    let flat = map(&full_range_neutral(2, 300, 200), |p| p.map(|v| 0.3 * 255.0 + f64::from(v) * 0.4));
+    for (name, img) in [("blobs", &blobs), ("cast", &cast), ("flat", &flat), ("seed 1", &scene(1, 300, 200)), ("seed 7", &scene(7, 300, 200))] {
+        for op in OPS {
+            let once = run(img, &[op]);
+            for presses in [&[op, op][..], &[op, op, op]] {
+                let again = run(img, presses);
+                let (mean, max) = (mean_abs_diff(&once, &again), max_abs_diff(&once, &again));
+                assert!(mean < 0.5 && max <= 2, "{name}: {presses:?} differs from {op} by {mean:.2} on average, {max} at most");
+            }
+        }
+        // Auto Fix already did what Auto Contrast and Auto Color do.
+        let fixed = run(img, &["autofix()"]);
+        for op in ["autocontrast()", "autocolor()"] {
+            let d = mean_abs_diff(&fixed, &run(img, &["autofix()", op]));
+            assert!(d < 0.5, "{name}: {op} after Auto Fix changed it by {d:.2}");
         }
     }
 }

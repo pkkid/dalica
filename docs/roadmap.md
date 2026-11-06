@@ -11613,7 +11613,7 @@ under their own key, and a snapshot without them reads as one with none.
     default; an engine test switches to `classic` and finds exactly `theme.classic` checked in
     `engine.commands`; no existing fingerprint moves except where the cursor is drawn (looked at,
     the why in the commit body).
-- ⬜ **M16.31 `edit` + `ui`: the backlog's bugs: Straighten's grid and Auto Contrast's repeats**
+- ✅ **M16.31 `edit` + `ui`: the backlog's bugs: Straighten's grid and Auto Contrast's repeats**
   - after: M16.12
   - files: `crates/ui/src/panels/edit/straighten.rs`, `crates/ui-kit/src/theme.rs`, `crates/edit/src/ops/auto.rs`, `crates/edit/src/analysis.rs`, `crates/edit/tests/auto.rs`, `docs/editing.md`
   - scope: two of the open `bug` issues the maintainer asked to fix in M16 (2026-11-06; the other

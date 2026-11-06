@@ -10,7 +10,11 @@
 //!   little Fill Light ([`analysis::fill_amount`], measured on the balanced and levelled picture)
 //!   through Tuning's own pass ([`super::tone`]).
 //!
-//! Each is one pixel-only pass; a picture the analysis finds nothing to change in is left alone.
+//! The gains and levels come from [`analysis::settle`], which measures the fixed picture again
+//! and folds what it would still change back in, so pressing a fix again on its own result
+//! settles: it finds (almost) nothing to change, and leaves the picture alone (`editing.md`
+//! §6.3). Each is one pixel-only pass; a picture the analysis finds nothing to change in is left
+//! alone.
 //! Without a proxy (which the renderer always gives an analysing operation) they change nothing.
 
 use std::fmt;
@@ -53,7 +57,8 @@ macro_rules! one_click {
 
         impl Operation for $t {
             const NAME: &'static str = $name;
-            const VERSION: u32 = 1;
+            // 2: the fixes settle when pressed again (#721).
+            const VERSION: u32 = 2;
             const LABEL: &'static str = $label;
 
             fn parse(params: &str) -> Result<$t, ParamError> {
@@ -78,14 +83,9 @@ one_click!(AutoColor, "autocolor", "Auto Color", Parts { color: true, contrast: 
 /// Analyses the proxy and prepares the pass of `parts`; `None` when it would change nothing.
 fn fix(ctx: &Prepare<'_>, parts: Parts) -> Option<Box<dyn Pass>> {
     let mut px = analysis::pixels(ctx.proxy?);
-    let gains = if parts.color { analysis::balance(&px) } else { [1.0; 3] };
-    let levels = if parts.contrast {
-        analysis::apply_gains(&mut px, gains);
-        analysis::levels(&px)
-    } else {
-        Levels::IDENTITY
-    };
+    let (gains, levels) = analysis::settle(&px, parts.color, parts.contrast);
     let fill = if parts.fill {
+        analysis::apply_gains(&mut px, gains);
         analysis::apply_levels(&mut px, &levels);
         let amount = analysis::fill_amount(&px);
         Tuning { fill: amount, ..Tuning::default() }.prepare(ctx)

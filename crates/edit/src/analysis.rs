@@ -18,8 +18,10 @@
 //!   percentiles (each half an 8-bit level further out, so the pixels at the percentile keep
 //!   their detail), so at most `CLIP` of the pixels clip at each end in each channel; a range
 //!   narrower than [`MIN_RANGE`] is widened about its centre (a flat picture is not stretched into
-//!   noise); the gamma moves the median luma half way towards the middle, within
-//!   [`GAMMA_RANGE`].
+//!   noise); the gamma brings the median luma into [`MID_BAND`] (to its nearer edge; a median
+//!   inside it gets none), within [`GAMMA_RANGE`].
+//! - [`settle`] (the one-click fixes): the gains and levels of one click, measured again on the
+//!   fixed picture until a second click would find (almost) nothing to change.
 //! - [`balance`] (Auto Color, and the Auto color wand): per-channel gains, the geometric mean of a
 //!   grey-world estimate (the mid-tone, unclipped pixels average to grey) and a white-patch
 //!   estimate (their bright percentile is white), normalised to keep the luma and each clamped to
@@ -43,8 +45,10 @@ pub const CLIP: f32 = 0.005;
 const HALF_LEVEL: f32 = 0.5 / 255.0;
 /// The narrowest range Auto Contrast stretches to the full range (at most 4× contrast).
 pub const MIN_RANGE: f32 = 0.25;
-/// How far the midtone gamma moves the median luma towards the middle (0: not at all, 1: onto it).
-const MID_PULL: f32 = 0.5;
+/// The band Auto Contrast's midtone gamma brings the median luma into: a median below it moves up
+/// to its lower edge, one above it down to its upper edge, one inside it stays (so a picture it
+/// already fixed needs no gamma, and a repeat settles).
+pub const MID_BAND: (f32, f32) = (0.4, 0.6);
 /// The midtone gamma's bounds.
 pub const GAMMA_RANGE: (f32, f32) = (0.8, 1.25);
 /// The largest gain (and, inverted, the smallest) Auto Color gives a channel.
@@ -57,8 +61,10 @@ const BALANCE_LUMA: (f32, f32) = (0.06, 0.94);
 const CLIPPED: f32 = 0.98;
 /// The fewest pixels the colour balance reads, as a share of the picture (and at least 16).
 const BALANCE_MIN_SHARE: f32 = 0.01;
-/// Auto Fix's fill light: `(FILL_FROM − median luma) · FILL_SLOPE`, at most `FILL_MAX`.
-const FILL_FROM: f32 = 0.45;
+/// Auto Fix's fill light: `(FILL_FROM − median luma) · FILL_SLOPE`, at most `FILL_MAX`. It starts
+/// where Auto Contrast's midtone band does, so it only lifts a picture whose midtones the levels
+/// could not bring into the band, and a picture Auto Fix already fixed gets none.
+const FILL_FROM: f32 = MID_BAND.0;
 const FILL_SLOPE: f32 = 0.8;
 const FILL_MAX: f32 = 0.2;
 /// The Neutral Color Picker's square reaches this share of the shorter side each way from the
@@ -122,6 +128,20 @@ fn percentile(sorted: &[f32], q: f32) -> Option<f32> {
     sorted.get(i).copied()
 }
 
+/// The finite `values`, unsorted, for [`nth`].
+fn finite(values: impl Iterator<Item = f32>) -> Vec<f32> {
+    values.filter(|v| v.is_finite()).collect()
+}
+
+/// What [`percentile`] gives on `values` sorted, found by selection (no full sort; the order of
+/// `values` changes).
+fn nth(values: &mut [f32], q: f32) -> Option<f32> {
+    let last = values.len().checked_sub(1)?;
+    let i = ((q.clamp(0.0, 1.0) * last as f32).round() as usize).min(last);
+    values.select_nth_unstable_by(i, f32::total_cmp);
+    values.get(i).copied()
+}
+
 fn sorted(values: impl Iterator<Item = f32>) -> Vec<f32> {
     let mut v: Vec<f32> = values.filter(|v| v.is_finite()).collect();
     v.sort_unstable_by(f32::total_cmp);
@@ -166,8 +186,8 @@ impl Levels {
 pub fn levels(px: &[[f32; 3]]) -> Levels {
     let mut ends = Vec::with_capacity(3);
     for c in 0..3 {
-        let s = sorted(px.iter().map(|p| p[c]));
-        match (percentile(&s, CLIP), percentile(&s, 1.0 - CLIP)) {
+        let mut s = finite(px.iter().map(|p| p[c]));
+        match (nth(&mut s, CLIP), nth(&mut s, 1.0 - CLIP)) {
             (Some(lo), Some(hi)) => ends.push((lo, hi)),
             _ => return Levels::IDENTITY,
         }
@@ -182,11 +202,11 @@ pub fn levels(px: &[[f32; 3]]) -> Levels {
         white = black + MIN_RANGE;
     }
     let linear = Levels { black, white, gamma: 1.0 };
-    let lumas = sorted(px.iter().map(|p| luma(p.map(|v| linear.apply(v)))));
-    let gamma = match percentile(&lumas, 0.5) {
+    let mut lumas = finite(px.iter().map(|p| luma(p.map(|v| linear.apply(v)))));
+    let gamma = match nth(&mut lumas, 0.5) {
         Some(m) if m > 0.02 && m < 0.98 => {
-            let target = m + (0.5 - m) * MID_PULL;
-            (target.ln() / m.ln()).clamp(GAMMA_RANGE.0, GAMMA_RANGE.1)
+            let target = m.clamp(MID_BAND.0, MID_BAND.1);
+            if target == m { 1.0 } else { (target.ln() / m.ln()).clamp(GAMMA_RANGE.0, GAMMA_RANGE.1) }
         }
         _ => 1.0,
     };
@@ -213,7 +233,7 @@ pub fn balance(px: &[[f32; 3]]) -> [f32; 3] {
     }
     let n = usable.len() as f64;
     let mean: [f32; 3] = std::array::from_fn(|c| (usable.iter().map(|p| f64::from(p[c])).sum::<f64>() / n) as f32);
-    let white: [f32; 3] = std::array::from_fn(|c| percentile(&sorted(usable.iter().map(|p| p[c])), WHITE_PATCH).unwrap_or(1.0));
+    let white: [f32; 3] = std::array::from_fn(|c| nth(&mut finite(usable.iter().map(|p| p[c])), WHITE_PATCH).unwrap_or(1.0));
     let to_grey = |c: [f32; 3]| -> Option<[f32; 3]> {
         let y = luma(c);
         (c.iter().all(|v| *v > 1e-3) && y > 1e-3).then(|| c.map(|v| y / v))
@@ -225,6 +245,83 @@ pub fn balance(px: &[[f32; 3]]) -> [f32; 3] {
         return [1.0; 3];
     }
     g.map(|v| (v / y).clamp(1.0 / MAX_GAIN, MAX_GAIN))
+}
+
+/// How many rounds [`settle`] measures the fixed picture again at most.
+pub const SETTLE_ROUNDS: usize = 12;
+/// The share (as a power) of each round's correction [`settle`] takes: the levels follow the gains
+/// and magnify their errors, so the whole correction can overshoot and swing.
+const SETTLE_STEP: f32 = 0.5;
+/// A gain this close to 1 is exact enough (0.2 %, under half an 8-bit level at white).
+const GAIN_EPSILON: f32 = 0.002;
+/// A colour correction under 1 % (about two 8-bit levels at white) is too small to see: Auto Fix's
+/// colour on the levelled picture stops there, and a click that finds no more leaves the colour
+/// alone, so a second click does not chase the measurement's own wobble.
+pub const SETTLED: f32 = 0.01;
+
+/// One click's colour gains and levels for `px`, computed so that a second click on the result
+/// finds (almost) nothing to change (`editing.md` §6.3): the gains are measured on the picture
+/// as the click leaves it (after the levels too, when `contrast`), and the correction found there
+/// is folded back into them, round after round (at most [`SETTLE_ROUNDS`]), until it is under
+/// [`GAIN_EPSILON`]. The gains as a whole stay within `1 / MAX_GAIN … MAX_GAIN`, and the levels are
+/// always measured afresh on the balanced input (never stacked), so the limits hold for the whole
+/// click, not for each round. Values that change less than half an 8-bit level are dropped: a
+/// picture the click already fixed gets `([1, 1, 1], Levels::IDENTITY)`.
+pub fn settle(px: &[[f32; 3]], color: bool, contrast: bool) -> ([f32; 3], Levels) {
+    // The picture with `gains`, and then (`then_levels`) levelled as the click leaves it.
+    let with = |gains: [f32; 3], then_levels: bool| {
+        let mut out = px.to_vec();
+        apply_gains(&mut out, gains);
+        if then_levels {
+            let lv = levels(&out);
+            apply_levels(&mut out, &lv);
+        }
+        out
+    };
+    let mut gains = [1.0f32; 3];
+    if color {
+        // First the colour on its own (the levels are linked, so they keep the balance it finds);
+        // then, for Auto Fix, on the levelled picture, which is what a second click reads, a share
+        // of each correction at a time (the levels magnify a change of the gains).
+        gains = settle_gains(gains, 1.0, GAIN_EPSILON, |g| balance(&with(g, false)));
+        if contrast {
+            gains = settle_gains(gains, SETTLE_STEP, SETTLED, |g| balance(&with(g, true)));
+        }
+    }
+    if gains.iter().all(|g| (g - 1.0).abs() < SETTLED) {
+        gains = [1.0; 3];
+    }
+    let lv = if contrast { levels(&with(gains, false)) } else { Levels::IDENTITY };
+    (gains, settled(lv))
+}
+
+/// `gains` corrected by what `measure` still finds (to the power `step`), round after round, until
+/// it finds less than `enough` more or the gains' limits hold the rest back (at most [`SETTLE_ROUNDS`]).
+fn settle_gains(mut gains: [f32; 3], step: f32, enough: f32, measure: impl Fn([f32; 3]) -> [f32; 3]) -> [f32; 3] {
+    for _ in 0..SETTLE_ROUNDS {
+        let more = measure(gains);
+        // A channel held at a limit and asked to go further has nothing more to give.
+        let pinned = |c: usize| (gains[c] >= MAX_GAIN && more[c] > 1.0) || (gains[c] <= 1.0 / MAX_GAIN && more[c] < 1.0);
+        if (0..3).all(|c| pinned(c) || more.get(c).is_some_and(|m| (m - 1.0).abs() < enough)) {
+            break;
+        }
+        let next: [f32; 3] = std::array::from_fn(|c| (gains[c] * more[c].powf(step)).clamp(1.0 / MAX_GAIN, MAX_GAIN));
+        if next.iter().zip(&gains).all(|(a, b)| (a - b).abs() < GAIN_EPSILON / 4.0) {
+            break;
+        }
+        gains = next;
+    }
+    gains
+}
+
+/// `l`, or the identity when it moves no value by half an 8-bit level or more.
+fn settled(l: Levels) -> Levels {
+    let near = l.black < 2.0 * HALF_LEVEL && l.white > 1.0 - 2.0 * HALF_LEVEL;
+    let flat = (0..=16).all(|i| {
+        let v = i as f32 / 16.0;
+        (l.apply(v) - v).abs() < HALF_LEVEL
+    });
+    if near && flat { Levels::IDENTITY } else { l }
 }
 
 /// `px` with `gains`, clamped to 0..1.
@@ -244,10 +341,9 @@ pub fn apply_levels(px: &mut [[f32; 3]], levels: &Levels) {
 }
 
 /// Auto Fix's fill light for `px` (after its colour and contrast): a little, and only for a
-/// picture whose median luma lies below 0.45.
+/// picture whose median luma lies below [`FILL_FROM`] (0.4).
 pub fn fill_amount(px: &[[f32; 3]]) -> f64 {
-    let lumas = sorted(px.iter().map(|p| luma(*p)));
-    percentile(&lumas, 0.5).map_or(0.0, |m| f64::from(((FILL_FROM - m) * FILL_SLOPE).clamp(0.0, FILL_MAX)))
+    nth(&mut finite(px.iter().map(|p| luma(*p))), 0.5).map_or(0.0, |m| f64::from(((FILL_FROM - m) * FILL_SLOPE).clamp(0.0, FILL_MAX)))
 }
 
 /// What the Tuning tab's Auto lighting wand sets (`editing.md` §7), each within its control's
