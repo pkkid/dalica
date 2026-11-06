@@ -11,6 +11,8 @@ reading the text differently. Original work; photos are procedural gradients, ic
 | `library-1400x900.png` | default size: Lisbon Weekend selected as a section, 3 photos selected, 2 held from Garden |
 | `library-900x600.png` | minimum size: action buttons overflow into More…, filter caption and title hidden |
 | `library-1400x900-tags.png` | the same with the Tags side pane open |
+| `star-flight.html` | the edit view's star animation (issue #755, M16.35): every variant looping side by side, with its duration, easing, size and colour; speed, Use animations and the path as toggles; `?bare=1&v=rise\|settle\|burst\|drop\|reverse&t=0…1` renders one still frame at 1400 × 900 |
+| `star-flight.png` | its frame strip: a row per variant, six frames each (before the click, 20 % to 80 %, the end), cropped from 1400 × 900 renders of that page; the two small variants zoomed on the star button |
 
 **Status:** proposal, 2026-10-09; waiting for the maintainer's review. Once approved, M3–M4
 compare their screenshots with these at the same sizes. When the spec and a mockup disagree, the
