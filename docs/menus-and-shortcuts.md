@@ -93,6 +93,7 @@ Reference order; Undo/Redo are a Dalica addition placed first.
 | — | | | |
 | Thumbnail Caption ▸ | | `view.caption` | None · Filename · Caption · Tags · Resolution · Date (radio; Date is a Dalica addition) |
 | Folder View ▸ | | `view.folderView` | Flat Folder View · Tree View (radio) — Simplified Tree View (check) |
+| Theme ▸ | | `theme.<id>` | a Dalica addition (M16.5): one radio row per theme of `design-system.md` §2 Themes, by its label (Dark, Pro (Dark) … Soft Light), each running its `theme.<id>` (`theme.dark`, `theme.proLight`, …; no default keys, no undo step); the theme in effect is checked; the window wears the theme chosen from the next frame, and it is saved as `interface.theme`, so it survives a restart |
 | — | | | |
 | Full Screen | F11 | `window.fullscreen` | |
 
@@ -475,7 +476,7 @@ disagree.
 | | Single click on the photo returns to the library | `edit.singleClickLeaves` | off |
 | | UI scale (Auto, 75–300 % in steps of 25) | `interface.uiScale` | Auto |
 | | UI font size (Small, Medium, Large) | `interface.fontSize` | Small |
-| | Theme (Dark, then the Craft themes; applies at once) | `interface.theme` | Dark |
+| | Theme (Dark, then the Craft themes, as View ▸ Theme ▸ lists them; a choice previews at once, Cancel reverts it, Apply keeps it) | `interface.theme` | Dark |
 | | Language (System, then the languages the app offers; applies at once) | `interface.language` | System |
 | Files | Read photo data left by the previous organizer (`data-model.md` §9; a change rescans the watched folders; drawn first in the group) | `files.readLegacyData` | on |
 | | Detect duplicates while importing (the Import room's "Exclude duplicates" starts from it) | `import.detectDuplicates` | on |

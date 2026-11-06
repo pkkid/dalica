@@ -26,6 +26,7 @@ pub mod scale;
 pub mod selection;
 pub mod state;
 pub mod status_text;
+pub mod theme;
 pub mod titlebar;
 pub mod tray;
 pub mod user_activity;

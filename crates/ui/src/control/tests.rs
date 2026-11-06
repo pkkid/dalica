@@ -516,7 +516,10 @@ fn engine_commands_lists_engine_and_ui_commands_with_effective_shortcuts() {
 fn ui_state_and_ui_set_check_every_field_before_changing_any() {
     let mut t = setup(2);
     let state = ok(&mut t, "ui.state", json!(null));
-    assert_eq!(state, serde_json::to_value(t.d.app().state()).unwrap());
+    // The view state, and the theme in effect (a setting the window wears, M16.5).
+    let mut want = serde_json::to_value(t.d.app().state()).unwrap();
+    want.as_object_mut().unwrap().insert("theme".into(), json!("dark"));
+    assert_eq!(state, want);
     assert_eq!(state["thumbSize"], 144.0);
     let r = ok(&mut t, "ui.set", json!({ "thumbSize": 200 }));
     assert_eq!((r["thumbSize"].as_f64(), t.d.app().state().thumb_size), (Some(200.0), 200.0));

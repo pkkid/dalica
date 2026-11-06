@@ -2107,8 +2107,8 @@ impl ShortcutEditor {
 /// The Options dialog's draft while it is open (Tools ▸ Options…, `menus-and-shortcuts.md` §5,
 /// `design-system.md` §11.3): the tab shown, the option values changed since the last Apply (by
 /// settings key, as `options.list` names them and `options.set {values}` takes them), the last
-/// Apply's error, the UI scale and font size being previewed (`null`: the saved ones), and the
-/// shortcut editor. Cancel and Esc drop it, so the preview reverts.
+/// Apply's error, the UI scale, font size and theme being previewed (`null`: the saved ones), and
+/// the shortcut editor. Cancel and Esc drop it, so the preview reverts.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct OptionsDraft {
@@ -2117,6 +2117,9 @@ pub struct OptionsDraft {
     pub error: Option<String>,
     pub preview_scale: Option<ScaleChoice>,
     pub preview_font_size: Option<FontChoice>,
+    /// The theme being previewed, by id (`null`: the saved one); the window wears it while
+    /// `values` holds `interface.theme` (`crate::theme::in_effect`).
+    pub preview_theme: Option<String>,
     pub shortcuts: ShortcutEditor,
 }
 
@@ -2153,6 +2156,9 @@ impl OptionsDraft {
             }
         }
         long("options.error", self.error.as_deref().unwrap_or(""), MAX_DRAFT)?;
+        if let Some(t) = self.preview_theme.as_deref().filter(|t| dalica_engine::settings::theme_id(t).is_none()) {
+            return Err(format!("`options.previewTheme` is a theme's id (View ▸ Theme ▸ lists them), not {t:?}"));
+        }
         let e = &self.shortcuts;
         long("options.shortcuts.search", &e.search, MAX_DRAFT)?;
         if e.changes.len() > MAX_SHORTCUT_CHANGES {

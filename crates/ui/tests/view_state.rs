@@ -537,7 +537,7 @@ fn every_m10_field_round_trips_through_ui_set_and_ui_state() {
     // A partial draft over none takes the defaults for the rest.
     ok(&mut t, "ui.set", json!({ "options": { "tab": "fileTypes" } }));
     let fresh = json!({
-        "tab": "fileTypes", "values": {}, "error": null, "previewScale": null, "previewFontSize": null,
+        "tab": "fileTypes", "values": {}, "error": null, "previewScale": null, "previewFontSize": null, "previewTheme": null,
         "shortcuts": { "search": "", "context": null, "showUnbound": false, "recording": null, "conflict": null,
                        "changes": [], "resetAll": false }
     });

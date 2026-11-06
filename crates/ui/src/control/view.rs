@@ -82,8 +82,31 @@ const READ_ONLY: &[(&str, &str)] = [
 #[serde(deny_unknown_fields)]
 struct NoParams {}
 
+/// The view state, with `theme`: the id of the theme in effect (`crate::theme::in_effect`; a
+/// setting, not view state, so `UiState` does not hold it).
 fn state_json(call: &Call<'_>) -> Result<Value, Error> {
-    serde_json::to_value(call.host.app().state()).map_err(|e| Error::new(Code::Internal, format!("the view state does not serialise: {e}")))
+    let app = call.host.app();
+    let mut v = serde_json::to_value(app.state()).map_err(|e| Error::new(Code::Internal, format!("the view state does not serialise: {e}")))?;
+    if let Some(o) = v.as_object_mut() {
+        let theme = crate::theme::in_effect(app.state(), app.session().map(dalica_engine::Session::settings));
+        o.insert(THEME_FIELD.into(), json!(theme.id()));
+    }
+    Ok(v)
+}
+
+/// The field of `ui.state` naming the theme in effect; `ui.set {theme}` runs its `theme.<id>`.
+const THEME_FIELD: &str = "theme";
+
+/// The command `ui.set {theme}` runs: `theme.<id>` for an id of the engine's themes, `None` when it
+/// is the theme saved already (so a state read by `ui.state` sets back as it was, with or without
+/// a library); `bad_params` for anything else.
+fn theme_command(call: &Call<'_>, value: &Value) -> Result<Option<&'static str>, Error> {
+    let id = value
+        .as_str()
+        .filter(|id| dalica_engine::cmd::theme::command(id).is_some())
+        .ok_or_else(|| call.bad(format!("`theme` is a theme's id (View ▸ Theme ▸ lists them, `engine.commands` as `theme.<id>`), not {value}")))?;
+    let saved = call.host.app().session().map_or(dalica_engine::settings::THEME_DEFAULT, |s| s.settings().interface().theme);
+    Ok((id != saved).then(|| dalica_engine::cmd::theme::command(id)).flatten())
 }
 
 /// The view state as this client may see it: without the people permission the names typed are
@@ -109,6 +132,8 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     if let Some((field, use_instead)) = READ_ONLY.iter().find(|(f, _)| changes.contains_key(*f)) {
         return Err(call.bad(format!("`{field}` cannot be set here; use {use_instead}")));
     }
+    // The theme is a setting: checked here, run as its command once every field has passed.
+    let theme = changes.get(THEME_FIELD).map(|v| theme_command(call, v)).transpose()?.flatten();
     let sets_tree = changes.contains_key("treeWidth");
     let sets_video = changes.contains_key("video");
     let mut merged = state_json(call)?;
@@ -128,6 +153,9 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
                 }
             }
         }
+    }
+    if let Some(obj) = merged.as_object_mut() {
+        obj.remove(THEME_FIELD);
     }
     let mut new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
     // The player's view state belongs to a video shown in the edit view: a change that leaves no
@@ -218,6 +246,9 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     let mut new = new.sanitized();
     // The transient status message is not part of the protocol's state: keep it.
     new.status = call.host.app().state().status.clone();
+    if let Some(command) = theme {
+        call.host.app_mut().run(command, &json!({}))?;
+    }
     *call.host.app_mut().state_mut() = new;
     let reply = state_reply(call)?;
     Ok(Outcome::play_then_reply(Input::Frames(1), reply))

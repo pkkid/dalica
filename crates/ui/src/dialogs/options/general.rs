@@ -12,6 +12,7 @@
 //!               UI scale:  [Auto ▾]
 //!                          Auto follows the system's scale and the monitor.
 //!           UI font size:  [Small ▾]
+//!                  Theme:  [Dark ▾]
 //!               Language:  [System ▾]
 //!  ───────────────────────────────────────────────────────────
 //!                  Files:  [x] Read photo data left by the previous organizer
@@ -49,7 +50,9 @@
 //! A change goes into the draft (`options.values`, by settings key) unless it puts the saved value
 //! back, which takes the key out, so Apply is enabled exactly while the draft differs from the
 //! saved settings. UI scale and font size also set the preview (`options.previewScale`,
-//! `options.previewFontSize`), which [`crate::scale`] shows at once.
+//! `options.previewFontSize`), which [`crate::scale`] shows at once, and Theme (a dropdown of the
+//! themes by label, `choice:option.interface.theme/<id>`) sets `options.previewTheme`, which
+//! [`crate::theme`] puts on the window in the next frame; Cancel reverts both, Apply keeps them.
 //!
 //! Automation ids (`control-protocol.md` §7): an on/off option `check:option.<key>`
 //! (`check:option.interface.tooltips`), a dropdown `choice:option.<key>` and its items
@@ -192,8 +195,8 @@ pub fn item_id(key: &str, value: &Value) -> String {
     }
 }
 
-/// Puts `value` for `row` into the draft: taken out again when it is the saved value; UI scale and
-/// font size also set (or clear) their preview.
+/// Puts `value` for `row` into the draft: taken out again when it is the saved value; UI scale,
+/// font size and theme also set (or clear) their preview.
 pub fn set(app: &mut App, row: &Row, value: Value) {
     let Some(o) = app.state_mut().options.as_mut() else { return };
     let back = value == row.saved;
@@ -205,6 +208,7 @@ pub fn set(app: &mut App, row: &Row, value: Value) {
     match row.key.as_str() {
         UI_SCALE => o.preview_scale = if back { None } else { serde_json::from_value::<ScaleChoice>(value).ok() },
         FONT_SIZE => o.preview_font_size = if back { None } else { serde_json::from_value::<FontChoice>(value).ok() },
+        crate::theme::THEME => o.preview_theme = if back { None } else { value.as_str().map(str::to_string) },
         _ => {}
     }
 }
