@@ -2,14 +2,17 @@
 //! signs (no client certificate); a `CryptoProvider` needs a key provider, and the tests' local
 //! server signs with it. Ported from `rustls-rustcrypto` 0.0.2-alpha `src/sign.rs` and
 //! `src/sign/{rsa,ecdsa,eddsa}.rs` (MIT OR Apache-2.0; see `provider.rs`), without its SEC1
-//! reading of an Ed25519 key (no such encoding exists).
+//! reading of an Ed25519 key (no such encoding exists). ECDSA keys are on the `p256`/`p384` 0.14
+//! line (M16.29, RUSTSEC-2026-0387) and sign deterministically (RFC 6979), so they need no random
+//! numbers.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use p256::pkcs8::DecodePrivateKey;
+use p256::pkcs8::DecodePrivateKey as _;
 use rsa::RsaPrivateKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
+use rsa::pkcs8::DecodePrivateKey;
 use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use rustls::pki_types::PrivateKeyDer;
 use rustls::sign::{Signer, SigningKey};
@@ -34,7 +37,7 @@ pub(super) fn any_supported_type(der: &PrivateKeyDer<'_>) -> Result<Arc<dyn Sign
     Ed25519SigningKey::try_from(der).map(|k| Arc::new(k) as Arc<dyn SigningKey>)
 }
 
-/// Signs with a signer that needs random numbers (RSA, ECDSA), making signatures of type `S`.
+/// Signs with a signer that needs random numbers (RSA), making signatures of type `S`.
 struct RandomizedSigning<S, T> {
     key: Arc<T>,
     scheme: SignatureScheme,
@@ -133,9 +136,27 @@ impl SigningKey for RsaSigningKey {
 }
 
 macro_rules! ecdsa_key {
-    ($ty:ident, $curve:ident, $scheme:expr) => {
+    ($ty:ident, $signer:ident, $curve:ident, $scheme:expr) => {
         #[derive(Debug)]
         struct $ty(Arc<$curve::ecdsa::SigningKey>);
+
+        /// Signs with ECDSA, deterministically (RFC 6979), a DER signature.
+        #[derive(Debug)]
+        struct $signer(Arc<$curve::ecdsa::SigningKey>);
+
+        impl Signer for $signer {
+            fn sign(&self, message: &[u8]) -> Result<Vec<u8>, rustls::Error> {
+                use $curve::ecdsa::signature::{SignatureEncoding as _, Signer as _};
+                self.0
+                    .try_sign(message)
+                    .map(|sig: $curve::ecdsa::DerSignature| sig.to_vec())
+                    .map_err(|_| rustls::Error::General("signing failed".into()))
+            }
+
+            fn scheme(&self) -> SignatureScheme {
+                $scheme
+            }
+        }
 
         impl TryFrom<&PrivateKeyDer<'_>> for $ty {
             type Error = rustls::Error;
@@ -157,7 +178,7 @@ macro_rules! ecdsa_key {
 
         impl SigningKey for $ty {
             fn choose_scheme(&self, offered: &[SignatureScheme]) -> Option<Box<dyn Signer>> {
-                offered.contains(&$scheme).then(|| RandomizedSigning::<$curve::ecdsa::DerSignature, _>::boxed(Arc::clone(&self.0), $scheme))
+                offered.contains(&$scheme).then(|| Box::new($signer(Arc::clone(&self.0))) as Box<dyn Signer>)
             }
 
             fn algorithm(&self) -> SignatureAlgorithm {
@@ -167,8 +188,8 @@ macro_rules! ecdsa_key {
     };
 }
 
-ecdsa_key!(EcdsaSigningKeyP256, p256, SignatureScheme::ECDSA_NISTP256_SHA256);
-ecdsa_key!(EcdsaSigningKeyP384, p384, SignatureScheme::ECDSA_NISTP384_SHA384);
+ecdsa_key!(EcdsaSigningKeyP256, EcdsaSigningP256, p256, SignatureScheme::ECDSA_NISTP256_SHA256);
+ecdsa_key!(EcdsaSigningKeyP384, EcdsaSigningP384, p384, SignatureScheme::ECDSA_NISTP384_SHA384);
 
 #[derive(Debug)]
 struct Ed25519SigningKey(Arc<ed25519_dalek::SigningKey>);

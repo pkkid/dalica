@@ -1135,6 +1135,20 @@ the tag, and refuses an X25519 share that gives an all-zero secret. `Cargo.lock`
 `rustls-webpki`, rustls's own 0.103. `tests/http.rs` handshakes in TLS 1.2 and 1.3 with every
 suite, group and signature scheme the provider offers against a local server.
 
+**The 0.14 curves (M16.29).** RUSTSEC-2026-0387 (2026-10-23) is a timing side channel in
+`crypto-bigint` 0.5, which the 0.13 curves (`p256`/`p384` 0.13, `ecdsa` 0.16, `elliptic-curve`
+0.13) brought in. In Dalica it touched a secret only in a P-256/P-384 key exchange (single-use
+keys, X25519 offered first); ECDSA verification sees public data only. The provider's P-256/P-384
+key exchange, ECDSA verification and ECDSA signing moved to the released 0.14 line (`p256`/`p384`
+0.14, `ecdsa` 0.17, `elliptic-curve` 0.14, `crypto-bigint` 0.7), so no 0.5 copy is left
+(`cargo tree -i crypto-bigint@0.5.5` finds nothing). The 0.14 secrets draw on the operating
+system's random numbers themselves (`getrandom`; a failure refuses the exchange), and an ECDSA key
+signs deterministically (RFC 6979), which needs none. The rest of the provider stays on the shared
+RustCrypto crates it used (`rsa` 0.9 has no release on the new line), so `sha2`, `digest`,
+`hmac`, `crypto-common`, `block-buffer`, `signature`, `rand_core`, `pkcs8`, `spki`, `der` and
+`const-oid` are each in the graph at two versions until it has one; the ECDSA verifiers hash with `sha2` 0.10 and pass the plain
+digest bytes to the 0.14 keys.
+
 `Cargo.lock` lists `ring` as an optional dependency of `rustls-webpki` that no enabled feature
 turns on; it is never built (`cargo tree -i ring` prints nothing, and `cargo xtask deps` checks the
 resolved graph, §8.1). `cargo metadata` still lists it under `rustls-webpki`, named by the weak

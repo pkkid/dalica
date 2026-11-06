@@ -1,6 +1,9 @@
 //! Key exchange: X25519, P-256 and P-384 ECDHE. Ported from `rustls-rustcrypto` 0.0.2-alpha
-//! `src/kx.rs` (MIT OR Apache-2.0; see `provider.rs`).
+//! `src/kx.rs` (MIT OR Apache-2.0; see `provider.rs`); the P-256/P-384 groups moved to the
+//! `p256`/`p384` 0.14 line (M16.29, RUSTSEC-2026-0387), whose secrets draw on the operating
+//! system's random numbers themselves.
 
+use p256::elliptic_curve::Generate;
 use rustls::crypto::{ActiveKeyExchange, SharedSecret, SupportedKxGroup};
 use rustls::{NamedGroup, PeerMisbehaved};
 
@@ -60,7 +63,8 @@ macro_rules! impl_kx {
             }
 
             fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, rustls::Error> {
-                let priv_key = <$secret>::random(&mut rand_core::OsRng);
+                // the operating system's random numbers; a failure to get them refuses the exchange
+                let priv_key = <$secret as Generate>::try_generate().map_err(|_| rustls::Error::FailedToGetRandomBytes)?;
                 let pub_key: $public_key = (&priv_key).into();
                 Ok(Box::new($exchange { priv_key, pub_key: pub_key.to_sec1_bytes() }))
             }
