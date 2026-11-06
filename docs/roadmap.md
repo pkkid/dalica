@@ -11563,7 +11563,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: the Linux tar, MSI and DMG are each at most half their 1.0.0 size, CJK, Thai and
     Latin user text still draw (a fingerprint per script), and the size budget runs in
     `cargo xtask budgets`.
-- ⬜ **M16.28 `engine` + `ui`: closing during a scan stops it instead of hanging**
+- ✅ **M16.28 `engine` + `ui`: closing during a scan stops it instead of hanging**
   - after: M15.R
   - files: `crates/engine/src/scanning.rs`, `crates/engine/src/watching.rs`, `crates/ui/src/app.rs`, `crates/engine/tests/progressive_scan.rs`, `docs/data-model.md`
   - scope: a bug the maintainer found (2026-11-05): closing the window while a scan runs makes

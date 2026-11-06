@@ -426,17 +426,33 @@ impl Session {
     /// dropped). Verified after the job, the folders hold what the job's results put in the
     /// model, so the rescan finds nothing to change.
     pub(crate) fn put_off_rescan(&mut self) {
-        let Some(mut job) = self.watching.rescan.take() else { return };
+        if let Some(mut dirty) = self.let_rescan_go("Check put off while files are written") {
+            dirty.append(&mut self.watching.dirty);
+            self.watching.dirty = dirty;
+        }
+    }
+
+    /// Closing ([`Session::stop_scans_for_close`]): the running rescan is let go as a file job
+    /// lets it go, and neither its dirty folders nor those still waiting are verified in this
+    /// session; the next one's verification pass walks their units again.
+    pub(crate) fn drop_rescans_for_close(&mut self) {
+        let _ = self.let_rescan_go("Check stopped when Dalica closed");
+        self.watching.dirty.clear();
+    }
+
+    /// Lets the running rescan go, its results not applied, and ends its job as cancelled with
+    /// `label`. Returns the dirty folders it was verifying, `None` when none ran.
+    fn let_rescan_go(&mut self, label: &str) -> Option<Vec<DirtyFolder>> {
+        let mut job = self.watching.rescan.take()?;
         // The thread stops at its next file and is not waited for (as Cancel does).
         job.cancel.store(true, Ordering::Relaxed);
         job.rx = None;
         job.thread = None;
-        let mut dirty = std::mem::take(&mut job.dirty);
-        dirty.append(&mut self.watching.dirty);
-        self.watching.dirty = dirty;
+        let dirty = std::mem::take(&mut job.dirty);
         let now = self.clock.now();
         let result = json!({ "folders": job.folders, "units": job.done, "changed": job.changed, "cancelled": true });
-        self.jobs.finish(job.job, Outcome::Cancelled(result), "Check put off while files are written", now);
+        self.jobs.finish(job.job, Outcome::Cancelled(result), label, now);
+        Some(dirty)
     }
 
     /// Whether a rescan of dirty folders is running (counted by [`Session::busy`]).
