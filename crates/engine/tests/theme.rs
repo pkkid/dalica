@@ -54,3 +54,18 @@ fn theme_next_goes_round_every_theme() {
     assert_eq!(s.settings().interface().theme, "dark");
     assert_eq!(s.spec("theme.next").unwrap().menu, "", "for scripts, not the menu");
 }
+
+/// `engine.commands` reports the worn theme as the menu does: after `theme.classic`, exactly
+/// `theme.classic` is checked and every other command has no check (M16.30).
+#[test]
+fn the_command_listing_checks_the_worn_theme() {
+    let lib = tempfile::tempdir().unwrap();
+    let mut s = open(lib.path());
+    s.execute("theme.classic", &json!({})).unwrap();
+    let list = s.commands();
+    let checked_ids: Vec<&str> = list.iter().filter(|c| c.checked == Some(true)).map(|c| c.id).collect();
+    assert_eq!(checked_ids, ["theme.classic"]);
+    for c in &list {
+        assert_eq!(c.checked.is_some(), c.id.starts_with("theme.") && c.id != "theme.next", "{}", c.id);
+    }
+}

@@ -11598,7 +11598,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: `cargo tree -i crypto-bigint@0.5.5` finds nothing and `cargo xtask advisories`
     passes with no new exception; M16.17's handshake test (every suite, group and scheme, and the
     refused untrusted chain) passes unchanged; `cargo xtask deps` passes.
-- ⬜ **M16.30 `ui-kit` + `engine`: M16.8's theme leftovers: the text cursor and the theme rows' checks**
+- ✅ **M16.30 `ui-kit` + `engine`: M16.8's theme leftovers: the text cursor and the theme rows' checks**
   - after: M16.8
   - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/tests/contrast.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/theme.rs`, `docs/design-system.md`
   - scope: two gaps M16.8 found, which keep PREF-THEMES 🟡. (1) egui's text cursor keeps its

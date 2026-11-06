@@ -32,6 +32,10 @@ pub const HISTOGRAM: [Color32; 3] = [Color32::from_rgb(0xdf, 0x39, 0x39), Color3
 /// canvas shows through and the outlines on top read.
 pub const HISTOGRAM_FILL_ALPHA: f32 = 0.55;
 
+/// egui's default text cursor in its dark style, `(192, 222, 255)`: Dark keeps it
+/// ([`Tokens::text_cursor`]).
+pub const EGUI_TEXT_CURSOR: Color32 = Color32::from_rgb(192, 222, 255);
+
 /// The colour of the histogram where the channels in `mask` overlap (bit 0 red, 1 green, 2 blue):
 /// the [`HISTOGRAM`] colours of those channels added together (saturating, so all three make
 /// white), at [`HISTOGRAM_FILL_ALPHA`]. Exact, whatever order the channels are painted in.
@@ -519,6 +523,15 @@ impl Tokens {
         t
     }
 
+    /// The text cursor's colour (`design-system.md` §9): egui's pale blue
+    /// ([`EGUI_TEXT_CURSOR`]) where it shows at 3:1 or better on both a field at rest (`field`)
+    /// and a focused one (`canvas`), as in Dark; `text` otherwise, which every theme already
+    /// keeps at 4.5:1 or better on both.
+    pub fn text_cursor(&self) -> Color32 {
+        let passes = |c: Color32| contrast(c, self.field) >= 3.0 && contrast(c, self.canvas) >= 3.0;
+        if passes(EGUI_TEXT_CURSOR) { EGUI_TEXT_CURSOR } else { self.text }
+    }
+
     /// The tokens [`apply`](Self::apply) last stored in `ctx`, or [`Tokens::DARK`].
     pub fn get(ctx: &Context) -> Tokens {
         ctx.data(|d| d.get_temp::<Tokens>(Self::key())).unwrap_or_default()
@@ -567,6 +580,7 @@ impl Tokens {
             v.weak_text_color = Some(t.text_dim);
             v.selection.bg_fill = t.accent.gamma_multiply(0.6);
             v.selection.stroke = Stroke::new(1.0, t.text);
+            v.text_cursor.stroke.color = t.text_cursor();
             v.hyperlink_color = t.accent;
             v.warn_fg_color = t.caution;
             v.error_fg_color = t.danger;

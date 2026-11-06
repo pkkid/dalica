@@ -1103,7 +1103,8 @@ impl Session {
         &self.registry
     }
 
-    /// The registry as `engine.commands` lists it, with `enabled` evaluated now (for `{}` params).
+    /// The registry as `engine.commands` lists it, with `enabled` evaluated now (for `{}` params)
+    /// and `checked` for the rows the menu draws with a check (the `theme.<id>` rows, M16.30).
     pub fn commands(&self) -> Vec<CommandInfo> {
         self.registry
             .iter()
@@ -1115,7 +1116,7 @@ impl Session {
                 params: s.params,
                 enabled: (s.enabled)(self, &Value::Null).is_ok(),
                 ui: false,
-                checked: None,
+                checked: crate::cmd::theme::checked(self, s.id),
                 live: true,
                 effect: s.effect,
                 history: s.history,
