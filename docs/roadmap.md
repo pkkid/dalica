@@ -11563,8 +11563,24 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: the Linux tar, MSI and DMG are each at most half their 1.0.0 size, CJK, Thai and
     Latin user text still draw (a fingerprint per script), and the size budget runs in
     `cargo xtask budgets`.
+- ⬜ **M16.28 `engine` + `ui`: closing during a scan stops it instead of hanging**
+  - after: M15.R
+  - files: `crates/engine/src/scanning.rs`, `crates/engine/src/watching.rs`, `crates/ui/src/app.rs`, `crates/engine/tests/progressive_scan.rs`, `docs/data-model.md`
+  - scope: a bug the maintainer found (2026-11-05): closing the window while a scan runs makes
+    the OS say Dalica is not responding. Closing (`App::shutdown`) calls `Session::flush`, which
+    waits on the UI thread for every running scan and the watcher's rescans to walk to the end
+    (`wait_scans`), with no frames drawn meanwhile. Closing (the window's and `app.quit`) first
+    lets every scan and rescan go, as Cancel does (the walk stops at its next file, nothing is
+    removed, a rebuild keeps the old model, a Scan Once unit is not marked indexed), and drops the
+    scans a file job put off and the dirty folders not yet rescanned: the next session's
+    verification pass scans them again. `Session::flush` itself keeps waiting for scans (the CLI's
+    `run` and the tests rely on it); everything else closing writes still lands.
+  - done when: an engine test holds a scan's walk mid-folder with a gated reader, closes the
+    session's scans and flushes, and returns at once with the job cancelled, nothing removed and
+    no file past the held folder read; closing the window mid-scan of a large folder exits within
+    a second.
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; a plain review unless M16.1
@@ -11589,7 +11605,7 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 ```text
 wave 1   M16.1 lead: M15.R's answers  ‖  M16.2 search colours + classifier  ‖  M16.3 ui-kit theme ground
          ‖  M16.4 engine Theme setting + commands  ‖  M16.13 hevc forwarded  ‖  M16.15 folder music kept
-         ‖  M16.20 side pane slide  ‖  M16.22 rescan label  ‖  M16.23 Open With icons  ‖  M16.25 screenshot findings (ui)  ‖  M16.26 bottom bar + drag test  ‖  M16.27 smaller packages
+         ‖  M16.20 side pane slide  ‖  M16.22 rescan label  ‖  M16.23 Open With icons  ‖  M16.25 screenshot findings (ui)  ‖  M16.26 bottom bar + drag test  ‖  M16.27 smaller packages  ‖  M16.28 close stops scans
          (once M15.R is closed)
 wave 2   M16.5 switching in the window  ‖  M16.6 Pro, Studio, Classic palettes
          ‖  M16.7 Adwaita, Solarized, Breeze + Soft palettes (after M16.1)  ‖  M16.9 colours in model, index, store
