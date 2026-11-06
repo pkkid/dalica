@@ -155,6 +155,22 @@ L0       core · fs                    (only `fs` writes to disk)
 - **Privacy:** no network without a user action, no telemetry; face data never leaves the machine.
 - **Never send OS-level synthetic input** (xdotool, ydotool, osascript, AutoHotkey). Drive the app
   through the control channel or `dalica-cli snapshot`.
+- **Never open a window on the maintainer's screen** (maintainer rule, 2026-11-06): agents work on
+  the maintainer's desktop, and test windows steal focus. Prefer no window at all
+  (`dalica --headless`, `dalica-cli snapshot`, the headless driver in tests). When a real window
+  is needed (GPU rendering, the windowed app over the control channel, a test that launches it),
+  put it on a hidden display. On Linux with GNOME/Wayland, start mutter's headless compositor once
+  and point the agent's environment at it:
+
+  ```sh
+  [ -S "$XDG_RUNTIME_DIR/dalica-hidden" ] || setsid nohup mutter --headless --wayland --no-x11 \
+    --wayland-display dalica-hidden --virtual-monitor 1920x1200 >/dev/null 2>&1 </dev/null &
+  export WAYLAND_DISPLAY=dalica-hidden; unset DISPLAY
+  ```
+
+  (`ui.screenshot` works there as usual; the system clipboard does not.) On another desktop, use
+  its own headless or virtual display, or stay headless. The lead adds this to every worker's
+  environment.
 
 ## 4. How work is organised: the task board (`docs/task-board.md`)
 
