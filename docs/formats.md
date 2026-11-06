@@ -41,7 +41,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 |---|---|---|---|---|---|
 | JPEG | yes: baseline, progressive, CMYK/YCCK, 8-bit samples | embedded EXIF thumbnail; the full decode fitted (MPF previews and DCT-domain 1/2–1/8 scaled decoding: a later row, see the status above) | XMP, IPTC, EXIF | yes, as a baseline JPEG at the original's quality and chroma subsampling (4:2:2 written as 4:4:4), its metadata kept; progressive, CMYK and YCCK files too. A rotate-only Save turns a baseline file whose size is whole MCUs in its coefficients, losslessly; other sizes and progressive files keep their pixel data and take the EXIF orientation flag (`data-model.md` §6) | arithmetic coding, lossless, hierarchical and 12-bit frames unsupported: the unsupported tile, "This kind of JPEG isn't supported" (12-bit decoding is a later row) |
 | PNG | yes: 1–16-bit, palette, transparency, interlaced | scaled decode | XMP (`iTXt`), EXIF (`eXIf`) | without transparency: yes, as PNG (8- or 16-bit; an alpha channel that is all opaque is left out). A 16-bit PNG stays 16-bit: exact for a rotate-only Save, other edits rendered at 8 bits and widened back. With transparency (an alpha sample below opaque): JPEG copy beside it | |
-| TIFF | yes: 8/16-bit int, float, gray/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG; first full-resolution page | embedded thumbnail IFD if present, else scaled decode | XMP and IPTC tags (append-only) | JPEG copy beside it | multi-page: first page; Lab/YCbCr unsupported; a file cut inside a strip or tile is "Damaged file" |
+| TIFF | yes: 8/16-bit int, float, gray/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG; first full-resolution page; a page whose samples and output do not fit the allocation limit together is decoded in bands (§5.1) | embedded thumbnail IFD if present, else the full decode fitted up to 64 MP, and past that the reduced decode of §5.1 (a strip or tile at a time) | XMP and IPTC tags (append-only) | JPEG copy beside it | multi-page: first page; Lab/YCbCr unsupported; a file cut inside a strip or tile is "Damaged file" |
 | WebP | yes: lossy and lossless, alpha; first frame of animations | lossy without alpha: scaled decode at any size (M16.19: our own VP8 decoder, ported from `image-webp`, gives the picture macroblock row by row, each row reduced as it comes to 1/2, 1/4 or 1/8, the largest that still covers the long side asked, then fitted; it holds the reduced picture and a few macroblock rows, so a 16 383 × 16 383 file gets its thumbnail, and its pixels are the full decode's); lossless, alpha and animations: the full decode fitted, up to 64 MP (VP8L's transforms read whole rows of the picture, and an alpha plane is a lossless picture of its own: a later row) | XMP, EXIF chunks | JPEG copy beside it | |
 | GIF | first frame | scaled decode | — (sidecar only) | JPEG copy beside it | animation shown as its first frame |
 | BMP | yes | scaled decode | — (sidecar only) | JPEG copy beside it | |
@@ -280,7 +280,7 @@ allocated (and again after orientation swaps width and height):
 | Width or height | ≤ 65,535 px (JPEG's own maximum) for full decodes; an absolute ceiling of 262,144 px applies to header reads | no real photo is larger; panoramas up to the JPEG maximum still open |
 | Pixels for a full decode | ≤ 2^30 (1,074 MP; `Limits::max_pixels`, as in `security.md` §4.2) | covers stitched panoramas and medium-format files |
 | Allocation per decode | ≤ min(the codec default, half the memory budget) — the budget is RAM/4 clamped 256 MiB–1.5 GiB (`architecture.md` §5) | a single file can never take the whole budget |
-| Source pixels for a thumbnail from a decoder that cannot scale | ≤ 64 MP (the same default as LightCraft) | non-JPEG decoders allocate at full size before resizing |
+| Source pixels for a thumbnail from a decoder that cannot scale | ≤ 64 MP (the same default as LightCraft); past it a TIFF takes the reduced decode of §5.1 and a lossy WebP its scaled decode | non-JPEG decoders allocate at full size before resizing |
 | PNG text and XMP chunks | bounded by the allocation limit | |
 | ICC profile | ≤ 16 MiB after APP2 reassembly or `iCCP` inflation; ≤ 1,000 tags; the tag table inside the data; `moxcms`' own caps on lookup-table and curve sizes (`security.md` §4.2) | a profile is parsed before any of its numbers are trusted |
 | PNG decoder's own buffers | twice the ICC limit plus 16 MiB (chunk data, the inflated profile, one row), charged to the allocation limit; text chunks are skipped while decoding pixels | a compressed `iCCP` cannot inflate past it |
@@ -295,6 +295,7 @@ Whichever limit is reached first applies; for large images it is usually the all
   is still used. Allocations are fallible (`try_reserve`), so an allocation failure is an error, not
   an abort. Every pixel buffer of one decode (the decoded samples, the colour stage's bands and the
   8-bit output) is charged to the same allocation limit.
+- Large TIFFs (stitched panoramas): see §5.1.
 - Save and Export of very large images render in bands where the operations allow it; otherwise they
   fail with a clear message before starting rather than exhausting memory.
 - Panics inside third-party decoders are caught (`catch_unwind`) and reported as "damaged file"; the
@@ -319,6 +320,53 @@ Whichever limit is reached first applies; for large images it is usually the all
 - Every parser has a fuzz target in `crates/image/fuzz` (`security.md` §7.1): sniffing, decoding
   any file, decoding as each format, RAW previews, embedded thumbnails, ICC profiles and video
   probing (`video_probe`).
+
+### 5.1 Large TIFFs (panoramas)
+
+Stitched panoramas are mostly TIFFs of 100–300 MP, and the decode limits above are sized for a
+whole page held in memory. So a large TIFF takes two paths of its own (M16.37, issue #722), with
+the same limits: the edge and pixel limits are checked from the IFD first, and nothing the size of
+the page is ever allocated for a thumbnail.
+
+- **Thumbnails and the viewer's pictures.** Past 64 MP, when no
+  reduced-resolution page covers the target, the page is decoded one strip or tile at a time and
+  each one is summed into the cells of a picture reduced by a whole factor (the largest that keeps
+  the long side asked for); the cell means then go through the colour stage once and are fitted.
+  Memory holds one chunk, the reduced sums and the reduced picture, all charged to the allocation
+  limit before the first chunk is read: a 261 MP 8-bit panorama's 256-pixel thumbnail holds about
+  13 MB besides the file. The edit view opens a photo from the full decode below, halved to the
+  screen size, while its 8-bit pixels fit the preview's 1 GiB (`MAX_FULL_BYTES`), and from this
+  reduced decode past it. Strips and tiles, chunky and planar, 8/16/32-bit integers and 16/32/64-bit
+  floats, grey, RGB, CMYK, YCbCr JPEG strips and alpha take this path (premultiplied alpha is
+  averaged premultiplied, which weights each colour by its coverage); palette pages and samples
+  under 8 bits answer "Too large to display" as before.
+- **No whole read for a preview.** The photo viewer reads a large TIFF from its file as the reduced
+  decode asks for each chunk: only the header (up to `Limits::max_header_bytes`) and one chunk are
+  in memory. A TIFF whose IFD or offset tables lie further on, as many stitchers write it after
+  the pixels, is read whole (at most 1 GiB) and decoded the same way from memory. The library's
+  thumbnails and the edit view still read the file whole before decoding (their readers live in
+  `thumbs` and the preview; moving them to the streamed read is a follow-up).
+- **Zoom to 100% (the full decode).** When a page's samples and its 8-bit output would not fit the
+  allocation limit together, it is decoded in bands of whole rows (at most 16 MiB of samples, less
+  when the budget is tight): each band goes through the colour stage into the output, so memory
+  holds the output and one band. A 261 MP 8-bit page fits (1.04 GB of output); the edit view keeps
+  a zoomed picture only up to its own 1 GiB (`MAX_FULL_BYTES`, `preview.rs`), so pages up to about
+  268 MP zoom to 100%, and larger ones say "more than the preview keeps in memory".
+- **Measured** (release build, one thread, the procedural panoramas of `scenes::formats::panorama`;
+  heap peaks by the test's counting allocator, the file's own bytes included when it is read whole):
+
+  | Panorama | File | 256 px thumbnail from the file | 2560 px picture | Full decode |
+  |---|---|---|---|---|
+  | 30 000 × 8 700 (261 MP), 8-bit RGB, Deflate strips of 64 rows, IFD at the end | 19 MB | 1.2 s, 50 MB (read whole) | 1.2 s, 92 MB | 1.5 s, 1.1 GB (bands) |
+  | 24 576 × 4 500 (111 MP), 16-bit RGB, Deflate tiles of 256, IFD first | 267 MB | 2.3 s, 1.3 MB | 2.4 s, 42 MB | 2.3 s, 811 MB (bands; 1.37 GB whole) |
+  | 20 000 × 5 000 (100 MP), 8-bit RGB, uncompressed strips, IFD first | 300 MB | 0.25 s, 1.9 MB | 0.32 s, 56 MB | 0.38 s, 1.0 GB |
+
+  Before this path, all three answered "Too large to display" for every thumbnail and screen-size
+  picture, and the first two could not be decoded whole either.
+- **Other large formats** go through the full decode fitted up to 64 MP and refuse past it unless
+  they carry an embedded thumbnail: a PNG, a JPEG (until DCT scaling, `DATA-FMT-JPEG-FAST`) or a
+  PSD/PSB composite over 64 MP gets "Too large to display" for its thumbnail. Each needs a reduced
+  path of its own (PNG rows and PSD composite rows can be reduced as they come, as here).
 
 ## 6. Small images
 

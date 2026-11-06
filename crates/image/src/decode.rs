@@ -10,10 +10,16 @@
 //! is charged to one [`Budget`] per decode. Third-party decoders run inside `catch_unwind`: a panic
 //! in one is a damaged file ([`Error::Panic`]), never a crash. For thumbnails, `zune-jpeg` has no
 //! DCT scaling, so [`decode_thumbnail`] decodes in full and resizes (`resize`), up to a 64 MP
-//! source; past that it uses the embedded thumbnail or refuses. A lossy WebP's thumbnail is
-//! decoded scaled at any size (`formats::webp::thumbnail`): its rows are reduced as they come.
+//! source; past that a TIFF is decoded a strip or tile at a time and reduced as it goes
+//! (`formats::tiff::thumbnail_reduced`, issue #722), and any other format uses the embedded
+//! thumbnail or refuses. A lossy WebP's thumbnail is decoded scaled at any size
+//! (`formats::webp::thumbnail`): its rows are reduced as they come. [`decode_thumbnail_file`]
+//! reads a large TIFF's strips from the file as the decode asks instead of reading it whole.
 
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::Path;
 
 use crate::color;
 use crate::formats::{self, DecodeFn};
@@ -154,6 +160,17 @@ pub fn decode_thumbnail_with(bytes: &[u8], long_side: u32, options: &DecodeOptio
         return Ok(t);
     }
     let pixels = u64::from(header.width) * u64::from(header.height);
+    // A large TIFF (a stitched panorama) decoded a strip or tile at a time and reduced as it goes
+    // (issue #722); when that fails, its embedded thumbnail if it has one, else why it failed (a
+    // layout that path does not take is "too large", as before).
+    let mut reduced_failed = None;
+    if header.format == Format::Tiff && pixels > THUMBNAIL_SOURCE_MAX_PIXELS {
+        match formats::tiff::thumbnail_reduced(bytes, long_side, options, limits) {
+            Ok(t) => return Ok(t),
+            Err(Error::Unsupported(_)) => {}
+            Err(e) => reduced_failed = Some(e),
+        }
+    }
     let stored = if pixels > THUMBNAIL_SOURCE_MAX_PIXELS {
         // Too big to decode just for a thumbnail: the camera's own small copy, if there is one,
         // a JPEG or uncompressed strips.
@@ -163,13 +180,49 @@ pub fn decode_thumbnail_with(bytes: &[u8], long_side: u32, options: &DecodeOptio
         } else if let Some(strip) = header.exif.as_ref().and_then(|e| e.strip_thumbnail.as_ref()) {
             crate::exif::strip_thumbnail_rgba(bytes, strip, options, limits)?
         } else {
-            return Err(Error::TooLarge { width: header.width, height: header.height });
+            return Err(reduced_failed.unwrap_or(Error::TooLarge { width: header.width, height: header.height }));
         }
     } else {
         decode_stored(bytes, &header, options, limits)?
     };
     let fitted = resize::fit(&stored, long_side)?;
     orient::apply(fitted, header.orientation)
+}
+
+/// [`decode_thumbnail_with`] for the file at `path` (at most `max_file` bytes). A TIFF past
+/// [`THUMBNAIL_SOURCE_MAX_PIXELS`] whose IFD and value lists lie in the first
+/// [`Limits::max_header_bytes`] is never read whole: its header comes from the start of the file
+/// and its strips or tiles are read one at a time as the reduced decode asks
+/// ([`formats::tiff::thumbnail_reduced_from`]). Every other file, and a TIFF whose IFD lies further
+/// on (as many stitchers write it, after the pixels), is read whole and decoded as
+/// [`decode_thumbnail_with`] decodes it.
+pub fn decode_thumbnail_file(path: &Path, long_side: u32, options: &DecodeOptions, limits: &Limits, max_file: u64) -> Result<Rgba8> {
+    let io = |e: std::io::Error| Error::Io(e.to_string());
+    let file = File::open(path).map_err(io)?;
+    let len = file.metadata().map_err(io)?.len();
+    if len > max_file {
+        return Err(Error::Io(format!("{len} bytes is more than a photo file may be")));
+    }
+    if let Ok((header, head)) = crate::read_header_file(path, limits)
+        && header.format == Format::Tiff
+        && u64::from(header.width) * u64::from(header.height) > THUMBNAIL_SOURCE_MAX_PIXELS
+    {
+        // A reduced-resolution page inside what was read, then the page reduced from the file.
+        if let Ok(Some(t)) = formats::tiff::thumbnail(&head, long_side, options, limits) {
+            return Ok(t);
+        }
+        let source = BufReader::new(File::open(path).map_err(io)?);
+        match formats::tiff::thumbnail_reduced_from(&head, source, len, long_side, options, limits) {
+            // What the IFD needs lies past what was read, or a layout the reduced path does not
+            // take: the whole file below.
+            Err(Error::OutOfRange | Error::Truncated | Error::Unsupported(_)) => {}
+            reduced => return reduced,
+        }
+    }
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(usize::try_from(len).unwrap_or(0)).map_err(|_| Error::Io(format!("{len} bytes do not fit in memory")))?;
+    file.take(max_file).read_to_end(&mut bytes).map_err(io)?;
+    decode_thumbnail_with(&bytes, long_side, options, limits)
 }
 
 /// A lossy WebP's thumbnail through its scaled decode, or `None` when that path does not apply.
@@ -187,8 +240,14 @@ fn webp_scaled(bytes: &[u8], header: &Header, long_side: u32, options: &DecodeOp
     orient::apply(fitted, header.orientation).map(Some)
 }
 
-/// Decodes the stored pixels (before orientation) after checking the declared size.
+/// Decodes the stored pixels (before orientation) after checking the declared size. A TIFF too
+/// large to hold its samples and its output at once is decoded in bands (issue #722).
 fn decode_stored(bytes: &[u8], header: &Header, options: &DecodeOptions, limits: &Limits) -> Result<Rgba8> {
+    if header.format == Format::Tiff
+        && let Some(image) = formats::tiff::decode_banded(bytes, header, options, limits)?
+    {
+        return Ok(image);
+    }
     run(formats::decoder(header.format), bytes, header, options, limits)
 }
 

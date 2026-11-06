@@ -11696,7 +11696,7 @@ under their own key, and a snapshot without them reads as one with none.
     `app.diagnostics` returns every section on a small library; a ui test opens the window and
     copies it as text; the UI thread does no file system work (the fs guard); screenshots at
     1400 x 900 and 900 x 600; the PR closes #756.
-- ⬜ **M16.37 `image` + `engine` + `thumbs`: large panoramas get a preview (#722)**
+- ✅ **M16.37 `image` + `engine` + `thumbs`: large panoramas get a preview (#722)**
   - after: M16.12
   - files: `crates/image/src/decode.rs`, `crates/image/src/formats/tiff.rs`, `crates/image/src/limits.rs`, `crates/image/tests/tiff.rs`, `crates/scenes/src/formats.rs`, `crates/engine/src/viewer.rs`, `crates/thumbs/src/pool.rs`, `docs/formats.md`, `docs/security.md`
   - scope: issue #722 as written (maintainer request, 2026-11-06): a large panorama TIFF (about

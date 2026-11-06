@@ -12,10 +12,15 @@
 //!   `tRNS` and Adam7 interlacing; [`png_image`] gives its exact samples and the expected RGBA.
 //! - [`jpeg_dc()`]: our own DC-only JPEG writer for 12-bit (SOF1) and arithmetic-coded (SOF9)
 //!   frames, with [`jpeg_dc_reference`] (the block means a decoder shows).
+//! - [`panorama()`]: a large RGB TIFF (8- or 16-bit, strips or tiles, uncompressed or Deflate, its
+//!   IFD before or after the pixels) written one strip or tile at a time, never held whole, so
+//!   tests and measurements can make 100–300 MP files; [`Panorama::sample`] gives every stored value.
 //!
 //! No encoder we use writes a CMYK JPEG or a lossy WebP; tests of those rely on hand-built
 //! bytes and the corpus. Every writer is deterministic: the same scene and options give the same
 //! bytes. [`samples`] gives the exact sample values a file stores, so decoder tests can compare.
+
+use std::io::{Seek, SeekFrom, Write};
 
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
@@ -235,6 +240,181 @@ pub(crate) fn encode_jpeg(img: &Rgb8, quality: u8, exif: Option<&[u8]>, icc: Opt
     Ok(out)
 }
 
+/// A large procedural panorama TIFF ([`panorama()`]): RGB, little-endian, one page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Panorama {
+    pub width: u32,
+    pub height: u32,
+    /// [`Depth::Eight`] or [`Depth::Sixteen`].
+    pub depth: Depth,
+    /// Square tiles of this side (a multiple of 16); `None`: strips of [`Panorama::rows_per_strip`].
+    pub tile: Option<u32>,
+    pub rows_per_strip: u32,
+    /// Deflate (Compression 8) with the horizontal differencing predictor (Predictor 2) instead of
+    /// uncompressed chunks.
+    pub deflate: bool,
+    /// The IFD after the pixel data, as many stitchers write it, instead of right after the header.
+    pub ifd_at_end: bool,
+}
+
+impl Default for Panorama {
+    fn default() -> Panorama {
+        Panorama { width: 16_384, height: 4_097, depth: Depth::Eight, tile: None, rows_per_strip: 16, deflate: true, ifd_at_end: true }
+    }
+}
+
+impl Panorama {
+    /// The largest sample value.
+    pub fn max(&self) -> u32 {
+        if self.depth == Depth::Sixteen { 65_535 } else { 255 }
+    }
+
+    /// The stored sample of channel `c` (0–2) at (`x`, `y`): red rises from left to right, green
+    /// from top to bottom, blue is a tent peaking in the middle column. Every channel is linear
+    /// across any cell that does not straddle the middle, so an area average over a cell equals its
+    /// value at the cell's centre within rounding.
+    pub fn sample(&self, x: u32, y: u32, c: usize) -> u32 {
+        let max = u64::from(self.max());
+        let ramp = |v: u32, len: u32| {
+            let span = u64::from(len.saturating_sub(1).max(1));
+            ((u64::from(v.min(len.saturating_sub(1))) * max + span / 2) / span) as u32
+        };
+        match c {
+            0 => ramp(x, self.width),
+            1 => ramp(y, self.height),
+            _ => {
+                let mid = self.width / 2;
+                let from_mid = x.abs_diff(mid);
+                self.max() - ramp(from_mid, mid.saturating_add(1))
+            }
+        }
+    }
+}
+
+/// Writes `p` to `out` one strip or tile at a time (memory: one chunk and the offset tables) and
+/// returns the file's length. Tiles at the right and bottom edges are padded as TIFF 6.0 requires.
+pub fn panorama(p: &Panorama, out: &mut (impl Write + Seek)) -> Result<u64> {
+    let unsupported = |what: &str| Error::Unsupported { format: "panorama", what: what.to_owned() };
+    if p.depth == Depth::Float {
+        return Err(unsupported("float samples"));
+    }
+    if p.width == 0 || p.height == 0 || p.rows_per_strip == 0 || p.tile.is_some_and(|t| t == 0 || t % 16 != 0) {
+        return Err(unsupported("an empty size, strip or tile"));
+    }
+    let io = |e: std::io::Error| Error::Encode { format: "TIFF", message: e.to_string() };
+    let bytes = p.depth.bytes();
+    // Each chunk: its first column and row, and its stored width and height (tiles padded).
+    let chunks: Vec<(u32, u32, u32, u32)> = match p.tile {
+        Some(t) => (0..p.height.div_ceil(t)).flat_map(|ty| (0..p.width.div_ceil(t)).map(move |tx| (tx * t, ty * t, t, t))).collect(),
+        None => (0..p.height.div_ceil(p.rows_per_strip))
+            .map(|k| {
+                let y = k * p.rows_per_strip;
+                (0, y, p.width, p.rows_per_strip.min(p.height - y))
+            })
+            .collect(),
+    };
+    let n = u32::try_from(chunks.len()).map_err(|_| unsupported("more than 2³² chunks"))?;
+    let bits = if p.depth == Depth::Sixteen { 16u16 } else { 8 };
+    // (tag, type, count, inline value or None for "points at `values`").
+    let (offsets_tag, counts_tag) = if p.tile.is_some() { (324u16, 325u16) } else { (273, 279) };
+    let mut entries: Vec<(u16, u16, u32, Option<u32>)> = vec![
+        (256, 4, 1, Some(p.width)),
+        (257, 4, 1, Some(p.height)),
+        (258, 3, 3, None),
+        (259, 3, 1, Some(if p.deflate { 8 } else { 1 })),
+        (262, 3, 1, Some(2)),
+        (offsets_tag, 4, n, if n == 1 { Some(0) } else { None }),
+        (277, 3, 1, Some(3)),
+        (counts_tag, 4, n, if n == 1 { Some(0) } else { None }),
+        (284, 3, 1, Some(1)),
+    ];
+    if p.deflate {
+        entries.push((317, 3, 1, Some(2)));
+    }
+    match p.tile {
+        Some(t) => entries.extend([(322, 4, 1, Some(t)), (323, 4, 1, Some(t))]),
+        None => entries.push((278, 4, 1, Some(p.rows_per_strip))),
+    }
+    entries.sort_by_key(|e| e.0);
+    let ifd_len = 2 + 12 * entries.len() as u64 + 4;
+    let tables = if n == 1 { 0 } else { 8 * u64::from(n) };
+    let ifd_block = ifd_len + 6 + tables;
+    let start = out.stream_position().map_err(io)?;
+    let at = |v: u64| start + v;
+    let ifd_at = if p.ifd_at_end { None } else { Some(8u64) };
+    out.write_all(b"II*\0").map_err(io)?;
+    out.write_all(&[0; 4]).map_err(io)?;
+    if ifd_at.is_some() {
+        out.write_all(&vec![0; ifd_block as usize]).map_err(io)?;
+    }
+    let mut offsets = Vec::with_capacity(chunks.len());
+    let mut counts = Vec::with_capacity(chunks.len());
+    let mut raw = Vec::new();
+    for &(x0, y0, w, h) in &chunks {
+        raw.clear();
+        for y in y0..y0 + h {
+            let mut prev = [0u32; 3];
+            for x in x0..x0 + w {
+                for (c, last) in prev.iter_mut().enumerate() {
+                    let v = if x < p.width && y < p.height { p.sample(x, y, c) } else { 0 };
+                    // Predictor 2: each sample stored as its difference from the one to its left.
+                    let stored = if p.deflate { v.wrapping_sub(*last) } else { v };
+                    *last = v;
+                    match bytes {
+                        1 => raw.push(stored as u8),
+                        _ => raw.extend((stored as u16).to_le_bytes()),
+                    }
+                }
+            }
+        }
+        let data = if p.deflate { pack::deflate(&raw) } else { std::mem::take(&mut raw) };
+        let here = out.stream_position().map_err(io)? - start;
+        offsets.push(u32::try_from(here).map_err(|_| unsupported("a file past 4 GiB"))?);
+        counts.push(data.len() as u32);
+        out.write_all(&data).map_err(io)?;
+        if data.len() % 2 == 1 {
+            out.write_all(&[0]).map_err(io)?;
+        }
+    }
+    let end = out.stream_position().map_err(io)? - start;
+    let ifd = ifd_at.unwrap_or(end);
+    let ifd32 = u32::try_from(ifd).map_err(|_| unsupported("a file past 4 GiB"))?;
+    let mut block = Vec::with_capacity(ifd_block as usize);
+    let values = ifd + ifd_len;
+    let (bits_at, offsets_at, counts_at) = (values, values + 6, values + 6 + 4 * u64::from(n));
+    block.extend((entries.len() as u16).to_le_bytes());
+    for &(tag, kind, count, inline) in &entries {
+        block.extend(tag.to_le_bytes());
+        block.extend(kind.to_le_bytes());
+        block.extend(count.to_le_bytes());
+        let value = match (tag, inline) {
+            (258, _) => bits_at as u32,
+            (t, Some(_)) if t == offsets_tag => offsets.first().copied().unwrap_or(0),
+            (t, Some(_)) if t == counts_tag => counts.first().copied().unwrap_or(0),
+            (_, Some(v)) if kind == 3 => v & 0xffff,
+            (_, Some(v)) => v,
+            (t, None) if t == offsets_tag => offsets_at as u32,
+            (_, None) => counts_at as u32,
+        };
+        block.extend(value.to_le_bytes());
+    }
+    block.extend(0u32.to_le_bytes());
+    for _ in 0..3 {
+        block.extend(bits.to_le_bytes());
+    }
+    if n > 1 {
+        block.extend(offsets.iter().flat_map(|o| o.to_le_bytes()));
+        block.extend(counts.iter().flat_map(|c| c.to_le_bytes()));
+    }
+    out.seek(SeekFrom::Start(at(ifd))).map_err(io)?;
+    out.write_all(&block).map_err(io)?;
+    out.seek(SeekFrom::Start(at(4))).map_err(io)?;
+    out.write_all(&ifd32.to_le_bytes()).map_err(io)?;
+    let len = ifd.max(end) + if ifd_at.is_none() { block.len() as u64 } else { 0 };
+    out.seek(SeekFrom::Start(at(len))).map_err(io)?;
+    Ok(len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +456,33 @@ mod tests {
         assert_eq!(a[3 * 9 + 4], 255);
         assert!(a.iter().all(|&v| v >= 48));
         assert!(a[0] < 120, "{}", a[0]);
+    }
+
+    #[test]
+    fn a_panorama_is_read_back_by_an_independent_decoder() {
+        for (tile, ifd_at_end, deflate, depth) in [
+            (None, true, true, Depth::Eight),
+            (Some(16), false, false, Depth::Sixteen),
+            (None, false, false, Depth::Eight),
+            (Some(32), true, true, Depth::Eight),
+        ] {
+            let p = Panorama { width: 70, height: 37, depth, tile, rows_per_strip: 5, deflate, ifd_at_end };
+            let mut out = std::io::Cursor::new(Vec::new());
+            let len = panorama(&p, &mut out).unwrap();
+            let bytes = out.into_inner();
+            assert_eq!(len, bytes.len() as u64);
+            let mut d = ::tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
+            assert_eq!(d.dimensions().unwrap(), (70, 37));
+            let want: Vec<u32> = (0..37).flat_map(|y| (0..70).flat_map(move |x| (0..3).map(move |c| p.sample(x, y, c)))).collect();
+            let got: Vec<u32> = match d.read_image().unwrap() {
+                ::tiff::decoder::DecodingResult::U8(v) => v.into_iter().map(u32::from).collect(),
+                ::tiff::decoder::DecodingResult::U16(v) => v.into_iter().map(u32::from).collect(),
+                _ => panic!("another sample type"),
+            };
+            assert_eq!(got, want, "{p:?}");
+        }
+        assert_eq!(Panorama::default().sample(16_383, 0, 0), 255);
+        assert_eq!(Panorama::default().sample(8_192, 9, 2), 255);
+        assert_eq!(Panorama::default().sample(0, 4_096, 1), 255);
     }
 }

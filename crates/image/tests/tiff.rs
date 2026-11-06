@@ -19,7 +19,7 @@ use dalica_image::formats::{self, tiff as tiff_format};
 use dalica_image::{
     DecodeOptions, Error, Format, Limits, Rgba8, decode, decode_as, decode_thumbnail, decode_with, read_header, read_header_file, resize, sniff,
 };
-use dalica_scenes::formats::{Colour, Compression, Depth, SampleData, Tiff, quantized, samples, tiff};
+use dalica_scenes::formats::{Colour, Compression, Depth, Panorama, SampleData, Tiff, panorama, quantized, samples, tiff};
 use dalica_scenes::icc::{self, Space, Version};
 use dalica_scenes::{ByteOrder, Kind, Scene, jpeg};
 use proptest::prelude::*;
@@ -681,4 +681,170 @@ proptest! {
         let _ = tiff_format::thumbnail(&bytes, 8, &ON, &l);
         let _ = formats::embedded_thumbnail(Format::Tiff, &bytes, &l);
     }
+}
+
+// ---- Large panoramas (issue #722) ---------------------------------------------------------------
+
+/// The most heap a panorama's 256-pixel thumbnail may hold at once: a strip or tile, the reduced
+/// sums and picture, the decoder's tables. Its full decode would hold 469 MB (16 384 × 4 097
+/// samples and the RGBA output).
+const PANORAMA_PEAK: u64 = 16 << 20;
+
+fn panorama_file(p: &Panorama) -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    panorama(p, &mut out).unwrap();
+    out.into_inner()
+}
+
+fn peak<T>(run: impl FnOnce() -> T) -> (T, u64) {
+    let mut out = None;
+    let info = allocation_counter::measure(|| out = Some(run()));
+    (out.unwrap(), info.bytes_max)
+}
+
+/// The thumbnail a panorama should give at `factor`: each cell's mean of `p`'s channels (each
+/// linear across the cell, so the mean of its first and last value), at 8 bits.
+fn assert_panorama_thumbnail(p: &Panorama, thumb: &Rgba8, factor: u32) {
+    assert_eq!((thumb.width, thumb.height), (p.width.div_ceil(factor), p.height.div_ceil(factor)), "{p:?}");
+    let max = f64::from(p.max());
+    let mean = |c: usize, x: u32, y: u32| {
+        let (x1, y1) = ((x * factor + factor - 1).min(p.width - 1), (y * factor + factor - 1).min(p.height - 1));
+        let (a, b) = (p.sample(x * factor, y * factor, c), p.sample(x1, y1, c));
+        (f64::from(a) + f64::from(b)) / 2.0 / max * 255.0
+    };
+    for y in 0..thumb.height {
+        for x in 0..thumb.width {
+            let px = &thumb.data[((y * thumb.width + x) * 4) as usize..][..4];
+            for (c, &got) in px.iter().take(3).enumerate() {
+                let want = mean(c, x, y);
+                assert!((f64::from(got) - want).abs() <= 1.0, "{p:?} ({x}, {y}) channel {c}: {got} for {want:.1}");
+            }
+            assert_eq!(px[3], 255);
+        }
+    }
+}
+
+/// Past the old 64 MP cap a panorama TIFF gets a thumbnail instead of "too large", decoded a
+/// strip at a time: the heap never holds the page (issue #722).
+#[test]
+fn a_panorama_past_the_old_cap_gets_a_thumbnail_within_a_memory_bound() {
+    let l = Limits::default();
+    let p = Panorama::default();
+    assert!(u64::from(p.width) * u64::from(p.height) > dalica_image::decode::THUMBNAIL_SOURCE_MAX_PIXELS);
+    let bytes = panorama_file(&p);
+    let (thumb, held) = peak(|| decode_thumbnail(&bytes, 256, &l).unwrap());
+    assert!(held < PANORAMA_PEAK, "{held} bytes held at once");
+    assert_panorama_thumbnail(&p, &thumb, 64);
+    // At full strength: 100 MP at 16 bits in tiles, and 8 bits in strips.
+    if crate::common::full() {
+        for p in [
+            Panorama { width: 24_576, height: 4_096, depth: Depth::Sixteen, tile: Some(256), ifd_at_end: false, ..Panorama::default() },
+            Panorama { width: 40_000, height: 2_500, depth: Depth::Eight, rows_per_strip: 1, ..Panorama::default() },
+        ] {
+            let bytes = panorama_file(&p);
+            let (thumb, held) = peak(|| decode_thumbnail(&bytes, 512, &l).unwrap());
+            assert!(held < PANORAMA_PEAK, "{p:?}: {held} bytes held at once");
+            assert_panorama_thumbnail(&p, &thumb, p.width / 512);
+        }
+    }
+}
+
+/// From a file, a panorama whose IFD comes first is never read whole: only its header and one
+/// chunk at a time. One whose IFD follows the pixels is read whole and decoded the same.
+#[test]
+fn a_panorama_file_is_read_a_strip_at_a_time() {
+    let l = Limits::default();
+    let dir = crate::common::out_dir().join("panorama-file");
+    std::fs::create_dir_all(&dir).unwrap();
+    for ifd_at_end in [false, true] {
+        let p = Panorama { ifd_at_end, ..Panorama::default() };
+        let path = dir.join(format!("panorama-{ifd_at_end}.tif"));
+        let mut f = std::fs::File::create(&path).unwrap();
+        let len = panorama(&p, &mut f).unwrap();
+        drop(f);
+        let (thumb, held) = peak(|| dalica_image::decode::decode_thumbnail_file(&path, 256, &ON, &l, 1 << 30).unwrap());
+        assert_panorama_thumbnail(&p, &thumb, 64);
+        if ifd_at_end {
+            assert!(held > len, "read whole: {held} bytes held for a file of {len}");
+        } else {
+            assert!(held < PANORAMA_PEAK, "{held} bytes held at once for a file of {len}");
+        }
+        std::fs::remove_file(&path).unwrap();
+    }
+    assert!(matches!(dalica_image::decode::decode_thumbnail_file(&dir.join("missing.tif"), 256, &ON, &l, 1 << 30), Err(Error::Io(_))));
+}
+
+/// The reduced decode gives what the full decode fitted to the same size gives, for every
+/// layout it takes: strips and padded tiles, chunky and planar, 8/16/32-bit and float, grey, RGB,
+/// CMYK, alpha; palettes and packed samples are left to the paths before it.
+#[test]
+fn the_reduced_decode_matches_the_full_decode_fitted() {
+    let l = Limits::default();
+    let check = |name: &str, bytes: &[u8], long_side: u32| {
+        let reduced = tiff_format::thumbnail_reduced(bytes, long_side, &ON, &l).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let full = resize::fit(&decode(bytes, &l).unwrap(), long_side).unwrap();
+        assert_close(&format!("reduced-{name}"), &reduced, &full, 1.5);
+    };
+    let scene = Scene::new(17, 96, 64).with_kind(Kind::Blobs);
+    for (colour, depth) in layouts().into_iter().filter(|(c, _)| *c != Colour::Palette) {
+        let bytes = file(&scene, Tiff { colour, depth, compression: Compression::Lzw, rows_per_strip: Some(5), orientation: 6, ..Tiff::default() });
+        check(&layout_name(colour, depth), &bytes, 24);
+    }
+    for (tile, depth, ifd_at_end) in [(Some(16), Depth::Eight, false), (Some(32), Depth::Sixteen, true), (None, Depth::Sixteen, false)] {
+        // Sizes the factor divides, so both sample the same cells (tiles still padded at the edges).
+        let p = Panorama { width: 200, height: 72, depth, tile, rows_per_strip: 3, deflate: true, ifd_at_end };
+        check(&format!("panorama-{tile:?}-{depth:?}"), &panorama_file(&p), 50);
+    }
+    // Planar RGB with straight alpha, two strips of 4 rows per plane. (Premultiplied alpha is
+    // averaged premultiplied, weighting each colour by its alpha, so it differs from averaging
+    // after dividing out by design.)
+    let (w, h) = (24u32, 8u32);
+    let plane = |k: u32| (0..w * h).map(|i| ((i * (k + 3) + k * 40) % 200) as u8).collect::<Vec<u8>>();
+    let alpha: Vec<u8> = (0..w * h).map(|i| 200 + (i % 50) as u8).collect();
+    let strips: Vec<Vec<u8>> =
+        [plane(0), plane(1), plane(2), alpha].iter().flat_map(|p| p.chunks((w * 4) as usize).map(<[u8]>::to_vec).collect::<Vec<_>>()).collect();
+    let bytes = build(&with(strip_page(w, h, 8, 4, 2, &strips, 4), &[(284, V::S(vec![2])), (338, V::S(vec![2]))]), &strips);
+    check("planar-alpha", &bytes, 6);
+    // Palettes and 1-bit samples are not taken.
+    let chunk = vec![vec![0b1010_0000, 0b0101_0000]];
+    let one_bit = build(&strip_page(4, 2, 1, 1, 0, &chunk, 2), &chunk);
+    assert_eq!(tiff_format::thumbnail_reduced(&one_bit, 1, &ON, &l), Err(Error::Unsupported(Format::Tiff)));
+    // A tile count that does not match the page is damaged, not read past.
+    let mut wrong = panorama_file(&Panorama { width: 64, height: 64, tile: Some(16), deflate: false, ifd_at_end: false, ..Panorama::default() });
+    let ifd = u32_at(&wrong, 4) as usize;
+    let e = entry(&wrong, ifd, 322);
+    wrong[e + 8..e + 12].copy_from_slice(&32u32.to_le_bytes());
+    assert!(matches!(tiff_format::thumbnail_reduced(&wrong, 8, &ON, &l), Err(Error::Malformed(_))));
+}
+
+/// A page whose samples and output do not fit in the budget together is decoded in bands, to the
+/// same pixels as a whole-page decode: every layout, an ICC profile, tiles, planar samples.
+#[test]
+fn a_page_too_large_to_hold_twice_is_decoded_in_bands() {
+    let l = Limits::default();
+    let (w, h) = (600u32, 400u32);
+    // The output and 2 MB: too little for the whole-page decode (output, samples and the decoder's
+    // 1 MiB), enough for bands.
+    let tight = Limits { max_alloc: u64::from(w * h * 4) + (2 << 20), ..l };
+    let check = |name: &str, bytes: &[u8]| {
+        let whole = decode(bytes, &l).unwrap();
+        let banded = decode(bytes, &tight).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert!(banded == whole, "{name}: the bands differ from the whole page");
+    };
+    let scene = Scene::new(23, w, h).with_kind(Kind::Blobs);
+    for (colour, depth) in layouts().into_iter().filter(|(c, d)| *c != Colour::Palette && *d != Depth::Eight) {
+        check(&layout_name(colour, depth), &file(&scene, Tiff { colour, depth, rows_per_strip: Some(7), orientation: 3, ..Tiff::default() }));
+    }
+    let profile = icc::rgb(Space::AdobeRgb, Version::V4);
+    check("icc", &file(&scene, Tiff { depth: Depth::Sixteen, icc: Some(profile), ..Tiff::default() }));
+    check(
+        "tiles",
+        &panorama_file(&Panorama { width: w, height: h, depth: Depth::Sixteen, tile: Some(48), deflate: true, ifd_at_end: false, rows_per_strip: 1 }),
+    );
+    let plane = |k: u32| (0..w * h * 2).map(|i| ((i * (k + 3) + k * 40) % 251) as u8).collect::<Vec<u8>>();
+    let strips: Vec<Vec<u8>> = [plane(0), plane(1), plane(2), plane(3)]
+        .iter()
+        .flat_map(|p| p.chunks((w * 2 * 9) as usize).map(<[u8]>::to_vec).collect::<Vec<_>>())
+        .collect();
+    check("planar-alpha", &build(&with(strip_page(w, h, 16, 4, 2, &strips, 9), &[(284, V::S(vec![2])), (338, V::S(vec![1]))]), &strips));
 }
