@@ -28,6 +28,12 @@ rusty_vorbis = { version = "=0.1.1", default-features = false }
 [workspace]
 members = ["."]
 
+# The root workspace's patch, repeated: a separate workspace does not inherit it, and without it
+# `rusty_h265` resolves to crates.io's 0.6.2, which lacks Dalica's threading (M16.14).
+# `cargo xtask deps` checks that every fuzz workspace resolving a patched crate carries the patch.
+[patch.crates-io]
+rusty_h265 = { path = "../../../vendor/rusty_h265" }
+
 [profile.release]
 debug = 1
 
