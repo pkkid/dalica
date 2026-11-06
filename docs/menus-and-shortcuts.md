@@ -173,10 +173,60 @@ only in context menus and buttons).
 
 Help Contents (F1, `help.contents`) · Keyboard Shortcuts… (Ctrl+/, `app.shortcuts`; opens Options →
 Keyboard Shortcuts, §2.0) — Release Notes (`help.releaseNotes`) · Report a Problem…
-(`help.reportProblem`) · Show Log Folder (`help.logFolder`) · Rebuild Library… (`library.rebuild`) —
-About Dalica (`app.about`; version, credits, models). The macOS application menu's Hide Dalica is
-`app.hide`. There is no Check for Updates item
+(`help.reportProblem`) · Show Log Folder (`help.logFolder`) · Rebuild Library… (`library.rebuild`) ·
+Stats for Nerds… (`help.statsForNerds`, below) — About Dalica (`app.about`; version, credits,
+models). The macOS application menu's Hide Dalica is `app.hide`. There is no Check for Updates item
 for now (deferred, `product.md` → Scope).
+
+**Stats for Nerds** (a Dalica addition, M16.36, issue #756) is a read-only window for the curious:
+how much memory and disk Dalica uses, where its files live, what it is doing now, and the one
+clean-up that is always safe. It is a dialog of the host (`dialog:statsForNerds`, one button,
+Close, Esc) and does not change anything by opening. Its content:
+
+- A top row: **Copy as Text** (`button:statsForNerds.copy`), which puts the whole page on the
+  clipboard as plain text for a bug report (every group, open or closed; paths included; nothing is
+  ever sent anywhere), and the line "Refreshed every second. Everything here stays on this
+  computer."
+- Collapsible groups (`header:statsForNerds.<id>`; the open ones are the draft's `open`, Memory
+  only when the window opens, so it starts short), in a
+  scrolling area whose height fits the window:
+  - **Memory** (`memory`): the process's resident memory (Linux; "not known on this system"
+    elsewhere), the decoded thumbnails in memory against their budget, the thumbnail textures (at
+    most 600) and all textures with their bytes.
+  - **Disk: the thumbnail cache** (`thumbnailCache`): its location (and whether this session uses a
+    temporary one, and why), its size on disk against its limit (`cache.thumbnailBytes`, 2 GiB),
+    its entries, each ladder size's entries and bytes, and this session's hit rate (entries read
+    from the cache against photos decoded). **Open Folder** (`button:statsForNerds.openCache`) and
+    **Clear Thumbnail Cache…** (`button:statsForNerds.clearCache`), which asks inside the window
+    first: "Clear the thumbnail cache? It is rebuilt as you browse; nothing about your photos is
+    lost." [Clear] [Cancel] (`…/confirm`, `…/cancel`), then runs `app.clearThumbnailCache` as a
+    background job (`data-model.md` §4).
+  - **Disk: the library folder** (`libraryFolder`): its location with **Open Folder**
+    (`button:statsForNerds.openLibrary`), the size of each of its files (`data-model.md` §4, the
+    faces caches after them) and their total, the damaged files kept aside as `.corrupt-<time>`,
+    and the folders whose sidecar was damaged.
+  - **Disk: in your photo folders** (`photoFolders`): the `.dalica-originals/` backups (files,
+    folders, bytes) and the folders with a `.dalica.json`, counted only on demand with **Count
+    Backups** (`button:statsForNerds.countBackups`; Count Again afterwards), and the note "These are
+    your originals from before Save. Delete them only if you're sure you won't want Undo Save."
+    There is no delete here.
+  - **Library** (`library`): the folders watched, scanned once, excluded and offline; photos and
+    videos, videos, hidden, faces, people, albums, photos with unsaved edits, files that cannot be
+    read, thumbnails that failed; whether a scan runs now, and the last scan's files, time and
+    files a second.
+  - **Work in progress** (`work`): the jobs running with their progress, the thumbnail jobs queued
+    or running and those ahead of the view, and the writes waiting (sidecars, photo files).
+  - **Rendering** (`rendering`): frames per second, the 95th-percentile and longest frame interval,
+    the 8 ms frame budget (the UI time itself is `ui.inspect` → `perf`), and the window's size and
+    pixels per point. The GPU adapter is not reported yet.
+  - **Build** (`build`): the version with its commit and date, the optional features compiled in
+    (`heif`, `hevc`, `camera-usb`) and the system.
+- The grip at the bottom right (`dialog:statsForNerds/grip`) resizes it: its width (420–1600 pt,
+  640 by default) and the groups' height (440 by default), kept in the draft's `width` and `height`.
+
+Its data is `app.diagnostics` (`control-protocol.md` §6.14), asked about once a second while the
+window is open; the window adds only the Rendering group and the textures. No disk or file walk
+happens on the UI thread: the engine answers from memory and measures the disk on a helper thread.
 
 **Rows that share a command.** Submenu rows that differ only by a parameter run one command with
 that parameter, and their widget id ends in the variant (`menuitem:view.caption/date`): Thumbnail
@@ -256,6 +306,9 @@ commands change nothing and record no undo step.
 | `library.query` | query: search with the search-box grammar, filters and paging |
 | `library.inspect` | query: the library's state for agents (`control-protocol.md` §6.4: counts, tree, sections, search, undo, unsaved edits, pending writes, problems; `{photos?, section?, offset?, limit?}`) |
 | `library.rebuild` | delete and rebuild the index (confirmation; Help → Rebuild Library…) |
+| `help.statsForNerds` | open Stats for Nerds (Help → Stats for Nerds…, §1.8) |
+| `app.diagnostics` | what Stats for Nerds shows (`control-protocol.md` §6.14) |
+| `app.clearThumbnailCache` | empty the thumbnail cache in a background job (Stats for Nerds → Clear Thumbnail Cache…) |
 | `edit.apply` | Batch Edit: append one edit operation to each photo's recipe with the edit view's merge rules, as one library undo step (`{ids, op, params?}`; an operation this build cannot render is `disabled`, "Arrives with Effects"); Picture ▸ Batch Edit and MCP's `apply_edit` (M11.9) |
 | `edit.copyRecipe` | Copy All Edits: keep one photo's recipe in the session, never saved (`{id}`; M11.9) |
 | `edit.pasteRecipe` | Paste All Edits: replace recipes with the copied one, as one library step (`{ids}`), or as one step of the open photo's history in the edit view (`{id, history: true}`) (M11.9) |

@@ -874,6 +874,10 @@ command and its default button runs one engine command (one undo step): `folderP
 slots}`, OK runs `tags.quick.set`), `renameTag` (`tag.rename {tag}`: `{from, to}`, OK runs
 `tags.rename`), `about` (`app.about`, no draft: its state is `about` above) and `releaseNotes`
 (`help.releaseNotes`); About and Release Notes have one button, Close (`button:dialog.cancel`, Esc).
+M16.36 adds `statsForNerds` (`help.statsForNerds`, Help ▸ Stats for Nerds…, `menus-and-shortcuts.md`
+§1.8): one button, Close; its draft holds `open` (the groups open; Memory only at first), `width` and `height` (the
+grip's), `confirmClear` (Clear Thumbnail Cache… asking) and `copied` (the text Copy as Text put on
+the clipboard last).
 
 `thumbSize`, `treeMode`, `folderSort`, `folderSortReverse`, `caption`, `smallPictures` and
 `hiddenPictures` are kept in the library's `settings.json` (with the tree width and the side pane)
@@ -1096,8 +1100,8 @@ while it waits (it never blocks one) and replies the final entry, or after `time
 at most 55 s; over 60 000 is `limit`) the running entry with `pending: true`; an unknown or expired
 job is `not_found`. `jobs.cancel` replies once a frame has polled the session; a finished job is not
 in `cancelled`. Kinds: `scan`, `import`, `export`, `save`, `files` (a move, copy, rename or delete of files, M9),
-`batchEdit`, `metadataWrite`, `rebuild`, `duplicates`, `faces`, `network` (a face model download
-or map tiles, only after the user allowed it, M13), `collage`, `analysis`. `jobs.cancel` stops a job at its next photo boundary: photos already written stay
+`batchEdit`, `metadataWrite`, `rebuild` (also Clear Thumbnail Cache, M16.36), `duplicates`, `faces`, `network` (a face model download
+or map tiles, only after the user allowed it, M13), `collage`, `analysis` (also Count Backups, M16.36). `jobs.cancel` stops a job at its next photo boundary: photos already written stay
 (each was written atomically), nothing is left half-written. Cancelling a job is never an undo of
 the photos it completed.
 
@@ -1132,6 +1136,51 @@ entry a tool that started a job answers).
 
 The job and the folder are known by the job and the path the export made, never by matching a
 folder's name against people's names. The marks last for the session (M14.25, M15.42, M15.51).
+
+### 6.14 `app.diagnostics` and Clear Thumbnail Cache (M16.36)
+
+`engine.execute {command: "app.diagnostics", params: {countBackups?}}` gives what Help ▸ Stats for
+Nerds… shows (`menus-and-shortcuts.md` §1.8); `dalica-cli` and MCP (`cmd_app_diagnostics`) give the
+same answer. It answers at once from memory and never touches the disk on the session's thread:
+
+```json
+{"measuring": false,
+ "memory": {"residentBytes": 412000000, "thumbnailBytes": 98304, "thumbnailBudgetBytes": 201326592},
+ "thumbnailCache": {"path": "/home/ana/.cache/dalica/thumbs", "temporary": false, "reason": null,
+   "limitBytes": 2147483648, "diskBytes": 5734, "liveBytes": 5606, "entries": 4,
+   "sizes": [{"size": "128", "entries": 2, "bytes": 2871}], "loads": 0, "decodes": 2, "hitRate": 0.0, "clearing": false},
+ "libraryFolder": {"path": "/home/ana/.local/share/dalica/library", "files": [{"name": "index.log", "bytes": 1130}],
+   "totalBytes": 1251, "corrupt": [], "damagedFolders": 0},
+ "photoFolders": {"counting": false, "counted": true, "folders": 1,
+   "backups": {"folders": 1, "files": 1, "bytes": 1000}, "sidecars": 1},
+ "library": {"watched": 1, "scanOnce": 0, "excluded": 0, "roots": 1, "offline": 0, "photos": 2, "videos": 0,
+   "hidden": 0, "faces": 0, "people": 0, "albums": 0, "folders": 1, "unsavedEdits": 0, "unreadable": 0,
+   "thumbnailsFailed": 0, "scanning": {"running": false, "foldersQueued": 0, "found": 2, "indexed": 2},
+   "lastScan": {"startedMs": 12, "durationMs": 140, "files": 2, "filesPerSecond": 14.3}},
+ "work": {"jobs": [], "thumbnailJobs": 0, "prefetching": 0, "pendingWrites": null},
+ "build": {"version": "1.1.0", "commit": null, "date": null, "features": ["camera-usb"], "os": "linux", "arch": "x86_64"}}
+```
+
+- **Measured on a helper thread:** the fields only the disk knows (`memory.residentBytes`, read
+  from `/proc/self/status` on Linux and `null` elsewhere; the cache's `diskBytes`, `liveBytes`,
+  `entries` and `sizes`; the library folder's `files`, `totalBytes` and `corrupt`) are the last
+  measurement's. A query starts a new one when the last is older than a second and none runs, and
+  answers with the last meanwhile; before the first lands they are `null` and `measuring` is
+  `true`. Nothing is measured while nobody asks.
+- **`countBackups: true`** starts a job (`analysis`, "Counting backups") that looks, in each folder
+  the index knows (no walk of the disk), at its `.dalica-originals/` (its files, the originals
+  record left out) and its `.dalica.json`; `photoFolders` says `counting` until it lands and keeps
+  the count (`counted`) until the next. Nothing deletes an original.
+- **The library's counts** are worked out once per library revision.
+- `library.lastScan` is the latest finished scan job's; `work.jobs` the jobs running (§6.13).
+
+`engine.execute {command: "app.clearThumbnailCache"}` empties the thumbnail cache in a background
+job (`rebuild`, "Clearing the thumbnail cache") and replies `{job, pending: true}`; the job's result
+is `{removed, freedBytes, diskBytes}`. It goes through the cache's own interface: every entry made
+dead, then each size compacted into a new, empty generation, so only files of the cache's own
+naming shape change (`data-model.md` §4). Sketches stay (they live in the index); a thumbnail the
+window asks for afterwards is made again from its photo. A clean-up already running is `disabled`,
+and so is a session with thumbnails off.
 
 ## 7. Widget ids
 

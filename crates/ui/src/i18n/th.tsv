@@ -159,6 +159,7 @@
 ~	Classic	คลาสสิก
 ~	Clear Location	ล้างตำแหน่ง
 ~	Clear Location…	ล้างตำแหน่ง…
+~	Clear Thumbnail Cache	ล้างแคชภาพย่อ
 ~	Clear Tray	ล้างถาด
 ~	Clear all photos from the tray?	ล้างรูปภาพทั้งหมดออกจากถาดหรือไม่
 ~	Click Import All or Import Selected	คลิก นำเข้าทั้งหมด หรือ นำเข้ารายการที่เลือก
@@ -1049,6 +1050,8 @@
 ~	Starred	ติดดาวแล้ว
 ~	Starred Photos	รูปภาพที่ติดดาว
 ~	Start again from the crop in effect	เริ่มใหม่จากการครอบตัดที่ใช้อยู่
+~	Stats for Nerds	สถิติสำหรับคนเนิร์ด
+~	Stats for Nerds…	สถิติสำหรับคนเนิร์ด…
 ~	Status line	บรรทัดสถานะ
 ~	Step Frame	เลื่อนทีละเฟรม
 ~	Step Frames	เลื่อนทีละเฟรม
@@ -1638,6 +1641,89 @@
 ~window	Restore	คืนขนาด
 ~zoom	Fit	พอดี
 
+~	, {rate} files a second	, {rate} ไฟล์ต่อวินาที
+~	8 ms of work a frame (ui.inspect perf: frameP95Ms)	งาน 8 ms ต่อเฟรม (ui.inspect perf: frameP95Ms)
+~	All textures	เท็กซ์เจอร์ทั้งหมด
+~	Backups (.dalica-originals)	สำเนาสำรอง (.dalica-originals)
+~	Build	บิลด์
+~	Clear	ล้าง
+~	Clear Thumbnail Cache…	ล้างแคชภาพย่อ…
+~	Clear the thumbnail cache? It is rebuilt as you browse; nothing about your photos is lost.	ล้างแคชภาพย่อหรือไม่ แคชจะถูกสร้างใหม่ขณะที่คุณเรียกดู ข้อมูลของรูปภาพจะไม่สูญหาย
+~	Clearing	กำลังล้าง
+~	Copied Stats for Nerds as text.	คัดลอกสถิติสำหรับคนเนิร์ดเป็นข้อความแล้ว
+~	Copy as Text	คัดลอกเป็นข้อความ
+~	Count Again	นับอีกครั้ง
+~	Count Backups	นับสำเนาสำรอง
+~	Counting	กำลังนับ
+~	Dalica: Stats for Nerds	Dalica: สถิติสำหรับคนเนิร์ด
+~	Damaged files kept aside	ไฟล์ที่เสียหายซึ่งเก็บแยกไว้
+~	Disk: in your photo folders	ดิสก์: ในโฟลเดอร์รูปภาพของคุณ
+~	Disk: the library folder	ดิสก์: โฟลเดอร์คลังภาพ
+~	Disk: the thumbnail cache	ดิสก์: แคชภาพย่อ
+~	Entries	รายการ
+~	Features	ฟีเจอร์
+~	Files that cannot be read	ไฟล์ที่อ่านไม่ได้
+~	Folders with a .dalica.json	โฟลเดอร์ที่มี .dalica.json
+~	Folders with a damaged sidecar	โฟลเดอร์ที่ไฟล์ข้างเคียงเสียหาย
+~	Frame budget	งบเวลาต่อเฟรม
+~	Frame interval (95 %)	ช่วงเวลาระหว่างเฟรม (95 %)
+~	Frames per second	เฟรมต่อวินาที
+~	Hidden	ซ่อนอยู่
+~	Hit rate this session	อัตราการพบในแคชของเซสชันนี้
+~	Jobs running	งานที่กำลังทำ
+~	Last scan	การสแกนครั้งล่าสุด
+~	Longest frame interval	ช่วงเวลาระหว่างเฟรมที่นานที่สุด
+~	Memory	หน่วยความจำ
+~	Open Folder	เปิดโฟลเดอร์
+~	Photos and videos	รูปภาพและวิดีโอ
+~	Photos with unsaved edits	รูปภาพที่มีการแก้ไขที่ยังไม่บันทึก
+~	Refreshed every second. Everything here stays on this computer.	รีเฟรชทุกวินาที ข้อมูลทั้งหมดอยู่บนคอมพิวเตอร์เครื่องนี้เท่านั้น
+~	Rendering	การแสดงผล
+~	Resident memory	หน่วยความจำที่ใช้อยู่
+~	Scanning now	กำลังสแกน
+~	Screen-size previews	ภาพตัวอย่างขนาดหน้าจอ
+~	Size on disk	ขนาดบนดิสก์
+~	These are your originals from before Save. Delete them only if you're sure you won't want Undo Save.	นี่คือต้นฉบับของคุณก่อนการบันทึก ลบเฉพาะเมื่อคุณแน่ใจว่าจะไม่ต้องการเลิกทำการบันทึก
+~	Thumbnail jobs	งานภาพย่อ
+~	Thumbnail textures	เท็กซ์เจอร์ภาพย่อ
+~	Thumbnails in memory	ภาพย่อในหน่วยความจำ
+~	Thumbnails that failed	ภาพย่อที่สร้างไม่สำเร็จ
+~	Total	รวม
+~	Videos	วิดีโอ
+~	Why temporary	เหตุที่เป็นแคชชั่วคราว
+~	Window	หน้าต่าง
+~	Work in progress	งานที่กำลังดำเนินอยู่
+~	Writes waiting	การเขียนที่รออยู่
+~	counting again…	กำลังนับอีกครั้ง…
+~	counting…	กำลังนับ…
+~	measuring…	กำลังวัด…
+~	no	ไม่
+~	none	ไม่มี
+~	none (thumbnails are off)	ไม่มี (ปิดภาพย่ออยู่)
+~	none this session	ไม่มีในเซสชันนี้
+~	not counted yet	ยังไม่ได้นับ
+~	not known on this system	ไม่ทราบบนระบบนี้
+~	nothing asked yet	ยังไม่มีการขอ
+~	the cache is being cleared…	กำลังล้างแคช…
+~	unknown	ไม่ทราบ
+~	yes: {indexed} of {found} found	ใช่: {indexed} จาก {found} ที่พบ
+~	{done} of {total}	{done} จาก {total}
+~	{files} files in {folders} folders, {size}	{files} ไฟล์ใน {folders} โฟลเดอร์, {size}
+~	{files} files in {secs} s{rate}	{files} ไฟล์ใน {secs} วินาที{rate}
+~	{ms} ms	{ms} ms
+~	{n} ({size})	{n} ({size})
+~	{n} ({size}), at most 600	{n} ({size}), สูงสุด 600
+~	{n} entries, {size}	{n} รายการ, {size}
+~	{n} of {total}	{n} จาก {total}
+~	{n} queued or running, {prefetch} ahead of the view	{n} รอคิวหรือกำลังทำ, {prefetch} ล่วงหน้าก่อนมุมมอง
+~	{path} (temporary, for this session only)	{path} (ชั่วคราว สำหรับเซสชันนี้เท่านั้น)
+~	{rate} ({loads} read from the cache, {decodes} decoded)	{rate} (อ่านจากแคช {loads}, ถอดรหัส {decodes})
+~	{sidecars} sidecars, {metadata} photo files	ไฟล์ข้างเคียง {sidecars}, ไฟล์รูปภาพ {metadata}
+~	{size} of {limit} (settings.json: cache.thumbnailBytes)	{size} จาก {limit} (settings.json: cache.thumbnailBytes)
+~	{size} px	{size} px
+~	{used} of {budget}	{used} จาก {budget}
+~	{watched} watched, {once} scanned once, {excluded} excluded, {offline} offline	เฝ้าดู {watched}, สแกนครั้งเดียว {once}, ไม่รวม {excluded}, ออฟไลน์ {offline}
+~	{w} × {h} points at {ppp} pixels per point	{w} × {h} พอยต์ ที่ {ppp} พิกเซลต่อพอยต์
 # Labels made by a macro (cargo xtask i18n cannot read them from the sources; the test
 # i18n_languages::every_command_has_a_thai_label checks them) and engine texts the window shows.
 ~	Apply Quick Tag 1	ใช้แท็กด่วน 1

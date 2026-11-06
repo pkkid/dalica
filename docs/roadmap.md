@@ -11680,7 +11680,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: the mockups are on the PR; the chosen variant plays when starring in the edit view;
     a ui test checks the animation starts on star, ends within its duration and that the photo is
     starred at once; screenshots of a frame mid-flight; the PR closes #755.
-- ⬜ **M16.36 `ui` + `engine`: Stats for Nerds (#756)**
+- ✅ **M16.36 `ui` + `engine`: Stats for Nerds (#756)**
   - after: M16.12
   - files: `crates/ui/src/dialogs/stats_for_nerds.rs`, `crates/engine/src/cmd/diagnostics.rs`, `crates/engine/tests/diagnostics.rs`, `crates/ui/tests/stats_for_nerds.rs`, `docs/menus-and-shortcuts.md`, `docs/control-protocol.md`, `docs/data-model.md`
   - scope: issue #756, renamed by the maintainer (2026-11-06): the page is **Stats for Nerds**,
