@@ -28,7 +28,7 @@ with attribution (`architecture.md` §9).
    tokens, and register an automation id (`register(ctx, id, rect)`) so tests and agents can find
    and click them by name (see [`architecture.md`](architecture.md) → Automation).
 6. **Dense but calm.** 13 pt body text, 22–24 pt control height, 4 pt corner radii, 80 ms
-   animations. No bouncing, no long fades.
+   animations. No bouncing, no long fades (the star's flight is the one approved exception, §8).
 
 ## 2. Colour tokens
 
@@ -500,6 +500,14 @@ underneath, pushed up by the next header).
 
 - `animation_time` 0.08 s for hover/press; scroll-to-folder animates 0.2 s ease-out; zoom-to-fit /
   1:1 in the edit view animates 0.22 s (LightCraft `animated_rect`).
+- **The one exception to §1's short motion (the star's flight, `editing.md` §2.1):** approved by
+  the maintainer for these two animations only (2026-11-06; reversible at the review). Starring in
+  the edit view plays the **burst**, 1000 ms: the star rises 40 pt with one full turn, 16 to 24 pt,
+  a ring blooming from 10 to 40 pt round it; unstarring plays the **drop**, 450 ms: 18 pt down,
+  −45°, 16 to 12 pt, fading. Both on a sine ease-in-out (soft start, soft stop), never bouncing or
+  overshooting; `star` with a 1 pt `crosshair_outer` edge, the ring 2 pt `star`. Skipped with Use
+  animations off and for anything automation does. No other animation may be longer than §1 and
+  the times above allow without the same approval.
 - Every user action that has no visible result in place shows a toast ("Starred 12 photos",
   "Moved 3 photos to Holidays").
 - Long work never blocks: progress in the status line with a Cancel affordance; modal progress

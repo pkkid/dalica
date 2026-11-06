@@ -11667,7 +11667,7 @@ under their own key, and a snapshot without them reads as one with none.
     finds no edited photo left, and filters a mixed library to exactly its edited photos; a ui
     test clicks Discard and the filter; screenshots at 1400 x 900 and 900 x 600; the PR closes
     #727.
-- ⬜ **M16.35 `ui`: the star's flight in the edit view: mockups, then the chosen one (#755)**
+- ✅ **M16.35 `ui`: the star's flight in the edit view: mockups, then the chosen one (#755)**
   - after: M16.12
   - files: `docs/mockups/star-flight.html`, `docs/mockups/star-flight.png`, `docs/mockups/README.md`, `crates/ui/src/panels/edit/star_flight.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/tests/star_flight.rs`, `docs/editing.md`
   - scope: issue #755 as written (maintainer request, 2026-11-06). First the mockups: an HTML page

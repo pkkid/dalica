@@ -61,8 +61,8 @@
     <option value="all">every variant (half size)</option>
     <option value="rise">1. Rise and spin (full size)</option>
     <option value="settle">2. Rise, spin and settle (full size)</option>
-    <option value="burst">3. Burst in place (full size)</option>
-    <option value="drop">4a. Unstar: drop and fade (full size)</option>
+    <option value="burst">3. Burst in place, chosen (full size)</option>
+    <option value="drop">4a. Unstar: drop and fade, chosen (full size)</option>
     <option value="reverse">4b. Unstar: reverse flight (full size)</option>
   </select></label>
   <label>Speed <select id="speed"><option value="1">1×</option><option value="0.5">0.5×</option>
@@ -70,19 +70,20 @@
   <label><input type="checkbox" id="anim" checked> Use animations</label>
   <label><input type="checkbox" id="path"> Show the path</label>
   <button id="pause">Pause</button>
-  <span style="color:#8e8e8e">Each card loops: rest, a click on the star button, the flight, a pause.</span>
+  <span style="color:#8e8e8e"><b>Chosen:</b> 3 for starring (1000 ms) and 4a for unstarring (450 ms); 1, 2 and 4b were not taken. Each card loops: rest, a click on the star button, the flight, a pause.</span>
 </div>
 <div id="cards"></div>
 <div id="notes">
   <h3>Rules every variant keeps</h3>
   <ul>
     <li><b>Never blocking.</b> The star is written the moment the button, Ctrl+8, Space or Picture ▸ Star is used; the button fills at once. The flight is drawn over the window afterwards, takes no input and holds nothing back. Starring again mid-flight restarts it from the button (an unstar mid-flight ends the star's flight at once and plays the unstar's, if any).</li>
+    <li><b>Reversible:</b> the timings and the choice are the maintainer's (2026-11-06) and can be changed or reversed at the review.</li>
     <li><b>Colour:</b> the star is the <code>star</code> token (filled, as the star button's glyph when on) with a 1 pt <code>crosshair_outer</code> edge (black α160) so it reads over a white sky; the burst's ring is <code>star</code> at the opacity given. Nothing is hard-coded: a theme changes both.</li>
-    <li><b>Motion rule:</b> design-system.md §1 says 80 ms animations, no bouncing, no long fades. A flight is an intentional exception: at most 500 ms, ease-out, no bounce, no overshoot. It needs the maintainer's OK and is written into design-system.md §8 as the one exception.</li>
+    <li><b>Motion rule:</b> design-system.md §1 says 80 ms animations, no bouncing, no long fades. The maintainer approved these two flights as the exception (2026-11-06): the burst at 1000 ms and the drop at 450 ms, on a sine ease-in-out, no bounce, no overshoot (design-system.md §8).</li>
     <li><b>Use animations off</b> (Options): no flight at all, only the state change (the button fills). The checkbox above shows it.</li>
     <li><b>Which starring plays it:</b> every user input in the edit view (the button, Ctrl+8, Space, the Picture menu). Never a star over the control channel, the CLI or MCP, so snapshots and fingerprints stay deterministic.</li>
     <li><b>Where:</b> the edit view only for now; the flight is one reusable piece (a start point, an end point, the clock) so the light table, the slideshow and the viewer could use it later.</li>
-    <li><b>Cost:</b> nothing when idle (no repaint is asked for unless a flight is in the air); while one is, one star, one optional ring, about 60 repaints in 500 ms, well inside the 60 Hz frame budget.</li>
+    <li><b>Cost:</b> nothing when idle (no repaint is asked for unless a flight is in the air); while one is, one star, one optional ring, one repaint per frame for at most a second, well inside the 60 Hz frame budget.</li>
     <li><b>Several photos:</b> the edit view stars one photo; with photos held in the tray too the star button stars them all and still shows one flight.</li>
   </ul>
   <h3>Note on variant 2</h3>
@@ -106,6 +107,7 @@ const GLYPH = 16;                                           // star_toggle's gly
 const clamp01 = x => Math.max(0, Math.min(1, x));
 const outCubic = x => 1 - Math.pow(1 - clamp01(x), 3);
 const inQuad = x => clamp01(x) * clamp01(x);
+const inOutSine = x => (1 - Math.cos(Math.PI * clamp01(x))) / 2; // the chosen flights' ease: soft start, soft end
 const inOutCubic = x => { x = clamp01(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 const lerp = (a, b, u) => a + (b - a) * u;
 const span = (t, a, b) => clamp01((t - a) / (b - a));
@@ -133,21 +135,21 @@ const V = {
     frame(t) { const a = span(t, 0, 0.6), b = inOutCubic(span(t, 0.6, 1)), u = outCubic(a), p = arc(u, B, L);
       if (t < 0.6) return { star: { ...p, size: lerp(GLYPH, 40, u), rot: 360 * u, alpha: 1 } };
       return { star: { x: lerp(L.x, BADGE.x, b), y: lerp(L.y, BADGE.y, b), size: lerp(40, 12, b), rot: 360, alpha: t >= 1 ? 0 : 1 }, badge: t >= 1 ? 1 : 0 }; } },
-  burst: { n: "3", title: "Burst in place", ms: 320, starring: true,
-    blurb: "The most restrained: the star rises a short way above the button with half a turn while a soft ring opens round it, and both fade. It never covers the photo.",
-    spec: [["Duration", "320 ms"], ["Path", "straight up 36 pt from the button's glyph, ease-out cubic"],
-      ["Turn", "half a turn (180°), ease-out cubic"], ["Size", "16 to 22 pt"],
-      ["Ring", "round the star: radius 10 to 34 pt, 2 pt stroke, opacity 0.6 to 0, ease-out"],
-      ["Fade", "the star opaque to 50 %, out over the rest (ease-in)"], ["Colour", "<code>star</code> for both; the star's 1 pt <code>crosshair_outer</code> edge"]],
-    frame(t) { const u = outCubic(t), p = { x: B.x, y: B.y - 36 * u };
-      return { star: { ...p, size: lerp(GLYPH, 22, u), rot: 180 * u, alpha: 1 - inQuad(span(t, 0.5, 1)) },
-        ring: { ...p, r: lerp(10, 34, u), alpha: 0.6 * (1 - u) } }; } },
-  drop: { n: "4a", title: "Unstar: drop and fade", ms: 240, starring: false,
-    blurb: "Un-starring: the button empties at once and the filled star it held drops a short way, tilting, as it fades. Short and quiet, so taking a star away feels lighter than giving one. Pairs with any of 1 to 3.",
-    spec: [["Duration", "240 ms"], ["Path", "straight down 18 pt from the button's glyph, ease-in (it falls)"],
-      ["Turn", "a quarter tilt back (−45°)"], ["Size", "16 to 12 pt"], ["Fade", "out over the whole flight (ease-out)"], ["Colour", "<code>star</code>, 1 pt <code>crosshair_outer</code> edge"]],
-    frame(t) { const u = inQuad(t);
-      return { star: { x: B.x, y: B.y + 18 * u, size: lerp(GLYPH, 12, t), rot: -45 * u, alpha: 1 - outCubic(t) } }; } },
+  burst: { n: "3", title: "Burst in place (chosen for starring)", ms: 1000, starring: true,
+    blurb: "The maintainer's choice (2026-11-06), slowed to a full second so it is fun and calm: the star rises softly a short way above the button with one unhurried turn while a ring blooms slowly round it, and both fade gently. It never covers the photo.",
+    spec: [["Duration", "1000 ms"], ["Path", "straight up 40 pt from the button's glyph, sine ease-in-out (no snap at the start, a soft stop)"],
+      ["Turn", "one full turn (360°) clockwise, on the same ease"], ["Size", "16 to 24 pt, on the same ease"],
+      ["Ring", "round the star: radius 10 to 40 pt on the same ease, 2 pt stroke; opacity rises to 0.5 and falls back on a sine arc"],
+      ["Fade", "the star opaque to half way, then out on the sine ease"], ["Colour", "<code>star</code> for both; the star's 1 pt <code>crosshair_outer</code> edge"]],
+    frame(t) { const u = inOutSine(t), p = { x: B.x, y: B.y - 40 * u };
+      return { star: { ...p, size: lerp(GLYPH, 24, u), rot: 360 * u, alpha: 1 - inOutSine(span(t, 0.5, 1)) },
+        ring: { ...p, r: lerp(10, 40, u), alpha: 0.5 * Math.sin(Math.PI * clamp01(t)) } }; } },
+  drop: { n: "4a", title: "Unstar: drop and fade (chosen for unstarring)", ms: 450, starring: false,
+    blurb: "The maintainer's choice for un-starring, made calmer (450 ms) to sit beside the slow burst: the button empties at once and the filled star it held drops a short way, tilting, as it fades.",
+    spec: [["Duration", "450 ms"], ["Path", "straight down 18 pt from the button's glyph, sine ease-in-out"],
+      ["Turn", "an eighth of a turn back (−45°)"], ["Size", "16 to 12 pt"], ["Fade", "out over the whole drop, on the same ease"], ["Colour", "<code>star</code>, 1 pt <code>crosshair_outer</code> edge"]],
+    frame(t) { const u = inOutSine(t);
+      return { star: { x: B.x, y: B.y + 18 * u, size: lerp(GLYPH, 12, u), rot: -45 * u, alpha: 1 - u } }; } },
   reverse: { n: "4b", title: "Unstar: reverse flight", ms: 400, starring: false,
     blurb: "Un-starring as the star's flight backwards: the star appears in the photo, turns back once and shrinks into the button, which empties as it arrives. Symmetric with 1, but it draws the eye to a removal.",
     spec: [["Duration", "400 ms"], ["Path", "variant 1's curve, from the photo back to the button, ease-in-out cubic"],
