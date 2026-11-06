@@ -152,7 +152,22 @@ Albums sections stay out: the player is `view.edit` on the mantis clip, `video.s
 `app.preferences`; the keyboard shot is `interface.fontSize` `large`, `app.preferences` and three `{"key":
 "Tab"}` steps; the viewer shot is `app.preferences {"tab": "viewer"}`. A snapshot keeps what its script
 changed (a trim, an option), so set it back after.
-The photos inside the 0.2, 0.5, 0.6, 0.8, 0.9 and 1.0 shots, and `img/castle.jpg`, come from the `photos` set of the
+The six 1.1 shots (`feat-themes.jpg`, `feat-color-search.jpg`, `feat-slideshow-window.jpg`, `feat-history.jpg`,
+`feat-discard.jpg`, `feat-stats.jpg`, 1500 × 1000) use one library of 26 corpus photos in four folders (Highlands and
+coast, Spring, Old towns, By train), added with `folders.add`, with a date and a description each (`folder.info.set`),
+three captions, five stars and tags, and `HOME` and the `XDG_*` folders in a scratch folder. Each is `dalica-cli
+snapshot --library … --size 2400x1600 --scale 2` (colour search `3000x2000`, so more sections fit), resized, every
+script starting with `view.groupCollapse` on the albums. Themes: four captures with `theme.proLight`,
+`theme.classic`, `theme.solarizedDark` and `theme.breezeDark`, then `select.set` on the castle photo and
+`section.scrollTo` the first folder, tiled 2 × 2 with `magick montage` (set `theme.dark` back after). Colour search
+is `search.color {"color": "blue"}`; the slideshow is `section.slideshow` on the first folder from the harbour photo,
+`slideshow.captions` on and `slideshow.pause`; History is `view.edit` on the cliff photo with `edit.autoFix`,
+`photo.straighten.apply`, `photo.crop.apply` and `edit.effect.apply {"name": "warmify"}` in one snapshot, then
+`photo.history.goto {"index": 3}` and `pane.history` in the next, so Warmify shows as a step to redo; Discard is
+three more photos edited (`edit.autoFix`, `bw`, `sepia`), `view.library` and `search.set {"filters": {"edited":
+true}}`; Stats for Nerds is `help.statsForNerds`, `{"settle": true}` and a click on
+`header:statsForNerds.library` (the paths stay in the closed groups).
+The photos inside the 0.2, 0.5, 0.6, 0.8, 0.9, 1.0 and 1.1 shots, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.

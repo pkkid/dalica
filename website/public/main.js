@@ -167,7 +167,8 @@
 // The release on offer. Bump these two at each release (website/README.md → Releasing): the
 // version, and the file sizes in bytes, which the jq one-liner there prints from GitHub.
 var RELEASE = {
-  version: "1.0.0",
+  version: "1.1.0",
+  // sizes: filled by the lead after publishing (these are still 1.0.0's)
   sizes: {"SHA256SUMS.txt":2012,"dalica-cli-{v}-macos-universal.zip":92715605,"dalica-{v}-linux-aarch64.AppImage":89741832,"dalica-{v}-linux-aarch64.AppImage.zsync":306981,"dalica-{v}-linux-aarch64.cdx.json":384712,"dalica-{v}-linux-aarch64.deb":96057180,"dalica-{v}-linux-aarch64.flatpak":68277568,"dalica-{v}-linux-aarch64.rpm":95349652,"dalica-{v}-linux-aarch64.tar.gz":93975093,"dalica-{v}-linux-x86_64.AppImage":93256184,"dalica-{v}-linux-x86_64.AppImage.zsync":318991,"dalica-{v}-linux-x86_64.cdx.json":385395,"dalica-{v}-linux-x86_64.deb":98970722,"dalica-{v}-linux-x86_64.flatpak":71897368,"dalica-{v}-linux-x86_64.rpm":98387425,"dalica-{v}-linux-x86_64.tar.gz":97695476,"dalica-{v}-macos-universal.cdx.json":314418,"dalica-{v}-macos-universal.dmg":100592249,"dalica-{v}-windows-x64-portable.zip":97004756,"dalica-{v}-windows-x64.cdx.json":301324,"dalica-{v}-windows-x64.msi":81707008}
 };
 
