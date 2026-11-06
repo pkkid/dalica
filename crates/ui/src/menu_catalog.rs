@@ -497,6 +497,7 @@ pub const HELP: &[Entry] = &[
     item("Report a Problem…", "help.reportProblem").e(),
     item("Show Log Folder", "help.logFolder").e(),
     item("Rebuild Library…", "library.rebuild").e(),
+    item("Stats for Nerds…", "help.statsForNerds").e(),
     SEP,
     item("About Dalica", "app.about").app_menu().e(),
 ];

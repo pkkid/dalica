@@ -82,6 +82,7 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("section.properties", "folderProperties"),
     ("photo.adjustDate", "adjustDate"),
     ("help.releaseNotes", "releaseNotes"),
+    ("help.statsForNerds", "statsForNerds"),
     ("app.about", "about"),
     ("output.export", "export"),
     ("photo.revert", "revert"),

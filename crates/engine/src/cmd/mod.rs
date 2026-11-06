@@ -12,6 +12,7 @@ pub mod compare;
 pub mod crop;
 pub mod dates;
 pub mod delete;
+pub mod diagnostics;
 pub mod duplicates;
 pub mod edit;
 pub mod effects;
@@ -135,6 +136,8 @@ pub fn specs() -> Vec<CommandSpec> {
         camera::specs(),
         // M16: one command per theme and `theme.next` (M16.4).
         theme::specs(),
+        // M16.36: Stats for Nerds' query and Clear Thumbnail Cache.
+        diagnostics::specs(),
     ]
     .concat();
     #[cfg(test)]

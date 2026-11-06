@@ -20,6 +20,7 @@ mod dates_undo_written;
 mod day_in_the_life;
 mod default_viewer;
 mod delete;
+mod diagnostics;
 mod duplicates;
 mod edit_keys;
 mod edited_thumbs;

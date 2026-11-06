@@ -8,7 +8,7 @@
 //! - **Opening**: [`open`] pushes a dialog (one of each kind at a time, at most
 //!   [`MAX_DIALOGS`]). Commands open theirs: `folders.manager` (Tools ▸ Folder Manager…), M6's
 //!   `section.properties`, `photo.adjustDate`, `quicktags.configure`, `tag.rename`, `app.about` and
-//!   `help.releaseNotes` (`crate::commands::{info, help}`), the Crop tool's Add Custom Ratio…
+//!   `help.releaseNotes` and `help.statsForNerds` (`crate::commands::{info, help}`), the Crop tool's Add Custom Ratio…
 //!   ([`custom_ratio`], M7), and every command of [`confirm::ASKS`]
 //!   run without `"confirm": true` when its question applies ([`asking`], called by
 //!   [`App::run`](crate::App::run)).
@@ -112,6 +112,7 @@ pub mod rename_files;
 pub mod rename_tag;
 pub mod revert;
 pub mod save_explain;
+pub mod stats_for_nerds;
 pub mod undo_all;
 pub mod viewer_settings;
 
@@ -224,6 +225,7 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::look(app, d),
         DialogKind::CollageClose => collage_close::look(app, d),
         DialogKind::DefaultViewer => default_viewer::look(app, d),
+        DialogKind::StatsForNerds => stats_for_nerds::look(app, d),
     }
 }
 
@@ -271,6 +273,7 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::body(app, ui, d),
         DialogKind::CollageClose => collage_close::body(app, ui, d),
         DialogKind::DefaultViewer => default_viewer::body(app, ui, d),
+        DialogKind::StatsForNerds => stats_for_nerds::body(app, ui, d),
     }
 }
 
@@ -318,6 +321,7 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::ChangeLocation | DialogKind::ClearLocation => geotag_confirm::act(app, d, action),
         DialogKind::CollageClose => collage_close::act(app, d, action),
         DialogKind::DefaultViewer => default_viewer::act(app, d, action),
+        DialogKind::StatsForNerds => stats_for_nerds::act(app, d, action),
     }
 }
 

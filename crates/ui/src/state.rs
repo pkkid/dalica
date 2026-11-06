@@ -627,10 +627,13 @@ pub enum DialogKind {
     /// viewer for these file types:" with a checkbox per type, nothing chosen [Use Dalica] [Not Now]
     /// (`viewing.md` §3.3); its draft is [`UiState::default_viewer`] (M15.24).
     DefaultViewer,
+    /// Help ▸ Stats for Nerds… (`help.statsForNerds`, M16.36): what Dalica uses and where its
+    /// files live, refreshed while open (`dialogs::stats_for_nerds`).
+    StatsForNerds,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 47] = [
+    pub const ALL: [DialogKind; 48] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -678,6 +681,7 @@ impl DialogKind {
         DialogKind::DropFaceData,
         DialogKind::CollageClose,
         DialogKind::DefaultViewer,
+        DialogKind::StatsForNerds,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -730,6 +734,7 @@ impl DialogKind {
             DialogKind::DropFaceData => "dropFaceData",
             DialogKind::CollageClose => "collageClose",
             DialogKind::DefaultViewer => "defaultViewer",
+            DialogKind::StatsForNerds => "statsForNerds",
         }
     }
 

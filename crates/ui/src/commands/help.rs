@@ -1,13 +1,14 @@
 //! The Help menu's windows (`menus-and-shortcuts.md` §1.8): `app.about` (Help ▸ About Dalica; on
-//! macOS, Dalica ▸ About Dalica) and `help.releaseNotes` (Help ▸ Release Notes) open their dialogs
-//! on the host. Neither changes anything; both close with Close or Esc.
+//! macOS, Dalica ▸ About Dalica), `help.releaseNotes` (Help ▸ Release Notes) and
+//! `help.statsForNerds` (Help ▸ Stats for Nerds…, M16.36) open their dialogs on the host. None
+//! changes anything by opening; each closes with Close or Esc.
 
 use dalica_engine::CmdError;
 use serde_json::Value;
 
 use super::{UiCommand, no_params};
 use crate::app::App;
-use crate::dialogs::{self, about, release_notes};
+use crate::dialogs::{self, about, release_notes, stats_for_nerds};
 
 pub const COMMANDS: &[UiCommand] = &[
     UiCommand {
@@ -26,6 +27,14 @@ pub const COMMANDS: &[UiCommand] = &[
         params: r#"{}: open the release notes (replies {dialog: "releaseNotes"})"#,
         run: open_release_notes,
     },
+    UiCommand {
+        id: "help.statsForNerds",
+        label: "Stats for Nerds",
+        menu: "Help/Stats for Nerds…",
+        keys: &[],
+        params: r#"{}: open Stats for Nerds, what Dalica uses and where its files live (app.diagnostics, refreshed about once a second while open; replies {dialog: "statsForNerds"})"#,
+        run: open_stats_for_nerds,
+    },
 ];
 
 fn open_about(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -36,6 +45,11 @@ fn open_about(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 fn open_release_notes(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
     dialogs::open(app, release_notes::dialog())
+}
+
+fn open_stats_for_nerds(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    dialogs::open(app, stats_for_nerds::dialog())
 }
 
 #[cfg(test)]

@@ -188,6 +188,7 @@ fn expected() -> Vec<(&'static str, Vec<String>)> {
                 "Report a Problem…",
                 "Show Log Folder",
                 "Rebuild Library…",
+                "Stats for Nerds…",
                 "—",
                 "About Dalica",
             ]),

@@ -504,7 +504,7 @@ environment variable names an absolute folder, which tests set so they never wri
 cache) holds the thumbnail/preview disk cache: pack files plus an
 index per size of the thumbnail ladder (`architecture.md` §6), 2 GiB default, deletable at any
 time. Demos and tests keep a temporary cache that goes with their session; a cache another Dalica
-process holds is not shared (the session falls back to a temporary one and says so). Face embeddings and landmarks are cached beside the index (`faces-<model id>.cache`, below); face *assignments* live in sidecars.
+process holds is not shared (the session falls back to a temporary one and says so). Help ▸ Stats for Nerds… shows its location and size and empties it on demand (Clear Thumbnail Cache…, `app.clearThumbnailCache`, M16.36): a background job that makes every entry dead and compacts each size through the cache's own interface, so only its own files change; thumbnails are made again as photos are looked at. Face embeddings and landmarks are cached beside the index (`faces-<model id>.cache`, below); face *assignments* live in sidecars.
 
 **`people.json`** (built in M13.9: `dalica-store` `people` and `rebuild`), printed like the folder
 sidecar (UTF-8, two-space indentation, LF, keys sorted by their bytes at every level, unknown keys
