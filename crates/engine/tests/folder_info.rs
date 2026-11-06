@@ -66,7 +66,13 @@ fn only_the_fields_given_change_and_undo_redo_restore_model_and_sidecar() {
     s.execute("folder.info.set", &json!({ "id": id, "description": "Trams" })).unwrap();
     assert_eq!(
         info(&s, id),
-        FolderInfo { description: "Trams".into(), date: Some(day("2026-06-04")), place: "Lisbon, Portugal".into(), hidden: false }
+        FolderInfo {
+            description: "Trams".into(),
+            date: Some(day("2026-06-04")),
+            place: "Lisbon, Portugal".into(),
+            hidden: false,
+            music: String::new()
+        }
     );
     // "oldest" goes back to the oldest photo's date; "" clears a text.
     s.execute("folder.info.set", &json!({ "id": id, "date": "oldest", "place": "" })).unwrap();

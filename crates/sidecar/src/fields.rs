@@ -28,6 +28,9 @@
 //! user removed the photo's location ([`GeoTag::Removed`], M13.9), so the file's own GPS no longer
 //! counts.
 //!
+//! M16 adds the folder's `music` in `"folder"`: the folder of music files its slideshows play, a
+//! path as the folder picker gave it ("" or no key for none).
+//!
 //! Reading never fails: each key is [`Field::Absent`], a value of the right type, or
 //! [`Field::WrongType`] holding what is there (kept, reported by [`Sidecar::problems`]). A date
 //! that does not parse counts as a value of the wrong type. Writing sets one key or clears it:
@@ -45,7 +48,9 @@ use crate::{Field, Problem, Sidecar, WrongType, escape};
 /// The keys of a photo's entry that Dalica reads, in the documented order of `data-model.md` §3.
 pub const PHOTO_KEYS: [&str; 7] = ["star", "caption", "tags", "hidden", "edits", "redo", "date"];
 /// The keys of the `"folder"` object that Dalica reads.
-pub const FOLDER_KEYS: [&str; 4] = ["description", "date", "place", "hidden"];
+pub const FOLDER_KEYS: [&str; 5] = ["description", "date", "place", "hidden", MUSIC];
+/// The folder's slideshow music folder (M16), in `"folder"`.
+pub const MUSIC: &str = "music";
 /// The key of the folder object.
 pub const FOLDER: &str = "folder";
 /// The photo keys M8 adds (`data-model.md` §3, §6): the copy a Save wrote beside the photo.
@@ -300,6 +305,8 @@ pub struct FolderFields {
     pub date: Field<Date>,
     pub place: Field<String>,
     pub hidden: Field<bool>,
+    /// The folder's slideshow music folder (M16).
+    pub music: Field<String>,
 }
 
 /// One value for a photo's entry. The empty value (`false`, `""`, `[]`, `None`) clears the key.
@@ -323,6 +330,8 @@ pub enum FolderValue {
     Date(Option<Date>),
     Place(String),
     Hidden(bool),
+    /// The slideshow music folder (M16); "" clears it.
+    Music(String),
 }
 
 impl PhotoValue {
@@ -358,6 +367,7 @@ impl FolderValue {
             FolderValue::Date(d) => ("date", d.map(|d| Value::String(d.to_string()))),
             FolderValue::Place(s) => ("place", text(s)),
             FolderValue::Hidden(b) => ("hidden", flag(*b)),
+            FolderValue::Music(s) => (MUSIC, text(s)),
         }
     }
 }
@@ -505,7 +515,7 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
 fn folder_problem(key: &str, v: &Value) -> Option<&'static str> {
     let ok = match key {
         "hidden" | REVERSE => v.is_boolean(),
-        "description" | "place" | PROJECT | SORT => v.is_string(),
+        "description" | "place" | PROJECT | SORT | MUSIC => v.is_string(),
         "date" => v.as_str().is_some_and(|s| s.parse::<Date>().is_ok()),
         _ => true,
     };
@@ -568,6 +578,7 @@ impl Sidecar {
             date: read_parsed(get("date")),
             place: read_text(get("place")),
             hidden: read_bool(get("hidden")),
+            music: read_text(get(MUSIC)),
         }
     }
 

@@ -11326,7 +11326,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: `cargo xtask bench video_play` prints the 1080p decoded frame's p95 under 16 ms (in
     the PR, with the phone rows when fetched); `cargo xtask budgets` passes and `--plant-ms` past
     the cap fails naming the row; `video-decoders.md` §1 states the bar and the best-effort rows.
-- ⬜ **M16.15 `library` + `sidecar` + `store` + `scan`: a folder's own slideshow music, kept**
+- ✅ **M16.15 `library` + `sidecar` + `store` + `scan`: a folder's own slideshow music, kept**
   - after: M15.R
   - files: `crates/library/src/model.rs`, `crates/library/tests/folder_music.rs`, `crates/library/README.md`, `crates/sidecar/src/fields.rs`, `crates/sidecar/tests/fields.rs`, `crates/store/src/mapping.rs`, `crates/store/tests/fields.rs`, `crates/scan/src/walk.rs`, `crates/scan/src/legacy.rs`, `crates/engine/src/cmd/files.rs`
   - scope: VIEW-MUSIC's missing half, the data (Q9): `FolderInfo.music`, the folder of music

@@ -69,9 +69,9 @@ fn every_model_field_is_mapped() {
     let Folder { id: _, path: _ } = Folder { id: FolderId::new(1), path: PathBuf::new() };
     assert_eq!(FOLDER_FIELDS, [("id", Source::Index), ("path", Source::File)]);
     assert_eq!(FOLDER_DATA, [("info", Source::Fields("FOLDER_INFO_FIELDS"))]);
-    let FolderInfo { description: _, date: _, place: _, hidden: _ } = FolderInfo::EMPTY;
+    let FolderInfo { description: _, date: _, place: _, hidden: _, music: _ } = FolderInfo::EMPTY;
     let names: Vec<&str> = FOLDER_INFO_FIELDS.iter().map(|(n, _)| *n).collect();
-    assert_eq!(names, ["description", "date", "place", "hidden"]);
+    assert_eq!(names, ["description", "date", "place", "hidden", "music"]);
     assert!(FOLDER_INFO_FIELDS.iter().all(|(n, s)| *s == Source::FolderSidecar(n)), "each under its own key in \"folder\"");
     // The sidecar crate reads exactly the keys the tables name.
     let photo_keys: Vec<&str> = PHOTO_FIELDS

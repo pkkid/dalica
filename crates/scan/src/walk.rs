@@ -22,8 +22,8 @@ use dalica_core::{AlbumId, Clock, DateTime, PersonId, PosKey, Rect01, SystemCloc
 use dalica_fs::{Entry, Limits};
 use dalica_image::{Format, Header, Orientation};
 use dalica_library::{
-    Face, FacePerson, FolderInfo, Geo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort, Project,
-    SavedAs, SortBy, VideoFacts,
+    Face, FacePerson, FolderInfo, Geo, MAX_CAPTION, MAX_DESCRIPTION, MAX_MUSIC, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort,
+    Project, SavedAs, SortBy, VideoFacts,
 };
 use dalica_sidecar::fields::GeoTag;
 use dalica_sidecar::{Field, PersonName, Sidecar};
@@ -92,7 +92,7 @@ pub struct FoundFolder {
     pub path: PathBuf,
     /// Sorted by name.
     pub photos: Vec<FoundPhoto>,
-    /// What the folder's sidecar says about the folder (description, date, place, hidden), as
+    /// What the folder's sidecar says about the folder (description, date, place, hidden, music), as
     /// the model takes it ([`folder_info`]).
     pub info: FolderInfo,
     /// The folder's project mark, from its sidecar ([`originals::project`]).
@@ -891,6 +891,7 @@ pub fn folder_info(sidecar: &Sidecar) -> FolderInfo {
         date: usable_value(f.date),
         place: cut(usable(f.place), MAX_PLACE, dalica_library::clean_place),
         hidden: usable(f.hidden),
+        music: cut(usable(f.music), MAX_MUSIC, dalica_library::clean_music),
     }
 }
 

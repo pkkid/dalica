@@ -834,6 +834,7 @@ fn new_folder_info(
         date,
         place: place.as_deref().map(clean_place).unwrap_or_default(),
         hidden: false,
+        music: String::new(),
     })
 }
 

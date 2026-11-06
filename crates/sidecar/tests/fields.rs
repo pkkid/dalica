@@ -463,3 +463,51 @@ mod m13 {
         }
     }
 }
+
+// M16's key (`data-model.md` §3): the folder's `music`, the folder of music files its slideshows
+// play.
+
+mod m16 {
+    use dalica_sidecar::fields::{FOLDER_KEYS, MUSIC};
+    use dalica_sidecar::{Field, FolderValue, Limits, Problem, Sidecar};
+    use serde_json::json;
+
+    use super::{json_of, parse};
+
+    #[test]
+    fn music_is_written_read_back_and_removed_with_an_empty_value() {
+        assert_eq!((MUSIC, FOLDER_KEYS), ("music", ["description", "date", "place", "hidden", "music"]));
+        let mut s = parse(r#"{"folder": {"place": "Lisbon", "x-other": {"by": "another app"}}}"#);
+        assert_eq!(s.folder().music, Field::Absent, "no key: no music of the folder's own");
+        s.set_folder(&FolderValue::Music("/home/ana/Music/Fado".into())).unwrap();
+        assert_eq!(json_of(&s)["folder"], json!({ "place": "Lisbon", "x-other": { "by": "another app" }, "music": "/home/ana/Music/Fado" }));
+        let again = Sidecar::parse(&s.print(), &Limits::default()).unwrap();
+        assert_eq!(again.folder().music, Field::Value("/home/ana/Music/Fado".to_string()));
+        assert_eq!(again.folder().place, Field::Value("Lisbon".to_string()), "the other keys are read as before");
+        // "" removes only the key; unknown keys of the folder object stay.
+        s.set_folder(&FolderValue::Music(String::new())).unwrap();
+        assert_eq!(json_of(&s)["folder"], json!({ "place": "Lisbon", "x-other": { "by": "another app" } }));
+        // Alone in the object, clearing it takes the object; clearing it where there is none
+        // creates nothing.
+        let mut only = parse(r#"{"folder": {"music": "D:\\Music"}}"#);
+        assert_eq!(only.folder().music, Field::Value("D:\\Music".to_string()));
+        only.set_folder(&FolderValue::Music(String::new())).unwrap();
+        assert!(json_of(&only).get("folder").is_none());
+        only.set_folder(&FolderValue::Music(String::new())).unwrap();
+        assert!(json_of(&only).get("folder").is_none());
+    }
+
+    #[test]
+    fn a_music_of_the_wrong_type_is_kept_verbatim_and_reported() {
+        for bad in [json!(42), json!(true), json!(["/music"]), json!({ "path": "/music" })] {
+            let text = json!({ "folder": { "music": bad.clone(), "description": "Trams", "x-other": 1 } }).to_string();
+            let s = parse(&text);
+            assert_eq!(s.folder().music, Field::WrongType(bad.clone()), "{bad}");
+            assert_eq!(s.folder().description, Field::Value("Trams".to_string()), "{bad}: the rest is read");
+            assert_eq!(s.problems(), vec![Problem { pointer: "/folder/music".into(), expected: "a string" }], "{bad}");
+            let printed = json_of(&s);
+            assert_eq!(printed["folder"]["music"], bad, "kept as it is");
+            assert_eq!(printed["folder"]["x-other"], json!(1), "an unknown folder key is kept");
+        }
+    }
+}

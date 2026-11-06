@@ -152,6 +152,7 @@ pub fn folder_info(n: u8) -> FolderInfo {
         date: if n.is_multiple_of(2) { date(u16::from(n)).map(|d| d.date()) } else { None },
         place: if n.is_multiple_of(3) { "Lisbon, Portugal".into() } else { String::new() },
         hidden: n.is_multiple_of(5),
+        music: if n.is_multiple_of(4) { "/music/fado".into() } else { String::new() },
     }
 }
 

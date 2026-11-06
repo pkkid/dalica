@@ -180,7 +180,10 @@ fn every_sidecar_field_comes_in_with_the_photos_in_the_same_op() {
     let s = scan(&[dir.path().to_path_buf()], None);
     assert!(s.warnings.is_empty(), "{:?}", s.warnings);
     let found = &s.folders[0];
-    assert_eq!(found.info, FolderInfo { description: "Weekend".into(), date: "2026-06-04".parse().ok(), place: "Lisbon".into(), hidden: true });
+    assert_eq!(
+        found.info,
+        FolderInfo { description: "Weekend".into(), date: "2026-06-04".parse().ok(), place: "Lisbon".into(), hidden: true, music: String::new() }
+    );
     let info = |name: &str| found.photos.iter().find(|p| p.name == name).unwrap().info.clone();
     assert_eq!(
         info("a.jpg"),

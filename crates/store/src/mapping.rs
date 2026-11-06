@@ -76,8 +76,8 @@ use std::path::PathBuf;
 use dalica_core::geo::LatLon;
 use dalica_core::{AlbumId, Date, DateTime, FolderId, PersonId, PosKey, Rect01, Timestamp};
 use dalica_library::{
-    Face, FacePerson, FolderInfo, FolderSidecar, Geo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FACES, MAX_FILE_NAME, MAX_OPERATION,
-    MAX_OPERATIONS, MAX_PERSON_NAME, MAX_PLACE, PhotoInfo, PhotoSort, Project, SaveState, Saved, SavedAs, SortBy,
+    Face, FacePerson, FolderInfo, FolderSidecar, Geo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FACES, MAX_FILE_NAME, MAX_MUSIC,
+    MAX_OPERATION, MAX_OPERATIONS, MAX_PERSON_NAME, MAX_PLACE, PhotoInfo, PhotoSort, Project, SaveState, Saved, SavedAs, SortBy,
 };
 use dalica_sidecar::fields::GeoTag;
 use dalica_sidecar::originals::{self, Entry, Originals, State};
@@ -264,12 +264,14 @@ pub const VIDEO_FIELDS: [(&str, Source); 8] = [
 /// originals folder again (index-only; the legacy files are never written).
 pub const LEGACY_ORIGINAL_FIELDS: [(&str, Source); 3] = [("size", Source::Index), ("digest", Source::Index), ("recipe", Source::Index)];
 
-/// Every field of [`dalica_library::FolderInfo`] (Folder Properties, Hide Folder).
-pub const FOLDER_INFO_FIELDS: [(&str, Source); 4] = [
+/// Every field of [`dalica_library::FolderInfo`] (Folder Properties, Hide Folder; M16's slideshow
+/// music folder).
+pub const FOLDER_INFO_FIELDS: [(&str, Source); 5] = [
     ("description", Source::FolderSidecar("description")),
     ("date", Source::FolderSidecar("date")),
     ("place", Source::FolderSidecar("place")),
     ("hidden", Source::FolderSidecar("hidden")),
+    ("music", Source::FolderSidecar("music")),
 ];
 
 /// The sidecar-relevant state of one photo.
@@ -513,6 +515,8 @@ pub struct FolderReading {
     pub date: Reading<Option<Date>>,
     pub place: Reading<String>,
     pub hidden: Reading<bool>,
+    /// The slideshow music folder (M16).
+    pub music: Reading<String>,
     /// The project mark (M8; [`FolderReading::merged`] leaves it out: see [`FolderReading::project`]).
     pub project: Reading<Option<Project>>,
     /// What the folder's photos sort by (M9; [`FolderReading::photo_sort`]).
@@ -532,6 +536,7 @@ impl FolderReading {
             date: self.date.or(own.date),
             place: self.place.or_else(|| own.place.clone()),
             hidden: self.hidden.or(own.hidden),
+            music: self.music.or_else(|| own.music.clone()),
         }
     }
 
@@ -838,6 +843,7 @@ pub fn read_folder(sidecar: &Sidecar) -> FolderReading {
         date: dated(f.date),
         place: capped(f.place, MAX_PLACE, dalica_library::clean_place, "folder place", &mut notes),
         hidden: plain(f.hidden),
+        music: capped(f.music, MAX_MUSIC, dalica_library::clean_music, "folder's music folder", &mut notes),
         project: project(sidecar.project(), &mut notes),
         sort: sort_by(sidecar.folder_sort(), &mut notes),
         reverse: plain(sidecar.folder_reverse()),
@@ -865,6 +871,9 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
     }
     if differs(&r.hidden, &info.hidden) {
         folder.push(FolderValue::Hidden(info.hidden));
+    }
+    if differs(&r.music, &info.music) {
+        folder.push(FolderValue::Music(info.music.clone()));
     }
     let mut folder_refused = folder.iter().find_map(|v| sidecar.set_folder(v).err());
     if folder_refused.is_none() && differs(&r.project, &state.project) {

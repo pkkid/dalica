@@ -173,6 +173,7 @@ fn folder_info() {
         date: Some(Date::new(2026, 6, 4).unwrap()),
         place: "Lisbon, Portugal".into(),
         hidden: false,
+        music: String::new(),
     };
     round_trip(&mut lib, Op::SetFolderInfo { folders: vec![(a, info.clone())] }, &[a]);
     assert_eq!(lib.folder_info(a), &info);
