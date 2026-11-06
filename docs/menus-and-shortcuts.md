@@ -303,7 +303,7 @@ commands change nothing and record no undo step.
 | `video.saveFrame` / `video.exportClip` | Save Frame as Picture (a JPEG into the Video Frames project) and Export Clip (`{path?}`; over automation only inside the write roots) (M15.25) |
 | `camera.list` / `camera.*` | the cameras and phones connected over MTP/PTP as import sources, beside cards and drives (M15.19) |
 | `photo.inspect` | query: everything known about photos (`{ids}`) |
-| `library.query` | query: search with the search-box grammar, filters and paging |
+| `library.query` | query: search with the search-box grammar, filters and paging (the filters: `starred`, `faces`, `videos`, `geotagged` and, since M16.34, `edited`, as `search.set` takes them) |
 | `library.inspect` | query: the library's state for agents (`control-protocol.md` §6.4: counts, tree, sections, search, undo, unsaved edits, pending writes, problems; `{photos?, section?, offset?, limit?}`) |
 | `library.rebuild` | delete and rebuild the index (confirmation; Help → Rebuild Library…) |
 | `help.statsForNerds` | open Stats for Nerds (Help → Stats for Nerds…, §1.8) |
@@ -312,7 +312,7 @@ commands change nothing and record no undo step.
 | `edit.apply` | Batch Edit: append one edit operation to each photo's recipe with the edit view's merge rules, as one library undo step (`{ids, op, params?}`; an operation this build cannot render is `disabled`, "Arrives with Effects"); Picture ▸ Batch Edit and MCP's `apply_edit` (M11.9) |
 | `edit.copyRecipe` | Copy All Edits: keep one photo's recipe in the session, never saved (`{id}`; M11.9) |
 | `edit.pasteRecipe` | Paste All Edits: replace recipes with the copied one, as one library step (`{ids}`), or as one step of the open photo's history in the edit view (`{id, history: true}`) (M11.9) |
-| `edit.undoAll` | Undo All Edits: remove every unsaved edit (recipe and redo list) as one library step that can be undone (`{ids, confirm}`; `needs_confirm` without), or one history step in the edit view (`{id, history: true}`); saved photos keep their saved pixels (M11.9) |
+| `edit.undoAll` | Undo All Edits: remove every unsaved edit (recipe and redo list) as one library step that can be undone (`{ids, confirm}`; `needs_confirm` without), or one history step in the edit view (`{id, history: true}`); saved photos keep their saved pixels (M11.9); the section header's Discard opens its question for the photos the header counts as "%d edited" (M16.34) |
 | `edit.variant.open` / `edit.variant.close` | A│A's variant: a copy of the photo's recipe with its own undo, held in the session only (`{id}`), dropped or kept as one step of the photo's history (`{keep: "left" \| "right"}`); `photo.history.apply`, `.undo`, `.redo` and `.state` take `variant: true` (M11.10) |
 | `import.sources` | query: the cards, drives and recent sources to import from, from the cached list, never waiting on the disk (M11.7) |
 | `import.openSource` | open a source in the Import room (`{device}`: a card or drive from `import.sources`, or `{path}`: a folder, checked against automation's read roots); starts the listing and drops an older one (M11.7; the UI's `import.open`, Ctrl+M, opens the room) |

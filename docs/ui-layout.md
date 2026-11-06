@@ -85,7 +85,7 @@ Left → right:
 | 3 | **Flat** \| **Tree** segmented pair | 30 × 28 each | "Show folders as a flat list" / "Show the folder tree" | library tree mode (`organizing.md` §10) |
 | 4 | **▾** view options | 22 × 28 | "View options" | popup: Sort by Date ✓ · Sort by Recent Changes · Sort by Size · Sort by Name · Reverse Order · — · Sort People by Name · Sort People by Count · — · Show Thumbnails in Tree · Simplified Tree |
 | — | flexible space | | | |
-| 5 | **Filters** group | | the caption "Filters" (11 pt `text_dim`) above the buttons is replaced by the hovered button's tooltip | toggles: **Starred** ("Show starred photos only"), **Faces** ("Show only photos with faces"), **Videos** ("Show videos only"), **Geotagged** ("Show only geotagged photos"); 26 × 26 each, joined |
+| 5 | **Filters** group | | the caption "Filters" (11 pt `text_dim`) above the buttons is replaced by the hovered button's tooltip | toggles: **Starred** ("Show starred photos only"), **Faces** ("Show only photos with faces"), **Videos** ("Show videos only"), **Geotagged** ("Show only geotagged photos"), **Edited** ("Show only edited photos", the edited badge's pencil; Dalica's, M16.34); 26 × 26 each, joined; when a wide tree leaves the group too little room in the light table's column (a narrow window), the age slider is 80 wide instead of 100 so the group stays right of the splitter |
 | 6 | **Age slider** | 100 wide | "Show only recent photos" | `organizing.md` §8.2 |
 | 7 | **Search** field | from 0.4·W to W − 64 | placeholder "Search" | live search (`organizing.md` §8.1); Ctrl+F / F3 focuses it |
 | 8 | **Activity indicator** | 28 × 28 | current background job | spinner while scanning/exporting/finding faces; click → popover listing jobs with progress and Cancel |
@@ -173,7 +173,7 @@ in view; a scroll asked for from outside the view (a tree click, a scroll comman
 ### 5.2 Section header block
 
 ```text
-[📁 32]  Lisbon Weekend                                   3 edited  [Save]
+[📁 32]  Lisbon Weekend                         3 edited  [Save] [Discard]
          Thursday, June 4, 2026 · Lisbon, Portugal
 [▶] [▦] │ [★] │ [💾] [Export ▾]
 Add a description
@@ -192,8 +192,10 @@ Add a description
   ("Export these photos to a folder"). Play/Collage/Export use the selection when the selection
   is inside this section, else the whole section (Collage passes `create.collage` one or the other:
   `ids`, else `section`; it opens the Collage room, `creating.md` §3).
-- Top-right, only when the section has unsaved edits: "%d edited" (`text_dim`) and a **Save**
-  text button (same as the 💾 button).
+- Top-right, only when the section has unsaved edits: "%d edited" (`text_dim`), a **Save**
+  text button (same as the 💾 button) and, to its right, a **Discard** text button ("Remove the
+  unsaved edits from these photos"; Dalica's, M16.34). Discard acts on exactly the photos the
+  count names and asks first with Undo All Edits' question (`editing.md` §5.1).
 - **Description** line: the description (`text_label`) or the placeholder **"Add a description"**
   (`text_dim`); click to edit inline (Enter commits, Esc cancels).
 - Right-click anywhere on the header = the folder/album context menu.
