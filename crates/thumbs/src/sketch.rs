@@ -28,6 +28,13 @@
 //!
 //! Every step uses only `+ − × ÷ √` and rounding (our own cosine, no `powf`, `log` or `cos` from
 //! the platform's maths library), so the same pixels give the same bytes on every platform.
+//!
+//! **Colour summaries** (M16.10, `organizing.md` §8.1): [`Sketch::colours`] reads the sketch as a
+//! grid of [`COLOUR_SIDE`] cells on its long side and hands it to `dalica-core`'s classifier, so a
+//! photo's `color:` summary costs no file read and follows every redrawn sketch; [`colours`] does
+//! the same from stored bytes.
+
+use dalica_core::color_summary::{ColourSummary, classify};
 
 use crate::Rgba8;
 
@@ -42,6 +49,11 @@ pub const MAX_DECODE_SIDE: u32 = 64;
 
 /// The long side a sketch is usually drawn from: enough for a smooth blur when scaled up.
 pub const DEFAULT_DECODE_SIDE: u32 = 32;
+
+/// The long side of the grid a colour summary reads: the sketch keeps 4 × 4 colour frequencies,
+/// so 16 cells a side see every colour it holds (256 cells at most, well under the classifier's
+/// cap).
+pub const COLOUR_SIDE: u32 = 16;
 
 /// Frequencies kept along the long side, and the fewest along the short side: lightness, then
 /// the two colour channels.
@@ -215,6 +227,14 @@ impl Sketch {
         Rgba8 { width: w, height: h, data }
     }
 
+    /// The photo's colour summary (`organizing.md` §8.1): the sketch as a [`COLOUR_SIDE`] grid
+    /// with the photo's aspect, through `dalica_core::color_summary::classify`. Never empty.
+    pub fn colours(&self) -> ColourSummary {
+        let (w, h) = self.size(COLOUR_SIDE);
+        let cells: Vec<[u8; 3]> = self.grid(w, h).into_iter().map(|[r, g, b, _]| [r, g, b]).collect();
+        classify(&cells)
+    }
+
     /// The colour at the centre of each cell of a `cols` × `rows` grid laid over the photo
     /// (each clamped to 1..=[`MAX_DECODE_SIDE`]), row by row: for drawing a few flat rectangles.
     pub fn grid(&self, cols: u32, rows: u32) -> Vec<[u8; 4]> {
@@ -238,6 +258,12 @@ impl Sketch {
             }
         }
     }
+}
+
+/// The colour summary of a stored sketch ([`Sketch::colours`]); bytes that are not a sketch give
+/// the empty summary, never a panic.
+pub fn colours(bytes: &[u8]) -> ColourSummary {
+    decode(bytes).map(|s| s.colours()).unwrap_or_default()
 }
 
 impl Channel {

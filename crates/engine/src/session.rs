@@ -744,18 +744,6 @@ impl Session {
         }
     }
 
-    /// Applies the sketches the thumbnailer made, [`crate::thumbs::SKETCH_BATCH`] per op; those of
-    /// photos that are gone, or unchanged, are left out.
-    fn apply_sketches(&mut self) {
-        let mut list = self.thumbs.take_sketches();
-        list.retain(|(id, sketch)| self.library.photo(*id).is_some() && self.library.sketch(*id) != sketch.as_ref());
-        for batch in list.chunks(crate::thumbs::SKETCH_BATCH) {
-            if let Err(e) = self.apply_derived(Op::SetSketches { sketches: batch.to_vec() }) {
-                self.scan_warnings.push(format!("sketches not applied: {e}"));
-            }
-        }
-    }
-
     fn all_folder_ids(&self) -> Vec<FolderId> {
         self.library.folders().map(|f| f.id).collect()
     }

@@ -561,8 +561,8 @@ How Dalica does it (M13.22):
   punctuation character, so `(beach)` and `beach,` find `beach`) in file names, captions, tags,
   people names, folder and album names, places, descriptions, dates (month names, years,
   `2026-06`), camera make/model, and dimensions (`4000x3000`). Several words = AND. Operators:
-  `-word` (NOT), `tag:word`, `person:name`, `camera:x`, `color:green` (a later milestone, decided at
-  the M9 review; dominant colour).
+  `-word` (NOT), `tag:word`, `person:name`, `camera:x`, `color:green` (the colours a photo holds,
+  M16; **Colours** below).
 - Autocomplete dropdown lists matching tags, folders, albums and people with counts.
 - Results: only matching folders/albums/photos are shown; a **filter banner** across the top of the
   light table: [**Show All**] + "Showing 33 pictures in 4 folders (0.01 s)"; a temporary album
@@ -582,8 +582,9 @@ How the search reads the text and answers (decided while building it, M9.8 and M
   without a date still ages.
 - **Operators.** An operator with no value (`tag:` alone, a lone `-`) narrows nothing.
   `person:` matches the names and nicknames of the people whose faces are on a photo (plain words
-  find them too; M13.1). `color:` is read but matches nothing until its milestone. The result
-  lists as `unavailable` what cannot match for want of data: `color`, `person` while the library
+  find them too; M13.1). `color:` matches by the photo's colour summary (**Colours** below). The
+  result lists as `unavailable` what cannot match for want of data: `color` while no photo has a
+  summary yet, `person` while the library
   has no people, and the Faces filter while no photo has a named or unnamed face. An unknown
   `name:value` is read as plain words.
 - **Names over automation** (M13.48, `faces.md` §7): a search an automation surface runs without
@@ -605,6 +606,15 @@ How the search reads the text and answers (decided while building it, M9.8 and M
   largest is the photo's main colour: a red barn under a blue sky is red and blue, a green field
   with a small red flower is green only. The thresholds are named constants in
   `dalica-core`'s `color_summary`.
+  How it landed (M16.10): the summary reads the sketch as a grid of 16 cells on its long side. The
+  job that makes a sketch reads its summary too, on the thumbnail worker, and the two are stored
+  in one step, so a scan, a rescan and an edit all keep them together (Black and White moves a
+  photo to `color:bw` once its thumbnail is redrawn; undo moves it back). A library indexed before
+  summaries existed gains them in the background from the sketches it already has, without
+  reading a photo, and `color` stops being `unavailable` as the first ones land. Tools ▸
+  Experimental ▸ Search for ▸ Red … Black and White puts `color:<word>` in the search field, so
+  the banner, Show All and Save Search as Album work as for any search. Reading a summary costs
+  about 3 µs per sketch beside the 66 µs of making the sketch.
 - **Hidden and small pictures** count only when View ▸ Hidden Pictures and Small Pictures show
   them, so the banner counts what the light table shows.
 - **Order.** Results come in light-table order: by folder in the order the tree lists the folders
@@ -722,5 +732,5 @@ By ▸.
 ## 11. Open questions (reserved for the maintainer)
 
 1. ~~Whether `color:` search ships in M9 or later.~~ **Answered 2026-10-15 (M9.R): after 1.0 (M16),
-   with the other P2 rows**; until then `color:` and Tools ▸ Experimental ▸ Search for answer "not
-   available yet".
+   with the other P2 rows.** Closed by M16.10: `color:` and Tools ▸ Experimental ▸ Search for ▸
+   are live (§8.1, **Colours**).

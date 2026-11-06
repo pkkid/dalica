@@ -20,8 +20,14 @@
 //!   person's export made is suggested (`automation::PersonExports`, `control-protocol.md` §6.13).
 //! - `search.saveAsAlbum {name}` (Tools ▸ Experimental ▸ Save Search Results…): a user album of the
 //!   matches in light-table order, one undo step.
+//! - `search.color {color}` (Tools ▸ Experimental ▸ Search for ▸, M16.10, `organizing.md` §8.1):
+//!   sets the search text to `color:<word>` as the search field would (the filters, age and
+//!   people stay), so the banner, Show All and Save Search as Album work unchanged. The colour is
+//!   one of `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `bw` in any case; anything else
+//!   is `bad_params`.
 
 use dalica_core::PersonId;
+use dalica_core::color_summary::SearchColour;
 use dalica_library::search::{Filters, MAX_PEOPLE, Suggestion};
 use dalica_library::{AlbumInfo, Op, clean_album_name};
 use serde::{Deserialize, Deserializer};
@@ -77,6 +83,17 @@ pub fn specs() -> Vec<CommandSpec> {
             history: History::Library,
             enabled: searching,
             run: save_as_album,
+        },
+        CommandSpec {
+            id: "search.color",
+            label: "Search for Color",
+            menu: "Tools/Experimental/Search for",
+            keys: &[],
+            params: r#"{"color":"red"|"orange"|"yellow"|"green"|"blue"|"purple"|"bw" (any case)}: sets the search text to color:<word> as the search field would (filters, age and people stay); runs after the debounce, on the worker, without an undo step. Replies library.inspect's search and changed"#,
+            effect: Effect::Query,
+            history: History::None,
+            enabled: always,
+            run: search_color,
         },
     ]
 }
@@ -195,6 +212,26 @@ fn suggest(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     }
     let list = s.search_suggestions(&text, limit, withhold_names)?;
     Ok(json!({ "text": text, "suggestions": list.iter().map(suggestion_json).collect::<Vec<_>>() }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ColorParams {
+    color: String,
+}
+
+/// Search for ▸ a colour: the search field's text becomes `color:<word>`.
+fn search_color(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
+    let ColorParams { color } = params(p)?;
+    let colour = SearchColour::from_word(&color).ok_or_else(|| {
+        let words: Vec<&str> = SearchColour::ALL.iter().map(|c| c.word()).collect();
+        CmdError::BadParams(format!("`color` is one of {}", words.join(", ")))
+    })?;
+    let filters = s.search_state().filters;
+    let changed = s.set_search(Some(format!("color:{}", colour.word())), filters, None, None, false);
+    let mut reply = s.search_inspect();
+    reply["changed"] = json!(changed);
+    Ok(reply)
 }
 
 #[derive(Deserialize)]

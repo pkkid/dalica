@@ -36,6 +36,10 @@
 //!   switch belongs to one `search.set`: each call sets it from its own params (left out: names
 //!   match), so a window's own search always matches names, while the automation's search, run
 //!   again as the library changes, keeps them out.
+//! - **Colours** (`organizing.md` §8.1, M16.10): colour summaries are derived data applied outside
+//!   `Session::apply` (with the sketches, `thumbs.rs`), which hands each summary op to
+//!   [`Session::search_applied`] itself, so `color:` follows them and a search in progress runs
+//!   again as they land.
 //!
 //! Find Duplicates (M9.16, `duplicates.rs`) shows its groups through the same state in mode
 //! [`SearchMode::Duplicates`].
