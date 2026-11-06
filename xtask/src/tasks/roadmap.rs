@@ -370,8 +370,8 @@ mod tests {
         let text = std::fs::read_to_string(crate::workspace_root().join("docs/roadmap.md")).unwrap();
         let roadmap = parse(&text).unwrap();
         // 38 milestones combined into 16 (maintainer decision, 2026-10-10), plus M16 for after 1.0
-        // (maintainer decision, 2026-10-11).
-        assert_eq!(roadmap.milestones.len(), 17);
+        // (maintainer decision, 2026-10-11), plus M17 for M16's follow-ups (maintainer, M16.R, 2026-11-06).
+        assert_eq!(roadmap.milestones.len(), 18);
         // Every review task is the maintainer's: a stop only the maintainer merges or closes.
         let reviews: Vec<&Task> = roadmap.tasks.iter().filter(|t| t.is_gate()).collect();
         for id in ["M0.R", "M1.A", "M1.R", "M2.R", "M3.R", "M4.R"] {
