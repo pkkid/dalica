@@ -5,6 +5,7 @@ mod common;
 
 mod albums;
 mod carry;
+mod colours;
 mod crash;
 mod faces_cache;
 mod fields;

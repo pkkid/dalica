@@ -10,17 +10,20 @@
 //!   characters. Several words must all match (AND).
 //! - A word starting with `-` excludes what it matches (NOT).
 //! - `tag:value`, `camera:value` and `person:value` look at the tags, the camera make and model or
-//!   the names and nicknames of the people on the photo only. `color:value` is read but matches
-//!   nothing yet (colour search comes later). [`Parsed::unavailable`] names the operators that may
-//!   match nothing for want of data (`person` while a library has no people, `color`); the index
-//!   keeps those its library lacks, so the caller can say so. Any other `name:value` is searched
-//!   as plain words (`foo:bar` is `foo bar`).
+//!   the names and nicknames of the people on the photo only. `color:<colour>` (M16: one of the
+//!   seven words of [`SearchColour::from_word`], any case) matches a photo whose colour summary
+//!   holds the colour; a word that names no colour (`color:teal`) is read as plain words, as an
+//!   unknown operator is. [`Parsed::unavailable`] names the operators that may match nothing for
+//!   want of data (`person` while a library has no people, `color` while no photo has a colour
+//!   summary); the index keeps those its library lacks, so the caller can say so. Any other
+//!   `name:value` is searched as plain words (`foo:bar` is `foo bar`).
 //! - A value is split into tokens at punctuation (dot, underscore, dash and the rest of ASCII
 //!   punctuation); every token must be the start of one of the photo's terms, ignoring case. A
 //!   date spelling (`2026`, `2026-06`, `2026-06-04`, or one being typed, `2026-0`) stays one token.
 //! - Caps: the text is read up to [`MAX_QUERY`] bytes and [`MAX_WORDS`] words, and each token up to
 //!   [`MAX_TERM`] bytes; [`Parsed::truncated`] says when something was left out.
 
+use dalica_core::color_summary::SearchColour;
 use serde::Serialize;
 
 /// The most bytes of search text read; the rest is left out (and [`Parsed::truncated`] set).
@@ -44,13 +47,13 @@ pub enum Field {
     Camera,
     /// `person:` — the names and nicknames of the people on the photo.
     Person,
-    /// `color:` — read, matching nothing until colour search exists.
+    /// `color:` — the photo's colour summary (its one token is a [`SearchColour`]'s word).
     Color,
 }
 
 impl Field {
     /// Whether words of this field can match without data a library may lack: `person:` needs
-    /// people (the index says whether its library has any), `color:` colour search.
+    /// people, `color:` colour summaries (the index says whether its library has any).
     pub fn is_available(self) -> bool {
         matches!(self, Field::Any | Field::Tag | Field::Camera)
     }
@@ -113,6 +116,8 @@ impl Parsed {
             };
             let (field, value) = match body.split_once(':') {
                 Some((name, value)) => match Field::from_name(name) {
+                    // A word that names no colour is plain words; an empty one is still being typed.
+                    Some(Field::Color) if !value.is_empty() && SearchColour::from_word(value).is_none() => (Field::Any, body),
                     Some(field) => (field, value),
                     None => (Field::Any, body),
                 },
@@ -121,7 +126,10 @@ impl Parsed {
             if !field.is_available() && !out.unavailable.contains(&field.name()) {
                 out.unavailable.push(field.name());
             }
-            let tokens = query_tokens(value);
+            let tokens = match SearchColour::from_word(value).filter(|_| field == Field::Color) {
+                Some(colour) => vec![colour.word().to_string()],
+                None => query_tokens(value),
+            };
             if !tokens.is_empty() {
                 out.atoms.push(Atom { negated, field, tokens });
             }

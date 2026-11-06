@@ -31,9 +31,15 @@
 //! them back after the albums and people they name.
 //!
 //! M15's too: the derived `videos` (`[photo id, video facts]` pairs, M15.11), left out when empty.
+//!
+//! M16's too: the derived colour summaries under `colours` (`[photo id, byte]` pairs, the byte
+//! form of `dalica_core::color_summary::ColourSummary`), left out when none. A snapshot without
+//! the key reads as one with no summaries; a byte with a bit the form does not know is dropped
+//! with a note ([`read_noted`]), never an error, since a summary is made again from the sketch.
 
 use std::path::Path;
 
+use dalica_core::color_summary::ColourSummary;
 use dalica_core::{AlbumId, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 use dalica_library::{
     AlbumInfo, ContentDigest, Face, Facts, Folder, FolderInfo, FolderSidecar, Geo, LegacyOriginal, Library, Op, Person, Photo, PhotoInfo, PhotoSort,
@@ -102,6 +108,8 @@ struct Snapshot {
     legacy_originals: Vec<(PhotoId, LegacyOriginal)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     videos: Vec<(PhotoId, VideoFacts)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    colours: Vec<(PhotoId, u8)>,
 }
 
 /// Writes the model of `library` as of op `seq`.
@@ -134,6 +142,7 @@ pub fn write(path: &Path, library: &Library, seq: u64) -> Result<()> {
         folder_sidecars: library.folder_sidecars().collect(),
         legacy_originals: library.legacy_originals().map(|(id, o)| (id, o.clone())).collect(),
         videos: library.video_facts_all().map(|(id, v)| (id, v.clone())).collect(),
+        colours: library.colours_all().map(|(id, c)| (id, c.to_byte())).collect(),
     };
     let json = serde_json::to_vec(&snap).map_err(|e| Error::Json(e.to_string()))?;
     write_whole(path, &encode(&json))
@@ -141,6 +150,13 @@ pub fn write(path: &Path, library: &Library, seq: u64) -> Result<()> {
 
 /// The library and op number a snapshot holds, or why it cannot be used.
 pub fn read(bytes: &[u8]) -> std::result::Result<(Library, u64), String> {
+    read_noted(bytes).map(|(library, seq, _)| (library, seq))
+}
+
+/// [`read`], with a note for each value it left out without failing (a colour summary byte with a
+/// bit the byte form does not know).
+pub fn read_noted(bytes: &[u8]) -> std::result::Result<(Library, u64, Vec<String>), String> {
+    let mut notes = Vec::new();
     let line = bytes.strip_suffix(b"\n").ok_or("the snapshot is cut off")?;
     let json = decode(line)?;
     let snap: Snapshot = serde_json::from_slice(json).map_err(|e| e.to_string())?;
@@ -219,6 +235,21 @@ pub fn read(bytes: &[u8]) -> std::result::Result<(Library, u64), String> {
     if !snap.videos.is_empty() {
         ops.push(Op::SetVideos { videos: snap.videos.into_iter().map(|(id, v)| (id, Some(v))).collect() });
     }
+    let colours: Vec<(PhotoId, Option<ColourSummary>)> = snap
+        .colours
+        .into_iter()
+        .filter_map(|(id, byte)| match ColourSummary::from_byte(byte) {
+            Some(c) => Some((id, Some(c))),
+            None => {
+                notes
+                    .push(format!("{FILE}: photo {id}'s colour summary {byte} has a bit Dalica does not know: left out, made again from its sketch"));
+                None
+            }
+        })
+        .collect();
+    if !colours.is_empty() {
+        ops.push(Op::SetColours { colours });
+    }
     library.apply(Op::Batch { ops }).map_err(|e| format!("inconsistent snapshot: {e}"))?;
-    Ok((library, snap.seq))
+    Ok((library, snap.seq, notes))
 }

@@ -7,12 +7,14 @@
 //!
 //! M9's fields are held in maps of their own beside [`Photo`] and [`FolderInfo`], as M8's are, so
 //! the struct literals other crates build keep compiling. So are M13's: each photo's faces and
-//! geotag, and the people (`people.rs`).
+//! geotag, and the people (`people.rs`). So is M16's colour summary of each photo (derived data
+//! made from its sketch, index-only like the sketch: [`Library::colours`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use dalica_core::color_summary::ColourSummary;
 use dalica_core::{AlbumId, Date, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 use serde::{Deserialize, Serialize};
 
@@ -742,6 +744,8 @@ pub struct Model {
     /// Video facts (M15; index-only, derived): only photos in `photos`; a photo with one is a
     /// video.
     pub(crate) videos: BTreeMap<PhotoId, VideoFacts>,
+    /// Colour summaries (M16; index-only, derived from the sketch): only photos in `photos`.
+    pub(crate) colours: BTreeMap<PhotoId, ColourSummary>,
 }
 
 /// The library: the model, its revision counters and the next free ids.
@@ -812,6 +816,21 @@ impl Library {
     /// How many photos have a sketch.
     pub fn sketch_count(&self) -> usize {
         self.model.sketches.len()
+    }
+
+    /// The colour summary of photo `id` (M16, `organizing.md` §8.1), if one was made.
+    pub fn colours(&self, id: PhotoId) -> Option<ColourSummary> {
+        self.model.colours.get(&id).copied()
+    }
+
+    /// Every colour summary, by photo id.
+    pub fn colours_all(&self) -> impl Iterator<Item = (PhotoId, ColourSummary)> + '_ {
+        self.model.colours.iter().map(|(id, c)| (*id, *c))
+    }
+
+    /// Whether any photo has a colour summary (while none has, `color:` can match nothing).
+    pub fn has_colours(&self) -> bool {
+        !self.model.colours.is_empty()
     }
 
     /// What the user said about photo `id` ([`PhotoInfo::EMPTY`] for nothing, or an unknown id).
@@ -1042,5 +1061,32 @@ impl Library {
 
     pub(crate) fn touch(&mut self, folder: FolderId) {
         self.folder_revisions.insert(folder, self.revision);
+    }
+}
+
+/// The serde form of colour summaries in [`Op::SetColours`](crate::Op::SetColours): `[photo id,
+/// byte]` pairs ([`ColourSummary::to_byte`]; `null` clears one). A byte the form does not know is
+/// refused, so a damaged journal record stops the replay there rather than inventing a colour.
+pub(crate) mod colour_bytes {
+    use dalica_core::PhotoId;
+    use dalica_core::color_summary::ColourSummary;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(items: &[(PhotoId, Option<ColourSummary>)], serializer: S) -> Result<S::Ok, S::Error> {
+        let bytes: Vec<(PhotoId, Option<u8>)> = items.iter().map(|(id, c)| (*id, c.map(ColourSummary::to_byte))).collect();
+        bytes.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<(PhotoId, Option<ColourSummary>)>, D::Error> {
+        let bytes: Vec<(PhotoId, Option<u8>)> = Vec::deserialize(deserializer)?;
+        bytes
+            .into_iter()
+            .map(|(id, b)| match b {
+                None => Ok((id, None)),
+                Some(b) => {
+                    ColourSummary::from_byte(b).map(|c| (id, Some(c))).ok_or_else(|| serde::de::Error::custom(format!("{b} is not a colour summary")))
+                }
+            })
+            .collect()
     }
 }

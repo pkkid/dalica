@@ -1,10 +1,11 @@
 //! The op generator `ops.rs` and `search_props.rs` share: a [`Seed`] (a recipe for an op, drawn by
 //! proptest) built into a real op against the current library, every op of the model in the mix:
 //! M13's people, faces and geotags, M14's legacy ids and facts and the project kinds, and M15's
-//! video facts included ([`op_name`] names each, and `ops.rs` checks the mix reaches them all).
+//! video facts and M16's colour summaries included ([`op_name`] names each, and `ops.rs` checks the mix reaches them all).
 
 use std::path::PathBuf;
 
+use dalica_core::color_summary::ColourSummary;
 use dalica_core::geo::LatLon;
 use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Rect01, Timestamp};
 use dalica_library::{
@@ -79,6 +80,8 @@ pub enum Seed {
     SetLegacyOriginals(Vec<(u8, Option<u8>)>),
     // M15.
     SetVideos(Vec<(u8, Option<u8>)>),
+    // M16.
+    SetColours(Vec<(u8, Option<u8>)>),
     /// A seed's op stamped with a last-changed time.
     Stamped(Box<Seed>, u8),
     Batch(Vec<Seed>),
@@ -228,6 +231,11 @@ pub fn project(n: u8) -> Project {
 
 /// A video's facts: an empty record (an unprobed video), or durations, sizes, turns, codecs and
 /// rates drawn from `n`.
+/// A colour summary from its byte form (an unknown byte: the empty summary).
+pub fn colours(n: u8) -> ColourSummary {
+    ColourSummary::from_byte(n).unwrap_or_default()
+}
+
 pub fn video(n: u8) -> VideoFacts {
     if n.is_multiple_of(6) {
         return VideoFacts::default();
@@ -295,6 +303,7 @@ pub fn later_leaf() -> impl Strategy<Value = Seed> {
         1 => proptest::collection::vec((any::<u8>(), any::<u8>()), 0..3).prop_map(Seed::SetFolderSidecars),
         1 => opt().prop_map(Seed::SetLegacyOriginals),
         2 => opt().prop_map(Seed::SetVideos),
+        2 => opt().prop_map(Seed::SetColours),
     ]
 }
 
@@ -545,6 +554,7 @@ pub fn build(lib: &mut Library, seed: &Seed) -> Op {
             Op::SetLegacyOriginals { originals: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(legacy_original)))).collect() }
         }
         Seed::SetVideos(list) => Op::SetVideos { videos: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(video)))).collect() },
+        Seed::SetColours(list) => Op::SetColours { colours: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(colours)))).collect() },
         Seed::Stamped(seed, t) => {
             let op = build(lib, seed);
             lib.stamped(op, time(*t))
@@ -637,12 +647,13 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::SetFolderSidecars { .. } => "setFolderSidecars",
         Op::SetLegacyOriginals { .. } => "setLegacyOriginals",
         Op::SetVideos { .. } => "setVideos",
+        Op::SetColours { .. } => "setColours",
         Op::Batch { .. } => "batch",
     }
 }
 
 /// Every op's journal name ([`op_name`]).
-pub const OP_NAMES: [&str; 48] = [
+pub const OP_NAMES: [&str; 49] = [
     "addFolder",
     "removeFolder",
     "addPhotos",
@@ -690,5 +701,6 @@ pub const OP_NAMES: [&str; 48] = [
     "setFolderSidecars",
     "setLegacyOriginals",
     "setVideos",
+    "setColours",
     "batch",
 ];

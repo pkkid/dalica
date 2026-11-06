@@ -11,12 +11,14 @@
 //! filters and the scope let through. Each folder's photos are sorted once in the folder's own
 //! sort and kept until one of them changes, so the result comes out in light-table order without
 //! sorting it. The People pane's filter ([`People`]) intersects each person's photos first; a
-//! search that withholds names never looks at people's name terms.
+//! search that withholds names never looks at people's name terms. Each search colour keeps the
+//! set of photos whose colour summary holds it (M16), so a `color:` word is one set.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Bound;
 use std::sync::OnceLock;
 
+use dalica_core::color_summary::SearchColour;
 use dalica_core::{AlbumId, FolderId, PersonId, PhotoId};
 use serde::Serialize;
 
@@ -180,8 +182,8 @@ pub struct SearchResult {
     /// The matches' bytes on disk.
     pub bytes: u64,
     /// Operators and filters used that match nothing for want of data: `person` while the library
-    /// has no people (or the search withholds names), `color` (not built yet), `faces` while no
-    /// photo has a face.
+    /// has no people (or the search withholds names), `color` while no photo has a colour
+    /// summary, `faces` while no photo has a face.
     pub unavailable: Vec<&'static str>,
     /// Whether the text was cut at the grammar's caps.
     pub truncated: bool,
@@ -201,15 +203,18 @@ pub enum SuggestionKind {
     Tag,
     Folder,
     Album,
+    /// A search colour (M16), offered after `color:`.
+    Color,
 }
 
-/// One line of the search box's autocomplete: a tag, folder or album with how many photos show
-/// under it.
+/// One line of the search box's autocomplete: a tag, folder, album or search colour with how many
+/// photos show under it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Suggestion {
     pub kind: SuggestionKind,
-    /// The tag (in the spelling most photos use), the folder's name or the album's name.
+    /// The tag (in the spelling most photos use), the folder's name, the album's name or the
+    /// colour's word (`green`, `bw`).
     pub text: String,
     pub count: usize,
     /// The folder's or album's section; `None` for a tag.
@@ -237,6 +242,9 @@ pub struct SearchIndex {
     person_terms: TermMap<PersonId>,
     /// How many photos have a face the Faces filter counts.
     with_faces: usize,
+    /// The photos whose colour summary holds each colour (M16), and how many have a summary.
+    colours: BTreeMap<SearchColour, BTreeSet<u32>>,
+    with_colours: usize,
     /// Whole tags (folded), for suggestions.
     tag_names: BTreeMap<String, TagEntry>,
 }
@@ -533,6 +541,32 @@ impl SearchIndex {
             (true, false) => self.with_faces = self.with_faces.saturating_sub(1),
             _ => {}
         }
+        // Its colours.
+        let (old_colours, new_colours) = (old.and_then(|d| d.colours), new.and_then(|d| d.colours));
+        if old_colours != new_colours {
+            for c in SearchColour::ALL {
+                match (old_colours.is_some_and(|s| s.contains(c)), new_colours.is_some_and(|s| s.contains(c))) {
+                    (true, false) => {
+                        let gone = self.colours.get_mut(&c).is_some_and(|set| {
+                            set.remove(&slot);
+                            set.is_empty()
+                        });
+                        if gone {
+                            self.colours.remove(&c);
+                        }
+                    }
+                    (false, true) => {
+                        self.colours.entry(c).or_default().insert(slot);
+                    }
+                    _ => {}
+                }
+            }
+            match (old_colours.is_some(), new_colours.is_some()) {
+                (false, true) => self.with_colours = self.with_colours.saturating_add(1),
+                (true, false) => self.with_colours = self.with_colours.saturating_sub(1),
+                _ => {}
+            }
+        }
     }
 
     /// Whether the photo in `slot` shows under `scope` (hidden and small pictures).
@@ -644,7 +678,13 @@ impl SearchIndex {
             Field::Tag => &[&self.tags],
             Field::Camera => &[&self.camera],
             Field::Person => &[],
-            Field::Color => return bits,
+            Field::Color => {
+                let colour = SearchColour::from_word(token);
+                for slot in colour.and_then(|c| self.colours.get(&c)).into_iter().flatten() {
+                    bits.set(*slot);
+                }
+                return bits;
+            }
         };
         for map in maps {
             for set in with_prefix(map, token) {
@@ -715,6 +755,9 @@ impl SearchIndex {
         let mut unavailable = parsed.unavailable.clone();
         if !who.withhold_names && self.people.values().any(|e| e.doc.is_some()) {
             unavailable.retain(|op| *op != Field::Person.name());
+        }
+        if self.with_colours > 0 {
+            unavailable.retain(|op| *op != Field::Color.name());
         }
         if query.filters.faces && self.with_faces == 0 {
             unavailable.push("faces");
@@ -788,14 +831,18 @@ impl SearchIndex {
     /// word of whose name (or whose whole name) starts with it, ignoring case, each with how many
     /// photos show under `scope`, those with none left out; tags, then folders, then albums, each
     /// kind by count (most first), then by name; at most `limit` (and [`MAX_SUGGESTIONS`]). After
-    /// `tag:` only tags; after another operator nothing. A leading `-` is ignored.
+    /// `tag:` only tags; after `color:` the search colours whose word starts with what follows
+    /// (all seven right after the colon), in the menu's order, each with how many photos show
+    /// under `scope` holding it, none left out; after another operator nothing. A leading `-` is
+    /// ignored.
     pub fn suggest(&self, text: &str, scope: &Scope, limit: usize) -> Vec<Suggestion> {
         let limit = limit.min(MAX_SUGGESTIONS);
         let word = cut(text, MAX_QUERY).rsplit(is_word_separator).next().unwrap_or_default();
         let word = word.strip_prefix('-').unwrap_or(word);
         let (tags_only, value) = match word.split_once(':') {
             Some((name, value)) if name.eq_ignore_ascii_case("tag") => (true, value),
-            Some((name, _)) if ["camera", "person", "color"].iter().any(|f| f.eq_ignore_ascii_case(name)) => return Vec::new(),
+            Some((name, value)) if name.eq_ignore_ascii_case("color") => return self.suggest_colours(value, scope, limit),
+            Some((name, _)) if ["camera", "person"].iter().any(|f| f.eq_ignore_ascii_case(name)) => return Vec::new(),
             _ => (false, word),
         };
         let prefix = value.to_lowercase();
@@ -851,6 +898,21 @@ impl SearchIndex {
         out
     }
 
+    /// The search colours whose word starts with `value` (ignoring case), in the menu's order, with
+    /// how many photos show under `scope` holding each; at most `limit`.
+    fn suggest_colours(&self, value: &str, scope: &Scope, limit: usize) -> Vec<Suggestion> {
+        let prefix = value.to_lowercase();
+        SearchColour::ALL
+            .into_iter()
+            .filter(|c| c.word().starts_with(&prefix))
+            .map(|c| {
+                let count = self.colours.get(&c).map_or(0, |slots| slots.iter().filter(|s| self.shows(**s, scope)).count());
+                Suggestion { kind: SuggestionKind::Color, text: c.word().to_string(), count, section: None }
+            })
+            .take(limit)
+            .collect()
+    }
+
     /// The index's content keyed by photo id rather than slot, to compare two indexes built in
     /// different ways.
     fn canonical(&self) -> Canonical<'_> {
@@ -870,6 +932,8 @@ impl SearchIndex {
             people: self.people.iter().map(|(id, e)| (id.clone(), (e.doc.as_ref(), ids(&e.photos)))).collect(),
             person_terms: &self.person_terms,
             with_faces: self.with_faces,
+            colours: self.colours.iter().map(|(c, slots)| (*c, ids(slots))).collect(),
+            with_colours: self.with_colours,
             tag_names: self.tag_names.iter().map(|(t, e)| (t.clone(), (&e.spellings, ids(&e.photos)))).collect(),
         }
     }
@@ -895,6 +959,8 @@ struct Canonical<'a> {
     people: BTreeMap<PersonId, (Option<&'a PersonDoc>, BTreeSet<Option<PhotoId>>)>,
     person_terms: &'a TermMap<PersonId>,
     with_faces: usize,
+    colours: BTreeMap<SearchColour, BTreeSet<Option<PhotoId>>>,
+    with_colours: usize,
     tag_names: TagIds<'a>,
 }
 

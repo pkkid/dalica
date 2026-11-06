@@ -9,10 +9,13 @@
 //! filter counts (named or unnamed, not ignored); its geotagged flag is the model's word, else the
 //! file's ([`Library::is_geotagged`]). People are records of their own ([`PersonDoc`]), found
 //! through their photos like albums, so renaming one touches one record.
+//!
+//! M16: a photo's record holds its colour summary ([`Library::colours`]), what `color:` reads.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+use dalica_core::color_summary::ColourSummary;
 use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, Timestamp};
 
 use super::grammar::{MONTHS, terms};
@@ -56,6 +59,8 @@ pub struct PhotoDoc {
     pub people: Vec<PersonId>,
     /// Whether it has a named or unnamed face (ignored ones do not count): the Faces filter.
     pub faces: bool,
+    /// Its colour summary, if one was made (what `color:` reads).
+    pub colours: Option<ColourSummary>,
 }
 
 impl PhotoDoc {
@@ -87,6 +92,7 @@ impl PhotoDoc {
             albums,
             people: named_in(faces),
             faces: faces.iter().any(Face::counts),
+            colours: library.colours(photo.id),
         }
     }
 
@@ -317,6 +323,7 @@ impl Touched {
                 Op::RemoveMembers { members } => self.photos.extend(members.iter().map(|(_, id)| *id)),
                 Op::SetFacts { facts } => self.photos.extend(facts.iter().map(|(id, _)| *id)),
                 Op::SetVideos { videos } => self.photos.extend(videos.iter().map(|(id, _)| *id)),
+                Op::SetColours { colours } => self.photos.extend(colours.iter().map(|(id, _)| *id)),
                 Op::SetFirstIndexed { indexed } => self.photos.extend(indexed.iter().map(|(id, _)| *id)),
                 Op::SetLastChanged { changed } => self.photos.extend(changed.iter().map(|(id, _)| *id)),
                 Op::SetFaces { faces } => self.photos.extend(faces.iter().map(|(id, _)| *id)),

@@ -2,7 +2,8 @@
 //! that answers a query over a whole library in one pass of set operations.
 //!
 //! - [`Parsed`] reads the text: words (AND), `-word` (NOT), `tag:`, `camera:` and `person:` (M13:
-//!   names and nicknames), `color:` (read, matching nothing yet), unknown `name:value` as plain
+//!   names and nicknames), `color:` (M16: a photo whose colour summary holds the colour; a word
+//!   naming no colour is plain words), unknown `name:value` as plain
 //!   words; tokens split at punctuation, matched as prefixes ignoring case; date spellings kept
 //!   whole. Hostile text is bounded ([`MAX_QUERY`], [`MAX_WORDS`], [`MAX_TERM`]). The grammar's
 //!   word and field reading is adapted from LightCraft `crates/catalog/src/query.rs` @ b7091805
@@ -16,8 +17,8 @@
 //!   touched, so an index kept on a worker follows the library photo by photo.
 //! - [`SearchIndex`] answers [`SearchIndex::search`] (the matches in light-table order, the
 //!   sections with matches, the counts, folders and bytes the banner shows) and
-//!   [`SearchIndex::suggest`] (tags, folders and albums for a prefix, with counts, at most
-//!   [`MAX_SUGGESTIONS`]). [`Extract::matching`] applies the matcher's rule ([`text_matches`])
+//!   [`SearchIndex::suggest`] (tags, folders and albums for a prefix, the search colours after
+//!   `color:`, with counts, at most [`MAX_SUGGESTIONS`]). [`Extract::matching`] applies the matcher's rule ([`text_matches`])
 //!   photo by photo: the reference the index is tested against.
 
 mod extract;
