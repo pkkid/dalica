@@ -3,6 +3,8 @@
 //! the camera (no card is in), "Import from:" shows its name and lists it beside a camera another
 //! program holds, greyed out with its reason; its six pictures fill the tray with the camera's own
 //! thumbnails (no picture's bytes are read to list it); the owner thread made no file call.
+//! "After copying:" names the source: "Leave files on the camera" for the camera, "… the card"
+//! for a card.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -131,4 +133,35 @@ fn the_camera_shows_in_import_from_and_its_pictures_fill_the_tray_with_its_thumb
     let log = responder::lock(&cam).log.clone();
     assert_eq!(log.iter().filter(|c| c.code == op::GET_THUMB).count(), 6, "each picture's thumbnail came from the camera");
     assert!(!log.iter().any(|c| c.code == op::GET_OBJECT || c.code == op::GET_PARTIAL_OBJECT), "no picture was read to list it");
+}
+
+/// "After copying:" names the source's kind: the camera's choices for the camera, the card's once
+/// a card is opened (the ids stay `<id>/leave` and `<id>/delete`).
+#[test]
+fn after_copying_names_the_camera_and_the_card() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _cam) = driver(dir.path());
+    d.key("Ctrl+M").unwrap();
+    until(&mut d, "the camera listed", |d| listing(d)["state"] == "done" && listing(d)["source"]["kind"] == "camera");
+    d.settle(FRAMES).unwrap();
+    assert_eq!(widget(&d, "choice:import.after").label, "Leave files on the camera");
+    d.click("choice:import.after").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(widget(&d, "choice:import.after/delete").label, "Delete copied files from the camera");
+    d.key("Escape").unwrap();
+
+    // A card goes in: opened, its choices name the card.
+    let card = dir.path().join("mounts/EOS_DIGITAL/DCIM/100CANON");
+    std::fs::create_dir_all(&card).unwrap();
+    std::fs::write(card.join("IMG_0001.JPG"), dalica_scenes::jpeg(&dalica_scenes::Scene::new(1, 64, 48), 85, None).unwrap()).unwrap();
+    let mut path = Value::Null;
+    until(&mut d, "the card in the device list", |d| {
+        let sources = d.app_mut().session_mut().unwrap().execute("import.sources", &json!({})).unwrap();
+        path = sources["sources"].as_array().and_then(|a| a.iter().find(|s| s["kind"] == "card")).map(|s| s["path"].clone()).unwrap_or(Value::Null);
+        !path.is_null()
+    });
+    d.app_mut().session_mut().unwrap().execute("import.openSource", &json!({ "device": path })).unwrap();
+    until(&mut d, "the card listed", |d| listing(d)["state"] == "done" && listing(d)["source"]["kind"] == "card");
+    d.settle(FRAMES).unwrap();
+    assert_eq!(widget(&d, "choice:import.after").label, "Leave files on the card");
 }

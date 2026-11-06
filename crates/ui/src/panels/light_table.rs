@@ -395,14 +395,15 @@ fn build(
 
 /// The name the light table and the tree give an album of the Albums group: a user album's as
 /// the library has it, the built-in albums' in the language in effect (the search's around the
-/// text searched for, which the library's English name quotes).
+/// text searched for, which the library's English name quotes; "Search results" alone for a
+/// search by its filters or the age).
 pub fn album_title(album: &AlbumRef, name: &str) -> String {
     match album {
         AlbumRef::Starred => tl!("Starred Photos"),
         AlbumRef::Recent => tl!("Recently Updated"),
         AlbumRef::Search => match name.strip_prefix("Search results for \"").and_then(|r| r.strip_suffix('"')) {
             Some(text) => tl!("Search results for \"{text}\"", text = text),
-            None => name.to_string(),
+            None => tl!("Search results"),
         },
         AlbumRef::User(_) => name.to_string(),
     }

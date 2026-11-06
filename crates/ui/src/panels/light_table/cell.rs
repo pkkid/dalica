@@ -1,7 +1,8 @@
 //! A thumbnail cell (`ui-layout.md` §5.3–§5.5, `design-system.md` §7): a square of the cell size
 //! with the photo letterboxed in it (never cropped, never rounded) over its drop shadow; the
 //! selection's `cell_selected` surround and 2 pt outline (`photo_focus` on the anchor,
-//! `photo_selected` on the rest); the hover surround; the badges and video marks
+//! `photo_selected` on the rest); the keyboard's focus ring 1 pt outside the cell while it has the
+//! focus ([`widgets::focus_ring`]); the hover surround; the badges and video marks
 //! ([`widgets::badges`], fed what the model knows); the caption line under the cell, middle-elided;
 //! the `caution` "!" of a photo that cannot be shown; a video's tile ([`video_tile`]) while it has
 //! no picture, under its sprocket edge and duration pill ([`video_of`]); the inline caption editor under the cell it
@@ -504,6 +505,9 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
         video_tile(&painter, t, image);
     }
     let marks = paint_over(&painter, t, &look, drawn == Drawn::Failed);
+    // The keyboard's focus (`ui-layout.md` §12): a ring 1 pt outside the cell while the light table
+    // holds it (Tab, the arrows), gone on Esc or a click elsewhere. Full strength on a hidden photo.
+    widgets::focus_ring(ui.painter(), t, &response, c.rect, 0);
     let editing = f.state.caption_edit.as_ref().filter(|e| e.photo == id && primary);
     let caption = match (c.caption, caption_of(c.photo, f.session.library(), f.state.caption, (width, height))) {
         // The editor takes the caption line's place.

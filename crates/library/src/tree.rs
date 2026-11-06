@@ -144,7 +144,8 @@ impl fmt::Display for SectionId {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AlbumRef {
-    /// The temporary album of the current search ("Search results for …").
+    /// The temporary album of the current search ("Search results for …", or "Search results"
+    /// when only filters or the age are set).
     Search,
     /// Starred Photos.
     Starred,
@@ -286,7 +287,8 @@ pub struct TreeOptions {
     pub offline_roots: BTreeSet<PathBuf>,
     /// Search mode: only these photos count and show.
     pub filter: Option<Arc<SectionFilter>>,
-    /// The search text while searching: the Albums group then starts with the search album.
+    /// The search text while searching (empty when only filters or the age are set): the Albums
+    /// group then starts with the search album.
     pub search: Option<String>,
     /// Now, for Recently Updated (no such album without it).
     pub now: Option<Timestamp>,
@@ -739,7 +741,8 @@ fn visible(library: &Library, p: &Photo, options: &TreeOptions) -> bool {
 pub struct AlbumRow {
     pub album: AlbumRef,
     /// A user album's name; the automatic albums' names in English until localisation (M15):
-    /// `Search results for "x"`, `Starred Photos`, `Recently Updated`.
+    /// `Search results for "x"` (`Search results` with no text), `Starred Photos`,
+    /// `Recently Updated`.
     pub name: String,
     /// The photos it shows.
     pub count: usize,
@@ -755,6 +758,13 @@ impl AlbumRow {
     pub fn section(&self) -> Option<Section> {
         (self.count > 0).then(|| Section::Album(self.album.clone()))
     }
+}
+
+/// The search album's name for the text searched for: `Search results for "x"`, or `Search
+/// results` with no text (a search by its filters or the age alone).
+fn search_album_name(text: &str) -> String {
+    let text = text.trim();
+    if text.is_empty() { "Search results".to_string() } else { format!("Search results for \"{text}\"") }
 }
 
 /// The Albums group for one library revision and one set of options.
@@ -781,13 +791,7 @@ impl AlbumTree {
         if let Some(text) = &options.search {
             let ids = options.filter.as_ref().map(|f| f.ids()).unwrap_or_default();
             let count = ids.iter().filter(|id| shown(id)).count();
-            rows.push(AlbumRow {
-                album: AlbumRef::Search,
-                name: format!("Search results for \"{text}\""),
-                count,
-                date: None,
-                cover: first_shown(ids),
-            });
+            rows.push(AlbumRow { album: AlbumRef::Search, name: search_album_name(text), count, date: None, cover: first_shown(ids) });
         }
         let starred = library.starred_photos();
         let count = starred.iter().filter(|id| shown(id)).count();

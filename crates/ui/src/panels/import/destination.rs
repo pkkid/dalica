@@ -5,7 +5,9 @@
 //!   in", the recent destinations, then Choose…, the folder picker); "Folder name:" (a field for any
 //!   name, [`NAME_FIELD_ID`], and beside it the choices [`NAME_ID`]: Date taken (YYYY-MM-DD), one
 //!   folder per capture date; Today's date; the recent names); "After copying:" ([`AFTER_ID`]:
-//!   Leave files on the card, Delete copied files from the card), shown only for a card or a drive.
+//!   Leave files on the card, Delete copied files from the card), shown only for a card, a drive or
+//!   a camera, and naming the source's kind ([`after_labels`]: "… the camera" for a camera or
+//!   phone, "… the drive" for a drive).
 //!   Each choice drafts the view state through `import.destination`; nothing is applied before an
 //!   import button.
 //! - **The failed files** of an import that ended with failures, one line each, between the rows
@@ -68,6 +70,11 @@ pub const AFTER_LABEL: &str = "After copying:";
 pub const AFTER_ID: &str = "choice:import.after";
 pub const LEAVE: &str = "Leave files on the card";
 pub const DELETE: &str = "Delete copied files from the card";
+/// The same two for a camera or phone and for a drive (the ids stay `<id>/leave`, `<id>/delete`).
+pub const LEAVE_CAMERA: &str = "Leave files on the camera";
+pub const DELETE_CAMERA: &str = "Delete copied files from the camera";
+pub const LEAVE_DRIVE: &str = "Leave files on the drive";
+pub const DELETE_DRIVE: &str = "Delete copied files from the drive";
 /// The folder name choices.
 pub const DATE_TAKEN: &str = "Date taken (YYYY-MM-DD)";
 pub const TODAY: &str = "Today's date";
@@ -95,6 +102,10 @@ pub fn text(english: &str) -> String {
         "After copying:" => tl!("After copying:"),
         "Leave files on the card" => tl!("Leave files on the card"),
         "Delete copied files from the card" => tl!("Delete copied files from the card"),
+        "Leave files on the camera" => tl!("Leave files on the camera"),
+        "Delete copied files from the camera" => tl!("Delete copied files from the camera"),
+        "Leave files on the drive" => tl!("Leave files on the drive"),
+        "Delete copied files from the drive" => tl!("Delete copied files from the drive"),
         "Date taken (YYYY-MM-DD)" => tl!("Date taken (YYYY-MM-DD)"),
         "Today's date" => tl!("Today's date"),
         "One folder for each capture date" => tl!("One folder for each capture date"),
@@ -110,6 +121,17 @@ pub fn text(english: &str) -> String {
         "Each capture date gets its own folder" => tl!("Each capture date gets its own folder"),
         "Pictures will go into a folder named with today's date" => tl!("Pictures will go into a folder named with today's date"),
         other => crate::i18n::tr(other),
+    }
+}
+
+/// "After copying:"'s two choices (leave, delete) for a source of `kind`, in English: the camera's
+/// for a camera or phone, the drive's for a drive, the card's for a card (and a folder, which
+/// shows none).
+pub fn after_labels(kind: SourceKind) -> (&'static str, &'static str) {
+    match kind {
+        SourceKind::Camera => (LEAVE_CAMERA, DELETE_CAMERA),
+        SourceKind::Drive => (LEAVE_DRIVE, DELETE_DRIVE),
+        SourceKind::Card | SourceKind::Folder => (LEAVE, DELETE),
     }
 }
 
@@ -271,13 +293,14 @@ pub fn show(app: &App, ui: &mut Ui, t: &Tokens, snap: &Snapshot, shown: &Shown, 
     });
     x = r.rect.max.x + GROUP_GAP;
 
-    // "After copying:", for a card or a drive.
-    if snap.source.as_ref().is_some_and(|s| s.kind != SourceKind::Folder) {
+    // "After copying:", for a card, a drive or a camera, naming it.
+    if let Some(kind) = snap.source.as_ref().map(|s| s.kind).filter(|k| *k != SourceKind::Folder) {
         x = widgets::label_in(&p, Rect::from_min_max(pos2(x, row1.min.y), row1.max), Align2::LEFT_CENTER, &text(AFTER_LABEL), font, t.text_label)
             .max
             .x
             + LABEL_GAP;
-        let (leave, delete) = (text(LEAVE), text(DELETE));
+        let (leave, delete) = after_labels(kind);
+        let (leave, delete) = (text(leave), text(delete));
         let after = match draft.after {
             AfterCopy::Leave => &leave,
             AfterCopy::Delete => &delete,
