@@ -339,7 +339,7 @@ fn check_bottom_right(regions: &BTreeMap<String, Rect>, w: f64, h: f64, case: &s
 const MENUS: [&str; 8] = ["menu:File", "menu:Edit", "menu:View", "menu:Folder", "menu:Picture", "menu:Create", "menu:Tools", "menu:Help"];
 /// The toolbar of `ui-layout.md` §3, left to right, with its sizes (`None`: the search field, whose
 /// width follows the window). The age slider is 100 wide (its 20 pt height is the slider's).
-const TOOLBAR: [(&str, Option<[f64; 2]>); 12] = [
+const TOOLBAR: [(&str, Option<[f64; 2]>); 13] = [
     ("button:toolbar.import", Some([110.0, 28.0])),
     ("button:toolbar.newAlbum", Some([30.0, 28.0])),
     ("button:tree.flat", Some([30.0, 28.0])),
@@ -349,7 +349,9 @@ const TOOLBAR: [(&str, Option<[f64; 2]>); 12] = [
     ("button:filter.faces", Some([26.0, 26.0])),
     ("button:filter.videos", Some([26.0, 26.0])),
     ("button:filter.geotagged", Some([26.0, 26.0])),
-    ("slider:age", Some([100.0, 20.0])),
+    ("button:filter.edited", Some([26.0, 26.0])),
+    // 100 wide, or 80 when a wide tree leaves the group too little room (checked below).
+    ("slider:age", None),
     ("field:search", None),
     ("indicator:activity", Some([28.0, 28.0])),
 ];
@@ -459,6 +461,13 @@ fn check_window(c: &mut Client, w: f64, h: f64, tree: f64, pane: Option<(&str, f
     let starred = get("button:filter.starred").0;
     assert!(starred[0] >= regions["splitter"][0] + 8.0 + 8.0 - 0.01, "{case}: the filters start 8 right of the splitter: {starred:?}");
     let (search, age) = (get("field:search").0, get("slider:age").0);
+    // The age slider (`ui-layout.md` §3): 100 wide beside a usual tree; 80 only when a wide tree in
+    // a narrow window leaves the five filters and the slider too little room (M16.34).
+    if tree <= 240.0 {
+        assert_eq!(size(age), [100.0, 20.0], "{case}: `slider:age`");
+    } else {
+        assert!(size(age) == [100.0, 20.0] || size(age) == [80.0, 20.0], "{case}: `slider:age` is {age:?}");
+    }
     assert!(search[0] + search[2] <= w - 64.0 + 0.01, "{case}: the search field ends at W − 64: {search:?}");
     assert!(search[0] >= age[0] + age[2] + 12.0 - 0.01 && search[0] >= 0.4 * w - 28.0 - 0.01, "{case}: the search field starts at {search:?}");
     if w >= 1100.0 {
@@ -558,13 +567,13 @@ fn tree_beside(requested: f64, w: f64, pane: f64) -> f64 {
     requested.clamp(200.0, (w - pane - 480.0).max(200.0))
 }
 
-/// What `menus-and-shortcuts.md` §1 lists today, per layout: 8 menus, 113 items (Help ▸ Stats for
-/// Nerds… since M16.36) and 8 submenus (View ▸ Theme ▸ since M16.5) on Windows and Linux; on
-/// macOS Exit, Options… and About Dalica move to the application menu (110).
+/// What `menus-and-shortcuts.md` §1 lists today, per layout: 8 menus, 114 items (Help ▸ Stats for
+/// Nerds… since M16.36, View ▸ History since M16.33) and 8 submenus (View ▸ Theme ▸ since M16.5) on
+/// Windows and Linux; on macOS Exit, Options… and About Dalica move to the application menu (111).
 fn menu_floor(platform: menus::Platform) -> menus::Counts {
     let items = match platform {
-        menus::Platform::Mac => 110,
-        menus::Platform::Other => 113,
+        menus::Platform::Mac => 111,
+        menus::Platform::Other => 114,
     };
     menus::Counts { menus: 8, items, submenus: 8 }
 }
