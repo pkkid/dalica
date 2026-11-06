@@ -367,9 +367,16 @@ impl Headers {
                     (Some(folder), _) => {
                         let path = library.folder(folder).map(|f| f.path.display().to_string()).unwrap_or_default();
                         let info = library.folder_info(folder);
-                        // The date set in Folder Properties, else the oldest photo's (its effective date).
+                        // The date set in Folder Properties, else the oldest photo's (its effective date), the HEIC
+                        // card's photos included.
                         let date = info.date.or_else(|| {
-                            section.photos.iter().filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p))).min().map(|d| d.date())
+                            section
+                                .photos
+                                .iter()
+                                .chain(&section.unshown)
+                                .filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p)))
+                                .min()
+                                .map(|d| d.date())
                         });
                         (path, date, info.place.clone(), info.description.clone())
                     }
@@ -383,7 +390,12 @@ impl Headers {
                     },
                     // A person's: their name, and their newest photo's date.
                     (None, None) if section.id.person().is_some() => {
-                        let date = section.photos.iter().filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p))).max();
+                        let date = section
+                            .photos
+                            .iter()
+                            .chain(&section.unshown)
+                            .filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p)))
+                            .max();
                         (section.title.clone(), date.map(|d| d.date()), String::new(), String::new())
                     }
                     (None, None) => (section.title.clone(), None, String::new(), String::new()),

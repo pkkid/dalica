@@ -1297,6 +1297,7 @@
 ~@plural	Moved {n} photo to {folder}|Moved {n} photos to {folder}	ย้ายรูปภาพ {n} รูปไปยัง {folder} แล้ว
 ~@plural	Moved {n} photo|Moved {n} photos	ย้ายรูปภาพ {n} รูปแล้ว
 ~@plural	Names {n} face.|Names {n} faces.	ตั้งชื่อใบหน้า {n} ใบหน้า
+~@plural	Not displaying {n} HEIC image|Not displaying {n} HEIC images	ไม่ได้แสดงรูป HEIC {n} รูป
 ~@plural	Pictures up to {n} day old|Pictures up to {n} days old	รูปภาพอายุไม่เกิน {n} วัน
 ~@plural	Pictures up to {n} month old|Pictures up to {n} months old	รูปภาพอายุไม่เกิน {n} เดือน
 ~@plural	Pictures up to {n} week old|Pictures up to {n} weeks old	รูปภาพอายุไม่เกิน {n} สัปดาห์
