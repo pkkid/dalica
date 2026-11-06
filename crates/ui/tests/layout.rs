@@ -411,6 +411,7 @@ fn every_control_is_in_place_at_three_sizes_with_the_pane_open_and_closed_and_in
                 Pane::Properties => "properties",
                 Pane::People => "people",
                 Pane::Places => "places",
+                Pane::History => "history",
             });
             for full in [false, true] {
                 if full {

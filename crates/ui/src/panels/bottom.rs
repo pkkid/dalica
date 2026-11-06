@@ -3,7 +3,7 @@
 //! Left of the split, the Photo Tray ([`tray`]): a sunken box showing the selection and the held
 //! photos (empty: the "Selection" watermark) and its three stacked buttons Hold, Clear and Add to
 //! Album ▾. Right of it, the controls row (star, rotate counterclockwise and
-//! clockwise; the loupe, the thumbnail-size slider and the four side-pane toggles at the right) and,
+//! clockwise; the loupe, the thumbnail-size slider and the five side-pane toggles at the right) and,
 //! under a 1 pt separator, the action buttons Export ┆ Collage, Slideshow, which go behind a
 //! **More…** button that opens a vertical menu when the window is narrower than [`OVERFLOW_BELOW`].
 //! An action button is 64 wide, or wider when its label needs it (the Large font, a longer
@@ -20,7 +20,8 @@
 //!
 //! The size slider drives the same view state as Ctrl+1 / Ctrl+2 (`UiState::thumb_size`), so the
 //! light table's cells follow it; the pane toggles open, switch and close `UiState::pane`, the
-//! state `pane.toggle` (Ctrl+0) flips.
+//! state `pane.toggle` (Ctrl+0) flips. The fifth, History's (M16.33), wears the viewing set's clock,
+//! painted over its segment (the shell set, which the segments draw, has no clock).
 //!
 //! **In the edit view** (`editing.md` §2) the loupe and the size slider give way to the **Fit** │
 //! **1:1** buttons (`button:zoom.fit`, `button:zoom.1to1`: `edit.zoom.fit`, `edit.zoom.actual`)
@@ -30,7 +31,7 @@
 //! slideshow plays in the window around it (M16.32), whose preview panes they are.
 
 use dalica_ui_kit::Tokens;
-use dalica_ui_kit::icons::{self, Icon};
+use dalica_ui_kit::icons::{self, Glyph, Icon, ViewingIcon};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Segment, SegmentLabel, Target};
 use egui::{Id, Popup, Rect, RectAlign, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
@@ -82,12 +83,13 @@ pub const ROTATE: [(&str, Icon, &str, &str); 2] = [
     ("button:rotate.cw", Icon::RotateCw, "Rotate clockwise", "photo.rotate.cw"),
 ];
 
-/// The side-pane toggles, left to right: id, icon, tooltip, pane.
-pub const PANE_TOGGLES: [(&str, Icon, &str, Pane); 4] = [
-    ("toggle:pane.people", Icon::People, "Show/hide the People pane", Pane::People),
-    ("toggle:pane.places", Icon::Places, "Show/hide the Places pane", Pane::Places),
-    ("toggle:pane.tags", Icon::Tags, "Show/hide the Tags pane", Pane::Tags),
-    ("toggle:pane.properties", Icon::Properties, "Show/hide the Properties pane", Pane::Properties),
+/// The side-pane toggles, left to right: id, glyph, tooltip, pane.
+pub const PANE_TOGGLES: [(&str, Glyph, &str, Pane); 5] = [
+    ("toggle:pane.people", Glyph::Shell(Icon::People), "Show/hide the People pane", Pane::People),
+    ("toggle:pane.places", Glyph::Shell(Icon::Places), "Show/hide the Places pane", Pane::Places),
+    ("toggle:pane.tags", Glyph::Shell(Icon::Tags), "Show/hide the Tags pane", Pane::Tags),
+    ("toggle:pane.properties", Glyph::Shell(Icon::Properties), "Show/hide the Properties pane", Pane::Properties),
+    ("toggle:pane.history", Glyph::Viewing(ViewingIcon::Clock), "Show/hide the History pane", Pane::History),
 ];
 
 /// The action buttons, in order (a dotted rule after the first): id, icon, label, command.
@@ -110,6 +112,7 @@ fn text(english: &str) -> String {
         "Show/hide the Places pane" => tl!("Show/hide the Places pane"),
         "Show/hide the Tags pane" => tl!("Show/hide the Tags pane"),
         "Show/hide the Properties pane" => tl!("Show/hide the Properties pane"),
+        "Show/hide the History pane" => tl!("Show/hide the History pane"),
         "Export" => tl!(ctx = "action", "Export"),
         "Collage" => tl!(ctx = "action", "Collage"),
         "Slideshow" => tl!(ctx = "action", "Slideshow"),
@@ -325,10 +328,34 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     let open = app.state().pane;
     let active = PANE_TOGGLES.iter().position(|(_, _, _, pane)| Some(*pane) == open);
     let tips = PANE_TOGGLES.map(|(_, _, tooltip, _)| text(tooltip));
+    let label = |glyph| match glyph {
+        Glyph::Shell(icon) => SegmentLabel::Icon(icon),
+        // Painted over its segment below.
+        _ => SegmentLabel::Text(""),
+    };
     let segments: Vec<Segment<'_>> =
-        PANE_TOGGLES.iter().zip(&tips).map(|(&(id, icon, _, _), tooltip)| Segment { id, label: SegmentLabel::Icon(icon), tooltip }).collect();
+        PANE_TOGGLES.iter().zip(&tips).map(|(&(id, glyph, _, _), tooltip)| Segment { id, label: label(glyph), tooltip }).collect();
     let rect = Rect::from_min_size(pos2(toggles_x, (row.center().y - PANE_TOGGLE.y / 2.0).round()), vec2(toggles_w, PANE_TOGGLE.y));
-    if let Some(i) = at(ui, "panes", rect, |ui| widgets::segmented(ui, &t, &segments, active, PANE_TOGGLE))
+    let clicked = at(ui, "panes", rect, |ui| widgets::segmented(ui, &t, &segments, active, PANE_TOGGLE));
+    for (i, &(_, glyph, _, _)) in PANE_TOGGLES.iter().enumerate() {
+        if matches!(glyph, Glyph::Shell(_)) {
+            continue;
+        }
+        // As `segmented` colours its icons: `pick` on, `text` hovered, `icon` at rest.
+        let seg = Rect::from_min_size(pos2(toggles_x + PANE_TOGGLE.x * i as f32, rect.min.y), PANE_TOGGLE);
+        let color = if !ui.is_enabled() {
+            t.text_disabled
+        } else if active == Some(i) {
+            t.pick
+        } else if ui.rect_contains_pointer(seg) {
+            t.text
+        } else {
+            t.icon
+        };
+        let side = (PANE_TOGGLE.y * 0.6).round();
+        icons::paint_glyph(ui.painter(), Rect::from_center_size(seg.center(), Vec2::splat(side)), glyph, color);
+    }
+    if let Some(i) = clicked
         && let Some(&(_, _, _, pane)) = PANE_TOGGLES.get(i)
     {
         let state = app.state_mut();

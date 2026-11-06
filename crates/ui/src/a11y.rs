@@ -322,6 +322,7 @@ fn landmark(app: &App, region: &str) -> Option<(&'static str, Role, String)> {
                 Some(Pane::Places) => tl!("Places"),
                 Some(Pane::Tags) => tl!("Tags"),
                 Some(Pane::Properties) => tl!("Properties"),
+                Some(Pane::History) => tl!("History"),
                 None => tl!("Side pane"),
             };
             ("sidePane", Role::Complementary, name)

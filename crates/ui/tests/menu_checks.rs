@@ -126,6 +126,7 @@ fn every_checkable_item_follows_its_command_and_ui_set() {
         plain("pane.tags", false),
         plain("pane.people", false),
         plain("pane.places", false),
+        plain("pane.history", false),
         plain("edit.panelToggle", false),
         plain("view.smallPictures", false),
         plain("view.hiddenPictures", false),

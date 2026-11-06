@@ -100,6 +100,7 @@ fn expected() -> Vec<(&'static str, Vec<String>)> {
                     "Tags",
                     "People",
                     "Places",
+                    "History",
                     "—",
                     "Show Edit Controls",
                     "—",
@@ -734,7 +735,7 @@ fn the_window_draws_the_menus_in_its_menu_bar_region() {
         t.d.settle(FRAMES).unwrap();
         let widgets = t.d.widgets();
         let items: Vec<_> = widgets.iter().filter(|wi| wi.id.starts_with("menuitem:")).collect();
-        assert_eq!(items.len(), 14, "{w}×{h}: every View item is on screen");
+        assert_eq!(items.len(), 15, "{w}×{h}: every View item is on screen");
         for wi in items {
             assert!(wi.rect[1] >= region[1] + region[3], "{w}×{h}: `{}` overlaps the bar", wi.id);
             assert!(inside(wi.rect, [0.0, 0.0, w as f32, h as f32]), "{w}×{h}: `{}` at {:?}", wi.id, wi.rect);

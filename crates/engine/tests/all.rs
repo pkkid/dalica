@@ -46,6 +46,7 @@ mod folder_move;
 mod folders;
 mod hevc;
 mod hide;
+mod history;
 mod import_camera;
 mod import_list;
 mod import_remove;

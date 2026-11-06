@@ -1764,3 +1764,15 @@
 ~	Extend Selection to Item Above	ขยายการเลือกไปยังรายการด้านบน
 ~	Extend Selection to Item Below	ขยายการเลือกไปยังรายการด้านล่าง
 ~	This session has no face models folder (DALICA_FACE_MODELS, or the configuration folder).	เซสชันนี้ไม่มีโฟลเดอร์โมเดลใบหน้า (DALICA_FACE_MODELS หรือโฟลเดอร์การกำหนดค่า)
+~	Go back to the photo with no edits; every step stays redoable	กลับไปที่รูปภาพที่ไม่มีการแก้ไข ทุกขั้นตอนยังทำซ้ำได้
+~	Go back to the saved file; every step stays redoable	กลับไปที่ไฟล์ที่บันทึกไว้ ทุกขั้นตอนยังทำซ้ำได้
+~	Go back to this step; the steps after it stay redoable	กลับไปที่ขั้นตอนนี้ ขั้นตอนหลังจากนี้ยังทำซ้ำได้
+~	Go to History Step	ไปที่ขั้นตอนในประวัติ
+~	History	ประวัติ
+~	Redo up to this step	ทำซ้ำจนถึงขั้นตอนนี้
+~	Select one photo to see its history	เลือกรูปภาพหนึ่งรูปเพื่อดูประวัติ
+~	Show/hide the History pane	แสดง/ซ่อนแผงประวัติ
+~	The photo is here	รูปภาพอยู่ที่ขั้นตอนนี้
+~	The saved file. Undo Save in the edit panel restores the original.	ไฟล์ที่บันทึกไว้ เลิกทำการบันทึก ในแผงแก้ไขจะคืนต้นฉบับ
+~history	Original	ต้นฉบับ
+~history	Save	บันทึก

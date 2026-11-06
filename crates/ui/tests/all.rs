@@ -52,6 +52,7 @@ mod folder_properties;
 mod heic_card;
 mod heic_hint;
 mod hidden;
+mod history_pane;
 mod i18n;
 mod i18n_dialogs;
 mod i18n_languages;
