@@ -399,6 +399,30 @@ pub const BUDGETS: &[Budget] = &[
         judge: crate::bench::judge_i18n_frame,
         relative: None,
     },
+    Budget {
+        milestone: 16,
+        name: "colour summaries",
+        what: "colour_summary: the 100 k index-only library opened without colour summaries, from the open to every summary made from its stored sketch (median of five), and one summary per sketch (median), each within 1.5 × its first measurement",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "colour_summary", "--", "--json"],
+        judge: crate::bench::judge_colour_summary,
+        relative: None,
+    },
+    Budget {
+        milestone: 16,
+        name: "colour search",
+        what: "colour_search: color:green over the 100 k search library with a summary on every photo (median) within 1.5 × its first measurement and the 100 ms query cap",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "search", "--", "--json", "--colour"],
+        judge: crate::bench::judge_colour_search,
+        relative: None,
+    },
+    Budget {
+        milestone: 16,
+        name: "theme switch",
+        what: "theme_switch: the first frame after a theme switch at 100 k photos (p95) within 1.5 × its first measurement and never above 16 ms",
+        cargo: &["bench", "-p", "dalica-ui", "--bench", "theme_switch", "--", "--json"],
+        judge: crate::bench::judge_theme_switch,
+        relative: None,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -1269,7 +1293,8 @@ mod tests {
                     Ok(Some(("v0.6.0".to_string(), report_stats(&out, b.relative.as_ref().unwrap().rows).unwrap())))
                 },
                 |args: &[&str]| {
-                    let name = ["save_export", "search", "import"].into_iter().find(|n| args.contains(n)).unwrap_or("other");
+                    // The colour search (M16) runs the search bench too, with `--colour`: not M9's.
+                    let name = ["save_export", "--colour", "search", "import"].into_iter().find(|n| args.contains(n)).unwrap_or("other");
                     log.borrow_mut().push(format!("head {name}"));
                     head(args)
                 },
@@ -1579,6 +1604,12 @@ mod tests {
                     (true, bench_out("release", scroll_p95, 40, 42))
                 } else if args.contains(&"save_export") {
                     (true, save_export_out("release", 300.0, 150.0, 15_000.0))
+                } else if args.contains(&"--colour") {
+                    (true, crate::bench::tests::colour_search_out("release", 100_000, crate::bench::tests::COLOUR_SEARCH_MEASURED))
+                } else if args.contains(&"colour_summary") {
+                    (true, crate::bench::tests::colour_summary_out("release", 100_000, crate::bench::tests::COLOUR_SUMMARY_MEASURED))
+                } else if args.contains(&"theme_switch") {
+                    (true, crate::bench::tests::theme_switch_out("release", 100_000, crate::bench::tests::THEME_SWITCH_MEASURED))
                 } else if args.contains(&"search") {
                     (true, search_out("release", 100_000, SEARCH_MEASURED))
                 } else if args.contains(&"scan_throughput") {
@@ -1655,10 +1686,15 @@ mod tests {
         // the collage layouts (under 2 ms) and the canvas's drag frame miss; the render (seconds)
         // and the legacy scans (a hundred ms and more) do not. Of M15's, the probe, the video's
         // steps and frames, and the AccessKit and translation frames miss; the camera import (2.4 s
-        // more over 300 files is inside its headroom) does not.
+        // more over 300 files is inside its headroom) does not. Of M16's, one sketch's summary
+        // (µs), the colour search and the theme switch's frame miss; the summaries at open (about a
+        // second) do not.
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("16 of 24 missed")
+            e.contains("19 of 27 missed")
+                && e.contains("M16 colour summaries: 1 of 2 missed: summary per sketch")
+                && e.contains("M16 colour search: 1 of 1 missed: color:green")
+                && e.contains("M16 theme switch: 1 of 1 missed: frame switch 100k")
                 && e.contains("M15 video probe: 1 of 1 missed")
                 && e.contains("M15 video play: 5 of 8 missed")
                 && !e.contains("M15 camera import")
@@ -1687,18 +1723,18 @@ mod tests {
         assert!(e.contains("M11 import: first thumbnails"), "{e}");
         // The largest planted slowdown misses every budget, the cold start's included.
         let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
-        assert!(e.contains("24 of 24 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
+        assert!(e.contains("27 of 27 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 24 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 27 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 24 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 27 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("24 of 24 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("27 of 27 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }

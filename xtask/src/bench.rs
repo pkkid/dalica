@@ -138,13 +138,38 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-ui",
         what: "the light table's frame at 100 k photos while it scrolls, in the pseudo-locale against English, in the headless app",
     },
+    Bench {
+        name: "colour_summary",
+        package: "dalica-engine",
+        what: "the 100 k index-only library opened without colour summaries: the open, every summary made from its stored sketch, and one summary per sketch",
+    },
+    Bench {
+        name: "colour_search",
+        package: "dalica-engine",
+        what: "color:green over the 100 k search library with a colour summary on every photo (the search bench with --colour)",
+    },
+    Bench {
+        name: "theme_switch",
+        package: "dalica-ui",
+        what: "the first frame after a theme switch at 100 k photos against a frame without one, every theme in turn, in the headless app",
+    },
 ];
+
+/// The benches that run another bench's target with arguments of their own (`colour_search` is
+/// the `search` bench with `--colour`): the bench's name, its cargo target, and the arguments put
+/// before the caller's.
+pub const BENCH_TARGETS: [(&str, &str, &[&str]); 1] = [("colour_search", "search", &["--colour"])];
+
+/// The cargo bench target `bench` runs and the arguments it adds.
+pub fn bench_target(bench: &str) -> (&str, &'static [&'static str]) {
+    BENCH_TARGETS.iter().find(|(name, _, _)| *name == bench).map_or((bench, &[][..]), |(_, target, args)| (*target, *args))
+}
 
 /// The benches whose source file is not named after the bench (`[[bench]]` with a `path`): the
 /// bench's name, and its file's stem under the crate's `benches/` (checked by the tests; cargo
 /// itself finds them by name).
 #[cfg(test)]
-pub const BENCH_FILES: [(&str, &str); 7] = [
+pub const BENCH_FILES: [(&str, &str); 8] = [
     ("legacy_scan", "legacy"),
     ("collage_canvas", "collage"),
     ("video_probe", "video"),
@@ -152,6 +177,7 @@ pub const BENCH_FILES: [(&str, &str); 7] = [
     ("camera_import", "import_camera"),
     ("a11y_frame", "a11y"),
     ("i18n_frame", "i18n"),
+    ("theme_switch", "theme"),
 ];
 
 /// The stem of `bench`'s source file under its crate's `benches/`.
@@ -328,7 +354,8 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     for b in benches {
         println!("==> bench: {} ({})", b.name, b.package);
         let mut cmd = Command::new(&cargo);
-        cmd.current_dir(root).args(["bench", "-p", b.package, "--bench", b.name, "--", "--json"]).args(&extra);
+        let (target, own) = bench_target(b.name);
+        cmd.current_dir(root).args(["bench", "-p", b.package, "--bench", target, "--", "--json"]).args(own).args(&extra);
         let out = cmd.stderr(Stdio::inherit()).output().map_err(|e| format!("bench: cannot run cargo: {e}"))?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         let report = parse_report(&stdout);
@@ -1062,6 +1089,74 @@ pub fn judge_i18n_frame(stdout: &str, plant: f64) -> Result<String, String> {
     judge_ui_frame("i18n_frame", stdout, plant, "frame qps", I18N_FRAME_P95_MS, I18N_OVERHEAD_P95_MS)
 }
 
+/// M16's budgets (`docs/development.md` §8), joined to `accept::BUDGETS`: 1.5 × the first
+/// measurement (the median of three runs, release, `taskset -c 0,1`, 2026-11-06). The colour
+/// summaries of the 100 k library at open, from the open's start to the last one applied (median),
+/// rounded up to 5 ms; one sketch's summary (median, µs), rounded up to 0.5 µs
+/// (`colour_summary` → `SUMMARIES_BUDGET_MS`, `PER_SKETCH_BUDGET_US`).
+pub const COLOUR_SUMMARIES_MS: f64 = 1445.0;
+pub const COLOUR_PER_SKETCH_US: f64 = 5.5;
+/// `color:green` over the 100 k search library (median), rounded up to 0.1 ms, never above the
+/// search's query cap (`search` → `COLOUR_BUDGET_MS`).
+pub const COLOUR_SEARCH_MS: f64 = 5.4;
+/// The first frame after a theme switch at 100 k photos (p95), rounded up to 0.5 ms, never above
+/// [`THEME_SWITCH_CAP_MS`] (`theme_switch` → `SWITCH_BUDGET_MS`, `SWITCH_CAP_MS`).
+pub const THEME_SWITCH_P95_MS: f64 = 3.0;
+pub const THEME_SWITCH_CAP_MS: f64 = 16.0;
+/// The library the three hold for.
+pub const M16_PHOTOS: u64 = 100_000;
+
+/// A release report of `bench` over [`M16_PHOTOS`] photos, or why it cannot be judged.
+fn m16_report(bench: &str, stdout: &str) -> Result<Value, String> {
+    let report = release_report(bench, stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    if photos != M16_PHOTOS {
+        return Err(format!("{bench} ran over {photos} photos; the budgets hold for {M16_PHOTOS}"));
+    }
+    Ok(report)
+}
+
+/// `colour_summary --json` in release over 100 000 photos: the summaries at open (a planted
+/// slowdown added once per run) and one sketch's summary (a planted slowdown added once per
+/// sketch), medians, within their budgets. Every miss is listed.
+pub fn judge_colour_summary(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = m16_report("colour_summary", stdout)?;
+    let (mut missed, parts) = row_verdicts("colour_summary", &report, &[("summaries 100k", "p50_ms", COLOUR_SUMMARIES_MS)], plant)?;
+    let name = "summary per sketch";
+    let measured = row_number("colour_summary", &report, name, "p50_us")?;
+    let judged = measured + plant * 1000.0;
+    if judged > COLOUR_PER_SKETCH_US {
+        let note = if plant > 0.0 { format!(" ({measured:.2} µs measured + {plant:.2} ms planted)") } else { String::new() };
+        missed.push(format!("{name}: median {judged:.2} µs{note}, over the {COLOUR_PER_SKETCH_US} µs budget"));
+    }
+    if !missed.is_empty() {
+        return Err(format!("{} of 2 missed: {}", missed.len(), missed.join("; ")));
+    }
+    Ok(format!("medians: {}; {name} {judged:.2} µs ≤ {COLOUR_PER_SKETCH_US} µs", parts.join("; ")))
+}
+
+/// `search --colour --json` (`colour_search`) in release over 100 000 photos: `color:green`'s
+/// median within its budget and the query cap (a planted slowdown added once per query).
+pub fn judge_colour_search(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = m16_report("colour_search", stdout)?;
+    if report.get("bench").and_then(Value::as_str) != Some("colour_search") {
+        return Err("colour_search: the search bench ran without --colour".into());
+    }
+    let budget = COLOUR_SEARCH_MS.min(crate::accept::SEARCH_QUERY_CAP_MS);
+    Ok(format!("median: {}", judge_rows("colour_search", &report, &[("color:green", "p50_ms", budget)], plant)?.join("; ")))
+}
+
+/// `theme_switch --json` in release over 100 000 photos: the first frame after a switch at p95
+/// within its budget and [`THEME_SWITCH_CAP_MS`] (a planted slowdown added to each frame).
+pub fn judge_theme_switch(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = m16_report("theme_switch", stdout)?;
+    let budget = THEME_SWITCH_P95_MS.min(THEME_SWITCH_CAP_MS);
+    Ok(format!(
+        "p95: {} (cap {THEME_SWITCH_CAP_MS} ms)",
+        judge_rows("theme_switch", &report, &[("frame switch 100k", "p95_ms", budget)], plant)?.join("; ")
+    ))
+}
+
 fn append(path: &Path, line: &str) -> Result<(), String> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
@@ -1788,6 +1883,96 @@ pub(crate) mod tests {
         format!("{r}\n")
     }
 
+    /// M16.11's first measurements (the median of three runs): the summaries at open (ms) and one
+    /// sketch's summary (µs), medians; `color:green`'s median; the switch frame's p95.
+    pub const COLOUR_SUMMARY_MEASURED: (f64, f64) = (962.591, 3.472);
+    pub const COLOUR_SEARCH_MEASURED: f64 = 3.597;
+    pub const THEME_SWITCH_MEASURED: f64 = 1.819;
+
+    /// What `colour_summary` prints over `photos` with the summaries' and one sketch's medians.
+    pub fn colour_summary_out(mode: &str, photos: u64, (summaries, per_sketch): (f64, f64)) -> String {
+        let label = if photos == 100_000 { "100k".to_string() } else { photos.to_string() };
+        let r = json!({ "bench": "colour_summary", "mode": mode, "photos": photos, "rows": [
+            { "name": format!("open {label}"), "samples": 5, "p50_ms": 470.0, "p95_ms": 490.0, "max_ms": 490.0, "colours_at_open": 0, "colour_jobs": 98 },
+            { "name": format!("summaries {label}"), "samples": 5, "p50_ms": summaries, "p95_ms": summaries + 20.0, "max_ms": summaries + 20.0 },
+            { "name": "summary per sketch", "samples": 7, "p50_us": per_sketch, "p95_us": per_sketch + 0.1, "max_us": per_sketch + 0.1 },
+        ]});
+        format!("{r}\n")
+    }
+
+    /// What `search --colour` prints over `photos` with `color:green`'s median.
+    pub fn colour_search_out(mode: &str, photos: u64, green: f64) -> String {
+        let r = json!({ "bench": "colour_search", "mode": mode, "photos": photos, "query_cap_ms": 100.0, "rows": [
+            { "name": "index build with colours", "samples": 5, "p50_ms": 480.0, "p95_ms": 500.0, "max_ms": 500.0 },
+            { "name": "color:green", "samples": 50, "p50_ms": green, "p95_ms": green + 0.5, "max_ms": green + 0.6, "matches": 48419 },
+            { "name": "color:green applied", "samples": 50, "p50_ms": 22.0, "p95_ms": 24.0, "max_ms": 25.0, "matches": 48419 },
+        ]});
+        format!("{r}\n")
+    }
+
+    /// What `theme_switch` prints over `photos` with the switch frame's p95.
+    pub fn theme_switch_out(mode: &str, photos: u64, switch: f64) -> String {
+        let label = if photos == 100_000 { "100k".to_string() } else { photos.to_string() };
+        let r = json!({ "bench": "theme_switch", "mode": mode, "photos": photos, "window": [1400, 900], "rows": [
+            { "name": format!("frame steady {label}"), "samples": 120, "p50_ms": 0.3, "p95_ms": 0.6, "max_ms": 0.6 },
+            { "name": format!("frame switch {label}"), "samples": 120, "p50_ms": 1.3, "p95_ms": switch, "max_ms": switch + 0.5 },
+            { "name": format!("overhead {label}"), "samples": 120, "p50_ms": 1.0, "p95_ms": switch - 0.6 },
+        ]});
+        format!("{r}\n")
+    }
+
+    #[test]
+    fn the_colour_and_theme_budgets_judge_the_summaries_the_search_and_the_switch_frame() {
+        let (summaries, per_sketch) = COLOUR_SUMMARY_MEASURED;
+        assert!(one_and_a_half(COLOUR_SUMMARIES_MS, summaries, 5.0) && one_and_a_half(COLOUR_PER_SKETCH_US, per_sketch, 0.5));
+        assert!(one_and_a_half(COLOUR_SEARCH_MS, COLOUR_SEARCH_MEASURED, 0.1) && COLOUR_SEARCH_MS <= crate::accept::SEARCH_QUERY_CAP_MS);
+        assert!(one_and_a_half(THEME_SWITCH_P95_MS, THEME_SWITCH_MEASURED, 0.5) && THEME_SWITCH_P95_MS <= THEME_SWITCH_CAP_MS);
+
+        // The summaries: each budget missed alone; 8 ms planted misses one sketch's (µs), not the
+        // summaries at open (about a second); the largest misses both.
+        let ok = judge_colour_summary(&colour_summary_out("release", 100_000, COLOUR_SUMMARY_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("medians: summaries 100k 962.59 ms ≤ 1445 ms; summary per sketch 3.47 µs ≤ 5.5 µs"), "{ok}");
+        let e = judge_colour_summary(&colour_summary_out("release", 100_000, (COLOUR_SUMMARIES_MS + 1.0, per_sketch)), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 2 missed: summaries 100k: median"), "{e}");
+        let e = judge_colour_summary(&colour_summary_out("release", 100_000, (summaries, COLOUR_PER_SKETCH_US + 0.01)), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 2 missed: summary per sketch: median"), "{e}");
+        let e = judge_colour_summary(&colour_summary_out("release", 100_000, COLOUR_SUMMARY_MEASURED), 8.0).unwrap_err();
+        assert!(e.starts_with("1 of 2 missed: summary per sketch") && e.contains("+ 8.00 ms planted"), "{e}");
+        let e = judge_colour_summary(&colour_summary_out("release", 100_000, COLOUR_SUMMARY_MEASURED), crate::accept::MAX_PLANT_MS).unwrap_err();
+        assert!(e.starts_with("2 of 2 missed"), "{e}");
+        assert!(judge_colour_summary(&colour_summary_out("debug", 100_000, COLOUR_SUMMARY_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_colour_summary(&colour_summary_out("release", 2_000, COLOUR_SUMMARY_MEASURED), 0.0).unwrap_err().contains("hold for 100000"));
+
+        // The colour search: its median, a planted slowdown, and the search bench without --colour.
+        let ok = judge_colour_search(&colour_search_out("release", 100_000, COLOUR_SEARCH_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("median: color:green 3.60 ms ≤ 5.4 ms"), "{ok}");
+        let e = judge_colour_search(&colour_search_out("release", 100_000, COLOUR_SEARCH_MS + 0.01), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 1 missed: color:green: median"), "{e}");
+        let e = judge_colour_search(&colour_search_out("release", 100_000, COLOUR_SEARCH_MEASURED), 8.0).unwrap_err();
+        assert!(e.contains("+ 8.00 ms planted"), "{e}");
+        let plain = colour_search_out("release", 100_000, COLOUR_SEARCH_MEASURED).replace("\"bench\":\"colour_search\"", "\"bench\":\"search\"");
+        assert!(judge_colour_search(&plain, 0.0).unwrap_err().contains("without --colour"));
+        assert!(judge_colour_search(&colour_search_out("debug", 100_000, COLOUR_SEARCH_MEASURED), 0.0).unwrap_err().contains("debug build"));
+
+        // The theme switch's frame.
+        let ok = judge_theme_switch(&theme_switch_out("release", 100_000, THEME_SWITCH_MEASURED), 0.0).unwrap();
+        assert!(ok.starts_with("p95: frame switch 100k 1.82 ms ≤ 3 ms (cap 16 ms)"), "{ok}");
+        let e = judge_theme_switch(&theme_switch_out("release", 100_000, THEME_SWITCH_P95_MS + 0.01), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 1 missed: frame switch 100k: p95"), "{e}");
+        let e = judge_theme_switch(&theme_switch_out("release", 100_000, THEME_SWITCH_MEASURED), 8.0).unwrap_err();
+        assert!(e.contains("+ 8.00 ms planted"), "{e}");
+        assert!(judge_theme_switch(&theme_switch_out("debug", 100_000, THEME_SWITCH_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_theme_switch(&theme_switch_out("release", 2_000, THEME_SWITCH_MEASURED), 0.0).unwrap_err().contains("hold for 100000"));
+    }
+
+    #[test]
+    fn a_bench_on_another_target_runs_it_with_its_arguments() {
+        assert_eq!(bench_target("colour_search"), ("search", &["--colour"][..]));
+        assert_eq!(bench_target("search"), ("search", &[][..]));
+        let (picked, _) = parse_args(&["colour_search".to_string()]).unwrap();
+        assert_eq!(picked.iter().map(|b| b.package).collect::<Vec<_>>(), ["dalica-engine"]);
+    }
+
     #[test]
     fn the_video_probe_budget_judges_a_rounds_median() {
         assert!(one_and_a_half(VIDEO_PROBE_MS, PROBE_MEASURED, 1.0));
@@ -2034,6 +2219,29 @@ pub(crate) mod tests {
                 && camera.contains(&format!("const SIDE: u32 = {CAMERA_SIDE_PX};"))
                 && camera.contains("format!(\"camera import {n}\")")
         );
+        // M16.11: the colour summaries, the colour search and the theme switch.
+        let colour = read("engine", "colour_summary");
+        let search = read("engine", "search");
+        let theme = read("ui", "theme");
+        for (source, constant, ours) in [
+            (&colour, "SUMMARIES_BUDGET_MS", COLOUR_SUMMARIES_MS),
+            (&colour, "PER_SKETCH_BUDGET_US", COLOUR_PER_SKETCH_US),
+            (&search, "COLOUR_BUDGET_MS", COLOUR_SEARCH_MS),
+            (&theme, "SWITCH_BUDGET_MS", THEME_SWITCH_P95_MS),
+            (&theme, "SWITCH_CAP_MS", THEME_SWITCH_CAP_MS),
+        ] {
+            assert!(source.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours: {ours}");
+        }
+        for source in [&colour, &theme] {
+            assert!(source.contains(&format!("const PHOTOS: usize = {};", grouped_thousands(M16_PHOTOS))));
+        }
+        assert!(
+            colour.contains("format!(\"summaries {n}\")")
+                && colour.contains("\"summary per sketch\"")
+                && colour.contains("\"bench\": \"colour_summary\"")
+        );
+        assert!(search.contains("const COLOUR_QUERY: &str = \"color:green\";") && search.contains("\"bench\": \"colour_search\""));
+        assert!(theme.contains("format!(\"frame switch {}\", label(a.photos))"));
         for (source, frame) in [(&a11y, "frame on"), (&i18n, "frame qps")] {
             assert!(source.contains(&format!("const PHOTOS: usize = {};", grouped_thousands(UI_FRAME_PHOTOS))));
             assert!(
@@ -2061,14 +2269,18 @@ pub(crate) mod tests {
         let root = crate::workspace_root();
         for b in BENCHES {
             let dir = root.join("crates").join(b.package.trim_start_matches("dalica-"));
-            let file = bench_file(b.name);
+            let (name, _) = bench_target(b.name);
+            let file = bench_file(name);
             assert!(dir.join("benches").join(format!("{file}.rs")).is_file(), "{}", b.name);
             let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-            assert!(manifest.contains(&format!("name = \"{}\"\nharness = false", b.name)), "{}: [[bench]] with harness = false", b.name);
-            if file != b.name {
-                let target = format!("name = \"{}\"\nharness = false\npath = \"benches/{file}.rs\"", b.name);
+            assert!(manifest.contains(&format!("name = \"{name}\"\nharness = false")), "{}: [[bench]] with harness = false", b.name);
+            if file != name {
+                let target = format!("name = \"{name}\"\nharness = false\npath = \"benches/{file}.rs\"",);
                 assert!(manifest.contains(&target), "{}: [[bench]] with its path", b.name);
             }
+        }
+        for (name, target, _) in BENCH_TARGETS {
+            assert!(BENCHES.iter().any(|b| b.name == name) && BENCHES.iter().any(|b| b.name == target), "{name} runs the registered {target}");
         }
         for (name, _) in BENCH_FILES {
             assert!(BENCHES.iter().any(|b| b.name == name), "{name} is a registered bench");

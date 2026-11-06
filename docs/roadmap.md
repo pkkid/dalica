@@ -11255,7 +11255,7 @@ under their own key, and a snapshot without them reads as one with none.
     without a file read (counted by the session's file probe) and `color` leaves `unavailable`;
     `search.color {color: "blue"}` sets the search and `{color: "teal"}` is refused; every existing
     engine test and `panic_hunt` pass unchanged.
-- ⬜ **M16.11 `engine` + `ui` + `xtask`: M16's budgets: colour summaries, colour search and theme switching**
+- ✅ **M16.11 `engine` + `ui` + `xtask`: M16's budgets: colour summaries, colour search and theme switching**
   - after: M16.8, M16.10
   - files: `crates/engine/benches/colour_summary.rs`, `crates/engine/benches/search.rs`, `crates/ui/benches/theme.rs`, `xtask/src/bench.rs`, `docs/development.md`
   - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS`
