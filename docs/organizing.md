@@ -673,6 +673,13 @@ All act on real files; all are commands with undo where possible (`data-model.md
 | Adjust date and time | Tools → **Adjust Date and Time…** | **Adjust Picture Date** (title "… — %d pictures" for several): thumbnail, "Current date:" (read-only), "New date:" date + time pickers; with several: radios **"Shift all dates by the same amount"** (default) / **"Set all pictures to the same date and time"**; [OK] [Cancel] |
 | Batch edit | Picture → Batch Edit ▸ | see `editing.md` → Batch edit |
 
+**Photos the light table does not display** (M16.39, `ui-layout.md` §5.3): in a build without the
+HEIC decoder, a section's HEIC and HEIF files are one "Not displaying N HEIC images" card instead
+of cells. They are still in the library: scanned, dated, searchable and counted (the tree's folder
+count, the section header's count and date). A click on the card selects them all, and every
+operation above then acts on them as on any selection. Select All, Invert Selection, the arrow
+keys, rubber bands, the filmstrip and the slideshow go by the photos shown, so they skip them.
+
 ### 9.1 Photo context menu (light table thumbnail), in order
 
 **View and Edit** (bold, Enter) · Add to Album ▸ · — · Rotate Clockwise · Rotate Counterclockwise ·

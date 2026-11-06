@@ -14,6 +14,12 @@
 //! built for one [`LayoutKey`] (the sections' generation, the width, the cell size, captions) and
 //! reused while the key holds.
 //!
+//! A section may end with **cards** after its last photo ([`CARD_CELLS`] cells wide, one cell
+//! tall, on the same grid; the whole row at one column): the "Not displaying N HEIC images" card of
+//! the photos this build cannot show (`ui-layout.md` §5.3). A card that would not fit in what is
+//! left of a row starts the next one. [`Layout::with_cards`] takes each section's number of cards,
+//! [`Layout::card_origin`] gives where one is.
+//!
 //! Scroll positions are kept by content ([`ScrollAnchor`]: a section and how far below its top),
 //! converted with [`Layout::anchor_at`] and [`Layout::offset_of`], so a resize or a new cell size
 //! keeps the same photos in view.
@@ -33,6 +39,12 @@ pub const GUTTER: f32 = 24.0;
 pub const STICKY: f32 = 32.0;
 /// The caption line under a cell when captions are on (10.5 pt text; it sits in the row gap).
 pub const CAPTION: f32 = 16.0;
+
+/// The cells a card spans (`ui-layout.md` §5.3), fewer only when fewer columns fit.
+pub const CARD_CELLS: usize = 2;
+
+/// The most cards a section lays out (it has one per reason this build cannot show a photo for).
+pub const MAX_CARDS: usize = 16;
 
 /// The light table's spacing, in points. [`Spacing::from_metrics`] takes the `design-system.md` §4
 /// values from the theme; the rest are this module's constants.
@@ -154,6 +166,8 @@ pub struct Layout {
     caption: bool,
     sections: Vec<Section>,
     counts: Vec<usize>,
+    /// Each section's cards, after its photos.
+    cards: Vec<usize>,
     /// `tops[i]` is section `i`'s top; `tops[n]` the content's height.
     tops: Vec<f64>,
     index: HashMap<Section, usize>,
@@ -170,6 +184,19 @@ impl Layout {
         caption: bool,
         spacing: Spacing,
     ) -> Layout {
+        Layout::with_cards(sections.into_iter().map(|(s, n)| (s, n, 0)), generation, width, cell, caption, spacing)
+    }
+
+    /// [`Layout::new`] for sections that end with cards: each with its photo count and its number
+    /// of cards.
+    pub fn with_cards(
+        sections: impl IntoIterator<Item = (Section, usize, usize)>,
+        generation: u64,
+        width: f32,
+        cell: f32,
+        caption: bool,
+        spacing: Spacing,
+    ) -> Layout {
         let grid = Grid::new(width, cell, &spacing);
         let mut out = Layout {
             key: LayoutKey::new(generation, width, cell, caption),
@@ -178,11 +205,12 @@ impl Layout {
             caption,
             sections: Vec::new(),
             counts: Vec::new(),
+            cards: Vec::new(),
             tops: vec![0.0],
             index: HashMap::new(),
         };
         let mut y = 0.0;
-        for (section, count) in sections {
+        for (section, count, cards) in sections {
             // A section listed twice keeps its first place.
             if out.index.contains_key(&section) {
                 continue;
@@ -190,7 +218,8 @@ impl Layout {
             out.index.insert(section, out.sections.len());
             out.sections.push(section);
             out.counts.push(count);
-            y += out.section_height(count);
+            out.cards.push(cards.min(MAX_CARDS));
+            y += out.height_with(count, cards);
             out.tops.push(y);
         }
         out
@@ -235,6 +264,58 @@ impl Layout {
         self.counts.get(index).copied().unwrap_or(0)
     }
 
+    /// Cards at the end of section `index`.
+    pub fn cards(&self, index: usize) -> usize {
+        self.cards.get(index).copied().unwrap_or(0)
+    }
+
+    /// Where card `j` of a section of `count` photos starts (a cell index on the grid) and how many
+    /// cells it spans: after the photos and the cards before it, on the next row when the rest of a
+    /// row is too short for it.
+    pub fn card_slot(&self, count: usize, j: usize) -> (usize, usize) {
+        let cols = self.grid.cols.max(1);
+        let span = CARD_CELLS.min(cols);
+        let mut at = count;
+        let mut start = count;
+        // A section has a card per reason, a handful; a hostile `j` is capped.
+        for _ in 0..=j.min(MAX_CARDS) {
+            if at % cols + span > cols {
+                at = at.div_ceil(cols).saturating_mul(cols);
+            }
+            start = at;
+            at = at.saturating_add(span);
+        }
+        (start, span)
+    }
+
+    /// The cells a section of `count` photos and `cards` cards takes, the gaps before wrapped cards
+    /// included.
+    fn slots(&self, count: usize, cards: usize) -> usize {
+        if cards == 0 {
+            return count;
+        }
+        let (start, span) = self.card_slot(count, cards - 1);
+        start.saturating_add(span)
+    }
+
+    /// Card `j` of section `index`: its top-left corner (as [`Layout::cell_origin`]) and its width.
+    /// `None` past the section's cards.
+    pub fn card_origin(&self, index: usize, j: usize) -> Option<(f32, f64, f32)> {
+        if j >= self.cards(index) {
+            return None;
+        }
+        let cols = self.grid.cols.max(1);
+        let (start, span) = self.card_slot(self.count(index), j);
+        let (row, col) = (start / cols, start % cols);
+        let width = span as f32 * self.grid.cell + span.saturating_sub(1) as f32 * self.grid.gap;
+        Some((self.grid.x_of(col), self.grid_top(index)? + row as f64 * self.row_pitch(), width))
+    }
+
+    /// Section `index`'s height, its cards included.
+    pub fn section_height_at(&self, index: usize) -> f64 {
+        self.height_with(self.count(index), self.cards(index))
+    }
+
     /// Section `index`'s top (its header's top).
     pub fn top(&self, index: usize) -> Option<f64> {
         if index < self.sections.len() { self.tops.get(index).copied() } else { None }
@@ -256,8 +337,13 @@ impl Layout {
 
     /// A section's height: header, gap, rows, gutter.
     pub fn section_height(&self, count: usize) -> f64 {
+        self.height_with(count, 0)
+    }
+
+    /// [`Layout::section_height`] of a section that ends with `cards` cards.
+    pub fn height_with(&self, count: usize, cards: usize) -> f64 {
         let s = &self.spacing;
-        let rows = self.rows(count) as f64;
+        let rows = self.rows(self.slots(count, cards)) as f64;
         let grid = if rows > 0.0 { f64::from(s.header_gap) + rows * f64::from(self.grid.cell) + (rows - 1.0) * f64::from(s.row_gap) } else { 0.0 };
         f64::from(s.header) + grid + f64::from(s.gutter)
     }
@@ -338,7 +424,7 @@ impl Layout {
                 break;
             }
             let count = self.count(index);
-            let rows = self.rows(count);
+            let rows = self.rows(self.slots(count, self.cards(index)));
             // First row whose bottom is below the view's top; first row whose top is below its bottom.
             let from = (((offset - grid_top - extent) / pitch).floor() + 1.0).max(0.0) as usize;
             let to = ((bottom - grid_top) / pitch).ceil().max(0.0) as usize;
@@ -398,5 +484,39 @@ mod tests {
         assert_eq!(empty.anchor_at(50.0), ScrollAnchor::default());
         assert_eq!(l.index_at(f64::NAN), Some(0));
         assert_eq!(l.clamp(f64::INFINITY, 100.0), 0.0);
+    }
+
+    /// A card takes two cells after the photos, starts the next row when one cell is left, and
+    /// takes the whole row at one column; the section grows by the rows it adds.
+    #[test]
+    fn cards_follow_the_photos_two_cells_wide() {
+        let s = Spacing::default();
+        // 6 columns at 1100 points: 3 photos and a card fill 5 cells of one row.
+        let l = Layout::with_cards([(folder(1), 3, 1), (folder(2), 5, 1), (folder(3), 0, 1), (folder(4), 2, 0)], 0, 1100.0, 144.0, false, s);
+        let g = l.grid();
+        assert_eq!(g.cols, 6);
+        assert_eq!(l.card_slot(3, 0), (3, 2));
+        let (x, y, w) = l.card_origin(0, 0).unwrap();
+        assert_eq!((x, y), (g.x_of(3), l.grid_top(0).unwrap()));
+        assert_eq!(w, 2.0 * g.cell + g.gap);
+        assert_eq!(l.section_height_at(0), l.section_height(3), "the card fits in the photos' row");
+        // 5 photos leave one cell: the card wraps to the next row.
+        assert_eq!(l.card_slot(5, 0), (6, 2));
+        assert_eq!(l.card_origin(1, 0).unwrap().0, g.x_of(0));
+        assert_eq!(l.section_height_at(1), l.section_height(8));
+        // A section of only a card: one row.
+        assert_eq!(l.card_origin(2, 0).unwrap().1, l.grid_top(2).unwrap());
+        assert_eq!(l.section_height_at(2), l.section_height(1));
+        assert_eq!((l.card_origin(3, 0), l.card_origin(0, 1)), (None, None));
+        // Its row is on screen with the photos'.
+        let v = l.visible(l.top(1).unwrap(), 400.0);
+        assert_eq!(v.first().map(|v| v.cells.clone()), Some(0..5));
+        // One column: the whole row.
+        let narrow = Layout::with_cards([(folder(1), 2, 1)], 0, 150.0, 144.0, false, s);
+        assert_eq!(narrow.grid().cols, 1);
+        let (_, y, w) = narrow.card_origin(0, 0).unwrap();
+        assert_eq!((w, y), (144.0, narrow.grid_top(0).unwrap() + 2.0 * narrow.row_pitch()));
+        // Hostile numbers stay bounded.
+        assert_eq!(l.card_slot(usize::MAX, usize::MAX).1, 2);
     }
 }

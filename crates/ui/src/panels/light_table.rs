@@ -115,6 +115,11 @@ pub struct Section {
     /// its own order, `dalica_library::section_photos`); small pictures only with View ▸ Small
     /// Pictures, hidden ones only with View ▸ Hidden Pictures, only the matches in search mode.
     pub photos: Vec<PhotoId>,
+    /// The photos left out of `photos` for the HEIC card ([`cell::split_unshown`]): HEIC files in
+    /// a build without their decoder, drawn as one card after the cells (`ui-layout.md` §5.3).
+    /// The subtitle's count includes them; selecting, moving through and showing the section's
+    /// photos (Select All, the arrows, the filmstrip, the slideshow) go by `photos`.
+    pub unshown: Vec<PhotoId>,
 }
 
 /// The view state's album section for an entry of the library's Albums group.
@@ -225,7 +230,9 @@ impl Sections {
                 let subtitle = duplicates_banner(d.groups.len(), d.files);
                 let id = state::Section::Album(state::AlbumSection::Search);
                 self.list.retain(|s| s.id != id);
-                self.list.insert(0, Section { id, folder: None, title: duplicates_title(), subtitle, photos });
+                let mut photos = photos;
+                let unshown = cell::split_unshown(library, &mut photos);
+                self.list.insert(0, Section { id, folder: None, title: duplicates_title(), subtitle, photos, unshown });
             }
         }
         self.index = self.list.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
@@ -348,20 +355,25 @@ fn build(
             continue;
         }
         let (title, date) = names.get(album).copied().unwrap_or(("", None));
+        let subtitle = subtitle(date.map(|d| d.date()), photos.len());
+        let mut photos = photos;
+        let unshown = cell::split_unshown(library, &mut photos);
         out.push(Section {
             id: state::Section::Album(album_section(album)),
             folder: None,
             title: album_title(album, title),
-            subtitle: subtitle(date.map(|d| d.date()), photos.len()),
+            subtitle,
             photos,
+            unshown,
         });
     }
     // The People group's sections next, each person's photos by date, after their suggestions.
     for (key, name, photos) in super::folders::people::sections(library, options, people) {
         let date = photos.iter().filter_map(|id| library.photo(*id).and_then(|p| library.sort_date(p))).max();
         let subtitle = subtitle(date.map(|d| d.date()), photos.len());
-        let photos = suggested.photos(library, options, key, photos);
-        out.push(Section { id: state::Section::Album(state::AlbumSection::Person(key)), folder: None, title: name, subtitle, photos });
+        let mut photos = suggested.photos(library, options, key, photos);
+        let unshown = cell::split_unshown(library, &mut photos);
+        out.push(Section { id: state::Section::Album(state::AlbumSection::Person(key)), folder: None, title: name, subtitle, photos, unshown });
     }
     let mut by_folder: HashMap<FolderId, Vec<&Photo>> = HashMap::new();
     for p in library.photos() {
@@ -382,13 +394,10 @@ fn build(
         // By effective date (the user's, else the file's), each looked up once.
         let mut photos: Vec<(Option<dalica_core::DateTime>, &Photo)> = photos.into_iter().map(|p| (library.sort_date(p), p)).collect();
         photos.sort_by(|(da, a), (db, b)| da.cmp(db).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
-        out.push(Section {
-            id: state::Section::Folder(folder),
-            folder: Some(folder),
-            title: folder_name(&f.path),
-            subtitle: subtitle(photos.iter().find_map(|(d, _)| *d).map(|d| d.date()), photos.len()),
-            photos: photos.iter().map(|(_, p)| p.id).collect(),
-        });
+        let subtitle = subtitle(photos.iter().find_map(|(d, _)| *d).map(|d| d.date()), photos.len());
+        let mut photos: Vec<PhotoId> = photos.iter().map(|(_, p)| p.id).collect();
+        let unshown = cell::split_unshown(library, &mut photos);
+        out.push(Section { id: state::Section::Folder(folder), folder: Some(folder), title: folder_name(&f.path), subtitle, photos, unshown });
     }
     out
 }
@@ -431,8 +440,14 @@ pub fn folder_name(path: &std::path::Path) -> String {
 /// `cell`-edged cells and no captions; `None` when it has no section. The tree's clicks use it only
 /// to ask for a scroll; the light table itself scrolls with `section.scrollTo`.
 pub fn offset_of(sections: &Sections, folder: FolderId, width: f32, cell: f32) -> Option<f32> {
-    let layout = Layout::new(sections.list.iter().map(|s| (s.id, s.photos.len())), sections.generation, width, cell, false, Spacing::default());
+    let layout = Layout::with_cards(sections.list.iter().map(card_counts), sections.generation, width, cell, false, Spacing::default());
     layout.offset_of(&ScrollAnchor { section: Some(state::Section::Folder(folder)), offset: 0.0 }).map(|y| y as f32)
+}
+
+/// A section as [`Layout::with_cards`] takes it: its id, its cells, and one card when it has
+/// photos left out for the HEIC card.
+pub fn card_counts(s: &Section) -> (state::Section, usize, usize) {
+    (s.id, s.photos.len(), usize::from(!s.unshown.is_empty()))
 }
 
 /// What every part reads while one frame is painted. Built by the parent; parts never change it.
@@ -545,7 +560,7 @@ impl LightTable {
         if self.layout.as_ref().is_some_and(|l| l.key() == key && l.spacing() == spacing) {
             return false;
         }
-        self.layout = Some(Layout::new(sections.list.iter().map(|s| (s.id, s.photos.len())), sections.generation(), width, cell, caption, spacing));
+        self.layout = Some(Layout::with_cards(sections.list.iter().map(card_counts), sections.generation(), width, cell, caption, spacing));
         true
     }
 
@@ -707,6 +722,13 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
             let caption = caption.then(|| Rect::from_min_size(rect.left_bottom(), vec2(rect.width(), spacing.caption)));
             let cell = cell::CellIn { photo, section: s.id, rect, caption };
             cells.push(cell::show(&mut content, &f, &mut lt.cells, &mut p.thumbnails, &cell));
+        }
+        // The HEIC card after the cells, while its row is on screen.
+        if let Some((x, y, w)) = layout.card_origin(v.index, 0) {
+            let rect = Rect::from_min_size(pos2(f.snap(area.min.x + x), f.snap(f.screen_y(y))), vec2(w, grid.cell));
+            if rect.max.y > area.min.y && rect.min.y < area.max.y {
+                cell::card(&mut content, &f, &mut lt.cells, s.id, &s.unshown, rect);
+            }
         }
     }
     info.cells = cells.len();

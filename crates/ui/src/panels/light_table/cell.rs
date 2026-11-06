@@ -25,6 +25,13 @@
 //! what the caption editor did. What the last pass drew is kept for tests and inspection
 //! ([`Cells::shown`], [`Cells::tooltip`]).
 //!
+//! **The HEIC card** (`ui-layout.md` §5.3, `formats.md` §3): in a build without the HEIC decoder
+//! the parent leaves a section's HEIC and HEIF files out of its cells ([`split_unshown`]) and,
+//! after its photos, calls [`card`], which draws one card two cells wide in their place: the
+//! `caution` "!", "Not displaying N HEIC images" and why, with what to do about it. A click on it
+//! selects those photos (`select.set`, run by [`apply`]), so they can still be moved, deleted or
+//! added to an album. It registers `unshown:<section id>` (e.g. `unshown:folder:12`).
+//!
 //! **Zoom to Faces** (`organizing.md` §6.3): in a person's section zoomed to their faces
 //! (`people.zoomToFaces`), a cell shows the person's face on the photo as a face tile filling the
 //! square (`face:<PhotoId>.<n>`, from the shared face picture store) in place of the photo. The
@@ -122,6 +129,24 @@ pub struct Cells {
     editor: Editor,
     /// What the Zoom to Faces tiles asked for this pass, for [`apply`].
     faces: FaceAsks,
+    /// The cards drawn in the last pass that drew cells or cards.
+    cards: Vec<CardShown>,
+}
+
+/// What one HEIC card drew in the last pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CardShown {
+    pub section: state::Section,
+    /// The photos it stands for.
+    pub photos: Vec<PhotoId>,
+    /// Its rect on screen (two cells and the gap between them; the whole row at one column).
+    pub rect: Rect,
+    /// "Not displaying 3 HEIC images".
+    pub title: String,
+    /// Why, and what to do about it.
+    pub note: String,
+    /// Every photo it stands for is selected.
+    pub selected: bool,
 }
 
 /// What the Zoom to Faces tiles of a pass ask for.
@@ -146,6 +171,11 @@ impl Cells {
         self.shown.iter().find(|s| s.photo == photo)
     }
 
+    /// The HEIC cards drawn in the last pass, in drawing order.
+    pub fn cards(&self) -> &[CardShown] {
+        &self.cards
+    }
+
     /// Whether the inline caption editor was drawn in the last pass that drew cells.
     pub fn editor_shown(&self) -> bool {
         self.pass.is_some_and(|p| self.editor.drawn_in(p))
@@ -164,6 +194,7 @@ impl Cells {
         }
         self.pass = Some(pass);
         self.shown.clear();
+        self.cards.clear();
         self.held.refresh(held);
         self.selected.refresh(selected);
         if self.fitted.len() > FITTED_CAP {
@@ -628,6 +659,110 @@ pub fn apply(app: &mut App, cells: &mut Cells) {
         app.state_mut().unnamed.selection = faces;
         crate::panels::faces::menu::show(&r, app);
     }
+}
+
+/// Whether this build leaves `name` out of the light table's cells for the HEIC card: a HEIC or
+/// HEIF file (`.heic`, `.heif`, any case) in a build without the HEIC decoder
+/// (`dalica_image::Format::Heif`, the `heif` feature). Other files that cannot be shown keep their
+/// own cells (`ui-layout.md` §5.3).
+pub fn is_unshown(name: &str) -> bool {
+    !dalica_image::Format::Heif.supported() && is_heic_name(name)
+}
+
+/// Whether `name` has a HEIC or HEIF extension, in any case.
+pub fn is_heic_name(name: &str) -> bool {
+    std::path::Path::new(name).extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("heic") || e.eq_ignore_ascii_case("heif"))
+}
+
+/// Takes the photos [`is_unshown`] leaves out of `photos` (keeping the others in order) and
+/// returns them, in order: what a section's HEIC card stands for. Nothing is taken with the
+/// decoder built in.
+pub fn split_unshown(library: &Library, photos: &mut Vec<PhotoId>) -> Vec<PhotoId> {
+    if dalica_image::Format::Heif.supported() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    photos.retain(|id| {
+        let unshown = library.photo(*id).is_some_and(|p| is_unshown(&p.name));
+        if unshown {
+            out.push(*id);
+        }
+        !unshown
+    });
+    out
+}
+
+/// The card's title: "Not displaying 3 HEIC images" ("1 HEIC image" for one).
+pub fn card_title(n: usize) -> String {
+    crate::tln!(n, "Not displaying {n} HEIC image", "Not displaying {n} HEIC images")
+}
+
+/// The card's note: why (`dalica_image::formats::heif::REASON`) and what to do about it
+/// (`dalica_image::formats::heif::HINT`), in the language in effect.
+pub fn card_note() -> String {
+    use dalica_image::formats::heif;
+    // The reason and the hint as two sentences, each looked up as the tooltip and the edit view do.
+    format!("{}.\n{}", crate::i18n::tr(heif::REASON), crate::i18n::tr(heif::HINT))
+}
+
+/// The widget id of section `section`'s HEIC card: `unshown:folder:12`.
+pub fn card_id(section: state::Section) -> String {
+    format!("unshown:{section}")
+}
+
+/// Paints section `section`'s HEIC card in `rect` for `photos` (see the module's doc): the
+/// placeholder with its drop shadow, the selection's surround and outline when every photo of it
+/// is selected, the `caution` "!" in a column half a cell wide at its left, and to its right the title
+/// and the note, wrapped and clipped to the card. A click selects the photos ([`apply`]).
+pub fn card(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, section: state::Section, photos: &[PhotoId], rect: Rect) {
+    if photos.is_empty() || !(rect.is_finite() && rect.is_positive()) {
+        return;
+    }
+    let t = f.t;
+    let pass = ui.ctx().cumulative_pass_nr();
+    let selection = &f.state.selection;
+    cells.begin(pass, &f.state.tray.held, &selection.ids);
+    let selected = photos.iter().all(|id| cells.selected.contains(&selection.ids, *id));
+    let id = card_id(section);
+    let response = ui.interact(rect, Id::new(("unshown", section)), Sense::click());
+    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    if selected {
+        painter.rect_filled(rect, 0, t.cell_selected);
+    } else if response.hovered() {
+        painter.rect_filled(rect, 0, t.hover.gamma_multiply(0.5));
+    }
+    widgets::photo_shadow(ui.painter(), rect);
+    painter.rect_filled(rect, 0, t.placeholder);
+    if selected {
+        ui.painter().rect_stroke(rect, 0, Stroke::new(2.0, t.photo_selected), StrokeKind::Outside);
+    }
+    // The "!" in a column half a cell wide at the left, as large as a cell's.
+    let side = rect.height().min(rect.width());
+    // One column: the card is one cell; the "!" takes its middle, the text goes under it.
+    let wide = rect.width() >= side * 1.5;
+    let mark = Rect::from_min_size(rect.min, vec2(if wide { side * 0.5 } else { side }, side));
+    widgets::failed_mark(&painter, t, mark);
+    let (title, note) = (card_title(photos.len()), card_note());
+    let pad = (side * 0.08).clamp(4.0, 12.0);
+    // Beside the "!" when the card is two cells wide; under it at one column.
+    let left = if wide { mark.max.x } else { rect.min.x + pad };
+    let text_w = (rect.max.x - pad - left).max(0.0);
+    let title_g = painter.layout(title.clone(), fonts::semibold(t.body), t.text, text_w);
+    let note_g = painter.layout(note.clone(), fonts::regular(t.caption), t.text_dim, text_w);
+    let gap = 4.0;
+    let high = title_g.size().y + gap + note_g.size().y;
+    // Centred in the card's height while it fits; from the top when it does not (clipped).
+    let top = if wide { rect.min.y + ((rect.height() - high) / 2.0).max(pad) } else { (mark.center().y + 16.0).min(rect.max.y) };
+    let note_top = top + title_g.size().y + gap;
+    painter.galley(egui::pos2(left, top).round(), title_g, t.text);
+    painter.galley(egui::pos2(left, note_top).round(), note_g, t.text_dim);
+    widgets::focus_ring(ui.painter(), t, &response, rect, 0);
+    widgets::register(ui.ctx(), &id, Role::Button, &title, Target::Widget(&response), selected);
+    if response.clicked() {
+        let ids: Vec<u64> = photos.iter().take(state::MAX_IDS).map(|p| p.get()).collect();
+        cells.faces.commands.push(("select.set", json!({ "ids": ids })));
+    }
+    cells.cards.push(CardShown { section, photos: photos.to_vec(), rect, title, note, selected });
 }
 
 /// What goes under the image: the selected or hovered surround, and the photo's drop shadow.

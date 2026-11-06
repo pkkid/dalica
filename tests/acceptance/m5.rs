@@ -6,8 +6,8 @@
 //!    of a folder holding one file of every format of `formats.md` §1 (JPEG, a turned JPEG,
 //!    16-bit PNG, TIFF, 16-bit CMYK TIFF, WebP with alpha, GIF, BMP, JPEG XL, PSD, a RAW, a
 //!    Display P3 JPEG), a HEIC, an AVIF and a damaged JPEG. Every file is listed; the twelve show
-//!    their pictures; the HEIC, the AVIF and the damaged file show the `caution` "!" with their
-//!    reasons in the tooltip. Whole-window screenshots at 1400 × 900 and 900 × 600 are matched
+//!    their pictures; the AVIF and the damaged file show the `caution` "!" with their reasons in
+//!    the tooltip, and the HEIC (no `heif` feature) is the section's HEIC card (M16.39). Whole-window screenshots at 1400 × 900 and 900 × 600 are matched
 //!    against `fingerprints/m5-*.json`.
 //! 2. **Temp-dir scenarios while the session runs** (`m5_folders.rs`, tests of their own in this
 //!    binary, on the window through the headless driver and the session's virtual clock): files
@@ -488,11 +488,25 @@ fn folders_scanning_and_formats() {
     let jobs = c.ok("jobs.list", json!({}));
     assert!(jobs.as_array().unwrap().iter().any(|j| j["kind"] == "scan" && j["state"] == "done"), "the scan was a job: {jobs}");
 
-    // Each tile: the twelve show their pictures; the three others a "!" with their reason.
+    // Each tile: the twelve show their pictures; the AVIF and the damaged JPEG a "!" with their
+    // reason; the HEIC, in a build without its decoder, no cell but the section's HEIC card (M16.39,
+    // `ui-layout.md` §5.3) with its "!" and its count.
     c.park_pointer(900.0);
     let (shot_large, rgba) = screenshot(&mut c, home.path(), "m5-1400x900", 1400, 900);
+    let carded = |f: &formats::Mixed| f.name.ends_with(".heic") && !dalica_image::Format::Heif.supported();
+    let cards = c.widgets("unshown:");
+    if files.iter().any(carded) {
+        let [card] = &cards[..] else { panic!("one HEIC card: {cards:?}") };
+        assert_eq!(card["label"], "Not displaying 1 HEIC image", "{card}");
+        assert!(caution_pixels(&rgba, 1400, &card["rect"]) > 20, "the HEIC card has no \"!\"");
+    }
     let mut reasons = Vec::new();
     for (p, f) in photos.iter().zip(&files) {
+        if carded(f) {
+            assert!(c.widgets(&format!("thumb:{}", p["id"])).is_empty(), "{}: a cell beside its card", f.name);
+            reasons.push(format!("{} (on the HEIC card)", f.name));
+            continue;
+        }
         let id = format!("thumb:{}", p["id"]);
         let cell = c.widgets(&id).into_iter().find(|w| w["id"] == id.as_str()).unwrap_or_else(|| panic!("{}: no cell {id}", f.name));
         let (marks, varies) = (caution_pixels(&rgba, 1400, &cell["rect"]), variation(&rgba, 1400, &cell["rect"]));
@@ -505,7 +519,7 @@ fn folders_scanning_and_formats() {
             None => assert!(varies > 12.0, "{}: its tile shows no picture (variation {varies:.1})", f.name),
         }
     }
-    for (p, f) in photos.iter().zip(&files) {
+    for (p, f) in photos.iter().zip(&files).filter(|(_, f)| !carded(f)) {
         let tip = c.tooltip(&format!("thumb:{}", p["id"]));
         assert!(tip.contains(f.name), "{}: the tooltip names the file: {tip:?}", f.name);
         match f.reason {
@@ -522,7 +536,7 @@ fn folders_scanning_and_formats() {
     c.settle_jobs();
     c.park_pointer(600.0);
     let (shot_small, rgba) = screenshot(&mut c, home.path(), "m5-900x600", 900, 600);
-    for (p, f) in photos.iter().zip(&files).filter(|(_, f)| f.reason.is_some()) {
+    for (p, f) in photos.iter().zip(&files).filter(|(_, f)| f.reason.is_some() && !carded(f)) {
         let id = format!("thumb:{}", p["id"]);
         let cell = c.widgets(&id).into_iter().find(|w| w["id"] == id.as_str()).unwrap_or_else(|| panic!("900 × 600: {} not on screen", f.name));
         assert!(caution_pixels(&rgba, 900, &cell["rect"]) > 20, "900 × 600: {}: no \"!\"", f.name);

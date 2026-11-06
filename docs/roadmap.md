@@ -11719,7 +11719,7 @@ under their own key, and a snapshot without them reads as one with none.
     data). Surgical edits to `crates/engine/src/session.rs` only if a join needs a timeout hook.
   - done when: the issue's *Done when* holds; a test holds a metadata write and shows the UI
     thread returns from close at once while the write still lands; the PR closes #723.
-- ⬜ **M16.39 `ui`: one "Not displaying N HEIC images" card instead of blank cells (#724)**
+- ✅ **M16.39 `ui`: one "Not displaying N HEIC images" card instead of blank cells (#724)**
   - after: M16.12
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/tests/heic_card.rs`, `docs/ui-layout.md`, `docs/organizing.md`
   - scope: issue #724 as written (maintainer request, 2026-11-06), with the issue's suggested

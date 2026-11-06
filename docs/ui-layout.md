@@ -241,6 +241,27 @@ Add a description
   (maintainer, 2026-10-14).
 - **Hidden** photos (only visible with View → Hidden Pictures) are drawn at 40 % opacity.
 - **Small pictures** (< 64 px on both sides) are omitted unless View → Small Pictures.
+- **The HEIC card** (M16.39): in a build without the HEIC decoder (`formats.md` §3) a section
+  draws no cell for its HEIC and HEIF files (`.heic`, `.heif`, any case). In their place, after
+  the section's last cell, it shows one card **two cells wide and one cell tall** on the same grid
+  (the whole row at one column; a card that does not fit in the rest of a row starts the next
+  one): the placeholder grey with its drop shadow, the `caution` "!" at the left, then
+  **"Not displaying N HEIC images"** ("1 HEIC image" for one; SemiBold body, `text`) over the
+  reason and what to do about it (`text_dim`, caption size, wrapped and clipped to the card): "HEIC
+  support isn't included in this build." and "On an iPhone, Settings › Camera › Formats › Most
+  Compatible saves new photos as JPEG. Or convert these photos to JPEG." The count covers that
+  section's HEICs only. A section of only HEICs shows only the card. Builds with the `heif` feature
+  show HEICs as normal cells and no card. Its widget id is `unshown:<section id>`
+  (`unshown:folder:12`).
+  - **A click on the card selects its photos** (`select.set`), so they can still be moved,
+    deleted, added to an album or located on disk; the card is drawn selected (surround and
+    outline) while all of them are.
+  - **One card per reason:** only HEIC has a card for now. AVIF, damaged and too-large files keep
+    their own "!" cells, since those need attention one by one.
+  - **What counts them** (`organizing.md` §9): the section header's photo count, its date and the
+    tree's folder count include them. Select All, the arrow keys, the status line's "photo i of
+    N", the filmstrip and the slideshow go by the cells only, so they skip them. A HEIC opened
+    directly (by id, or from search) keeps the edit view's "This photo cannot be shown." screen.
 - **Empty states**: no watched folders → "No pictures yet" + [Add a Folder…] [Import…]; search with
   no results → "No photos found", "Try fewer words or other filters." and its own primary
   [Show All] (`empty:search`, `button:empty.showAll`), which leaves search mode as the banner's
