@@ -527,14 +527,16 @@ fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<S
 
 /// Whether a checkable row (or a row of the view-options popup) running `id` with its fixed
 /// `params` is on: the view state answers ([`crate::commands::view::checked`]), and the session for
-/// the engine's View settings (Use Color Management, on until a library says otherwise) and for
-/// Folder ▸ Sort By ([`sort_checked`]); rows of commands that do not exist yet are off.
+/// the engine's View settings (Use Color Management, on until a library says otherwise), for
+/// Folder ▸ Sort By ([`sort_checked`]) and for View ▸ Theme ▸ (the theme in effect,
+/// [`crate::theme::checked`]); rows of commands that do not exist yet are off.
 pub fn checked(app: &App, id: &str, params: &Value) -> bool {
     match id {
         "view.colorManagement" => app.session().is_none_or(dalica_engine::Session::color_management),
         "section.sort" => sort_checked(app, params),
         _ => crate::commands::edit_view::checked(app, id)
             .or_else(|| crate::commands::view::checked(app.state(), id, params))
+            .or_else(|| crate::theme::checked(app, id))
             .or_else(|| crate::commands::people::checked(app, id, params))
             .unwrap_or(false),
     }

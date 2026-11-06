@@ -504,7 +504,9 @@ impl App {
         }
         // The language this frame is drawn in: `interface.language` (`DALICA_LANGUAGE` first).
         crate::i18n::sync(ui.ctx(), self.session.as_ref().map(|s| s.settings().interface().language).as_deref());
-        // UI scale and font size: the Options dialog's preview, else the saved settings.
+        // The theme, then UI scale and font size: the Options dialog's preview, else the saved
+        // settings.
+        crate::theme::apply(ui.ctx(), &self.state, self.session.as_ref().map(Session::settings), &mut self.tokens);
         crate::scale::apply(ui.ctx(), &self.state, self.session.as_ref().map(Session::settings), &mut self.tokens);
         let Some(session) = &mut self.session else {
             let t = self.tokens;

@@ -649,10 +649,15 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
  "faceModel": null,
  "collage": {"tab": "settings", "selection": [], "clips": [], "gesture": null, "getMore": false, "close": null},
  "video": {"playing": false, "position": 0, "trim": null, "volume": 80, "fullScreen": false},
- "openWith": null, "dragOut": null, "defaultViewer": null}
+ "openWith": null, "dragOut": null, "defaultViewer": null, "theme": "dark"}
 ```
 
-`view` is `library | edit | slideshow | viewer`; `room` is the active tab (`library`,
+`theme` (M16.5) is the id of the theme the window wears (`design-system.md` §2 Themes: the Options
+dialog's preview while it is open, else the setting `interface.theme`); it is a setting, not view
+state: `ui.set {theme: "<id>"}` runs the command `theme.<id>` (as View ▸ Theme ▸ does: saved, worn
+from the next frame, no undo step) once every other field has passed its checks, nothing when it is
+the theme saved already, and refuses an id that is not one of the themes (`bad_params`, nothing
+changed). `view` is `library | edit | slideshow | viewer`; `room` is the active tab (`library`,
 `import`, `collage`) and `rooms` the tabs open (M11, below); `status` is the status line's text as drawn (read-only); `treeWidth` is
 200 … W − 480 for the current window. The library view's fields (M4):
 
@@ -733,7 +738,7 @@ characters; nothing in the draft is applied before the dialog's Apply or OK (`de
 
 | Field | Values | Changed by |
 |---|---|---|
-| `options` | `null`, or `{tab, values, error, previewScale, previewFontSize, shortcuts}`: the tab shown (`general` \| `fileTypes` \| `slideshow` \| `viewer` \| `export` \| `shortcuts`, as in `tab:options.<tab>`; Slideshow and Photo Viewer since M11); the option values changed since the last Apply, by settings key (at most 256 keys of 1 … 128 characters; each value a null, a boolean, a number or a text); the last Apply's error (`null` after a successful one); the UI scale and font size previewed while the dialog is open (`"auto"` or 75 … 300 in steps of 25; `small` \| `medium` \| `large`; `null`: the saved ones), which revert when it closes without an Apply | `app.preferences {tab?}` (Tools ▸ Options…, Ctrl+,; Dalica ▸ Preferences… on macOS: General unless a tab is named), `app.shortcuts` (Help ▸ Keyboard Shortcuts…, Ctrl+/: Keyboard Shortcuts), the tabs; Apply (`button:dialog.apply`, enabled while the draft changes something) runs `options.set {values}` and the shortcut changes and keeps the dialog open, OK applies what changed and closes, Cancel and Esc drop the draft |
+| `options` | `null`, or `{tab, values, error, previewScale, previewFontSize, previewTheme, shortcuts}`: the tab shown (`general` \| `fileTypes` \| `slideshow` \| `viewer` \| `export` \| `shortcuts`, as in `tab:options.<tab>`; Slideshow and Photo Viewer since M11); the option values changed since the last Apply, by settings key (at most 256 keys of 1 … 128 characters; each value a null, a boolean, a number or a text); the last Apply's error (`null` after a successful one); the UI scale and font size previewed while the dialog is open (`"auto"` or 75 … 300 in steps of 25; `small` \| `medium` \| `large`; `null`: the saved ones), which revert when it closes without an Apply; the theme previewed (a theme's id, worn while `values` holds `interface.theme`; `null`: the saved one; M16.5) | `app.preferences {tab?}` (Tools ▸ Options…, Ctrl+,; Dalica ▸ Preferences… on macOS: General unless a tab is named), `app.shortcuts` (Help ▸ Keyboard Shortcuts…, Ctrl+/: Keyboard Shortcuts), the tabs; Apply (`button:dialog.apply`, enabled while the draft changes something) runs `options.set {values}` and the shortcut changes and keeps the dialog open, OK applies what changed and closes, Cancel and Esc drop the draft |
 | `options.shortcuts` | the shortcut editor (`menus-and-shortcuts.md` §2.0): `{search, context, showUnbound, recording, conflict, changes, resetAll}`: the search text, the Context filter (`global`, `library`, `editView`, … as `app.setShortcut` names them; `null`: All), "Show commands without a shortcut", the key cell recording (`{command, context, slot}`, slot 0 or 1; `null`: none), a conflict waiting for [Replace] [Cancel] (`{cell, key, command, context}`: the cell, the key pressed, and the binding that already has it), the changed bindings (`[{command, context, slot, key}]`, `key` a key as the keymap writes it or `null` to remove it; at most 1024) and Reset All. Commands must be ones the keymap knows (`not_found`). While a cell records, every key press goes to the editor, not to the keymap or the dialog's Esc and Enter | the editor's controls (M10.12); Apply runs `app.setShortcut` per change and `app.resetShortcuts` for Reset All |
 
 M11's fields (all start fresh; none is persisted). `ui.set` merges `import` field by field (its

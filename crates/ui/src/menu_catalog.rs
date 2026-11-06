@@ -201,6 +201,28 @@ pub const FOLDER_VIEW: &[Entry] = &[
     item("Simplified Tree View", "view.simplifiedTree").check().e(),
 ];
 
+/// View ▸ Theme (a Dalica addition, M16.5): one radio row per theme of `ui-kit`'s
+/// `ThemeKind::ALL`, by its label, running the engine's `theme.<id>` (`settings::THEME_COMMANDS`);
+/// the theme in effect is checked (`crate::theme::checked`). A test keeps the rows, the engine's
+/// themes and `ui-kit`'s the same list.
+pub const THEME: &[Entry] = &[
+    item("Dark", "theme.dark").radio().e(),
+    item("Pro (Dark)", "theme.pro").radio().e(),
+    item("Pro (Medium Gray)", "theme.proMedium").radio().e(),
+    item("Pro (Light Gray)", "theme.proLightGray").radio().e(),
+    item("Pro (Light)", "theme.proLight").radio().e(),
+    item("Studio (Dark)", "theme.studio").radio().e(),
+    item("Studio (Light)", "theme.studioLight").radio().e(),
+    item("Classic", "theme.classic").radio().e(),
+    item("Adwaita (Light)", "theme.adwaita").radio().e(),
+    item("Adwaita (Dark)", "theme.adwaitaDark").radio().e(),
+    item("Solarized Dark", "theme.solarizedDark").radio().e(),
+    item("Breeze Light", "theme.breezeLight").radio().e(),
+    item("Breeze Dark", "theme.breezeDark").radio().e(),
+    item("Soft Dark", "theme.softDark").radio().e(),
+    item("Soft Light", "theme.softLight").radio().e(),
+];
+
 /// §1.3 View.
 pub const VIEW: &[Entry] = &[
     item("Library View", "view.library").key("Ctrl+1").e(),
@@ -225,6 +247,7 @@ pub const VIEW: &[Entry] = &[
     SEP,
     Entry::Submenu("Thumbnail Caption", CAPTION),
     Entry::Submenu("Folder View", FOLDER_VIEW),
+    Entry::Submenu("Theme", THEME),
     SEP,
     item("Full Screen", "window.fullscreen").key("F11").e(),
 ];

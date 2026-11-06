@@ -11150,7 +11150,7 @@ under their own key, and a snapshot without them reads as one with none.
     with its default equal to its accessor's; `crates/engine/tests/theme.rs`: each `theme.<id>`
     writes its id and reports it checked, `theme.next` goes round all thirteen; every existing
     engine test and `panic_hunt` pass unchanged.
-- ⬜ **M16.5 `ui`: switching themes in the window**
+- ✅ **M16.5 `ui`: switching themes in the window**
   - after: M16.3, M16.4
   - files: `crates/ui/src/scale.rs`, `crates/ui/src/theme.rs`, `crates/ui/src/lib.rs`, `crates/ui/src/app.rs`, `crates/ui/src/state.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/control/**`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/theme_switch.rs`, `docs/menus-and-shortcuts.md`, `docs/control-protocol.md`, `crates/ui/src/i18n/th.tsv`
   - scope: `crates/ui/src/theme.rs`: the theme in effect read every frame beside the scale and
