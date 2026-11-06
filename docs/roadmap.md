@@ -11730,8 +11730,25 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: the issue's *Done when* holds; a ui test shows a mixed section with its JPEGs plus
     one two-cell card with the right count, and an all-HEIC section with only the card;
     screenshots at 1400 x 900 and 900 x 600 before and after; the PR closes #724.
+- ⬜ **M16.40 `acceptance` + `ui-kit`: main's full-run failures after M16's merges**
+  - after: M16.12
+  - files: `tests/acceptance/m3.rs`, `tests/acceptance/fingerprints/m3-900x600-view-menu.json`, `tests/acceptance/m9_search.rs`, `tests/acceptance/m9_app.rs`, `tests/acceptance/m10_looks.rs`, `tests/acceptance/fingerprints/m10-1400x900-options-general.json`, `crates/ui-kit/tests/thai_text.rs`, `crates/ui-kit/src/linebreak.rs`
+  - scope: the branch CI runs of M16.14 and M16.27 (2026-11-06; `ci --full`) found failures that
+    origin/main has too, from M16's own merges: (1) accept M3 counts 8 submenus where its
+    expectation says 7 (View ▸ Theme, M16.5): the expectation follows `menus-and-shortcuts.md`
+    §1 as the test says; (2) accept M3 `window_shell`: `m3-900x600-view-menu` moved 6.44 (the
+    Theme submenu row); (3) accept M9 search: "color:red matches nothing before its milestone"
+    now that M16.11's colour search landed: the expectation becomes the M16 behaviour; (4)
+    accept M9/M10 options at 150 % and Large: `m10-1400x900-options-general` moved 20.24 (M16.4's
+    Theme row); (5) `thai_text::the_search_title_breaks_only_between_its_words` (M16.24) fails
+    with `CRAFT_FONTS_DIR` set: find whether the test or the line breaker is wrong and fix that.
+    Each fingerprint is re-blessed only after looking at the diff images, the why in the commit
+    body; no assertion is weakened, an expectation changes only where M16's spec changed it.
+  - done when: `cargo xtask accept M3`, `M9` and `M10` pass and the Thai test passes with
+    `CRAFT_FONTS_DIR` at the CI pin; a lead-dispatched CI run on the branch is green on the three
+    OSes except for failures it shows on main too (named in the PR).
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31, M16.32, M16.33, M16.34, M16.35, M16.36, M16.37, M16.38, M16.39
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31, M16.32, M16.33, M16.34, M16.35, M16.36, M16.37, M16.38, M16.39, M16.40
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; it is the 1.1.0 release gate
