@@ -1102,8 +1102,10 @@ Map tiles, geocoding and model downloads (M13) need TLS. The usual Rust TLS prov
 
 - `rustls` 0.23 with its default features off (`std` and `tls12` only), so its `aws-lc-rs`
   provider is never built; TLS 1.2 and 1.3 with rustls's safe defaults;
-- `rustls-rustcrypto` as the crypto provider: RustCrypto's AES-GCM, ChaCha20-Poly1305, X25519,
-  P-256/P-384 ECDSA, Ed25519 and RSA signatures in pure Rust, no `ring`, no assembly, no C build;
+- a RustCrypto crypto provider, ported from `rustls-rustcrypto` 0.0.2-alpha into `dalica-fetch`
+  (`http/provider.rs`, M16.17): RustCrypto's AES-GCM, ChaCha20-Poly1305, X25519, P-256/P-384
+  ECDHE, P-256/P-384 ECDSA, Ed25519 and RSA signatures in pure Rust, no `ring`, no assembly, no C
+  build, over the RustCrypto crates as direct dependencies;
 - `webpki-roots` 1: Mozilla's root certificates compiled in, so validation never depends on the
   system's store. Its licence, `CDLA-Permissive-2.0` (a permissive licence for data: the
   certificates are data, and sharing them asks only that the licence text go with them), is not in
@@ -1114,11 +1116,24 @@ Map tiles, geocoding and model downloads (M13) need TLS. The usual Rust TLS prov
   text is in `NOTICE` (*Data compiled into the program*), which every package ships.
 
 What was weighed: `rustls-rustcrypto` is an **alpha** release (0.0.2-alpha), younger and far less
-widely deployed than `ring` or `aws-lc-rs`. It is accepted because the alternatives break §8.1 (`ring` and `aws-lc-rs`
+widely deployed than `ring` or `aws-lc-rs`; its code, now Dalica's, is the glue between rustls and
+the RustCrypto primitives, which do the cryptography. It is accepted because the alternatives break §8.1 (`ring` and `aws-lc-rs`
 build C and assembly) or leave the user's network to each platform's downloader, and because what
 the transport protects is small: downloads are pinned to a SHA-256 in the source, and map tiles
 are public pictures. Moving to a stable pure-Rust provider when one exists is a dependency update,
 not a redesign (the provider is one line of `http/wire.rs`).
+
+**The port (M16.17, the maintainer's answer to M15.R's Q10).** The crate brought its own
+`rustls-webpki` 0.102 only for the `alg_id` constants of its signature algorithms, and 0.102 carries
+advisories no release fixes. No released `rustls-rustcrypto` drops it (0.0.2-alpha is still the
+latest; `rustls-rustcrypto-azul` is a one-person fork on the pre-release elliptic-curve 0.14
+generation, and `rustls-pure` is TLS 1.3 only), so its provider was ported into
+`crates/fetch/src/http/provider/` (MIT OR Apache-2.0, a `NOTICE` row) with the constants from
+`rustls::pki_types::alg_id` (the same bytes). The port also removes its `unwrap`s, `expect`s,
+`unreachable!` and one `unsafe` `transmute`, checks a TLS 1.2 record's length before subtracting
+the tag, and refuses an X25519 share that gives an all-zero secret. `Cargo.lock` holds one
+`rustls-webpki`, rustls's own 0.103. `tests/http.rs` handshakes in TLS 1.2 and 1.3 with every
+suite, group and signature scheme the provider offers against a local server.
 
 `Cargo.lock` lists `ring` as an optional dependency of `rustls-webpki` that no enabled feature
 turns on; it is never built (`cargo tree -i ring` prints nothing, and `cargo xtask deps` checks the
@@ -1126,8 +1141,8 @@ resolved graph, §8.1). `cargo metadata` still lists it under `rustls-webpki`, n
 feature `alloc = ["ring?/alloc"]`; since M13.20 (when the engine began to link `dalica-fetch`) the
 gate counts an optional dependency only when the parent's resolved features turn it on (`ring`,
 `dep:ring`, `ring/…`, through any chain), and a test keeps it agreeing with `cargo tree -i ring`
-on every target. `rustls-rustcrypto` also brings an older `rustls-webpki` (0.102) for its
-signature-algorithm types; the certificate chain is checked by rustls's own `rustls-webpki` 0.103.
+on every target. The certificate chain is checked by rustls's own `rustls-webpki` 0.103, the only
+copy in the graph.
 
 Whatever the stack: certificate validation is never disabled (there is no setting or API to turn
 it off; a test root is trusted only by a transport built for it with `HttpsTransport::with_roots`,
@@ -1159,28 +1174,13 @@ exceptions (`LICENCE_EXCEPTIONS` in `xtask/src/deps.rs`, each the maintainer's):
 - Recorded advisories:
   - **RUSTSEC-2023-0071, `rsa` 0.9** (the Marvin attack: a timing side channel in RSA
     *decryption* that can leak the private key to someone who measures many decryptions). Brought
-    in by `rustls-rustcrypto` (§8.2). *Rationale:* Dalica is only ever a TLS client and never holds
+    in by the TLS provider (`dalica-fetch`'s port of `rustls-rustcrypto`, §8.2). *Rationale:* Dalica is only ever a TLS client and never holds
     an RSA private key; the client uses `rsa` only to *verify* servers' RSA signatures, which are
     public-key operations with no secret to leak (rustls has no RSA key exchange at all, and Dalica
     sends no client certificate). *Compensating control:*
     downloads are pinned to a SHA-256 in the source, so a broken channel cannot change a model.
     *Owner:* the lead. *Review:* by 2027-01-31, at every milestone review, and when `rsa` 0.10
-    (constant-time) reaches `rustls-rustcrypto`.
-  - **RUSTSEC-2026-0049, RUSTSEC-2026-0098, RUSTSEC-2026-0099, RUSTSEC-2026-0104,
-    RUSTSEC-2026-0382, `rustls-webpki` 0.102** (in certificate path validation: CRL distribution
-    points not matched, a reachable panic in CRL parsing, two name-constraint checks that accepted
-    what they should refuse, and distrusted intermediates accepted; no 0.102 release fixes the
-    last). Brought in by `rustls-rustcrypto` 0.0.2-alpha (§8.2), which uses its 0.102 copy only
-    for the `alg_id` constants of its signature algorithms (`src/verify/{rsa,ecdsa,eddsa}.rs`).
-    *Rationale:* no code of the 0.102 copy validates a certificate or parses a CRL: chains are
-    validated by rustls's own `rustls-webpki` 0.103 (0.103.16 since 2026-10-20, which has all
-    five fixes, and `cargo xtask advisories` keeps checking it) against `webpki-roots` 1.0.10
-    (RUSTSEC-2026-0381 fixed), and Dalica configures no CRLs.
-    *Compensating control:* downloads are pinned to a SHA-256 in the source, so a broken channel
-    cannot change a model. *Owner:* the lead. *Review:* by 2027-01-31, at every milestone review,
-    and when `rustls-rustcrypto` moves to `rustls-webpki` 0.103. Recorded at M15.40 (2026-10-20)
-    when the check first ran; the maintainer kept it at M15.R and drops the copy in M16.17.
-    RUSTSEC-2026-0382 joined it on 2026-10-20 (the 1.0 release check) on the same grounds.
+    (constant-time) is released and the provider can move to it.
 - Sources: crates.io, plus git dependencies on the LightCraft and PhotoCraft repositories pinned to
   a full commit hash (never a branch). Other git sources are refused.
 - Duplicate versions warn; duplicates of parser crates are reviewed.
@@ -1259,7 +1259,8 @@ the workspace.
 | `wl-clipboard-rs` 0.9 (with `os_pipe`, `tree_magic_mini`, `nom` 8, `petgraph`, `fixedbitset`, `hashbrown` 0.15, `foldhash`); features of `arboard`, `zbus` and `objc2-app-kit` | MIT or Apache-2.0 | M15.12 (the clipboard, the file manager's D-Bus call, macOS handler lists) | the desktop session | as reviewed in M15.12 | files on the Wayland clipboard; macOS handlers through `objc2-app-kit`'s safe `NSWorkspace` methods |
 
 Advisories against all of these are checked by `cargo xtask advisories` (§8.4); the only recorded
-exceptions are the two of §8.4 (`rsa`, `rustls-webpki` 0.102), neither brought by M15's crates.
+exceptions were the two of §8.4 (`rsa`, `rustls-webpki` 0.102), neither brought by M15's crates;
+M16.17 dropped the `rustls-webpki` 0.102 copy and its record, so `rsa` is the only one left.
 
 ## 9. Security testing
 

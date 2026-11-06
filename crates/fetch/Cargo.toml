@@ -13,9 +13,18 @@ autotests = false
 
 [dependencies]
 dalica-fs.workspace = true
+# the TLS crypto provider (src/http/provider.rs, ported from rustls-rustcrypto 0.0.2-alpha)
+aes-gcm.workspace = true
+chacha20poly1305.workspace = true
+ed25519-dalek.workspace = true
+hmac.workspace = true
+p256.workspace = true
+p384.workspace = true
+rand_core.workspace = true
+rsa.workspace = true
 rustls.workspace = true
-rustls-rustcrypto.workspace = true
 sha2.workspace = true
+x25519-dalek.workspace = true
 thiserror.workspace = true
 webpki-roots.workspace = true
 

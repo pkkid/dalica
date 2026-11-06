@@ -1,5 +1,5 @@
 //! The HTTPS transport (`security.md` §8.2, reserved decision 9): an HTTP/1.1 ranged GET over
-//! `std::net` and rustls with the RustCrypto provider (`rustls-rustcrypto`; no `ring` or
+//! `std::net` and rustls with the RustCrypto provider (`http/provider.rs`; no `ring` or
 //! `aws-lc-rs`, so nothing is compiled from C or assembly), trusting Mozilla's root certificates
 //! compiled in (`webpki-roots`). Certificate validation is always on; there is no setting to turn
 //! it off.
@@ -15,6 +15,7 @@
 //! Ported from LightCraft `crates/fetch/src/http.rs` (`get`, `Url::join`) at f34c7a8a (MIT OR
 //! Apache-2.0); its connection and reply reading are in `http/wire.rs` and `http/response.rs`.
 
+pub mod provider;
 mod response;
 mod wire;
 

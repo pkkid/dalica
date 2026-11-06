@@ -1302,14 +1302,22 @@ dependencies = [
 name = "dalica-fetch"
 version = "1.0.0"
 dependencies = [
+ "aes-gcm",
+ "chacha20poly1305",
  "dalica-fs",
+ "ed25519-dalek",
+ "hmac",
+ "p256",
+ "p384",
  "proptest",
+ "rand_core 0.6.4",
+ "rsa",
  "rustls",
- "rustls-rustcrypto",
  "sha2",
  "tempfile",
  "thiserror 2.0.21",
  "webpki-roots",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -4302,12 +4310,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4438,23 +4440,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "pkcs5"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e847e2c91a18bfa887dd028ec33f2fe6f25db77db3619024764914affe8b69a6"
-dependencies = [
- "der",
- "spki",
-]
-
-[[package]]
 name = "pkcs8"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f950b2377845cebe5cf8b5165cb3cc1a5e0fa5cfa3e1f7f55707d8fd82e0a7b7"
 dependencies = [
  "der",
- "pkcs5",
  "spki",
 ]
 
@@ -5033,7 +5024,7 @@ checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "once_cell",
  "rustls-pki-types",
- "rustls-webpki 0.103.16",
+ "rustls-webpki",
  "subtle",
  "zeroize",
 ]
@@ -5045,47 +5036,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96"
 dependencies = [
  "zeroize",
-]
-
-[[package]]
-name = "rustls-rustcrypto"
-version = "0.0.2-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f12052947763ab8515f753315357599e9b0b4dab3b8ba15f30f725fe6d025557"
-dependencies = [
- "aead",
- "aes-gcm",
- "chacha20poly1305",
- "crypto-common",
- "der",
- "digest",
- "ecdsa",
- "ed25519-dalek",
- "hmac",
- "p256",
- "p384",
- "paste",
- "pkcs8",
- "rand_core 0.6.4",
- "rsa",
- "rustls",
- "rustls-pki-types",
- "rustls-webpki 0.102.8",
- "sec1",
- "sha2",
- "signature",
- "x25519-dalek",
-]
-
-[[package]]
-name = "rustls-webpki"
-version = "0.102.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64ca1bc8749bd4cf37b5ce386cc146580777b4e8572c7b97baf22c83f444bee9"
-dependencies = [
- "ring",
- "rustls-pki-types",
- "untrusted",
 ]
 
 [[package]]

@@ -11365,7 +11365,7 @@ under their own key, and a snapshot without them reads as one with none.
     Music row enabled, a picked folder shown and committed by OK, Cancel leaving it unchanged,
     the field cleared commits ""; `widget_ids` and `panic_hunt` pass; VIEW-MUSIC and
     ORG-FOLDERPROPS updated.
-- ⬜ **M16.17 `fetch`: the `rustls-webpki` 0.102 copy dropped**
+- ✅ **M16.17 `fetch`: the `rustls-webpki` 0.102 copy dropped**
   - after: M15.R
   - files: `crates/fetch/Cargo.toml`, `crates/fetch/src/http/wire.rs`, `crates/fetch/src/http/provider.rs`, `crates/fetch/src/http/provider/**`, `crates/fetch/tests/http.rs`, `crates/fetch/README.md`, `docs/security.md`, `xtask/src/advisories.rs`, `NOTICE`
   - scope: the M15.R answer (Q10). `rustls-rustcrypto` 0.0.2-alpha uses its `rustls-webpki`

@@ -818,7 +818,13 @@ mod tests {
     fn a_recorded_advisory_passes_and_a_planted_one_fails() {
         let security = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/security.md")).unwrap();
         let all = exceptions(&security).unwrap();
-        assert!(all.iter().any(|e| e.id == "RUSTSEC-2026-0104"), "{all:?}");
+        assert!(all.iter().any(|e| e.id == "RUSTSEC-2023-0071"), "{all:?}");
+        // The `rustls-webpki` 0.102 records left with the copy (M16.17).
+        assert!(
+            !all.iter().any(|e| ["RUSTSEC-2026-0049", "RUSTSEC-2026-0098", "RUSTSEC-2026-0099", "RUSTSEC-2026-0104", "RUSTSEC-2026-0382"]
+                .contains(&e.id.as_str())),
+            "{all:?}"
+        );
         // The fixture database holds only the rsa advisory of those recorded.
         let recorded: Vec<Exception> = all.into_iter().filter(|e| e.id == "RUSTSEC-2023-0071").collect();
         let rsa = recorded.iter().find(|e| e.id == "RUSTSEC-2023-0071").expect("RUSTSEC-2023-0071 in security.md §8.4");
