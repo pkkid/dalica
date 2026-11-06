@@ -84,3 +84,8 @@ path = "benches/a11y.rs"
 name = "i18n_frame"
 harness = false
 path = "benches/i18n.rs"
+
+[[bench]]
+name = "theme_switch"
+harness = false
+path = "benches/theme.rs"

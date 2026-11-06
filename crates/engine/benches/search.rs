@@ -33,6 +33,15 @@
 //!
 //! Every query budget is 1.5 × its first measurement and never above [`QUERY_CAP_MS`].
 //!
+//! **Colour search** (`--colour`, M16.11; `cargo xtask bench colour_search` runs it): the same
+//! library with a colour summary on every photo (each read from its sketch by
+//! `dalica_thumbs::sketch::colours`, as a scan makes it), and only these rows:
+//!
+//! - `index build with colours` (not budgeted): the index built over it.
+//! - `color:green`: `SearchIndex::search` of [`COLOUR_QUERY`] in the worker's scope. Budget
+//!   [`COLOUR_BUDGET_MS`], never above [`QUERY_CAP_MS`].
+//! - `color:green applied` (not budgeted): `search.set {text: COLOUR_QUERY}` to its result applied.
+//!
 //! Files go under `--dir` (default: this target directory's temporary folder) and are removed
 //! afterwards. Without `--bench` (under `cargo test --benches`) it runs a smoke pass on a small
 //! library (`--photos` 2 000, two samples each).
@@ -64,6 +73,13 @@ const APPLIED_BUDGET_MS: f64 = 22.3;
 const QUERY_CAP_MS: f64 = 100.0;
 const _: () = assert!(WORD_BUDGET_MS <= QUERY_CAP_MS && FILTER_BUDGET_MS <= QUERY_CAP_MS && NOT_BUDGET_MS <= QUERY_CAP_MS);
 const _: () = assert!(APPLIED_BUDGET_MS <= QUERY_CAP_MS);
+/// The colour search's budget (M16.11), judged on the median: 1.5 × the first measurement (the
+/// median of three runs, release, `taskset -c 0,1`, 2026-11-06: 3.60 ms, 48 419 matches), rounded
+/// up to 0.1 ms. `xtask/src/bench.rs` holds the same number.
+const COLOUR_BUDGET_MS: f64 = 5.4;
+const _: () = assert!(COLOUR_BUDGET_MS <= QUERY_CAP_MS);
+/// The colour query (`organizing.md` §8.1).
+const COLOUR_QUERY: &str = "color:green";
 
 /// The queries.
 const ONE_WORD: &str = "sunset";
@@ -144,6 +160,7 @@ struct Args {
     builds: usize,
     dir: PathBuf,
     json: bool,
+    colour: bool,
 }
 
 fn args() -> Result<Args, String> {
@@ -155,6 +172,7 @@ fn args() -> Result<Args, String> {
         builds: if full { 5 } else { 1 },
         dir: PathBuf::from(env!("CARGO_TARGET_TMPDIR")),
         json: false,
+        colour: false,
     };
     let mut it = all.iter();
     while let Some(arg) = it.next() {
@@ -166,6 +184,7 @@ fn args() -> Result<Args, String> {
             "--builds" => a.builds = number(value()?)?,
             "--dir" => a.dir = PathBuf::from(value()?),
             "--json" => a.json = true,
+            "--colour" => a.colour = true,
             _ => {}
         }
     }
@@ -293,6 +312,10 @@ fn main() {
             std::process::exit(2);
         }
     };
+    if a.colour {
+        colour_search(&a);
+        return;
+    }
     let root = a.dir.join(format!("search-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     dalica_fs::create_dir_all(&root).unwrap();
@@ -359,6 +382,73 @@ fn main() {
         println!(
             "{}",
             json!({ "bench": "search", "mode": mode, "threads": threads, "photos": photos, "folders": folders, "albums": ALBUMS,
+                    "query_cap_ms": QUERY_CAP_MS, "rows": rows })
+        );
+    } else {
+        for r in &rows {
+            println!("{}", serde_json::to_string_pretty(r).unwrap_or_default());
+        }
+    }
+}
+
+/// The colour search (`--colour`): the library with every photo's colour summary, its index, and
+/// [`COLOUR_QUERY`] (module docs).
+fn colour_search(a: &Args) {
+    let root = a.dir.join(format!("colour-search-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    dalica_fs::create_dir_all(&root).unwrap();
+    let photos_dir = synthetic::photos_dir(&root);
+    let made = Instant::now();
+    let mut lib = library(&photos_dir, a.photos);
+    let colours: Vec<_> = lib.photos().map(|p| (p.id, lib.sketch(p.id).map(|s| dalica_thumbs::sketch::colours(s.as_bytes())))).collect();
+    assert!(colours.iter().all(|(_, c)| c.is_some_and(|c| !c.is_empty())), "every photo has a summary");
+    lib.apply(Op::SetColours { colours }).unwrap();
+    let (mut s, clock) = open(&root, &photos_dir, &lib);
+    drop(lib);
+    let photos = s.library().photos().count();
+    let folders = s.library().folders().count();
+    eprintln!("a library of {photos} photos with colour summaries, made and opened in {:.1} s", made.elapsed().as_secs_f64());
+
+    let mut builds = Vec::new();
+    let mut index = SearchIndex::default();
+    for _ in 0..a.builds {
+        let t = Instant::now();
+        index = SearchIndex::from_library(s.library());
+        builds.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    let scope = scope_of(s.library(), s.roots(), &s.search_tree_options());
+    let query = Query::text(COLOUR_QUERY);
+    let matches = index.search(&query, &scope).count();
+    assert!(matches > 0 && matches < photos, "{COLOUR_QUERY} finds some photos, not all: {matches}");
+    let mut times = Vec::with_capacity(a.samples);
+    for _ in 0..a.samples {
+        let t = Instant::now();
+        let r = index.search(&query, &scope);
+        times.push(t.elapsed().as_secs_f64() * 1000.0);
+        assert_eq!(r.count(), matches);
+    }
+    let first = set_to_applied(&mut s, &clock, COLOUR_QUERY);
+    assert_eq!(first.1, matches, "the worker answers as the index does");
+    s.execute("search.clear", &json!({})).unwrap();
+    let mut applied = Vec::with_capacity(a.samples);
+    for _ in 0..a.samples {
+        applied.push(set_to_applied(&mut s, &clock, COLOUR_QUERY).0);
+        s.execute("search.clear", &json!({})).unwrap();
+    }
+    let rows = vec![
+        row("index build with colours", builds, None, None),
+        row(COLOUR_QUERY, times, Some(COLOUR_BUDGET_MS), Some(matches)),
+        row("color:green applied", applied, None, Some(matches)),
+    ];
+    drop(s);
+    let _ = std::fs::remove_dir_all(&root);
+
+    let mode = if cfg!(debug_assertions) { "debug" } else { "release" };
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    if a.json {
+        println!(
+            "{}",
+            json!({ "bench": "colour_search", "mode": mode, "threads": threads, "photos": photos, "folders": folders,
                     "query_cap_ms": QUERY_CAP_MS, "rows": rows })
         );
     } else {

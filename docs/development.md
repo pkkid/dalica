@@ -296,6 +296,9 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Import from a camera over PTP, 300 JPEGs of 2048 px from the in-memory camera: copied and verified (from the median) | ≥ 13.9 files/s |
 | The light table's frame at 100 k photos while it scrolls, AccessKit on; its overhead over off (p95; never above 8 ms and 1 ms) | ≤ 2 ms; ≤ 0.5 ms |
 | The same frame in the pseudo-locale; its overhead over English (p95; never above 8 ms and 1 ms) | ≤ 1.5 ms; ≤ 0.5 ms |
+| A 100 k-photo library indexed without colour summaries opened: every summary made from its stored sketch, from the open's start (median); one sketch's summary (median) | ≤ 1 445 ms; ≤ 5.5 µs |
+| `color:green` over 100 k photos with a colour summary on each (median; never above 100 ms) | ≤ 5.4 ms |
+| The first frame after a theme switch at 100 k photos (p95; never above 16 ms) | ≤ 3 ms |
 
 **Judged against a base on the same machine** (`cargo xtask budgets --baseline <ref>`; maintainer
 decisions, 2026-10-15, for the import at M12.R, and for the M13 rows at M13.R): the save, export
@@ -566,6 +569,31 @@ nothing needed speeding up.
   overhead 0.005 ms at p95 (−0.003, 0.005, 0.032), within the noise. The budget is the 0.5 ms
   rounding, not 1.5 × the noise.
 
+M16's budgets (M16.11) follow the same rule: 1.5 × the first measurement, the median of three runs
+in one sitting, release on two hardware threads (`taskset -c 0,1`), 2026-11-06, the same
+workstation (load average 6 to 10 over the runs, from other agents' builds; the summaries' three
+runs within 7 % of each other, the query's and the switch frame's within 17 %); times rounded up to 5 ms, queries to 0.1 ms,
+frames to 0.5 ms, one sketch's summary to 0.5 µs; the theme switch's frame never above 16 ms at
+p95, whatever the first number. None was missed; nothing needed speeding up.
+- **Colour summaries** (the `colour_summary` bench, `dalica-engine`): the index-only 100 k library,
+  every photo sketched and none summarized (a library indexed before M16), opened with thumbnails
+  on, five runs each on a new library. The open returns in 477 ms (the summaries not waited on:
+  none is in the library when it returns, and 98 background jobs of 1 024 sketches are queued beside
+  each photo's scan job); every summary is applied 962.6 ms after the open began (918.6, 962.6,
+  981.3). One sketch's summary (`dalica_thumbs::sketch::colours`, on one thread over the 100 000
+  stored sketches) takes 3.47 µs (3.34, 3.47, 3.48), what each sketch made by a scan adds on its
+  worker.
+- **Colour search** (the `colour_search` bench: the `search` bench with `--colour`, `dalica-engine`):
+  the search bench's 100 k library with a summary on every photo, read from its sketch: the index
+  built in 481.7 ms (not budgeted; 417 ms without summaries at M9.12), `color:green` (48 419 of the
+  100 000 photos) 3.60 ms (3.85, 3.29, 3.60), and from `search.set` to its result applied 23.1 ms
+  (not budgeted).
+- **Theme switch** (the `theme_switch` bench, `dalica-ui`): the index-only 100 k library in the
+  headless app at 1400 × 900, from four places in the light table, twice over each of the 15 themes:
+  the frame that runs the theme's command and wears it 1.82 ms at p95 (1.82, 1.63, 1.90; 1.34 ms at
+  the median), a frame without a switch at the same place 0.60 ms at p95; the switch's own cost
+  (every text laid out again in its new colours, the style applied) about 1 ms.
+
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
 **The release budgets.** The lead runs `cargo xtask budgets` once per milestone, at its review, on
@@ -627,7 +655,14 @@ the overhead); at the first measurement's numbers `--plant-ms 8` misses the prob
 steps and frames (not its posters or the 4K decoded frame) and the AccessKit and translation frames,
 not the camera import (2.4 s over 300 files; on the performance cores, 2026-10-20, it missed the
 probe, the 1080p poster and step and both playing frames, the AccessKit and translation frames:
-17 of 24 budgets), and `--plant-ms 1000` misses every M15 budget. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+17 of 24 budgets), and `--plant-ms 1000` misses every M15 budget. Since M16 it also runs the
+`colour_summary` bench (the summaries at open, a planted slowdown added once per run; one sketch's
+summary, a planted slowdown added once per sketch), the `search` bench with `--colour`
+(`colour_search`: `color:green`'s median, a planted slowdown added once per query) and the
+`theme_switch` bench (the switch's frame at p95, a planted slowdown added); at the first
+measurement's numbers `--plant-ms 8` misses one sketch's summary, the colour search and the theme
+switch, not the summaries at open (about a second), and `--plant-ms 1000` misses every M16 budget.
+A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
 review (maintainer decision, 2026-10-15), locally:
 
 ```sh
@@ -1009,8 +1044,10 @@ budgeted, baseline-compared run that feeds the scorecard.
 (`dalica-create`), `legacy_scan` (`dalica-scan`, in `benches/legacy.rs`), `collage_canvas`
 (`dalica-ui`, in `benches/collage.rs`), `video_probe` (`dalica-image`, in `benches/video.rs`),
 `video_play` and `camera_import` (`dalica-engine`, in `benches/video.rs` and
-`benches/import_camera.rs`), and `a11y_frame` and `i18n_frame` (`dalica-ui`, in `benches/a11y.rs`
-and `benches/i18n.rs`).
+`benches/import_camera.rs`), `a11y_frame` and `i18n_frame` (`dalica-ui`, in `benches/a11y.rs`
+and `benches/i18n.rs`), `colour_summary` (`dalica-engine`), `colour_search` (`dalica-engine`: the
+`search` target run with `--colour`, `BENCH_TARGETS`) and `theme_switch` (`dalica-ui`, in
+`benches/theme.rs`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -1236,6 +1273,20 @@ English and the pseudo-locale (`i18n_frame`, through `options.set`; the texts dr
 bracketed or not). Rows: `frame off|on <n>` or `frame en|qps <n>`, and `overhead <n>` (the second
 mode's p50 and p95 less the first's). `--check` judges the second frame's p95 and the overhead's.
 Without `--bench` they run 2 000 photos and ten wheel events a place.
+
+`colour_summary` (M16.11, `dalica-engine`) writes the index-only synthetic library of `--photos`
+(100 000) photos without colour summaries and, `--runs` (5) times on a new copy, opens it with
+thumbnails on and polls every millisecond until every photo has its summary; then it reads the
+summary of every stored sketch on one thread, `--rounds` (7) times. Rows: `open <n>` (with
+`colours_at_open`, which must be below the photos: the open does not wait, and `colour_jobs`),
+`summaries <n>` (the open's start to the last summary applied) and `summary per sketch`
+(`p50_us`). `--check` judges the last two. `colour_search` is the `search` bench with `--colour`:
+every photo of its library gets the summary of its sketch, and its rows are `index build with
+colours`, `color:green` (judged) and `color:green applied`. `theme_switch` (M16.11, `dalica-ui`)
+opens the index-only 100 k library in the headless driver at 1400 × 900 and, at four places,
+`--rounds` (2) times over every theme, runs the theme's command (one frame: `frame switch <n>`),
+settles, and steps one more frame (`frame steady <n>`); `overhead <n>` is their difference, printed.
+`--check` judges the switch frame's p95. Without `--bench` the three run 2 000 photos once.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.
