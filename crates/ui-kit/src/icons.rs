@@ -86,6 +86,8 @@ pub enum Icon {
     Videos,
     /// A map pin: the Geotagged filter.
     Geotagged,
+    /// A pencil, the edited badge's: the Edited filter (M16.34).
+    Edited,
     /// A magnifier: the search field.
     Search,
     /// A cross in a circle: clear the search field.
@@ -132,7 +134,7 @@ pub enum Icon {
 
 impl Icon {
     /// Every icon, in declaration order.
-    pub const ALL: [Icon; 38] = [
+    pub const ALL: [Icon; 39] = [
         Icon::Star,
         Icon::StarOutline,
         Icon::Plus,
@@ -150,6 +152,7 @@ impl Icon {
         Icon::Faces,
         Icon::Videos,
         Icon::Geotagged,
+        Icon::Edited,
         Icon::Search,
         Icon::ClearSearch,
         Icon::Activity,
@@ -193,6 +196,7 @@ impl Icon {
             Icon::Faces => "faces",
             Icon::Videos => "videos",
             Icon::Geotagged => "geotagged",
+            Icon::Edited => "edited",
             Icon::Search => "search",
             Icon::ClearSearch => "clear-search",
             Icon::Activity => "activity",

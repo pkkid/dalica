@@ -563,7 +563,7 @@ How Dalica does it (M13.22):
   people names, folder and album names, places, descriptions, dates (month names, years,
   `2026-06`), camera make/model, and dimensions (`4000x3000`). Several words = AND. Operators:
   `-word` (NOT), `tag:word`, `person:name`, `camera:x`, `color:green` (the colours a photo holds,
-  M16; **Colours** below).
+  M16; **Colours** below), `is:edited` (the photos with unsaved edits, M16.34; **Edited** below).
 - Autocomplete dropdown lists matching tags, folders, albums and people with counts.
 - Results: only matching folders/albums/photos are shown; a **filter banner** across the top of the
   light table: [**Show All**] + "Showing 33 pictures in 4 folders (0.01 s)"; a temporary album
@@ -616,6 +616,13 @@ How the search reads the text and answers (decided while building it, M9.8 and M
   Experimental ▸ Search for ▸ Red … Black and White puts `color:<word>` in the search field, so
   the banner, Show All and Save Search as Album work as for any search. Reading a summary costs
   about 3 µs per sketch beside the 66 µs of making the sketch.
+- **Edited** (M16.34). `is:edited` (any case) matches the photos with unsaved edits: the ones
+  the edited badge marks and the section header counts as "%d edited", the same set as the
+  Edited filter button. `-is:edited` leaves them out. A photo saved into its file has no unsaved
+  edits until it is edited again, so it does not match; a keyword for saved photos may come
+  later. `is:` takes only the words Dalica knows (`edited`); `is:` with any other word is read as
+  plain words, as an unknown operator is. The search follows every edit, undo and Save as it
+  happens.
 - **Hidden and small pictures** count only when View ▸ Hidden Pictures and Small Pictures show
   them, so the banner counts what the light table shows.
 - **Order.** Results come in light-table order: by folder in the order the tree lists the folders
@@ -638,7 +645,9 @@ How the search reads the text and answers (decided while building it, M9.8 and M
 ### 8.2 Filter buttons (toolbar, left of the search box)
 
 Toggle buttons, combinable with each other and with text: **Starred**, **Faces** (photos with
-faces), **Videos**, **Geotagged**. Then the **age slider**: one handle, leftmost = everything;
+faces), **Videos**, **Geotagged**, **Edited** (photos with unsaved edits, the same set as
+`is:edited`; a Dalica addition, M16.34). Automation sets them with `search.set` and
+`library.query` (`"filters": {"edited": true}`). Then the **age slider**: one handle, leftmost = everything;
 moving right shows only newer items, label "Pictures up to 3 months old" (days/weeks/months/years
 on a logarithmic scale; the end is always today). Any active filter shows the filter banner. The
 age counts whole days back from the session's clock; a photo dated after now always passes.

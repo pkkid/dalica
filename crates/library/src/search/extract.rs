@@ -53,6 +53,8 @@ pub struct PhotoDoc {
     pub video: bool,
     /// The model's geotag, else the file's GPS ([`Library::is_geotagged`]).
     pub geotagged: bool,
+    /// It has unsaved edits ([`Library::has_unsaved_edits`]): the Edited filter and `is:edited`.
+    pub edited: bool,
     /// The user albums it is in, by id.
     pub albums: Vec<AlbumId>,
     /// The people its faces name, each once, by id.
@@ -89,6 +91,7 @@ impl PhotoDoc {
             model: facts.model.clone(),
             video: library.is_video(photo.id),
             geotagged: library.is_geotagged(photo.id),
+            edited: library.has_unsaved_edits(photo.id),
             albums,
             people: named_in(faces),
             faces: faces.iter().any(Face::counts),
@@ -328,6 +331,10 @@ impl Touched {
                 Op::SetLastChanged { changed } => self.photos.extend(changed.iter().map(|(id, _)| *id)),
                 Op::SetFaces { faces } => self.photos.extend(faces.iter().map(|(id, _)| *id)),
                 Op::SetGeo { geo } => self.photos.extend(geo.iter().map(|(id, _)| *id)),
+                // Recipes and what was saved decide whether a photo has unsaved edits.
+                Op::SetRecipes { recipes } => self.photos.extend(recipes.iter().map(|(id, _)| *id)),
+                Op::SetSaved { saved } => self.photos.extend(saved.iter().map(|(id, _)| *id)),
+                Op::SetSavedAs { saved_as } => self.photos.extend(saved_as.iter().map(|(id, _)| *id)),
                 Op::AddPerson { id, .. } | Op::RenamePerson { id, .. } => {
                     self.people.insert(id.clone());
                 }
@@ -340,14 +347,10 @@ impl Touched {
                     self.purged_people.insert(id.clone());
                     self.people.insert(id.clone());
                 }
-                // Nothing search reads: recipes, sketches, synced hashes, saved records, copies saved
-                // beside, project marks, member keys (album order is not search order), covers,
+                // Nothing search reads: sketches, synced hashes, project marks, member keys (album order is not search order), covers,
                 // digests, person thumbnails.
-                Op::SetRecipes { .. }
-                | Op::SetSketches { .. }
+                Op::SetSketches { .. }
                 | Op::SetSynced { .. }
-                | Op::SetSaved { .. }
-                | Op::SetSavedAs { .. }
                 | Op::SetProjects { .. }
                 | Op::SetMemberKeys { .. }
                 | Op::SetCovers { .. }

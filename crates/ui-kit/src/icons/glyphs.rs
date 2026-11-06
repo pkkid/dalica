@@ -113,6 +113,11 @@ pub(super) fn draw(p: &Pen, icon: Icon) {
             p.closed(&pts);
             p.circle(cx, cy, 2.0);
         }
+        Icon::Edited => {
+            // A pencil, point down-left: the edited badge's (`widgets::badges`).
+            p.closed(&[(13.5, 3.5), (16.5, 6.5), (7.5, 15.5), (3.5, 16.5), (4.5, 12.5)]);
+            p.seg((11.5, 5.5), (14.5, 8.5));
+        }
         Icon::Search => magnifier(p, 8.5, 5.25),
         Icon::ClearSearch => {
             p.circle(10.0, 10.0, 7.25);

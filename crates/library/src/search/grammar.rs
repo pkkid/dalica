@@ -15,7 +15,9 @@
 //!   holds the colour; a word that names no colour (`color:teal`) is read as plain words, as an
 //!   unknown operator is. [`Parsed::unavailable`] names the operators that may match nothing for
 //!   want of data (`person` while a library has no people, `color` while no photo has a colour
-//!   summary); the index keeps those its library lacks, so the caller can say so. Any other
+//!   summary); the index keeps those its library lacks, so the caller can say so. `is:edited`
+//!   (M16.34, any case) matches a photo with unsaved edits, as the Edited filter does; `is:` with
+//!   any other word is read as plain words. Any other
 //!   `name:value` is searched as plain words (`foo:bar` is `foo bar`).
 //! - A value is split into tokens at punctuation (dot, underscore, dash and the rest of ASCII
 //!   punctuation); every token must be the start of one of the photo's terms, ignoring case. A
@@ -49,13 +51,23 @@ pub enum Field {
     Person,
     /// `color:` — the photo's colour summary (its one token is a [`SearchColour`]'s word).
     Color,
+    /// `is:` — a state of the photo (its one token is a word of [`IS_WORDS`]).
+    Is,
+}
+
+/// The words `is:` takes: `edited` (the photo has unsaved edits).
+pub const IS_WORDS: [&str; 1] = ["edited"];
+
+/// The word of [`IS_WORDS`] `value` names (ASCII, any case), if it names one.
+pub fn is_word(value: &str) -> Option<&'static str> {
+    IS_WORDS.into_iter().find(|w| w.eq_ignore_ascii_case(value))
 }
 
 impl Field {
     /// Whether words of this field can match without data a library may lack: `person:` needs
     /// people, `color:` colour summaries (the index says whether its library has any).
     pub fn is_available(self) -> bool {
-        matches!(self, Field::Any | Field::Tag | Field::Camera)
+        matches!(self, Field::Any | Field::Tag | Field::Camera | Field::Is)
     }
 
     /// The operator's name (`tag`, `camera`, `person`, `color`; `""` for plain words).
@@ -66,12 +78,13 @@ impl Field {
             Field::Camera => "camera",
             Field::Person => "person",
             Field::Color => "color",
+            Field::Is => "is",
         }
     }
 
     /// The field of an operator name (ASCII, any case), if the grammar knows it.
     fn from_name(name: &str) -> Option<Field> {
-        [Field::Tag, Field::Camera, Field::Person, Field::Color].into_iter().find(|f| f.name().eq_ignore_ascii_case(name))
+        [Field::Tag, Field::Camera, Field::Person, Field::Color, Field::Is].into_iter().find(|f| f.name().eq_ignore_ascii_case(name))
     }
 }
 
@@ -118,6 +131,7 @@ impl Parsed {
                 Some((name, value)) => match Field::from_name(name) {
                     // A word that names no colour is plain words; an empty one is still being typed.
                     Some(Field::Color) if !value.is_empty() && SearchColour::from_word(value).is_none() => (Field::Any, body),
+                    Some(Field::Is) if !value.is_empty() && is_word(value).is_none() => (Field::Any, body),
                     Some(field) => (field, value),
                     None => (Field::Any, body),
                 },
@@ -126,9 +140,10 @@ impl Parsed {
             if !field.is_available() && !out.unavailable.contains(&field.name()) {
                 out.unavailable.push(field.name());
             }
-            let tokens = match SearchColour::from_word(value).filter(|_| field == Field::Color) {
-                Some(colour) => vec![colour.word().to_string()],
-                None => query_tokens(value),
+            let tokens = match (field, SearchColour::from_word(value), is_word(value)) {
+                (Field::Color, Some(colour), _) => vec![colour.word().to_string()],
+                (Field::Is, _, Some(word)) => vec![word.to_string()],
+                _ => query_tokens(value),
             };
             if !tokens.is_empty() {
                 out.atoms.push(Atom { negated, field, tokens });
@@ -229,6 +244,16 @@ mod tests {
         for bad in ["202", "20261", "2026-123", "2026--04", "2026-06-04-", "abcd", "2026-06-123", "２０２６"] {
             assert!(!is_date_spelling(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn is_edited_is_an_operator_and_any_other_is_word_plain_words() {
+        let atoms = |text: &str| Parsed::new(text).atoms.into_iter().map(|a| (a.negated, a.field, a.tokens)).collect::<Vec<_>>();
+        assert_eq!(atoms("IS:Edited"), [(false, Field::Is, vec!["edited".to_string()])]);
+        assert_eq!(atoms("-is:edited"), [(true, Field::Is, vec!["edited".to_string()])]);
+        assert_eq!(atoms("is:sunny"), [(false, Field::Any, vec!["is".to_string(), "sunny".to_string()])]);
+        assert!(atoms("is:").is_empty(), "being typed: narrows nothing");
+        assert!(Parsed::new("is:edited").unavailable.is_empty());
     }
 
     #[test]

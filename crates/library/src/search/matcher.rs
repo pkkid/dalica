@@ -23,12 +23,15 @@ pub struct Filters {
     pub faces: bool,
     pub videos: bool,
     pub geotagged: bool,
+    /// Photos with unsaved edits ([`crate::Library::has_unsaved_edits`]): the ones the edited badge
+    /// marks (M16.34).
+    pub edited: bool,
 }
 
 impl Filters {
     /// Whether any button is down.
     pub fn any(&self) -> bool {
-        self.starred || self.faces || self.videos || self.geotagged
+        self.starred || self.faces || self.videos || self.geotagged || self.edited
     }
 }
 
@@ -174,7 +177,12 @@ impl Scope {
 
 /// Whether a photo passes the filter buttons and the age (`cutoff` from [`Age::cutoff`]).
 pub(crate) fn passes(doc: &PhotoDoc, filters: &Filters, age: Option<&Age>, cutoff: Option<DateTime>) -> bool {
-    if (filters.faces && !doc.faces) || (filters.starred && !doc.star) || (filters.videos && !doc.video) || (filters.geotagged && !doc.geotagged) {
+    if (filters.faces && !doc.faces)
+        || (filters.starred && !doc.star)
+        || (filters.videos && !doc.video)
+        || (filters.geotagged && !doc.geotagged)
+        || (filters.edited && !doc.edited)
+    {
         return false;
     }
     match (age, cutoff) {
@@ -218,6 +226,13 @@ pub fn text_matches(parsed: &Parsed, photo: &PhotoDoc, folder: Option<&FolderDoc
                     let colour = SearchColour::from_word(t);
                     colour.is_some_and(|c| photo.colours.is_some_and(|s| s.contains(c)))
                 });
+                if hit == atom.negated {
+                    return false;
+                }
+                continue;
+            }
+            Field::Is => {
+                let hit = atom.tokens.iter().all(|t| t == "edited" && photo.edited);
                 if hit == atom.negated {
                     return false;
                 }

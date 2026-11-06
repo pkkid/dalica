@@ -1612,12 +1612,15 @@ pub struct Filters {
     pub faces: bool,
     pub videos: bool,
     pub geotagged: bool,
+    /// Photos with unsaved edits (M16.34); a state saved before it has none.
+    #[serde(default)]
+    pub edited: bool,
 }
 
 impl Filters {
     /// Whether any toggle is on.
     pub fn any(&self) -> bool {
-        self.starred || self.faces || self.videos || self.geotagged
+        self.starred || self.faces || self.videos || self.geotagged || self.edited
     }
 }
 

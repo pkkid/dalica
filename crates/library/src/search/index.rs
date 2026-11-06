@@ -685,6 +685,18 @@ impl SearchIndex {
                 }
                 return bits;
             }
+            // `is:edited`: the photos with unsaved edits, read from their records.
+            Field::Is => {
+                if token == "edited" {
+                    for (slot, doc) in self.docs.iter().enumerate() {
+                        let Ok(slot) = u32::try_from(slot) else { break };
+                        if doc.as_ref().is_some_and(|d| d.edited) {
+                            bits.set(slot);
+                        }
+                    }
+                }
+                return bits;
+            }
         };
         for map in maps {
             for set in with_prefix(map, token) {

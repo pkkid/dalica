@@ -2,7 +2,7 @@
 //! across the light table, the 2 pt `accent` bar of the selected section, and four rows:
 //!
 //! ```text
-//! [icon 32]  Title (SemiBold 15)                              3 edited  [Save]
+//! [icon 32]  Title (SemiBold 15)                    3 edited  [Save] [Discard]
 //!            Thursday, June 4, 2026 · place (12.5 text_dim)
 //! [▶] [▦] │ [★] │ [💾] [⇪]         (26 × 22 icon buttons)
 //! Add a description
@@ -20,8 +20,8 @@
 //!
 //! **Ids** (`control-protocol.md` §7): `section:<id>` is the header (its right-click opens the
 //! section menu), with the parts `/icon`, `/title`, `/description`, `/play`, `/collage`,
-//! `/selectStarred`, `/save`, `/export` and, with unsaved edits, `/saveEdited` (the text button at
-//! the top right). While the section's description is being edited inline the field
+//! `/selectStarred`, `/save`, `/export` and, with unsaved edits, `/saveEdited` and
+//! `/discardEdited` (the text buttons at the top right). While the section's description is being edited inline the field
 //! [`DESCRIPTION_FIELD`] (`field:section.description`) takes the place of `/description`. While a
 //! section's header is pinned, its block has scrolled partly above the view
 //! and lies under the pinned form: the **pinned form owns the ids** (`section:<id>` and its
@@ -66,6 +66,13 @@
 //! [`OutputIcon::Save`]) run `photo.save` with those photos' ids, whatever is selected. The
 //! command's first-time explanation asks through the dialog host
 //! (`crate::dialogs::save_explain`). Their ids are worked out once per library revision.
+//!
+//! **Discard** (M16.34, `editing.md` §5.1): beside Save, under the same condition and for the same
+//! photos (the ones "%d edited" counts), the Discard text button (`/discardEdited`, in the pinned
+//! form too) removes their unsaved edits. It opens Undo All Edits' question for those photos
+//! (`crate::commands::batch::UNDO_ALL`, `dialog:undoAllEdits`), whose Remove Edits runs
+//! `edit.undoAll` with `"confirm": true`: one library undo step, and a saved photo keeps its saved
+//! pixels. The UI, the CLI and MCP share that one command.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -103,6 +110,8 @@ const BUTTONS_TOP: f32 = 46.0;
 pub const BUTTON_W: f32 = 26.0;
 const BUTTON_GAP: f32 = 2.0;
 const GROUP_GAP: f32 = 12.0;
+/// Between the Save and Discard text buttons.
+const TEXT_BUTTON_GAP: f32 = 6.0;
 /// The glyph inside a header button.
 const GLYPH: f32 = 14.0;
 /// The description row's top and height.
@@ -114,6 +123,13 @@ pub const STICKY_ICON: f32 = 20.0;
 pub const PLACEHOLDER: &str = "Add a description";
 /// The label of the Save text button at the top right (English; drawn through the catalogs).
 pub const SAVE_LABEL: &str = "Save";
+
+/// The label of the Discard text button beside Save (English; drawn through the catalogs).
+pub const DISCARD_LABEL: &str = "Discard";
+/// The Discard text button's tooltip (English; drawn through the catalogs).
+pub const DISCARD_TIP: &str = "Remove the unsaved edits from these photos";
+/// The command the Discard text button opens the question of.
+pub const DISCARD_COMMAND: &str = "edit.undoAll";
 
 /// What the first line says beside Save: "3 edited".
 pub fn edited_text(count: usize) -> String {
@@ -435,6 +451,16 @@ pub fn save_params(ids: &[PhotoId]) -> Value {
     json!({ "ids": ids })
 }
 
+/// Whether the section's Discard takes clicks: it has photos with unsaved edits and `edit.undoAll`
+/// accepts them. Otherwise why not, for the tooltip.
+pub fn discard_enabled(session: &Session, ids: &[PhotoId]) -> Result<(), String> {
+    if ids.is_empty() {
+        return Err(tl!("No photo in this folder has unsaved edits."));
+    }
+    let spec = session.spec(DISCARD_COMMAND).ok_or_else(|| tl!("Not available yet."))?;
+    (spec.enabled)(session, &save_params(ids)).map_err(|d| crate::i18n::tr(&d.0))
+}
+
 /// Whether the section's Save takes clicks: it has photos with unsaved edits and `photo.save`
 /// accepts them (none offline, none holding an edit Dalica cannot render). Otherwise why not, for
 /// the tooltip.
@@ -615,6 +641,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let facts = headers.facts(f.session, f.sections.generation(), section);
     let unsaved = headers.unsaved(f.session, section);
     let save_state = if unsaved.is_empty() { Err(NO_EDITS.to_string()) } else { save_enabled(f.session, &unsaved) };
+    let discard_state = if unsaved.is_empty() { Err(NO_EDITS.to_string()) } else { discard_enabled(f.session, &unsaved) };
     // The editor closed (or moved to another section): it takes the focus again when it opens.
     if f.state.description_edit.as_ref().map(|e| e.section) != headers.focused {
         headers.focused = None;
@@ -655,7 +682,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         track(&r, &mut out, true);
     }
 
-    // The first line: icon, title, and with unsaved edits "%d edited" and Save at the right.
+    // The first line: icon, title, and with unsaved edits "%d edited", Save and Discard at the right.
     let (icon, line_top) = match form {
         Form::Block => (Rect::from_min_size(rect.min + vec2(PADDING, TOP), Vec2::splat(t.metrics.section_icon)), rect.min.y + TOP),
         Form::Sticky => {
@@ -667,27 +694,36 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let text_x = icon.max.x + ICON_GAP;
     let mut right = rect.max.x - PADDING;
     if !unsaved.is_empty() {
-        let label = tl!("Save");
-        let w = (painter.layout_no_wrap(label.clone(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
-        let slot = Rect::from_min_size(pos2(right - w, (line_mid - t.metrics.button_h / 2.0).round()), vec2(w, t.metrics.button_h));
-        if takes_input(slot) {
-            let is_live = save_state.is_ok();
+        // Right to left: Discard, then Save, then the count.
+        let texts = [
+            ("discardEdited", tl!("Discard"), tl!("Remove the unsaved edits from these photos"), &discard_state, DISCARD_COMMAND),
+            ("saveEdited", tl!("Save"), Button::text(Button::Save.tooltip()), &save_state, Button::Save.command()),
+        ];
+        let mut left = right;
+        for (part, label, tip, state, command) in texts {
+            let w = (painter.layout_no_wrap(label.clone(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
+            let slot = Rect::from_min_size(pos2(left - w, (line_mid - t.metrics.button_h / 2.0).round()), vec2(w, t.metrics.button_h));
+            left = slot.min.x - TEXT_BUTTON_GAP;
+            if !takes_input(slot) {
+                continue;
+            }
+            let is_live = state.is_ok();
             let r = ui
                 .scope_builder(UiBuilder::new().max_rect(slot).layout(egui::Layout::left_to_right(Align::Center)), |ui| {
                     if !is_live {
                         ui.disable();
                     }
-                    widgets::text_button(ui, t, &part_id("saveEdited"), &label, false)
+                    widgets::text_button(ui, t, &part_id(part), &label, false)
                 })
                 .inner;
-            let r = widgets::tooltip(r, t, &Button::text(Button::Save.tooltip()), save_state.as_ref().err().map(String::as_str));
+            let r = widgets::tooltip(r, t, &tip, state.as_ref().err().map(String::as_str));
             if r.clicked() {
-                out.commands.push((Button::Save.command().to_string(), save_params(&unsaved)));
+                out.commands.push((command.to_string(), save_params(&unsaved)));
             }
             track(&r, &mut out, is_live);
         }
         let g = painter.layout_no_wrap(edited_text(unsaved.len()), fonts::regular(t.detail), t.text_dim);
-        let x = slot.min.x - 8.0 - g.size().x;
+        let x = left + TEXT_BUTTON_GAP - 8.0 - g.size().x;
         painter.galley(pos2(x, line_mid - g.size().y / 2.0).round(), g, t.text_dim);
         right = x - 12.0;
     }
@@ -968,7 +1004,11 @@ pub fn apply(app: &mut App, out: HeaderOut) {
         apply_description(app, d);
     }
     for (id, params) in out.commands {
-        let _ = app.run(&id, &params);
+        // A command that asks for input first (Discard's Undo All Edits) opens its dialog.
+        let _ = match crate::commands::opener(&id) {
+            Some(o) => (o.open)(app, &params),
+            None => app.run(&id, &params),
+        };
     }
     if let Some(r) = out.menus.iter().find(|r| r.secondary_clicked() || r.context_menu_opened()) {
         // A person's header opens the person menu.

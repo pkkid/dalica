@@ -11654,7 +11654,7 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: the issue's *Done when* holds; an engine test lists a photo's steps after three
     edits and an undo; a ui test opens the pane and jumps back a step; screenshots at 1400 x 900
     and 900 x 600; the PR closes #726.
-- ⬜ **M16.34 `ui` + `engine`: Discard edits next to Save, and an Edited filter (#727)**
+- ✅ **M16.34 `ui` + `engine`: Discard edits next to Save, and an Edited filter (#727)**
   - after: M16.31
   - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/engine/src/cmd/edit.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/search.rs`, `crates/engine/tests/edited_filter.rs`, `crates/ui/tests/section_header.rs`, `docs/organizing.md`
   - scope: issue #727 as written (maintainer request, 2026-11-06): (1) a Discard text button

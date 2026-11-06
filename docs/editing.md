@@ -179,6 +179,10 @@ enabled. Tabs 3–5 show their tile grids, §8.1.)
   back to its original); when the selection holds saved photos the question names them
   (`edit.undoAll {ids, confirm}` / `{id, history: true, confirm}`; without `confirm` it answers
   the question, `needs_confirm` over automation).
+- **Discard** (Dalica's, M16.34): the section header's text button beside Save (`ui-layout.md`
+  §5.2) removes the unsaved edits of exactly the photos the header counts as "%d edited", the
+  photos Save would write, whatever is selected. It asks Undo All Edits' question for them and
+  runs `edit.undoAll` with them: one library undo step, and a saved photo keeps its saved pixels.
 - Exception to linear history: **Crop** can be re-opened at any time; it shows the whole photo with
   the current rectangle and replaces the earlier crop without undoing later edits.
 
