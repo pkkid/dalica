@@ -983,6 +983,19 @@ pub const VIDEO_PLAY_BUDGETS: [(&str, &str, f64); 8] = [
 /// A playing video's frame on the owner thread never above this at p95 (`video_play` →
 /// `FRAME_CAP_MS`), whatever the first measurement.
 pub const VIDEO_FRAME_CAP_MS: f64 = 16.0;
+/// The playback bar (M15.R's answer to `video-decoders.md` §8 question 3; M16.14): a 1080p30
+/// clip's frame decoded by the player within this at p95 (`video_play` → `DECODE_CAP_MS`), so a
+/// 60 Hz window shows every frame. The procedural 1080p clip's decoded frame is held to the
+/// smaller of its budget and this, as a playing frame is to [`VIDEO_FRAME_CAP_MS`].
+pub const VIDEO_DECODE_CAP_MS: f64 = 16.0;
+/// The procedural rows held to [`VIDEO_DECODE_CAP_MS`] whatever their first measurement.
+pub const VIDEO_BAR_ROWS: [&str; 1] = ["decode frame h264 1080p"];
+/// The phone clips' 1080p30 rows (`video_play` → `BAR_PHONES`), held to [`VIDEO_DECODE_CAP_MS`]
+/// when the clip was played (`corpus/video` fetched; HEVC only in an `hevc` build) and named as
+/// skipped when not.
+pub const VIDEO_BAR_PHONE_ROWS: [&str; 2] = ["decode frame phone h264 1080p", "decode frame phone hevc 1080p"];
+/// The phone clips' best-effort rows (4K60, HDR at 1080p60): printed, never budgeted.
+pub const VIDEO_BEST_EFFORT_ROWS: [&str; 2] = ["decode frame phone h264 4k", "decode frame phone hevc hdr 1080p60"];
 
 /// The camera import (`camera_import` → `FILES_PER_S_BUDGET`): files a second from the median, the
 /// first measurement ÷ 1.5 rounded down to 0.1, over 300 pictures of 2048 px.
@@ -1019,22 +1032,57 @@ pub fn judge_video_probe(stdout: &str, plant: f64) -> Result<String, String> {
 
 /// `video_play --json` in release, its full clips: each procedural clip's poster and step medians
 /// and its playing and decoded frames' p95 within their budgets, the playing frame within
-/// [`VIDEO_FRAME_CAP_MS`] (a planted slowdown added to each). Every miss is listed; the phone
-/// clips' rows and the clips not played are printed, never judged.
+/// [`VIDEO_FRAME_CAP_MS`], the 1080p30 decoded frames (the procedural clip's, and each phone
+/// clip's of [`VIDEO_BAR_PHONE_ROWS`] that was played) within [`VIDEO_DECODE_CAP_MS`] (a planted
+/// slowdown added to each). Every miss is listed; a bar row not played is named as skipped, and the
+/// other phone rows ([`VIDEO_BEST_EFFORT_ROWS`] among them) are printed, never judged.
 pub fn judge_video_play(stdout: &str, plant: f64) -> Result<String, String> {
     let report = release_report("video_play", stdout)?;
     if report.get("full") != Some(&Value::Bool(true)) {
         return Err("video_play ran its smoke clips; the budgets hold for its full ones (--bench)".into());
     }
-    let checks: Vec<(&str, &str, f64)> = VIDEO_PLAY_BUDGETS
+    let rows: &[Value] = report.get("rows").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+    let has = |name: &str| rows.iter().any(|r| r.get("name").and_then(Value::as_str) == Some(name));
+    let mut checks: Vec<(&str, &str, f64)> = VIDEO_PLAY_BUDGETS
         .iter()
-        .map(|(name, stat, b)| (*name, *stat, if name.starts_with("play frame") { b.min(VIDEO_FRAME_CAP_MS) } else { *b }))
+        .map(|(name, stat, b)| {
+            let cap = if name.starts_with("play frame") {
+                VIDEO_FRAME_CAP_MS
+            } else if VIDEO_BAR_ROWS.contains(name) {
+                VIDEO_DECODE_CAP_MS
+            } else {
+                f64::INFINITY
+            };
+            (*name, *stat, b.min(cap))
+        })
         .collect();
-    let parts = judge_rows("video_play", &report, &checks, plant)?;
-    let phones =
-        report.get("rows").and_then(Value::as_array).map_or(0, |rows| rows.iter().filter(|r| r.get("phone") == Some(&Value::Bool(true))).count());
+    let mut skipped = Vec::new();
+    for name in VIDEO_BAR_PHONE_ROWS {
+        if has(name) {
+            checks.push((name, "p95_ms", VIDEO_DECODE_CAP_MS));
+        } else {
+            skipped.push(format!("{name} skipped (not played)"));
+        }
+    }
+    let (missed, parts) = row_verdicts("video_play", &report, &checks, plant)?;
+    if !missed.is_empty() {
+        return Err(format!("{} of {} missed: {}", missed.len(), checks.len(), missed.join("; ")));
+    }
+    let best: Vec<String> = VIDEO_BEST_EFFORT_ROWS
+        .iter()
+        .map(|name| match row_number("video_play", &report, name, "p95_ms") {
+            Ok(p95) => format!("{name} p95 {p95:.2} ms"),
+            Err(_) => format!("{name} not played"),
+        })
+        .collect();
+    let phones = rows.iter().filter(|r| r.get("phone") == Some(&Value::Bool(true))).count();
     let not_played = report.get("not_played").and_then(Value::as_array).map_or(0, Vec::len);
-    Ok(format!("{} (cap {VIDEO_FRAME_CAP_MS} ms); {phones} phone rows printed, {not_played} clips not played", parts.join("; ")))
+    let skipped = if skipped.is_empty() { String::new() } else { format!("; {}", skipped.join("; ")) };
+    Ok(format!(
+        "{}{skipped} (caps: playing frame {VIDEO_FRAME_CAP_MS} ms, 1080p30 decoded frame {VIDEO_DECODE_CAP_MS} ms); best effort: {}; {phones} phone rows printed, {not_played} clips not played",
+        parts.join("; "),
+        best.join(", ")
+    ))
 }
 
 /// `camera_import --json` in release over 300 pictures of 2048 px: files a second from the
@@ -1837,7 +1885,8 @@ pub(crate) mod tests {
     /// The video bench's first measurement (M15.34), in the order of [`VIDEO_PLAY_BUDGETS`].
     pub const PLAY_MEASURED: [f64; 8] = [16.811, 7.275, 0.0365, 13.424, 32.733, 14.518, 0.0323, 25.516];
 
-    /// What `video_play --json` prints for its full clips (`full`) with `values`, and a phone row.
+    /// What `video_play --json` prints for its full clips (`full`) with `values`, a phone row (the
+    /// H.264 4K60 clip's) and the HEVC 1080p30 clip not played.
     pub fn video_play_out(mode: &str, full: bool, values: [f64; 8]) -> String {
         let mut rows: Vec<Value> = VIDEO_PLAY_BUDGETS
             .iter()
@@ -1850,6 +1899,18 @@ pub(crate) mod tests {
         rows.push(json!({ "name": "decode frame phone h264 4k", "samples": 150, "p50_ms": 31.3, "p95_ms": 56.5, "max_ms": 950.0, "phone": true }));
         let not_played = [json!({ "name": "phone hevc 1080p", "reason": "This video can't be played (HEVC support isn't included in this build)" })];
         let r = json!({ "bench": "video_play", "mode": mode, "full": full, "play_side": 1920, "not_played": not_played, "rows": rows });
+        format!("{r}\n")
+    }
+
+    /// The iPhone 13 H.264 1080p30 clip's decoded frame at p95 (M16.14, eight decoding threads), ms.
+    pub const PHONE_1080P_MEASURED: f64 = 10.948;
+
+    /// [`video_play_out`] with the H.264 1080p30 phone clip played, its decoded frame's p95 `p95`.
+    pub fn with_phone_1080p(out: &str, p95: f64) -> String {
+        let mut r: Value = serde_json::from_str(out.trim()).unwrap();
+        r["rows"].as_array_mut().unwrap().push(
+            json!({ "name": "decode frame phone h264 1080p", "samples": 150, "p50_ms": p95 / 2.0, "p95_ms": p95, "max_ms": p95 * 3.0, "phone": true }),
+        );
         format!("{r}\n")
     }
 
@@ -2012,6 +2073,32 @@ pub(crate) mod tests {
         assert!(judge_video_play(&video_play_out("release", false, PLAY_MEASURED), 0.0).unwrap_err().contains("smoke clips"));
         let missing = video_play_out("release", true, PLAY_MEASURED).replace("step h264 4k", "step h264 2k");
         assert!(judge_video_play(&missing, 0.0).unwrap_err().contains("no row `step h264 4k`"));
+    }
+
+    #[test]
+    fn the_playback_bar_holds_each_1080p30_decoded_frame_to_16_ms() {
+        let played = with_phone_1080p(&video_play_out("release", true, PLAY_MEASURED), PHONE_1080P_MEASURED);
+        let ok = judge_video_play(&played, 0.0).unwrap();
+        assert!(ok.contains("decode frame h264 1080p 13.42 ms ≤ 16 ms") && ok.contains("decode frame phone h264 1080p 10.95 ms ≤ 16 ms"), "{ok}");
+        assert!(ok.contains("decode frame phone hevc 1080p skipped (not played)") && ok.contains("2 phone rows printed"), "{ok}");
+        assert!(ok.contains("best effort: decode frame phone h264 4k p95 56.50 ms, decode frame phone hevc hdr 1080p60 not played"), "{ok}");
+        // The procedural clip's budget is the cap, not 1.5 × its first measurement.
+        assert!(VIDEO_PLAY_BUDGETS.iter().any(|b| VIDEO_BAR_ROWS.contains(&b.0) && b.2 > VIDEO_DECODE_CAP_MS));
+        let mut slow = PLAY_MEASURED;
+        slow[3] = VIDEO_DECODE_CAP_MS + 0.5;
+        let e = judge_video_play(&video_play_out("release", true, slow), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 8 missed: decode frame h264 1080p: p95 16.50 ms, over the 16 ms budget"), "{e}");
+        // A phone clip's 1080p30 row is held to the cap when played; not fetched, it is named and
+        // skipped, not failed.
+        let e = judge_video_play(&with_phone_1080p(&video_play_out("release", true, PLAY_MEASURED), 16.5), 0.0).unwrap_err();
+        assert!(e.starts_with("1 of 9 missed: decode frame phone h264 1080p: p95 16.50 ms, over the 16 ms budget"), "{e}");
+        let ok = judge_video_play(&video_play_out("release", true, PLAY_MEASURED), 0.0).unwrap();
+        assert!(ok.contains("decode frame phone h264 1080p skipped (not played)"), "{ok}");
+        // A planted slowdown just past the cap (inside the 4K decode's budget) names the 1080p rows.
+        let plant = VIDEO_DECODE_CAP_MS - PLAY_MEASURED[3] + 0.1;
+        let e = judge_video_play(&played, plant).unwrap_err();
+        assert!(e.contains("decode frame h264 1080p: p95 16.10 ms (13.42 ms measured + 2.68 ms planted), over the 16 ms budget"), "{e}");
+        assert!(!e.contains("decode frame h264 4k") && !e.contains("phone h264 4k"), "{e}");
     }
 
     #[test]
@@ -2186,9 +2273,14 @@ pub(crate) mod tests {
             let row = format!("(\"{name}\", \"{stat}\", {budget:?}),");
             assert!(play.contains(&row), "the video bench's budget for {name} is ours: {row}");
         }
+        for name in VIDEO_BAR_ROWS.iter().chain(&VIDEO_BAR_PHONE_ROWS) {
+            let clip = name.trim_start_matches("decode frame ");
+            assert!(play.contains(&format!("\"{clip}\"")), "the video bench holds {clip} to the bar");
+        }
         for (source, constant, ours) in [
             (&probe, "PROBE_BUDGET_MS", VIDEO_PROBE_MS),
             (&play, "FRAME_CAP_MS", VIDEO_FRAME_CAP_MS),
+            (&play, "DECODE_CAP_MS", VIDEO_DECODE_CAP_MS),
             (&camera, "FILES_PER_S_BUDGET", CAMERA_FILES_PER_S),
             (&a11y, "FRAME_BUDGET_MS", A11Y_FRAME_P95_MS),
             (&a11y, "OVERHEAD_BUDGET_MS", A11Y_OVERHEAD_P95_MS),
