@@ -7,6 +7,8 @@
 //! - **`photo.openWithList {id}`**: the applications that open the photo's type, the system's
 //!   default first, Dalica itself left out ([`is_dalica`]), each with its icon as the system gives
 //!   it (`icon`, left out where it gives none). **`photo.openWith {id, handler}`** opens it with one of them.
+//!   The session remembers each listed handler's icon, so the window can draw it
+//!   (`Session::handler_icon`, [`crate::handler_icons`], M16.23); `viewer.fileTypes` does too.
 //! - **`photo.openExternal {ids}`**: the photos in the external editor, `files.externalEditor`, or
 //!   the system's edit verb or default application when it is empty. More than [`ASK_ABOVE`] asks
 //!   first: without `"confirm": true` it refuses (`disabled`) with [`editor_question`].
@@ -288,8 +290,9 @@ fn run_list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         present(&path)?;
         os.handlers(&path).map_err(refused)
     })?;
-    let handlers: Vec<Value> = handlers.iter().filter(|h| !is_dalica(h)).map(handler_json).collect();
-    Ok(json!({ "handlers": handlers }))
+    let handlers: Vec<Handler> = handlers.into_iter().filter(|h| !is_dalica(h)).collect();
+    s.remember_icons(&handlers);
+    Ok(json!({ "handlers": handlers.iter().map(handler_json).collect::<Vec<_>>() }))
 }
 
 /// A handler as the replies give it: `{id, name, icon?}` (no `icon` where the system gives none).
@@ -307,6 +310,7 @@ fn run_file_types(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let os = s.os();
     let asked = types.clone();
     let defaults = off_owner(move || asked.iter().map(|t| os.default_handler(*t).map_err(refused)).collect::<Result<Vec<_>, _>>())?;
+    s.remember_icons(&defaults.iter().flatten().cloned().collect::<Vec<_>>());
     let rows: Vec<Value> = types
         .iter()
         .zip(&defaults)

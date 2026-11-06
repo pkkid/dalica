@@ -441,6 +441,10 @@ In the Collage room (the **Collage** context, active while the room is in front;
   come, then one row per application by its name, the system's default first and Dalica left out
   (`menuitem:photo.openWith/<n>`, running `photo.openWith {id, handler}`), or "No other
   applications" when there are none. A photo the library does not hold (the viewer's) has none.
+  Each application row draws the application's icon (16 pt) in the gutter left of its name once
+  it is read (off the window's thread, once per session); a row without one (none given, SVG only,
+  missing or damaged) keeps the gutter empty, its name aligned with the others (M16.23). The video's
+  Open With popup draws the same rows.
 - Disabled items are shown greyed, never hidden. Menus never run off the window (bounded and
   scrolling, as in LightCraft's `menu_level.rs`).
 

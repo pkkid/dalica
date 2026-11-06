@@ -18,7 +18,11 @@
 //! OS (M15.12) with [`Session::set_os`]; a session starts with [`Recording::new`], a headless one:
 //! there is no system clipboard without a window ([`NO_CLIPBOARD`]). Tests that stand for a window
 //! plug in [`Recording::windowed`].
+//!
+//! [`Os::icon_file`] finds the file holding a handler's icon for Open With ▸ (M16.23); the
+//! engine's [`crate::handler_icons`] reads, decodes and caches it off the owner thread.
 
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -84,6 +88,16 @@ impl Handler {
     pub fn new(id: impl Into<String>, name: impl Into<String>) -> Handler {
         Handler { id: id.into(), name: name.into(), icon: None }
     }
+}
+
+/// Where [`Os::icon_file`] found a handler's icon.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IconFile {
+    /// A PNG or ICO file, read by [`crate::handler_icons`] under its size limit.
+    Path(PathBuf),
+    /// The icon's bytes, already taken out of the file holding them (an `.exe`'s or `.dll`'s
+    /// icon group, put together as an ICO by the system half's own bounded reader).
+    Bytes(Vec<u8>),
 }
 
 /// What [`Os::put_on_clipboard`] puts on the system clipboard.
@@ -207,7 +221,7 @@ pub fn extensions(ty: FileType) -> &'static [&'static str] {
 }
 
 /// The operating system's services. Every method may block; none may panic.
-pub trait Os: Send + Sync {
+pub trait Os: Any + Send + Sync {
     /// Whether `service` can be used here at all, answered at once from what the service knows
     /// (never blocking: the window asks it for every menu it draws): `Err` with the reason the
     /// greyed item shows. Every service is available unless the implementation says otherwise.
@@ -238,6 +252,16 @@ pub trait Os: Send + Sync {
     /// Makes Dalica the default viewer for `types` and gives every other type Dalica holds back to
     /// the handler it replaced (none: "Don't use Dalica as a viewer").
     fn set_default_viewer(&self, types: &[FileType]) -> Result<DefaultSet, OsError>;
+
+    /// The file holding the icon [`Handler::icon`] names, at about `px` pixels (M16.23): on Linux
+    /// an absolute `Icon=` PNG, else the name's PNG in the hicolor theme or the pixmaps; on Windows
+    /// an `.ico` file, or an `.exe`'s or `.dll`'s icon group. `None` where there is none the
+    /// engine can draw (an SVG-only icon, macOS, a file that is not there). Called off the owner
+    /// thread ([`crate::handler_icons`]).
+    fn icon_file(&self, icon: &str, px: u32) -> Option<IconFile> {
+        let _ = (icon, px);
+        None
+    }
 }
 
 /// One call [`Recording`] kept.
@@ -250,6 +274,7 @@ pub enum OsCall {
     PutOnClipboard(Clip),
     DefaultHandler(FileType),
     SetDefaultViewer(Vec<FileType>),
+    IconFile { icon: String, px: u32 },
 }
 
 impl OsCall {
@@ -257,7 +282,7 @@ impl OsCall {
     pub fn service(&self) -> Service {
         match self {
             OsCall::Reveal(_) => Service::Reveal,
-            OsCall::Handlers(_) | OsCall::OpenWith { .. } => Service::OpenWith,
+            OsCall::Handlers(_) | OsCall::OpenWith { .. } | OsCall::IconFile { .. } => Service::OpenWith,
             OsCall::OpenInEditor { .. } => Service::Editor,
             OsCall::PutOnClipboard(_) => Service::Clipboard,
             OsCall::DefaultHandler(_) | OsCall::SetDefaultViewer(_) => Service::DefaultViewer,
@@ -271,6 +296,8 @@ struct Recorded {
     /// Handlers by lowercased file extension (without the dot).
     handlers: BTreeMap<String, Vec<Handler>>,
     defaults: BTreeMap<FileType, Handler>,
+    /// Icon files by the icon string that names them.
+    icons: BTreeMap<String, IconFile>,
     failure: Option<OsError>,
     /// Services answered as unavailable, with the reason.
     unavailable: BTreeMap<Service, String>,
@@ -343,6 +370,11 @@ impl Recording {
         self.with(|r| r.defaults.insert(ty, handler));
     }
 
+    /// The file [`Os::icon_file`] answers for `icon` (at any size).
+    pub fn set_icon_file(&self, icon: &str, file: IconFile) {
+        self.with(|r| r.icons.insert(icon.to_string(), file));
+    }
+
     /// Every call from now on fails with `error` (`None`: they succeed again).
     pub fn fail_with(&self, error: Option<OsError>) {
         self.with(|r| r.failure = error);
@@ -385,6 +417,11 @@ impl Os for Recording {
         self.keep(OsCall::SetDefaultViewer(types.to_vec()))?;
         Ok(DefaultSet::Set)
     }
+
+    fn icon_file(&self, icon: &str, px: u32) -> Option<IconFile> {
+        self.keep(OsCall::IconFile { icon: icon.to_string(), px }).ok()?;
+        self.with(|r| r.icons.get(icon).cloned())
+    }
 }
 
 impl Session {
@@ -393,9 +430,10 @@ impl Session {
         Arc::clone(&self.os)
     }
 
-    /// Plugs in the OS service (the desktop app's real one, or a test's [`Recording`]).
+    /// Plugs in the OS service (the desktop app's real one, or a test's [`Recording`]), with a
+    /// fresh cache of handler icons ([`crate::handler_icons`]).
     pub fn set_os(&mut self, os: Arc<dyn Os>) {
-        self.os = os;
+        self.os = crate::handler_icons::with_icons(os);
     }
 }
 

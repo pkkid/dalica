@@ -26,6 +26,7 @@ pub mod fileops;
 pub mod fileops_recovery;
 pub mod folders;
 pub mod geocode;
+pub mod handler_icons;
 pub mod history;
 pub mod import;
 pub mod import_run;

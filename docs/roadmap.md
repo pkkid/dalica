@@ -11476,7 +11476,7 @@ under their own key, and a snapshot without them reads as one with none.
     change restarting it keeps it reported; `crates/ui/tests/activity.rs`: PNG off applied from
     Options, the indicator's name is "Rescanning your folders…" until the scan ends, then "No
     background work"; a scan from Add Folder reads "Working in the background".
-- ⬜ **M16.23 `engine` + `dalica` + `ui`: Open With ▸ draws the applications' icons**
+- ✅ **M16.23 `engine` + `dalica` + `ui`: Open With ▸ draws the applications' icons**
   - after: M15.R
   - files: `crates/engine/src/os.rs`, `crates/engine/src/handler_icons.rs`, `crates/engine/src/cmd/os.rs`, `crates/engine/tests/os.rs`, `apps/dalica/src/os.rs`, `apps/dalica/src/os/icons.rs`, `apps/dalica/tests/os.rs`, `crates/ui/src/commands/os.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/viewer/bar.rs`, `crates/ui/tests/os_menus.rs`, `docs/menus-and-shortcuts.md`
   - scope: FILE-LOCATE's missing half: `Handler.icon` (M15.24) drawn. `Os::icon_file(icon, px)`:

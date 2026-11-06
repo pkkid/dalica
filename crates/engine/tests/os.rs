@@ -3,6 +3,7 @@
 //! service the right paths and handler, in order, with the owner thread making no file call; the
 //! launching ones never run over automation; a headless session has no clipboard; a missing file
 //! answers why before the system is asked; the picture copied is the photo's edited picture.
+//! Open With ▸'s icons (M16.23) are read off the owner thread, once, and a bad one is none.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,7 +11,8 @@ use std::sync::Arc;
 use dalica_core::PhotoId;
 use dalica_engine::automation::{Policy, Refusal};
 use dalica_engine::cmd::os::{ASK_ABOVE, MAX_EDITOR_IDS, OFFLINE, missing};
-use dalica_engine::os::{Clip, Handler, NO_CLIPBOARD, OsCall, OsError, Recording, Service};
+use dalica_engine::handler_icons::HandlerIcon;
+use dalica_engine::os::{Clip, Handler, IconFile, NO_CLIPBOARD, OsCall, OsError, Recording, Service};
 use dalica_engine::{CmdError, Session};
 use serde_json::{Value, json};
 
@@ -211,4 +213,60 @@ fn more_than_twenty_photos_ask_first() {
     s.execute("photo.openExternal", &json!({ "ids": ids[..ASK_ABOVE] })).unwrap();
     s.execute("photo.openExternal", &json!({ "ids": ids, "confirm": true })).unwrap();
     assert_eq!(os.calls().len(), 2);
+}
+
+/// Open With ▸'s icons (M16.23): a planted 32 px PNG comes back as a 16 px picture, read off the
+/// owner thread and once only; a damaged file, a 50 MB one and one that is not there are none,
+/// never a panic.
+#[test]
+fn a_handlers_icon_is_read_off_the_owner_thread_once_and_a_bad_one_is_none() {
+    let (_lib, disk, _folder, mut s, ids, os) = setup();
+    let icons = disk.path().join("icons");
+    let red: Vec<u8> = (0..32 * 32).flat_map(|_| [200u8, 30, 30, 255]).collect();
+    let (good, damaged, huge) = (icons.join("viewer.png"), icons.join("damaged.png"), icons.join("huge.png"));
+    off_owner(|| {
+        std::fs::create_dir_all(&icons).unwrap();
+        std::fs::write(&good, dalica_scenes::fingerprint::png_rgba(32, 32, &red)).unwrap();
+        std::fs::write(&damaged, b"\x89PNG\r\n\x1a\nnot a picture at all").unwrap();
+        std::fs::File::create(&huge).unwrap().set_len(50 * 1024 * 1024).unwrap();
+    });
+    for (icon, path) in [("viewer", &good), ("damaged", &damaged), ("huge", &huge), ("gone", &icons.join("gone.png"))] {
+        os.set_icon_file(icon, IconFile::Path(path.clone()));
+    }
+    let with_icon = |id: &str, icon: &str| Handler { icon: Some(icon.into()), ..handler(id, id) };
+    let apps = [
+        with_icon("viewer", "viewer"),
+        with_icon("damaged", "damaged"),
+        with_icon("huge", "huge"),
+        with_icon("gone", "gone"),
+        handler("plain", "Plain"),
+    ];
+    os.set_handlers("jpg", apps.to_vec());
+    let listed = s.execute("photo.openWithList", &json!({ "id": ids[0] })).unwrap();
+    assert_eq!(listed["handlers"][0], json!({ "id": "viewer", "name": "viewer", "icon": "viewer" }));
+    os.clear();
+
+    let ui = dalica_fs::mark_ui_thread();
+    let refused = dalica_fs::guard::refused();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let answers = loop {
+        let answers: Vec<HandlerIcon> = apps.iter().map(|h| s.handler_icon(&h.id, 16)).collect();
+        if !answers.contains(&HandlerIcon::Loading) || std::time::Instant::now() > deadline {
+            break answers;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    assert_eq!(dalica_fs::guard::refused(), refused, "the owner thread read no file");
+    let HandlerIcon::Ready(picture) = &answers[0] else { panic!("the PNG: {:?}", answers[0]) };
+    assert_eq!((picture.width, picture.height), (16, 16));
+    assert!(picture.data.as_chunks::<4>().0.iter().all(|p| *p == [200, 30, 30, 255]), "its pixels");
+    assert_eq!(&answers[1..], [HandlerIcon::None, HandlerIcon::None, HandlerIcon::None, HandlerIcon::None], "damaged, 50 MB, gone, none given");
+    // Asked again: the same picture, the system not asked again.
+    assert_eq!(s.handler_icon("viewer", 16), HandlerIcon::Ready(picture.clone()));
+    assert_eq!(s.handler_icon("damaged", 16), HandlerIcon::None);
+    drop(ui);
+    let mut asked: Vec<String> =
+        os.calls().into_iter().filter_map(|c| if let OsCall::IconFile { icon, px: 16 } = c { Some(icon) } else { None }).collect();
+    asked.sort();
+    assert_eq!(asked, ["damaged", "gone", "huge", "viewer"], "each file found once");
 }

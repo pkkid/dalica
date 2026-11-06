@@ -6,7 +6,8 @@
 //! out) and choosing one opens the photo with it; Ctrl+C puts the files on the system clipboard
 //! and still pastes inside Dalica; Options ▸ General ▸ External editor's Browse… sets
 //! `files.externalEditor`; a system without a service greys its rows with its reason; at 900 × 600
-//! the open Open With ▸ stays inside the window. The PR's screenshots are written to
+//! the open Open With ▸ stays inside the window; each application row draws its icon left of its
+//! name, a row without one keeping its name aligned (M16.23). The PR's screenshots are written to
 //! `target/test-output/ui/os-menus-*.png`.
 
 use std::collections::BTreeSet;
@@ -16,7 +17,7 @@ use std::sync::Arc;
 use crate::common::{FRAMES, LARGE, SMALL, new_driver, try_widget, write_png};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
-use dalica_engine::os::{Clip, Handler, OsCall, Recording, Service};
+use dalica_engine::os::{Clip, Handler, IconFile, OsCall, Recording, Service};
 use dalica_scenes::fingerprint;
 use dalica_ui::headless::Click;
 use dalica_ui::menus::{self, Node, Platform};
@@ -261,11 +262,18 @@ fn at_900_by_600_the_open_with_submenu_stays_inside_the_window() {
     t.d.run("section.scrollTo", &json!({ "section": Section::Folder(t.folders[1]) })).unwrap();
     t.d.settle(FRAMES).unwrap();
     let ext = t.path(last).extension().unwrap().to_string_lossy().into_owned();
-    let apps: Vec<Handler> = (0..12).map(|n| Handler::new(format!("app{n}.desktop"), format!("Application {n}"))).collect();
+    let icon = t._dir.path().join("icons").join("app.png");
+    std::fs::create_dir_all(icon.parent().unwrap()).unwrap();
+    std::fs::write(&icon, png_of(32, [40, 120, 220, 255])).unwrap();
+    t.os.set_icon_file("app", IconFile::Path(icon));
+    let apps: Vec<Handler> = (0..12)
+        .map(|n| Handler { icon: (n % 3 != 2).then(|| "app".to_string()), ..Handler::new(format!("app{n}.desktop"), format!("Application {n}")) })
+        .collect();
     t.os.set_handlers(&ext, apps);
     t.open_menu(last);
     t.d.click("submenu:Photo/Open With").unwrap();
     t.d.settle(FRAMES).unwrap();
+    icons_ready(&mut t.d, "menuitem:photo.openWith/0", [40, 120, 220]);
     let rows: Vec<[f32; 4]> = t.d.widgets().into_iter().filter(|w| w.id.starts_with("menuitem:photo.openWith/")).map(|w| w.rect).collect();
     assert!(!rows.is_empty(), "the applications are drawn");
     let (w, h) = (SMALL.0 as f32, SMALL.1 as f32);
@@ -273,6 +281,97 @@ fn at_900_by_600_the_open_with_submenu_stays_inside_the_window() {
         assert!(r[0] >= 0.0 && r[1] >= 0.0 && r[0] + r[2] <= w + 0.5 && r[1] + r[3] <= h + 0.5, "{r:?} outside {w} × {h}");
     }
     t.shot("os-menus-open-with-900x600");
+}
+
+/// A `side`-pixel PNG of one colour.
+fn png_of(side: u32, rgba: [u8; 4]) -> Vec<u8> {
+    let pixels: Vec<u8> = (0..side * side).flat_map(|_| rgba).collect();
+    fingerprint::png_rgba(side, side, &pixels)
+}
+
+/// The pixel at `(x, y)` points of a 1× screenshot.
+fn pixel(shot: &dalica_ui_kit::Image, x: f32, y: f32) -> [u8; 3] {
+    let at = ((y as u32 * shot.width + x as u32) * 4) as usize;
+    [shot.rgba[at], shot.rgba[at + 1], shot.rgba[at + 2]]
+}
+
+fn near(a: [u8; 3], b: [u8; 3]) -> bool {
+    a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 12)
+}
+
+/// Where the icon of the row `id` is drawn: the middle of its left gutter.
+fn icon_slot(d: &Driver, id: &str) -> (f32, f32) {
+    let r = try_widget(d, id).unwrap_or_else(|| panic!("{id} is drawn")).rect;
+    (r[0] + dalica_ui::commands::os::ICON_SLOT_X, r[1] + r[3] / 2.0)
+}
+
+/// Frames until the row `id` shows its icon of `colour` (read off the owner thread); its screenshot.
+fn icons_ready(d: &mut Driver, id: &str, colour: [u8; 3]) -> dalica_ui_kit::Image {
+    for _ in 0..200 {
+        d.settle(FRAMES).unwrap();
+        let shot = d.screenshot().unwrap();
+        let (x, y) = icon_slot(d, id);
+        if near(pixel(&shot, x, y), colour) {
+            return shot;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("{id} never drew its icon");
+}
+
+/// The first column right of `from` where the row `rect` holds anything but its background (its
+/// name's first stroke).
+fn first_ink(shot: &dalica_ui_kit::Image, rect: [f32; 4], from: f32) -> f32 {
+    let background = pixel(shot, rect[0] + 1.0, rect[1] + 1.0);
+    let mut x = from;
+    while x < rect[0] + rect[2] {
+        if (rect[1] as u32 + 2..(rect[1] + rect[3]) as u32 - 2).any(|y| !near(pixel(shot, x, y as f32), background)) {
+            return x;
+        }
+        x += 1.0;
+    }
+    panic!("no name in {rect:?}")
+}
+
+/// Open With ▸'s rows draw each application's icon in the gutter left of its name (M16.23): the
+/// icon's pixels at the icon slot once the engine has read it; a row without an icon (none given,
+/// or one that does not decode) keeps the slot empty and its name starts where the others' do.
+#[test]
+fn open_with_draws_each_applications_icon_left_of_its_name() {
+    let mut t = setup(LARGE);
+    let a = t.s[0][0];
+    let ext = t.path(a).extension().unwrap().to_string_lossy().into_owned();
+    let icons = t._dir.path().join("icons");
+    std::fs::create_dir_all(&icons).unwrap();
+    std::fs::write(icons.join("paint.png"), png_of(32, [220, 40, 40, 255])).unwrap();
+    std::fs::write(icons.join("broken.png"), b"not a picture").unwrap();
+    t.os.set_icon_file("paint", IconFile::Path(icons.join("paint.png")));
+    t.os.set_icon_file("broken", IconFile::Path(icons.join("broken.png")));
+    let with_icon = |id: &str, name: &str, icon: &str| Handler { icon: Some(icon.into()), ..Handler::new(id, name) };
+    t.os.set_handlers(
+        &ext,
+        vec![
+            with_icon("paint.desktop", "Paint", "paint"),
+            Handler::new("preview.desktop", "Preview"),
+            with_icon("pixels.desktop", "Pixels", "broken"),
+        ],
+    );
+    t.open_menu(a);
+    t.d.click("submenu:Photo/Open With").unwrap();
+    let shot = icons_ready(&mut t.d, "menuitem:photo.openWith/0", [220, 40, 40]);
+    let rows: Vec<[f32; 4]> = (0..3).map(|n| try_widget(&t.d, &format!("menuitem:photo.openWith/{n}")).unwrap().rect).collect();
+    for n in [1, 2] {
+        let (x, y) = icon_slot(&t.d, &format!("menuitem:photo.openWith/{n}"));
+        assert_eq!(pixel(&shot, x, y), pixel(&shot, rows[n][0] + 1.0, rows[n][1] + 1.0), "row {n}: the slot is empty");
+    }
+    // The icon ends before the name begins, and every name ("P…") starts in the same column.
+    let ink: Vec<f32> = rows.iter().map(|r| first_ink(&shot, *r, r[0] + dalica_ui::commands::os::ICON_SLOT_X + 9.0)).collect();
+    assert!(ink.iter().all(|x| (x - ink[0]).abs() <= 1.0), "names aligned: {ink:?}");
+    assert!(ink[0] > rows[0][0] + dalica_ui::commands::os::ICON_SLOT_X + 8.0, "the name right of the icon: {ink:?}");
+    t.shot("os-menus-open-with-icons-1400x900");
+    // Read once: the system was asked for each icon once, however many frames drew them.
+    let asked: Vec<OsCall> = t.os.calls().into_iter().filter(|c| matches!(c, OsCall::IconFile { .. })).collect();
+    assert_eq!(asked.len(), 2, "{asked:?}");
 }
 
 /// The viewer's ⋯ More: Show in File Manager shows the file shown, selected (a photo outside the

@@ -1,6 +1,7 @@
 //! The real [`dalica_engine::os::Os`] for Linux, Windows and macOS (`organizing.md` §9,
 //! `viewing.md` §3.3, `security.md` §5.11): reveal a file in the file manager, the applications
-//! that open its type, open it with one of them, the external editor and the clipboard.
+//! that open its type, open it with one of them, the external editor and the clipboard, and the
+//! file holding an application's icon ([`icons`], M16.23).
 //!
 //! No `unsafe` and no C library: the system's own programs started with an argument vector
 //! ([`launch`]; never a shell, a path starting with `-` passed as `./-name`), pure-Rust crates
@@ -24,6 +25,8 @@ pub mod default_viewer;
 pub mod desktop;
 #[path = "os/editor.rs"]
 pub mod editor;
+#[path = "os/icons.rs"]
+pub mod icons;
 #[path = "os/launch.rs"]
 pub mod launch;
 #[cfg(target_os = "macos")]
@@ -37,7 +40,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dalica_engine::os::{Clip, DefaultSet, Handler, Os, OsError};
+use dalica_engine::os::{Clip, DefaultSet, Handler, IconFile, Os, OsError};
 use dalica_scan::FileType;
 
 use launch::{Argv, Platform, Runner, Spawn};
@@ -234,6 +237,14 @@ impl Os for Native {
 
     fn set_default_viewer(&self, types: &[FileType]) -> Result<DefaultSet, OsError> {
         default_viewer::set_default_viewer(self, types)
+    }
+
+    fn icon_file(&self, icon: &str, px: u32) -> Option<IconFile> {
+        match self.platform {
+            Platform::Linux => icons::linux(icon, px, &self.dirs()),
+            Platform::Windows => icons::windows(icon, px),
+            Platform::MacOs => None,
+        }
     }
 }
 
