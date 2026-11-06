@@ -36,6 +36,9 @@
 //! - **Cancel** ([`Session::cancel_jobs`]): the walk stops before its next file; the folder being
 //!   applied is finished, folders read but not yet applied are dropped, nothing is removed, and the
 //!   job ends as `cancelled` with what it indexed.
+//! - **Closing** ([`Session::stop_scans_for_close`], M16.28): every scan is let go as Cancel lets
+//!   it go, with the put-off scans and the watcher's rescans, so closing never waits for a walk;
+//!   the next session's verification pass walks the units again.
 //! - **Failures** (files whose guarded header read failed) are reported once as scan warnings and
 //!   given back to the next scan, which does not read them again until their size or modification
 //!   time changes.
@@ -817,6 +820,21 @@ impl Session {
                 self.scanning.put_off.push(again);
             }
         }
+    }
+
+    /// Closing (the window's and `app.quit`, before [`Session::flush`]): every running scan is let
+    /// go as Cancel lets it go (the walk stops at its next file and is not waited for, what it read
+    /// and did not apply is dropped, nothing is removed, a rebuild keeps the old model, a Scan Once
+    /// unit is not marked indexed), its job ending as "Scan stopped when Dalica closed"; the scans
+    /// a file job put off and the watcher's rescans are dropped too. Without this, the flush would
+    /// walk every scan to the end on the thread that closes the window, with no frame drawn
+    /// meanwhile. The next session's verification pass walks the units again. Returns how many
+    /// scans were stopped.
+    pub fn stop_scans_for_close(&mut self) -> usize {
+        let stopped = self.let_scans_go("stopped when Dalica closed", "closed").len();
+        self.scanning.put_off.clear();
+        self.drop_rescans_for_close();
+        stopped
     }
 
     /// Options → File Types or the small-picture threshold changed (`options.set`, M10.5): one

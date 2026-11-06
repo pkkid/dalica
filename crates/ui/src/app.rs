@@ -234,7 +234,8 @@ impl App {
     /// headless app's (`app.quit`) alike: the text an inline editor holds is committed, as a click
     /// elsewhere would commit it (the caption under a cell or in the edit view's caption bar, a
     /// section's description; one undo step
-    /// each, nothing when unchanged); the view state is saved, when it is persisted; the metadata
+    /// each, nothing when unchanged); the view state is saved, when it is persisted; the running
+    /// scans are let go, as Cancel lets them go (`Session::stop_scans_for_close`); the metadata
     /// writes still waiting for their debounce are made now, so their results reach the sidecars;
     /// then every journal record, sidecar and settings write lands (`control-protocol.md` §5.8).
     ///
@@ -257,6 +258,11 @@ impl App {
         }
         self.save_view();
         let Some(session) = &mut self.session else { return Ok(()) };
+        // A scan still walking is let go, never waited for (the window would stop answering).
+        let stopped = session.stop_scans_for_close();
+        if stopped > 0 {
+            log::info!("dalica: {stopped} scan(s) stopped on close; the next session verifies the folders again");
+        }
         if !session.flush_metadata(SHUTDOWN_METADATA_WAIT) {
             log::warn!("dalica: metadata writes are still running; they finish before the library closes");
         }

@@ -74,7 +74,9 @@ impl Lib {
             dalica_fs::create_dir_all(path.parent().unwrap()).unwrap();
             dalica_fs::replace(&path, &jpeg(i as u64), Expect::Absent).unwrap();
         }
-        let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_790_000_000_000)));
+        // Far past any real time the test runs at: the files' real times then never fall inside a
+        // window the virtual clock measures (2026-09-21 went off on 2026-10-21, M16.28).
+        let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(4_102_444_800_000)));
         let mut s = Lib::open(dir.path(), &clock);
         s.execute("folders.add", &json!({ "path": pictures })).unwrap();
         s.wait_idle();

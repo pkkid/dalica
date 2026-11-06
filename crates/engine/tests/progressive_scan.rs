@@ -254,6 +254,44 @@ fn a_cancelled_scan_stops_within_one_folder_and_keeps_what_it_applied() {
     }
 }
 
+/// `roadmap.md` M16.28: closing mid-scan lets the scan go instead of walking it to the end: the
+/// flush after `stop_scans_for_close` returns while the walk is still held (without it, the flush
+/// waits out the gate), the job ends cancelled, nothing past the held folder is read and what was
+/// applied stays.
+#[test]
+fn closing_lets_a_running_scan_go_instead_of_waiting_for_it() {
+    let (folders, per) = size();
+    let half = folders / 2;
+    let dir = tempfile::tempdir().unwrap();
+    let root = tree(&dir.path().join("Pictures"), folders, per);
+    let mut s = open(&dir.path().join("library"));
+    let gate = Gate::new(&format!("F{half:02}"));
+    s.set_scan_reader(Some(gate.reader()));
+    s.execute("folders.add", &json!({ "path": root })).unwrap();
+    let job = last_job(&s);
+    let mut progress = Vec::new();
+    poll_until(&mut s, &mut progress, |s| gate.reached() && s.library().photos().count() == half * per);
+
+    let start = Instant::now();
+    assert_eq!(s.stop_scans_for_close(), 1);
+    s.flush().unwrap();
+    // The gate holds the walk for 8 s: a flush that waited for the scan would take that long.
+    assert!(start.elapsed() < Duration::from_secs(6), "closing waited for the scan: {:?}", start.elapsed());
+    assert!(!s.busy());
+    let entry = s.job(job).unwrap();
+    assert_eq!(entry.state, JobState::Cancelled, "{entry:?}");
+    assert_eq!(entry.result.as_ref().unwrap()["closed"], true);
+    assert_eq!(entry.label, "Scan stopped when Dalica closed");
+    gate.open();
+    let read = gate.folders_read();
+    for f in half + 1..folders {
+        assert!(!read.contains(&format!("F{f:02}")), "F{f:02} was read after closing: {read:?}");
+    }
+    assert_eq!(s.library().photos().count(), half * per);
+    // Nothing runs to stop any more.
+    assert_eq!(s.stop_scans_for_close(), 0);
+}
+
 /// A cancelled rebuild keeps the old model (and its undo stack); a finished one replaces it as a
 /// `rebuild` job.
 #[test]
