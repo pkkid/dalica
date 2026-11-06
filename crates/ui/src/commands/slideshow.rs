@@ -16,12 +16,18 @@
 //! the next in the preview's two panes), held here per UI thread, as the edit view's tools keep
 //! their state. Every frame the panel calls [`sync`]: the show catches up with the clock, and its
 //! place, playing state, bar and transition are written back into the view state; a change a script
-//! made there (another list, another place, paused, zoomed) is applied to the show first. A show
-//! started by its commands asks the OS for full screen through the view state, and Exit gives the
-//! window back as it was (a window already full screen stays so); a show a script set up with
-//! `ui.set` leaves the window to the script.
+//! made there (another list, another place, paused, zoomed) is applied to the show first.
 //!
-//! **Keys** (Slideshow context): Esc exits, Space pauses and resumes (showing the bar), → and PgDn
+//! **In the window or full screen** (`viewing.md` §1.2, M16.32): a show starts in the window's
+//! photo area (the light table's place, or the edit view's photo), the rest of the window dimmed
+//! around it, unless Options ▸ Slideshow's "Start slideshows full screen" is on. The view state's
+//! `slideshow.fullScreen` says which; `slideshow.fullScreen` (the bar's Full Screen button) switches the show playing without restarting it (the same photo, play
+//! state and timer). While the show is full screen it fills the window and asks the OS for full
+//! screen through the view state's `fullScreen`; back in the window, or at its end, the window's
+//! full screen is given back as it was before (a window already full screen stays so).
+//!
+//! **Keys** (Slideshow context): Esc goes back to the window from full screen and ends a show
+//! playing in the window (`slideshow.back`; the bar's Exit, `slideshow.exit`, always ends it), Space pauses and resumes (showing the bar), → and PgDn
 //! next, ← and PgUp previous (a command has at most two keys per context, so ↓ and ↑ are left to the
 //! user to bind; the wheel steps too), Home and End the first and last photo, + and − zoom, Ctrl+8
 //! stars and Ctrl+R / Ctrl+Shift+R rotate the photo shown through the library's own commands (one
@@ -79,9 +85,25 @@ pub const COMMANDS: &[UiCommand] = &[
         id: "slideshow.exit",
         label: "Exit Slideshow",
         menu: "",
-        keys: &[(Context::Slideshow, "Esc")],
+        keys: &[],
         params: "{}: end the slideshow and go back to where it started, the last photo shown selected",
         run: exit,
+    },
+    UiCommand {
+        id: "slideshow.back",
+        label: "Back",
+        menu: "",
+        keys: &[(Context::Slideshow, "Esc")],
+        params: "{}: from full screen back to the window; in the window, end the slideshow (as slideshow.exit)",
+        run: back,
+    },
+    UiCommand {
+        id: "slideshow.fullScreen",
+        label: "Full Screen",
+        menu: "",
+        keys: &[],
+        params: "{on?: bool}: play the slideshow full screen (true) or in the window's photo area (false); toggles without `on`; the show goes on where it was",
+        run: full_screen,
     },
     UiCommand {
         id: "slideshow.next",
@@ -209,6 +231,8 @@ pub const CHECKS: &[(&str, Check)] = &[
     ("view.slideshow", can_start),
     ("section.slideshow", can_start_section),
     ("slideshow.exit", playing),
+    ("slideshow.back", playing),
+    ("slideshow.fullScreen", playing),
     ("slideshow.next", playing),
     ("slideshow.previous", playing),
     ("slideshow.first", playing),
@@ -269,8 +293,9 @@ struct Held {
     /// The view state's `slideshow` as last written from the show: what a script changed since is
     /// told apart from it.
     mirrored: Slideshow,
-    /// Whether the window was full screen before the show asked for it (`None`: it did not ask).
-    was_full_screen: Option<bool>,
+    /// Whether the window was full screen before the show went full screen (`None`: the show is
+    /// not full screen).
+    window: Option<bool>,
     /// The last frame [`sync`] answered.
     frame: Option<Frame>,
 }
@@ -279,8 +304,6 @@ thread_local! {
     static HELD: RefCell<Option<Held>> = const { RefCell::new(None) };
     /// The display the panel last drew the show on (device pixels).
     static FIT: Cell<(u32, u32)> = const { Cell::new(DEFAULT_FIT) };
-    /// A command is starting a show: whether the window was full screen before it.
-    static ASKED: Cell<Option<bool>> = const { Cell::new(None) };
 }
 
 /// The display the show's previews cover (the panel's rect in device pixels).
@@ -307,7 +330,8 @@ pub fn with_show<R>(f: impl FnOnce(&mut Show) -> R) -> Option<R> {
 struct Synced {
     /// The view state's `slideshow` as the show now is (`None`: no show).
     state: Option<Slideshow>,
-    /// Full screen to set back as it was when a show its commands started ends.
+    /// The window's full screen to set: on as the show goes full screen, back as it was when it
+    /// leaves full screen or ends.
     full_screen: Option<bool>,
     frame: Option<Frame>,
 }
@@ -317,10 +341,10 @@ struct Synced {
 /// place, playing state, bar and transition back into the view state. Answers the frame to paint.
 pub fn sync(app: &mut App) -> Option<Frame> {
     let wanted = show(app).cloned();
-    let asked = ASKED.with(Cell::take);
+    let window = app.state().full_screen;
     let fit = FIT.with(Cell::get);
     let session = app.session_mut()?;
-    let synced = HELD.with(|h| sync_held(&mut h.borrow_mut(), session, wanted, asked, fit));
+    let synced = HELD.with(|h| sync_held(&mut h.borrow_mut(), session, wanted, window, fit));
     let state = app.state_mut();
     if let Some(on) = synced.full_screen {
         state.full_screen = on;
@@ -333,7 +357,7 @@ pub fn sync(app: &mut App) -> Option<Frame> {
     synced.frame
 }
 
-fn sync_held(slot: &mut Option<Held>, session: &mut Session, wanted: Option<Slideshow>, asked: Option<bool>, fit: (u32, u32)) -> Synced {
+fn sync_held(slot: &mut Option<Held>, session: &mut Session, wanted: Option<Slideshow>, window: bool, fit: (u32, u32)) -> Synced {
     let owner = session.dir().to_path_buf();
     if slot.as_ref().is_some_and(|h| h.owner != owner) {
         *slot = None;
@@ -341,25 +365,37 @@ fn sync_held(slot: &mut Option<Held>, session: &mut Session, wanted: Option<Slid
     let Some(want) = wanted else {
         let ended = slot.take().and_then(|h| {
             h.show.close(session);
-            h.was_full_screen
+            h.window
         });
         return Synced { state: None, full_screen: ended, frame: None };
     };
-    if asked.is_some() || slot.as_ref().is_none_or(|h| h.mirrored.photos != want.photos || h.mirrored.index != want.index) {
-        let was_full_screen = match slot.take() {
+    if slot.as_ref().is_none_or(|h| h.mirrored.photos != want.photos || h.mirrored.index != want.index) {
+        let kept = match slot.take() {
             Some(h) => {
                 h.show.close(session);
-                h.was_full_screen.or(asked)
+                h.window
             }
-            None => asked,
+            None => None,
         };
         let show = Running::start(session, want.photos.clone(), want.index, fit);
         // Fresh from the engine: playing and fitted; what the view state says otherwise is applied
         // below.
         let mirrored = Slideshow { playing: true, zoom: 1.0, ..want.clone() };
-        *slot = Some(Held { owner, show, mirrored, was_full_screen, frame: None });
+        *slot = Some(Held { owner, show, mirrored, window: kept, frame: None });
     }
     let Some(held) = slot.as_mut() else { return Synced { state: None, full_screen: None, frame: None } };
+    // Full screen: the window asked for it as the show goes full screen, given back as it leaves.
+    let full_screen = match (want.full_screen, held.window) {
+        (true, None) => {
+            held.window = Some(window);
+            Some(true)
+        }
+        (false, Some(was)) => {
+            held.window = None;
+            Some(was)
+        }
+        _ => None,
+    };
     held.show.set_fit(session, fit);
     let settings = show_settings(&session.settings().slideshow());
     let machine = held.show.show_mut();
@@ -386,7 +422,7 @@ fn sync_held(slot: &mut Option<Held>, session: &mut Session, wanted: Option<Slid
     };
     held.mirrored = state.clone();
     held.frame = Some(frame);
-    Synced { state: Some(state), full_screen: None, frame: Some(frame) }
+    Synced { state: Some(state), full_screen, frame: Some(frame) }
 }
 
 /// Gives the show the settings in effect (Options ▸ Slideshow), changing only what differs.
@@ -489,17 +525,18 @@ fn play(app: &mut App, query: &Value, from: ShowFrom) -> Result<Value, CmdError>
     let list = session.execute("slideshow.list", query)?;
     let photos: Vec<PhotoId> = serde_json::from_value(list["photos"].clone()).map_err(|e| CmdError::Internal(e.to_string()))?;
     let index = list["start"].as_u64().and_then(|i| usize::try_from(i).ok()).unwrap_or(0);
-    let Some(s) = (Slideshow { photos, index, from, ..Slideshow::default() }).sanitized() else {
+    let full_screen = session.settings().slideshow().full_screen;
+    let Some(s) = (Slideshow { photos, index, from, full_screen, ..Slideshow::default() }).sanitized() else {
         return Err(CmdError::Disabled(NOTHING_TO_PLAY.into()));
     };
-    let reply = json!({ "photos": s.photos.len(), "start": s.index, "videos": list["videos"] });
+    let reply = json!({ "photos": s.photos.len(), "start": s.index, "videos": list["videos"], "fullScreen": full_screen });
     let state = app.state_mut();
-    ASKED.with(|a| a.set(Some(state.full_screen)));
     state.slideshow = Some(s);
     state.view = View::Slideshow;
     state.peek = None;
-    state.full_screen = true;
-    sync(app);
+    // The held show starts at the panel's next frame, which gives it its display size first (the
+    // photo area or the screen), so its first previews are made once, at that size; a command
+    // run before that frame starts it at the last size drawn.
     Ok(reply)
 }
 
@@ -549,6 +586,35 @@ fn exit(app: &mut App, params: &Value) -> Result<Value, CmdError> {
         come_back_to(app, id);
     }
     Ok(json!({ "photo": photo }))
+}
+
+/// Esc: from full screen back to the window, else the end of the show.
+fn back(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    match show(app).map(|s| s.full_screen) {
+        None => Err(CmdError::Disabled(NOT_PLAYING.into())),
+        Some(true) => full_screen(app, &json!({ "on": false })),
+        Some(false) => exit(app, params),
+    }
+}
+
+/// Switches the show playing between full screen and the window's photo area; the show goes on
+/// where it was (the held show is not restarted: only its display size changes).
+fn full_screen(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    let p: On = parse_object(params)?;
+    if show(app).is_none() {
+        return Err(CmdError::Disabled(NOT_PLAYING.into()));
+    }
+    sync(app);
+    let on = match app.state_mut().slideshow.as_mut() {
+        Some(s) => {
+            s.full_screen = p.on.unwrap_or(!s.full_screen);
+            s.full_screen
+        }
+        None => return Err(CmdError::Disabled(NOT_PLAYING.into())),
+    };
+    sync(app);
+    Ok(json!({ "fullScreen": on }))
 }
 
 /// Selects photo `id` where the show went back to: shown in the edit view, or selected and

@@ -593,6 +593,9 @@ static CATALOGUE: &[OptionSpec] = &[
         json!(s.slideshow().transition.id())
     }),
     row("slideshow.captions", Tab::Slideshow, "Slideshow", "Show captions", Kind::Bool, Initial::Bool(true), |s| json!(s.slideshow().captions)),
+    row("slideshow.fullScreen", Tab::Slideshow, "Slideshow", "Start slideshows full screen", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.slideshow().full_screen)
+    }),
     row("slideshow.videoSound", Tab::Slideshow, "Slideshow", "Play video sound", Kind::Bool, Initial::Bool(false), |s| {
         json!(s.slideshow().video_sound)
     })

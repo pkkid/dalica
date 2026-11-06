@@ -97,6 +97,8 @@
 ~	Auto lighting	ปรับแสงอัตโนมัติ
 ~	Automatic	อัตโนมัติ
 ~	B&W	ขาวดำ
+~	Back	กลับ
+~	Back to the window (Esc)	กลับไปที่หน้าต่าง (Esc)
 ~	BMP	BMP
 ~	Back to Collage	กลับไปที่ภาพปะติด
 ~	Back to Library	กลับไปที่คลังภาพ
@@ -413,6 +415,7 @@
 ~	Frames the photo with two bands of colour. Changes the picture's size.	ใส่กรอบรูปภาพด้วยแถบสีสองแถบ เปลี่ยนขนาดของรูปภาพ
 ~	From {site}	จาก {site}
 ~	Full Screen	เต็มหน้าจอ
+~	Full screen	เต็มหน้าจอ
 ~	Full video (no resizing)	วิดีโอเต็ม (ไม่ปรับขนาด)
 ~	GIF	GIF
 ~	Geocoding service	บริการค้นหาพิกัด
@@ -1050,6 +1053,7 @@
 ~	Starred	ติดดาวแล้ว
 ~	Starred Photos	รูปภาพที่ติดดาว
 ~	Start again from the crop in effect	เริ่มใหม่จากการครอบตัดที่ใช้อยู่
+~	Start slideshows full screen	เริ่มสไลด์โชว์แบบเต็มหน้าจอ
 ~	Stats for Nerds	สถิติสำหรับคนเนิร์ด
 ~	Stats for Nerds…	สถิติสำหรับคนเนิร์ด…
 ~	Status line	บรรทัดสถานะ

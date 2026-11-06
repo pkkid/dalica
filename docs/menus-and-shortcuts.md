@@ -578,6 +578,7 @@ output on this system".
 | | Display time (1–60 s) | `slideshow.displayTime` | 3 s |
 | | Transition (Cut, Pan and Zoom, Dissolve, Wipe, Circle, Push, Rectangle) | `slideshow.transition` | Dissolve |
 | | Show captions | `slideshow.captions` | on |
+| | Start slideshows full screen | `slideshow.fullScreen` | off |
 | | Play video sound | `slideshow.videoSound` | off |
 
 ### Network

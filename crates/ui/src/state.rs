@@ -2358,8 +2358,9 @@ pub const SLIDE_ZOOM_MAX: f32 = 8.0;
 
 /// A slideshow while it plays (`viewing.md` §1): the photos it plays in order, the one shown, whether
 /// it is playing (not paused), whether the control bar is shown, the zoom (1 fitted … 8) and the
-/// point of the photo at the centre of the screen (normalised, 0 … 1), the transition running, and
-/// where it was started.
+/// point of the photo at the centre of the screen (normalised, 0 … 1), the transition running,
+/// where it was started, and whether it fills the screen (`fullScreen`, M16.32) or plays in the
+/// window's photo area.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct Slideshow {
@@ -2371,11 +2372,22 @@ pub struct Slideshow {
     pub pan: [f32; 2],
     pub transition: Option<TransitionRun>,
     pub from: ShowFrom,
+    pub full_screen: bool,
 }
 
 impl Default for Slideshow {
     fn default() -> Slideshow {
-        Slideshow { photos: Vec::new(), index: 0, playing: true, bar: true, zoom: 1.0, pan: [0.5, 0.5], transition: None, from: ShowFrom::Library }
+        Slideshow {
+            photos: Vec::new(),
+            index: 0,
+            playing: true,
+            bar: true,
+            zoom: 1.0,
+            pan: [0.5, 0.5],
+            transition: None,
+            from: ShowFrom::Library,
+            full_screen: false,
+        }
     }
 }
 

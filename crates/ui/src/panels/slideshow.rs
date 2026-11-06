@@ -1,11 +1,13 @@
-//! The slideshow (`viewing.md` §1): the photo shown on pure black, filling the window, its
-//! transitions, its caption and (M11.21) its control bar.
+//! The slideshow (`viewing.md` §1): the photo shown on pure black, its transitions, its caption and
+//! (M11.21) its control bar, over the rect it is given: the window's photo area while it plays in
+//! the window, the whole window while it is full screen (M16.32; `panels::slideshow_place`).
 //!
-//! Each frame the photo area (`canvas:slideshow`, the whole window) takes the mouse of §1.4 (a move
+//! Each frame the photo area (`canvas:slideshow`, that rect) takes the mouse of §1.4 (a move
 //! shows the bar and the show keeps playing, the wheel steps back and on, a click goes on only
 //! while the bar is hidden), the show catches up with the session's clock
 //! ([`crate::commands::slideshow::sync`]), and [`show`] paints the photos as the transition places
-//! them, with the caption while captions are on. The previews cover the window in device pixels.
+//! them, with the caption while captions are on. The previews cover that rect in device pixels, so
+//! switching to full screen or resizing the window refits them (the photo shown meanwhile scaled).
 //! Over them the control bar ([`bar`]); zoomed, a drag pans the photo ([`zoom`]).
 
 pub mod bar;
@@ -36,7 +38,7 @@ fn last_wheel(ctx: &egui::Context) -> f64 {
     ctx.data(|d| d.get_temp::<f64>(Id::new(ID).with("wheel"))).unwrap_or(f64::NEG_INFINITY)
 }
 
-/// Draws the slideshow over `ui`'s whole rect.
+/// Draws the slideshow over `ui`'s whole rect (the photo area, or the window when full screen).
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let rect = ui.max_rect();

@@ -83,7 +83,8 @@
 //! - `"slideshow"`: Options → Slideshow ([`SlideshowSettings`]): `{loop, displayTime, transition,
 //!   captions, music, musicFolder, videoSound}`: loop off, 3 s (in [`DISPLAY_TIME_RANGE`]),
 //!   `"dissolve"` (one of the seven [`Transition`]s), captions on, music off with no folder, video
-//!   sound off.
+//!   sound off. M16.32 adds `fullScreen`: start slideshows full screen (off: they play in the
+//!   window's photo area).
 //! - `"viewer"`: Options → Photo Viewer → Interface ([`ViewerSettings`]): `{wheel, hideControls,
 //!   translucent}`: `"zoom"` or `"navigate"` (zoom), on, on.
 //! - `"import"` ([`ImportSettings`]): `{folder, detectDuplicates, after, recentSources,
@@ -619,6 +620,8 @@ pub struct SlideshowSettings {
     pub music_folder: Option<PathBuf>,
     /// Play video sound (`videoSound`; off). Not offered until Dalica plays sound.
     pub video_sound: bool,
+    /// Start slideshows full screen (`fullScreen`; off: a show starts in the window's photo area).
+    pub full_screen: bool,
 }
 
 impl Default for SlideshowSettings {
@@ -631,6 +634,7 @@ impl Default for SlideshowSettings {
             music: false,
             music_folder: None,
             video_sound: false,
+            full_screen: false,
         }
     }
 }
@@ -2038,6 +2042,7 @@ impl Settings {
                 ("music", Some(json!(s.music))),
                 ("musicFolder", s.music_folder.as_deref().and_then(folder_path).map(|f| json!(f))),
                 ("videoSound", Some(json!(s.video_sound))),
+                ("fullScreen", Some(json!(s.full_screen))),
             ],
         );
     }
@@ -2426,6 +2431,7 @@ impl Settings {
             Some(_) => problems.push("slideshow.musicFolder is not an absolute folder path; no folder is used".into()),
         }
         s.video_sound = Settings::flag(obj, "slideshow", "videoSound", false, problems);
+        s.full_screen = Settings::flag(obj, "slideshow", "fullScreen", false, problems);
         s
     }
 

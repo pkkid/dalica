@@ -100,6 +100,7 @@ fn rows(dir: &Path) -> Vec<Row> {
         row("slideshow.displayTime", json!(10), json!(61), json!(DISPLAY_TIME_DEFAULT), |s| json!(s.slideshow().display_time)),
         row("slideshow.transition", json!("panAndZoom"), json!("fade"), json!("dissolve"), |s| json!(s.slideshow().transition.id())),
         row("slideshow.captions", json!(false), json!(0), json!(true), |s| json!(s.slideshow().captions)),
+        row("slideshow.fullScreen", json!(true), json!("yes"), json!(false), |s| json!(s.slideshow().full_screen)),
         row("slideshow.music", json!(true), json!("on"), json!(false), |s| json!(s.slideshow().music)),
         row("slideshow.musicFolder", json!(dir.join("Music")), json!("relative/secret-folder"), json!(null), |s| json!(s.slideshow().music_folder)),
         row("slideshow.videoSound", json!(true), json!(null), json!(false), |s| json!(s.slideshow().video_sound)),

@@ -4,6 +4,7 @@
 //! ```text
 //!     Slideshow:  [ ] Loop slideshow
 //!                 [x] Show captions
+//!                 [ ] Start slideshows full screen
 //!  Display time:  [ 3] s ──o──────────
 //!    Transition:  [Dissolve ▾]
 //!  ───────────────────────────────────────────────────────────
@@ -23,7 +24,7 @@
 //! sound output on this system") as their tooltip ([`sound_reason`]).
 //!
 //! Automation ids (`control-protocol.md` §7): `check:option.slideshow.loop`,
-//! `check:option.slideshow.captions`, the display time's slider `slider:option.slideshow.displayTime`
+//! `check:option.slideshow.captions`, `check:option.slideshow.fullScreen` (M16.32), the display time's slider `slider:option.slideshow.displayTime`
 //! and its field `slider:option.slideshow.displayTime/value`, the transition's dropdown
 //! `choice:option.slideshow.transition` and its items `choice:option.slideshow.transition/<id>`,
 //! and the Sound group's `check:option.slideshow.music`, `field:option.slideshow.musicFolder` with
@@ -44,6 +45,7 @@ use crate::tl;
 /// The settings keys of the tab.
 pub const LOOP: &str = "slideshow.loop";
 pub const CAPTIONS: &str = "slideshow.captions";
+pub const FULL_SCREEN: &str = "slideshow.fullScreen";
 pub const DISPLAY_TIME: &str = "slideshow.displayTime";
 pub const TRANSITION: &str = "slideshow.transition";
 pub const MUSIC: &str = "slideshow.music";
@@ -130,7 +132,7 @@ fn form(ui: &mut Ui, t: &Tokens, opts: &[Opt], draft: &Map<String, Value>, can_b
             }
         }
     };
-    form.row(ui, t, &slideshow, |ui| checks(ui, &[LOOP, CAPTIONS], &mut changes));
+    form.row(ui, t, &slideshow, |ui| checks(ui, &[LOOP, CAPTIONS, FULL_SCREEN], &mut changes));
     if let Some((i, o)) = find(opts, DISPLAY_TIME) {
         form.row(ui, t, &label(opts, DISPLAY_TIME), |ui| {
             if let Some(v) = file_types::number(ui, t, o, shown(&o.row, draft), &DISPLAY_STOPS, true) {
