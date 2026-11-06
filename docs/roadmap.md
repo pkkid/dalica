@@ -11598,8 +11598,23 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: `cargo tree -i crypto-bigint@0.5.5` finds nothing and `cargo xtask advisories`
     passes with no new exception; M16.17's handshake test (every suite, group and scheme, and the
     refused untrusted chain) passes unchanged; `cargo xtask deps` passes.
+- ⬜ **M16.30 `ui-kit` + `engine`: M16.8's theme leftovers: the text cursor and the theme rows' checks**
+  - after: M16.8
+  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/tests/contrast.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/theme.rs`, `docs/design-system.md`
+  - scope: two gaps M16.8 found, which keep PREF-THEMES 🟡. (1) egui's text cursor keeps its
+    pale-blue default (192, 222, 255), about 1.3:1 on a white field in the light themes:
+    `Tokens::apply` sets `visuals.text_cursor.stroke` from a token-derived colour that passes
+    3:1 against the field in every theme (non-text contrast), keeping Dark's look if Dark's
+    current cursor already passes; `contrast.rs` checks it for every `ThemeKind`. (2)
+    `engine.commands` reports `checked: None` for the `theme.<id>` rows: `Session`'s command
+    listing fills `checked` from `cmd::theme::checked` so automation sees which theme is worn,
+    as the window's menu does. Update PREF-THEMES in `parity.md` (shared doc row).
+  - done when: the contrast test passes the cursor in all fifteen themes and fails with the old
+    default; an engine test switches to `classic` and finds exactly `theme.classic` checked in
+    `engine.commands`; no existing fingerprint moves except where the cursor is drawn (looked at,
+    the why in the commit body).
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; it is the 1.1.0 release gate
