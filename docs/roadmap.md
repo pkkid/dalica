@@ -11640,8 +11640,76 @@ under their own key, and a snapshot without them reads as one with none.
     from the UI thread at once while a metadata write is held); screenshots before and after for
     #720 and #724 at 1400 x 900 (and 900 x 600 for #724); fingerprints that move are looked at
     and the why is in the commit body; the PR closes #720, #721, #722, #723 and #724.
+- ⬜ **M16.32 `ui` + `engine`: the slideshow in the window, with a Full Screen button (#725)**
+  - after: M16.12
+  - files: `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/bar.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow/transition.rs`, `crates/ui/src/panels/slideshow/zoom.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `docs/viewing.md`
+  - scope: issue #725 as written (maintainer request, 2026-11-06): a slideshow starts in the
+    photo area with the toolbar, tree and panes around it; the control bar is drawn inside that
+    area and gains a Full Screen button that switches the running show without restarting it
+    (same photo, play state and timer); a second press or Esc while full screen returns to the
+    window; Esc in the window or Exit ends the show. Full screen goes through `UiState`'s
+    existing full-screen state (a surgical edit to `state.rs` is allowed). `viewing.md` §1.2 and
+    §1.3 rewritten; the slideshow's parity row updated.
+  - done when: the issue's *Done when* holds; a ui test starts a show in the window, toggles full
+    screen and back on the same photo and timer, and Esc ends it; screenshots at 1400 x 900 and
+    900 x 600, in the window and full screen, before and after; slideshow fingerprints that move
+    are looked at and the why is in the commit body; the PR closes #725.
+- ⬜ **M16.33 `ui` + `engine`: the History pane (#726)**
+  - after: M16.31
+  - files: `crates/ui/src/panels/history_pane.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/tests/history.rs`, `crates/ui/tests/history_pane.rs`, `docs/ui-layout.md`, `docs/editing.md`
+  - scope: issue #726 as written (maintainer request, 2026-11-06): a "History" side pane next
+    to People, Places, Tags and Properties that lists the current photo's undo steps and the
+    redoable ones, with its toggles (bottom-bar segment, View ▸ History) and, if the issue asks,
+    jumping to a step through commands (the pane calls `Session::execute`; the list is a query
+    command so the CLI and MCP see the same). Surgical edits to `menu_catalog.rs`, `menus.rs`,
+    `state.rs` and `cmd/mod.rs` are allowed. `ui-layout.md` §7 and `editing.md` §5.1 describe it.
+  - done when: the issue's *Done when* holds; an engine test lists a photo's steps after three
+    edits and an undo; a ui test opens the pane and jumps back a step; screenshots at 1400 x 900
+    and 900 x 600; the PR closes #726.
+- ⬜ **M16.34 `ui` + `engine`: Discard edits next to Save, and an Edited filter (#727)**
+  - after: M16.31
+  - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/engine/src/cmd/edit.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/search.rs`, `crates/engine/tests/edited_filter.rs`, `crates/ui/tests/section_header.rs`, `docs/ui-layout.md`, `docs/organizing.md`, `docs/editing.md`
+  - scope: issue #727 as written (maintainer request, 2026-11-06): (1) a Discard text button
+    beside the section header's Save when the section has unsaved edits, confirming first and
+    undoing every edit of that section's photos (one command, one undo step where the history
+    allows; originals untouched); (2) an Edited filter in the toolbar's Filters group that shows
+    only photos with edits, as a search filter the CLI and MCP can use too. Surgical edits to
+    `menu_catalog.rs`, `state.rs` and `cmd/mod.rs` are allowed.
+  - done when: the issue's *Done when* holds; an engine test discards a section's edits and
+    finds no edited photo left, and filters a mixed library to exactly its edited photos; a ui
+    test clicks Discard and the filter; screenshots at 1400 x 900 and 900 x 600; the PR closes
+    #727.
+- ⬜ **M16.35 `ui`: the star's flight in the edit view: mockups, then the chosen one (#755)**
+  - after: M16.12
+  - files: `docs/mockups/star-flight.html`, `docs/mockups/star-flight.png`, `docs/mockups/README.md`, `crates/ui/src/panels/edit/star_flight.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/tests/star_flight.rs`, `docs/editing.md`
+  - scope: issue #755 as written (maintainer request, 2026-11-06). First the mockups: an HTML page
+    that loops each variant (rise and spin; rise, spin and settle into the starred badge; burst
+    in place; and what un-starring does) and a frame strip PNG (one image, a row per variant) at 1400 x 900, from
+    original drawing only. Then `tasks block M16.35` asking the maintainer to pick one (the lead
+    shows them the page). After the answer, implement the chosen variant: a short animation that
+    never delays the star command, respects a reduced-motion setting if one exists, and costs
+    nothing when idle; `editing.md` describes it.
+  - done when: the mockups are on the PR; the chosen variant plays when starring in the edit view;
+    a ui test checks the animation starts on star, ends within its duration and that the photo is
+    starred at once; screenshots of a frame mid-flight; the PR closes #755.
+- ⬜ **M16.36 `ui` + `engine`: Stats for Nerds (#756)**
+  - after: M16.12
+  - files: `crates/ui/src/dialogs/stats_for_nerds.rs`, `crates/engine/src/cmd/diagnostics.rs`, `crates/engine/tests/diagnostics.rs`, `crates/ui/tests/stats_for_nerds.rs`, `docs/menus-and-shortcuts.md`, `docs/control-protocol.md`, `docs/data-model.md`
+  - scope: issue #756, renamed by the maintainer (2026-11-06): the page is **Stats for Nerds**,
+    never "Under the Hood". A resizable Help ▸ Stats for Nerds… window with the issue's sections
+    as collapsible groups (memory, the thumbnail cache, the library folder, the photo folders'
+    backups, the library, work in progress, rendering and the build), refreshing about once a
+    second while open, and Copy as Text. Its data is one query command (`app.diagnostics`) the
+    CLI and MCP share; sizes and counts come from a background job or the index, never a walk on
+    the UI thread; counting `.dalica-originals/` runs on demand; Clear Thumbnail Cache… is a
+    command run as a background job; no delete for originals; nothing sent anywhere. Surgical
+    edits to `menu_catalog.rs`, `menus.rs`, `dialogs/mod.rs` and `cmd/mod.rs` are allowed.
+  - done when: the issue's *Done when* and rules hold under the new name; an engine test checks
+    `app.diagnostics` returns every section on a small library; a ui test opens the window and
+    copies it as text; the UI thread does no file system work (the fs guard); screenshots at
+    1400 x 900 and 900 x 600; the PR closes #756.
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31, M16.32, M16.33, M16.34, M16.35, M16.36
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; it is the 1.1.0 release gate
