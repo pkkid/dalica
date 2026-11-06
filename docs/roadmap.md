@@ -11580,8 +11580,26 @@ under their own key, and a snapshot without them reads as one with none.
     session's scans and flushes, and returns at once with the job cancelled, nothing removed and
     no file past the held folder read; closing the window mid-scan of a large folder exits within
     a second.
+- ⬜ **M16.29 `fetch`: the TLS provider on the 0.14 elliptic curves (RUSTSEC-2026-0387)**
+  - after: M16.17
+  - files: `crates/fetch/Cargo.toml`, `crates/fetch/src/http/provider.rs`, `crates/fetch/src/http/provider/**`, `crates/fetch/tests/http.rs`, `crates/fetch/README.md`, `docs/security.md`, `xtask/src/advisories.rs`, `NOTICE`
+  - scope: RUSTSEC-2026-0387 (published 2026-10-23) is a timing side channel in `crypto-bigint`
+    0.5.5, which reaches Dalica only through the TLS provider M16.17 ported (`p256`/`p384` 0.13,
+    `ecdsa` 0.16, `elliptic-curve` 0.13); `cargo xtask advisories` fails on it, which blocks the
+    1.1.0 release. In Dalica it touches a secret only in a P-256/P-384 key exchange (single-use
+    keys, X25519 offered first); ECDSA verification sees public data only and client signing never
+    runs. The fixed `crypto-bigint` 0.7.6 comes with the released 0.14 line (`p256`/`p384` 0.14,
+    `ecdsa` 0.17, `elliptic-curve` 0.14), which also moves `sha2`/`digest` 0.11, `signature` 3,
+    `rand_core` 0.10 and `pkcs8` 0.11 for those crates. Move the provider's key exchange and ECDSA
+    verification (and the test server's signing) to the 0.14 line, keep every suite, group and
+    scheme M16.17 offers, and audit the new versions (`cargo xtask deps`, `security.md` §8).
+    Duplicate versions of the shared RustCrypto crates (`rsa` 0.9 stays) are acceptable and listed
+    in the PR. If a released 0.14 crate is missing what the provider needs, block with the gap.
+  - done when: `cargo tree -i crypto-bigint@0.5.5` finds nothing and `cargo xtask advisories`
+    passes with no new exception; M16.17's handshake test (every suite, group and scheme, and the
+    refused untrusted chain) passes unchanged; `cargo xtask deps` passes.
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; it is the 1.1.0 release gate
