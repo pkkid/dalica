@@ -11749,8 +11749,19 @@ under their own key, and a snapshot without them reads as one with none.
   - done when: `cargo xtask accept M3`, `M9` and `M10` pass and the Thai test passes with
     `CRAFT_FONTS_DIR` at the CI pin; a lead-dispatched CI run on the branch is green on the three
     OSes except for failures it shows on main too (named in the PR).
+- ⬜ **M16.41 `library`: SetGeo's inverse restores a geotag exactly**
+  - after: M16.12
+  - files: `crates/library/src/op.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/ops.proptest-regressions`
+  - scope: found by M16.40 (2026-11-06): the proptest
+    `ops::apply_then_inverse_restores_the_model` fails because SetGeo's inverse round-trips a
+    latitude of 39.3 as 39.300000000000004 (a conversion through another unit or an f32 on the
+    way). Find where the value is transformed, keep the original exactly in the inverse (or store
+    the old value rather than recomputing it), and add the failing seed to the regressions file.
+    A user-visible geotag must never drift by undo/redo (data rule: nothing silently changed).
+  - done when: the proptest passes with the recorded seed and at full strength; a unit test sets
+    a geotag of 39.3, applies and inverts, and gets 39.3 back bit for bit.
 - ⬜ **M16.R M16 review**
-  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31, M16.32, M16.33, M16.34, M16.35, M16.36, M16.37, M16.38, M16.39, M16.40
+  - after: M16.12, M16.13, M16.14, M16.15, M16.16, M16.17, M16.18, M16.19, M16.20, M16.21, M16.22, M16.23, M16.24, M16.25, M16.26, M16.27, M16.28, M16.29, M16.30, M16.31, M16.32, M16.33, M16.34, M16.35, M16.36, M16.37, M16.38, M16.39, M16.40, M16.41
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M16.R` to prepare it; it is the 1.1.0 release gate
