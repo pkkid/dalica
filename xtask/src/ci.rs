@@ -92,6 +92,9 @@ fn cargo_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<(), Str
     let mut cmd = Command::new(cargo);
     cmd.current_dir(root).args(args);
     limit_threads(&mut cmd);
+    // System reads as English under test on every machine (a French Windows would otherwise draw
+    // the interface the tests read in French); a language a test chooses still wins.
+    cmd.env("DALICA_SYSTEM_LANGUAGES", "en");
     for (k, v) in env {
         cmd.env(k, v);
     }
