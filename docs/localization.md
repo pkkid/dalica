@@ -4,7 +4,7 @@ Adapted from PhotoCraft `docs/localization.md`, `docs/localization-ko.md` and th
 `crates/ui-egui/src/i18n/` catalog format (revision 59684266), and LightCraft
 `docs/localization.md` (revision 88ea1a8); MIT OR Apache-2.0.
 
-> Status: **English and Thai (M15.35, parity row `SYS-I18N`).** `crates/ui/src/i18n/` has `tl!`
+> Status: **English, Thai (M15.35, parity row `SYS-I18N`) and French.** `crates/ui/src/i18n/` has `tl!`
 > and `tln!`, the catalog reader, the plural rules, the language registry (English, the source,
 > and Thai), System following the OS's languages, `DALICA_LANGUAGE`, Options ▸ General ▸ Language
 > switching live, the number, size and date formats, the pseudo-locale `qps` and `cargo xtask i18n`
@@ -102,8 +102,10 @@ its `complete_menus` flag, its catalog, and its decimal mark and thousands separ
 | `Polish` | one (1 only) / few (…2–…4, not …12–…14) / many | Polish |
 | `Czech` | one (1) / few (2–4) / other | Czech, Slovak |
 
-The registry holds English (the source, no catalog) and Thai (`th`, endonym ไทย, script `Thai`,
-`Single`, `complete_menus`, `th.tsv`): the maintainer chose English and Thai for 1.0, if Thai can
+The registry holds English (the source, no catalog), Thai (`th`, endonym ไทย, script `Thai`,
+`Single`, `complete_menus`, `th.tsv`) and French (`fr`, endonym Français, script `Latn`,
+`ZeroOneOther`, `complete_menus`, `fr.tsv`, a decimal comma and a narrow no-break space between
+thousands): the maintainer chose English and Thai for 1.0, if Thai can
 be done (M14.R, 2026-10-19); M15.47's spike found it can ([`thai-text.md`](thai-text.md)), and
 M15.35 added the catalog.
 
@@ -192,7 +194,7 @@ missing glyphs and truncated labels.
 
 ## Per-language style guides
 
-Thai: [`localization-th.md`](localization-th.md).
+Thai: [`localization-th.md`](localization-th.md). French: [`localization-fr.md`](localization-fr.md).
 
 Each language gets `docs/localization-<code>.md`, written in that language or in English, with:
 

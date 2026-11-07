@@ -247,6 +247,8 @@ fn english_draws_no_pseudo_mark() {
     let dir = tempfile::tempdir().unwrap();
     let s = demo_open(dir.path(), Arc::new(dalica_core::SystemClock));
     let mut d = new_driver(App::new(Some(s)), LARGE.0, LARGE.1, 1.0);
+    // English chosen, not System: the machine running the test may prefer another language.
+    d.run("options.set", &json!({ "values": { "interface.language": "en" } })).unwrap();
     d.settle(FRAMES).unwrap();
     d.record_texts(true);
     d.step();

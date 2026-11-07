@@ -32,6 +32,7 @@ Start with [`product.md`](product.md), then [`ui-layout.md`](ui-layout.md).
 | [contributors.md](contributors.md) | want to know how people and AI models are credited in the About window |
 | [assets.md](assets.md) | add an image, icon, font, sound, screenshot or test photo; touch the app icon |
 | [localization.md](localization.md) | write user-facing text, or add or maintain a translation |
+| [localization-fr.md](localization-fr.md) | the French style guide: register, terminology, formats |
 | [thai-text.md](thai-text.md) | show Thai text: shaping, the fonts, line breaks at word boundaries (`ui-kit`'s `linebreak`) |
 | [releasing.md](releasing.md) | cut a release, touch packaging or signing (planned, M6) |
 | [whats-new.md](whats-new.md) | ship a user-visible change (the user-facing changelog) |

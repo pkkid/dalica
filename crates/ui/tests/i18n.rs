@@ -173,8 +173,9 @@ fn regional_tags_resolve_to_the_closest_language() {
 #[test]
 fn the_setting_the_system_and_the_registry_decide_the_language() {
     let tags = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    // English is the registry until the first catalogs land; anything unknown is English.
-    assert_eq!(i18n::resolve_setting("system", &tags(&["de-AT", "fr-FR"])).code, "en");
+    // A system language the registry lacks is passed over for the next one; anything unknown is English.
+    assert_eq!(i18n::resolve_setting("system", &tags(&["de-AT", "fr-FR"])).code, "fr");
+    assert_eq!(i18n::resolve_setting("system", &tags(&["de-AT"])).code, "en");
     assert_eq!(i18n::resolve_setting("system", &tags(&["en-GB"])).code, "en");
     assert_eq!(i18n::resolve_setting("xx-unknown", &[]).code, "en");
     assert_eq!(i18n::resolve_setting("QPS", &[]).code, "qps");
@@ -283,6 +284,8 @@ fn choosing_the_pseudo_locale_over_options_set_changes_the_next_frame_and_keeps_
     let dir = tempfile::tempdir().unwrap();
     let session = demo_open(dir.path(), std::sync::Arc::new(dalica_core::SystemClock));
     let mut d = new_driver(dalica_ui::App::new(Some(session)), LARGE.0, LARGE.1, 1.0);
+    // English chosen, not System: the machine running the test may prefer another language.
+    d.run("options.set", &json!({ "values": { "interface.language": "en" } })).unwrap();
     d.settle(FRAMES).unwrap();
     // A selection and an undo step, then Options ▸ General open over the library.
     d.run("select.all", &json!({})).unwrap();
@@ -308,9 +311,13 @@ fn choosing_the_pseudo_locale_over_options_set_changes_the_next_frame_and_keeps_
     assert_eq!((d.state().view, d.state().selection.clone(), d.state().dialogs.len()), before, "the view, the selection and the dialog kept");
     assert_eq!(d.app().session().unwrap().undo_stack().undo_label(), Some(undo()), "the undo history kept");
 
-    d.run("options.set", &json!({ "values": { "interface.language": "system" } })).unwrap();
+    d.run("options.set", &json!({ "values": { "interface.language": "en" } })).unwrap();
     let back = next_frame_texts(&mut d);
     assert!(back.iter().any(|t| t == "Language:") && back.iter().all(|t| !pseudo::is_marked(t)), "{back:?}");
+    // System follows the machine's languages: never the pseudo-locale's marks.
+    d.run("options.set", &json!({ "values": { "interface.language": "system" } })).unwrap();
+    let system = next_frame_texts(&mut d);
+    assert!(system.iter().all(|t| !pseudo::is_marked(t)), "{system:?}");
 }
 
 #[test]

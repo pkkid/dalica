@@ -57,8 +57,22 @@ pub const THAI: Language = Language {
     thousands: ",",
 };
 
+/// French: a machine-assisted catalog, every entry a draft for the fluent review
+/// (`docs/localization-fr.md`); the singular for 0 and 1; a decimal comma and a narrow no-break
+/// space between thousands.
+pub const FRENCH: Language = Language {
+    code: "fr",
+    endonym: "Français",
+    script: "Latn",
+    plural: Plural::ZeroOneOther,
+    complete_menus: true,
+    catalog: include_str!("fr.tsv"),
+    decimal: ",",
+    thousands: "\u{202f}",
+};
+
 /// The registry, English first.
-pub static LANGUAGES: &[Language] = &[ENGLISH, THAI];
+pub static LANGUAGES: &[Language] = &[ENGLISH, THAI, FRENCH];
 
 /// The pseudo-locale's code (`localization.md` → Checking a translation): every text bracketed
 /// and 40 % longer, built at run time from the English ([`super::pseudo`]).

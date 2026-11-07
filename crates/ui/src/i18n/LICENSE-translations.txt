@@ -10,3 +10,7 @@ translations).
 Thai (th.tsv): the Dalica contributors, 2026. A machine-assisted draft, written with an AI
 model (Claude, Anthropic) from Dalica's English text, every entry marked `~` until a fluent
 speaker has reviewed it (docs/localization-th.md).
+
+French (fr.tsv): the Dalica contributors, 2026. A machine-assisted draft, written with an AI
+model (Claude, Anthropic) from Dalica's English text, every entry marked `~` until a fluent
+speaker has reviewed it (docs/localization-fr.md).
