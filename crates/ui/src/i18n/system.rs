@@ -13,10 +13,30 @@ pub const MAX_TAGS: usize = 64;
 /// The longest tag kept, in bytes.
 pub const MAX_TAG_BYTES: usize = 128;
 
-/// The system's preferred languages, most preferred first (read on the first call).
+/// Stands in for the system's preferred languages, comma-separated (`en`, `fr-FR,en`): the tests
+/// and the gate set it so System draws the same language on every machine, and a chosen language
+/// still wins over it, unlike `DALICA_LANGUAGE`.
+pub const ENV: &str = "DALICA_SYSTEM_LANGUAGES";
+
+static TAGS: OnceLock<Vec<String>> = OnceLock::new();
+
+/// Sets the system's preferred languages for this process before anything reads them, so a
+/// test draws the same language on every machine; `false` once they were read or set already.
+pub fn set(tags: &[&str]) -> bool {
+    TAGS.set(bounded(tags.iter().map(|t| (*t).to_string()))).is_ok()
+}
+
+/// The system's preferred languages, most preferred first (read on the first call), or those
+/// [`ENV`] names, or those [`set`] gave.
 pub fn tags() -> &'static [String] {
-    static TAGS: OnceLock<Vec<String>> = OnceLock::new();
     TAGS.get_or_init(|| {
+        // The crate's own tests read English texts: System is English under them on every machine.
+        if cfg!(test) {
+            return vec!["en".to_string()];
+        }
+        if let Ok(list) = std::env::var(ENV) {
+            return bounded(list.split(',').map(str::to_string));
+        }
         // A failure in the platform's interop leaves the interface in English, never down.
         std::panic::catch_unwind(|| bounded(sys_locale::get_locales())).unwrap_or_default()
     })

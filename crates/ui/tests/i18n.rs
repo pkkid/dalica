@@ -194,6 +194,7 @@ fn the_setting_the_system_and_the_registry_decide_the_language() {
     // The system's tags as read: bounded and clean.
     let read = i18n::system::bounded(["  fr-CA ".into(), String::new(), "x\0".into(), "a".repeat(200)]);
     assert_eq!(read, ["fr-CA"]);
+    crate::common::english_system();
     assert!(i18n::system::tags().len() <= i18n::system::MAX_TAGS);
 }
 
