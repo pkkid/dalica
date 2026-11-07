@@ -1,0 +1,184 @@
+<h1>Tuning and the neutral picker</h1>
+<p class="lede">The Tuning tab's five controls are one recipe entry and one pass over the pixels: a color multiplication followed by a tone curve. This chapter gives the exact curves behind Fill Light, Highlights and Shadows, what Color Temperature does to each channel, what really happens when you click a white or gray point with the Neutral Color Picker (and when you click the wrong one), and how the two magic wands choose their values.</p>
+
+<h2 id="one-entry">One entry, one pass</h2>
+<p>Everything on the Tuning tab is stored as a single operation:</p>
+<pre><code>tuning(<span class="n">fill</span>,<span class="n">highlights</span>,<span class="n">shadows</span>,<span class="n">temp</span>,<span class="n">neutral</span>)
+tuning(<span class="n">0.25</span>,<span class="n">0</span>,<span class="n">0.1</span>,<span class="n">0.3</span>,<span class="s">#b7bbc9</span>)</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Field</th><th>Range</th><th>Default</th><th>Stored as</th></tr></thead>
+<tbody>
+<tr><td>Fill Light</td><td>0 to 1</td><td>0</td><td>number</td></tr>
+<tr><td>Highlights</td><td>0 to 0.5</td><td>0</td><td>number</td></tr>
+<tr><td>Shadows</td><td>0 to 0.5</td><td>0</td><td>number</td></tr>
+<tr><td>Color Temperature</td><td>-1 (cooler) to +1 (warmer)</td><td>0</td><td>number</td></tr>
+<tr><td>Neutral color</td><td>a picked color</td><td><code>none</code></td><td><code>#rrggbb</code> or <code>none</code></td></tr>
+</tbody></table></div>
+<p>The sliders store their values with at most three decimals, and the wands with two. The defaults change nothing, and a Tuning entry at its defaults renders no pass at all. Numbers out of range are brought to the nearest end when read; a <code>NaN</code>, a missing field or a bad color leaves the entry in the recipe, kept and skipped. The Basic Fixes tab's Fill Light slider is the same <code>fill</code> value of the same entry. Older recipes may hold <code>fill_light(a)</code>, which renders exactly as <code>tuning(a,0,0,0,none)</code> and is kept as written. (Which Tuning entry a slider changes, and when a new one is appended, is explained in <a href="recipes.html">Edits are recipes</a>.)</p>
+<p>Rendering a Tuning entry is one pixel-only pass, on the sRGB-encoded working values (0 to 1), in two steps:</p>
+<figure class="wide">
+<svg viewBox="0 0 760 290" role="img" aria-label="The Tuning pass, top to bottom: each pixel is multiplied per channel by the neutral gains times the temperature gains and clamped; its luma is read and the tone curve looked up; all three channels are scaled by the curve ratio, which keeps the hue">
+<defs><marker id="tu-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker></defs>
+<g font-size="15" fill="#ebdbb2">
+<rect x="20" y="14" width="280" height="40" rx="6" fill="#32302f" stroke="#504945"/><text x="160" y="39" text-anchor="middle">pixel R, G, B</text><text x="320" y="39" font-size="13" fill="#a89984">sRGB-encoded working values, 0 to 1</text>
+<line x1="160" y1="54" x2="160" y2="76" stroke="#a89984" stroke-width="1.5" marker-end="url(#tu-arrow)"/>
+<rect x="20" y="78" width="280" height="40" rx="6" fill="#32302f" stroke="#83a598"/><text x="160" y="103" text-anchor="middle">× neutral gains × temp gains</text><text x="320" y="103" font-size="13" fill="#a89984">one multiplication per channel, clamped to 0..1</text>
+<line x1="160" y1="118" x2="160" y2="140" stroke="#a89984" stroke-width="1.5" marker-end="url(#tu-arrow)"/>
+<rect x="20" y="142" width="280" height="40" rx="6" fill="#32302f" stroke="#fabd2f"/><text x="160" y="167" text-anchor="middle">l = luma,  l′ = curve(l)</text><text x="320" y="167" font-size="13" fill="#a89984">Fill Light, then Highlights and Shadows: one table</text>
+<line x1="160" y1="182" x2="160" y2="204" stroke="#a89984" stroke-width="1.5" marker-end="url(#tu-arrow)"/>
+<rect x="20" y="206" width="280" height="40" rx="6" fill="#32302f" stroke="#504945"/><text x="160" y="231" text-anchor="middle">R, G, B × l′ / l</text><text x="320" y="231" font-size="13" fill="#a89984">the same ratio for all three channels: hue kept</text>
+<text x="20" y="282" font-size="13" fill="#a89984">luma = 0.2126 R + 0.7152 G + 0.0722 B (Rec. 709 weights) on the encoded values</text>
+</g></svg>
+<figcaption>The Tuning pass. The two color controls are folded into one multiplication per channel; the three light controls are folded into one curve on the luma, tabulated in 1 024 steps (0.5 falls exactly on an entry) and read with linear interpolation.</figcaption>
+</figure>
+<p>Scaling all three channels by the same ratio <code>l' / l</code> changes brightness without changing hue: a red stays the same red, only lighter or darker. Each channel is clamped to 0..1 afterwards, so a saturated color pushed bright can lose some saturation at the top. A pixel with luma near zero (below one millionth) is left as it is, since it has no color to scale.</p>
+
+<h2 id="light">Fill Light, Highlights, Shadows</h2>
+<figure>
+<img src="img/tuning/tone-curves.png" width="1600" height="620" alt="Three charts of luma in against luma out. Fill Light curves bow upward from black and rejoin the diagonal at white, more for larger amounts. Highlights curves follow the diagonal up to 0.5 and then rise above it. Shadows curves follow the diagonal down to 0.5 and then fall below it." loading="lazy">
+<figcaption>The three tone curves, computed from the formulas in <code>tone.rs</code>. Fill Light lifts the whole range below white, most around a quarter. Highlights and Shadows leave the other half of the range exactly alone and meet the diagonal smoothly at 0.5.</figcaption>
+</figure>
+
+<h3 id="fill-light">Fill Light</h3>
+<pre><code>fill(l) = l + 3 · fill · l · (1 - l)³</code></pre>
+<p>This curve never darkens anything, keeps black at 0 and white at 1, and always rises (its slope never drops below 1/4, so tones never swap order). The extra brightness <code>3 · fill · l · (1 - l)³</code> is largest at <code>l = 0.25</code>, where it adds <code>0.316 × fill</code>. At full strength (fill = 1):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Luma in</th><th>0.1</th><th>0.25</th><th>0.5</th><th>0.75</th><th>1</th></tr></thead>
+<tbody>
+<tr><td>fill 0.5</td><td>0.209</td><td>0.408</td><td>0.594</td><td>0.768</td><td>1</td></tr>
+<tr><td>fill 1</td><td>0.319</td><td>0.566</td><td>0.688</td><td>0.785</td><td>1</td></tr>
+</tbody></table></div>
+<p>Relative to the pixel, the darker it is the more it is lifted, but never by more than <code>1 + 3 · fill</code> times (4 times at fill 1). That bound is deliberate: it keeps the noise in near-black areas from being blown up. The strength 3 stays below 4, the most that would still keep the curve rising everywhere.</p>
+<figure><div class="row cols-4">
+<div><img src="img/tuning/fill-0.jpg" width="560" height="373" alt="A red fox in a dark reed bed, as photographed" loading="lazy"><span class="label">fill 0</span></div>
+<div><img src="img/tuning/fill-0.33.jpg" width="560" height="373" alt="The fox with Fill Light 0.33: the reeds and the fox's fur brighter" loading="lazy"><span class="label">fill 0.33</span></div>
+<div><img src="img/tuning/fill-0.67.jpg" width="560" height="373" alt="The fox with Fill Light 0.67: the dark background opened up" loading="lazy"><span class="label">fill 0.67</span></div>
+<div><img src="img/tuning/fill-1.jpg" width="560" height="373" alt="The fox with Fill Light 1: strongly brightened, the fur very orange" loading="lazy"><span class="label">fill 1</span></div>
+</div><figcaption><code>tuning(f,0,0,0,none)</code> for four values of <code>f</code>, rendered by Dalíca. The dark reeds open up most, the bright stones in front change least. Because each pixel keeps its hue while it gets brighter, the fox's fur grows more vivid at high settings.</figcaption>
+</figure>
+
+<h3 id="highlights-shadows">Highlights and Shadows</h3>
+<p>Both use one brightening curve on 0..1, applied to one half of the range:</p>
+<pre><code>lift(t, a) = 2t - t² - t · (1 - t)^(1 + 4a)
+
+highlights, for l above 0.5:  out = 0.5 + 0.5 · lift((l - 0.5) / 0.5, highlights)
+shadows,    for l below 0.5:  out = 0.5 - 0.5 · lift((0.5 - l) / 0.5, shadows)</code></pre>
+<p>At amount 0, <code>lift</code> is the identity. For any amount it starts with slope 1 (so it joins the untouched half without a kink at 0.5), never falls below the identity, and ends at exactly 1 (so white stays white and black stays black). Highlights therefore <strong>brightens</strong> only the tones above the middle; Shadows <strong>darkens</strong> only the tones below it, deepening the blacks. Fill Light is applied first, and Highlights and Shadows act on the filled luma.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Highlights 0.5</th><th>0.6 → 0.629</th><th>0.75 → 0.844</th><th>0.9 → 0.977</th></tr></thead>
+<tbody><tr><td><strong>Shadows 0.5</strong></td><td>0.4 → 0.371</td><td>0.25 → 0.156</td><td>0.1 → 0.023</td></tr></tbody>
+</table></div>
+<figure><div class="row cols-4">
+<div><img src="img/tuning/sheep-0.jpg" width="560" height="300" alt="Three sheep on a grassy hillside in flat, gray light" loading="lazy"><span class="label">Original</span></div>
+<div><img src="img/tuning/hi-0.5.jpg" width="560" height="300" alt="The sheep with Highlights 0.5: the wool and bright grass brighter" loading="lazy"><span class="label">Highlights 0.5</span></div>
+<div><img src="img/tuning/sh-0.5.jpg" width="560" height="300" alt="The sheep with Shadows 0.5: the darker grass and the sheep's faces deeper" loading="lazy"><span class="label">Shadows 0.5</span></div>
+<div><img src="img/tuning/sheep-both.jpg" width="560" height="300" alt="The sheep with both at 0.5: more contrast at both ends" loading="lazy"><span class="label">both 0.5</span></div>
+</div><figcaption>A flat photo through Highlights and Shadows, rendered by Dalíca. Together they make an S curve: more contrast at both ends, while every pixel at luma 0.5 stays exactly where it was.</figcaption>
+</figure>
+
+<h2 id="temperature">Color Temperature</h2>
+<p>Despite its name, the slider does not model a light source in kelvin. It is a simple, predictable warm and cool balance on the sRGB-encoded values: three channel gains that move in straight lines with the slider value <code>t</code>, then normalized so that a gray keeps its luma.</p>
+<pre><code>g = (1 + 0.12 t,  1 + 0.03 t,  1 - 0.15 t)       for red, green, blue
+gains = g / luma(g)</code></pre>
+<p>Warmer means more red, a little more green and less blue; cooler the reverse. Dividing by the luma of the gains is what keeps the slider from also acting as a brightness control: a neutral gray of luma 0.5 is still luma 0.5 after any temperature, it just turns slightly yellow or blue. The temperature gains are multiplied with the neutral color's gains (below) into one multiplication per channel.</p>
+<figure>
+<img src="img/tuning/temp-gains.png" width="1600" height="560" alt="Red, green and blue gains against the temperature slider from -1 to +1. At +1 red is 1.081, green 0.994, blue 0.820; at -1 red is 0.913, green 1.006, blue 1.193." loading="lazy">
+<figcaption>The gains across the slider's range. Blue moves the most (from 1.193 at the cool end to 0.820 at the warm end), red about half as much the other way, and green almost not at all.</figcaption>
+</figure>
+<figure><div class="row cols-5">
+<div><img src="img/tuning/temp--1.jpg" width="440" height="292" alt="A white church with a red roof, rendered noticeably blue" loading="lazy"><span class="label">-1</span></div>
+<div><img src="img/tuning/temp--0.5.jpg" width="440" height="292" alt="The church slightly blue" loading="lazy"><span class="label">-0.5</span></div>
+<div><img src="img/tuning/temp-0.jpg" width="440" height="292" alt="The church as photographed" loading="lazy"><span class="label">0</span></div>
+<div><img src="img/tuning/temp-0.5.jpg" width="440" height="292" alt="The church slightly warm, the white walls creamy" loading="lazy"><span class="label">+0.5</span></div>
+<div><img src="img/tuning/temp-1.jpg" width="440" height="292" alt="The church strongly warm, the sky turning gray-green" loading="lazy"><span class="label">+1</span></div>
+</div><figcaption><code>tuning(0,0,0,t,none)</code> across the range. The white walls are the easiest place to read the shift; at +1 the blue sky loses so much blue that it turns grayish.</figcaption>
+</figure>
+
+<h2 id="neutral-picker">The Neutral Color Picker</h2>
+<p>The picker answers one question: "what color is this thing that should be gray?" If a patch of snow, a white wall or a gray rock comes out bluish, the picture has a blue cast, and the amount of blue in that patch tells Dalíca exactly how much to remove from every pixel.</p>
+<h3 id="what-a-click-does">What a click does</h3>
+<ol class="steps-list">
+<li>Dalíca renders, on a worker thread, the picture the Tuning entry receives: the recipe without the Tuning entry being edited, cropped, straightened and turned as the edit view shows it, with its longer side at 256 pixels.</li>
+<li>It averages a small square around the point you clicked, reaching 1 % of the picture's shorter side each way (at least one pixel). On a 256 by 205 picture that is 2 pixels each way: a 5 by 5 square of 25 pixels, about 2 % of the picture's width across, so a single noisy pixel cannot decide the result. Fully transparent pixels are left out.</li>
+<li>That average color is stored in the recipe as the entry's <code>neutral</code>, for example <code>#b7bbc9</code>.</li>
+</ol>
+<p>At render time, the stored color <code>c</code> (scaled to 0..1) gives one gain per channel:</p>
+<pre><code>y = luma(c) = 0.2126 c.r + 0.7152 c.g + 0.0722 c.b
+gain[k] = y / c[k]        each kept within 0.25 to 4</code></pre>
+<p>Multiplying the picked color by these gains turns it into the gray of its own luma: it becomes neutral without getting brighter or darker. Every other pixel in the picture is multiplied by the same three gains, so the whole picture shifts by the same correction. A picked black carries no color and changes nothing; a channel that is 0 in the picked color gets the largest gain, 4.</p>
+
+<figure><div class="row cols-2">
+<div><img src="img/tuning/snow-picks.jpg" width="640" height="512" alt="A fox standing at the edge of a snowy field in front of a dark forest. A yellow ring marks a point on the snow, an orange ring marks a point on the fox's side." loading="lazy"><span class="label">Original, two picks marked</span></div>
+<div><img src="img/tuning/snow-pick.jpg" width="640" height="512" alt="The same photo after picking the snow: the snow now a clean neutral white-gray, the forest slightly warmer" loading="lazy"><span class="label">Picked the snow</span></div>
+</div><figcaption>The small square in each ring is the exact 5 by 5 block of the 256-pixel picture the picker averages. The snow in the original is bluish, (183, 187, 201); picking it gives <code>tuning(0,0,0,0,#b7bbc9)</code>.</figcaption>
+</figure>
+<p>For the snow, <code>y = 0.2126 × 183 + 0.7152 × 187 + 0.0722 × 201 = 187.2</code>, so the gains are:</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Red</th><th>Green</th><th>Blue</th></tr></thead>
+<tbody>
+<tr><td>Picked snow</td><td>183</td><td>187</td><td>201</td></tr>
+<tr><td>Gain <code>y / c</code></td><td>1.023</td><td>1.001</td><td>0.931</td></tr>
+<tr><td>Same square in Dalíca's render</td><td>187</td><td>187</td><td>187</td></tr>
+<tr><td>Whole picture, median change per channel</td><td>× 1.023</td><td>× 1.000</td><td>× 0.931</td></tr>
+</tbody></table></div>
+<p>The last two rows are measured on Dalíca's render, not computed: the square that was picked now averages exactly (187, 187, 187), and across all unclipped pixels of the picture each channel changed by the gain predicted for it. The correction is modest (7 % less blue), and it is enough: the snow reads as white, and everything else in the picture shifts by the same small step toward warm.</p>
+
+<h3 id="wrong-pick">A wrong pick</h3>
+<p>The picker trusts you. Click something that is not neutral, and Dalíca will make that gray, with the same arithmetic. Picking the fox's orange side gives (144, 88, 43), luma 96.7, and gains of 0.671, 1.098 and <strong>2.248</strong>: the fur becomes a gray of 97, and every other pixel is pushed toward blue just as hard. The snow, (183, 187, 201) before, becomes (123, 206, 251) in Dalíca's render, its blue channel at or near the top.</p>
+<figure><div class="row cols-2">
+<div><img src="img/tuning/snow-pick.jpg" width="640" height="512" alt="The photo corrected from the snow pick" loading="lazy"><span class="label">Snow picked: #b7bbc9</span></div>
+<div><img src="img/tuning/snow-wrong.jpg" width="640" height="512" alt="The photo after picking the fox's fur: the snow bright cyan-blue, the forest blue, the fox gray" loading="lazy"><span class="label">Fur picked: #90582b</span></div>
+</div><figcaption>The same picker on the wrong patch. The fox turns gray and the snow turns cyan. The gains are clamped to 0.25 to 4, which stops a pick of a saturated color from multiplying a channel without bound, but anything short of that is applied as asked.</figcaption>
+</figure>
+<figure>
+<img src="img/tuning/picker-gains.png" width="1600" height="660" alt="Left: the picked color, the gains it implies and the resulting gray for the snow pick (gains 1.023, 1.001, 0.931, result 187 gray) and the fur pick (gains 0.671, 1.098, 2.248, result 97 gray). Right: the red, green and blue histograms of the bright part of the picture before and after the snow pick; the blue histogram moves left onto the red and green ones." loading="lazy">
+<figcaption>Left: each pick's color, its gains and what it becomes. Right: the bright part of the histogram before (dashed) and after the snow pick. Before, the snow's blue sat to the right of its red and green (201 against 183 and 187); after, the three channels lie on top of each other.</figcaption>
+</figure>
+<div class="note"><p><b>What is stored:</b> the recipe keeps the picked color, not the point you clicked and not the gains. The correction is therefore fixed: if you later change an edit that comes before the Tuning (a different Auto Fix, say), the same gains still apply, and you may want to pick again.</p></div>
+
+<h2 id="wands">Auto lighting and Auto color</h2>
+<p>The two magic wands on the Tuning tab do not add operations of their own. Each one measures the same 256-pixel picture the picker uses (the picture the Tuning entry receives), computes values, and applies them to the sliders as an ordinary change of the Tuning session, so they land in the same <code>tuning(…)</code> entry and are undone with it. The measurement runs as a background job; asking the same wand again for the same photo cancels the one before.</p>
+
+<h3 id="auto-lighting">Auto lighting</h3>
+<p>Auto lighting reads three percentiles of the luma: the 1st (the blacks), the 50th (the median) and the 99th (the highlights), and sets each slider from one of them, rounded to hundredths:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Slider</th><th>Formula</th><th>Kept within</th><th>Set when</th></tr></thead>
+<tbody>
+<tr><td>Fill Light</td><td><code>(0.45 - median) × 1.5</code></td><td>0 to 0.6</td><td>the picture is dark: median under 0.45</td></tr>
+<tr><td>Highlights</td><td><code>0.9 - p99</code></td><td>0 to 0.5</td><td>the highlights are dull: 99th percentile under 0.9</td></tr>
+<tr><td>Shadows</td><td><code>(p1 - 0.06) × 1.5</code></td><td>0 to 0.5</td><td>the blacks are lifted: 1st percentile over 0.06</td></tr>
+</tbody></table></div>
+<p>A picture already spread over the whole range with its middle at the middle gets all three at 0. Auto lighting only sets the three light sliders; it leaves Color Temperature and the neutral color alone.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Photo</th><th>p1</th><th>median</th><th>p99</th><th>Fill</th><th>Highlights</th><th>Shadows</th></tr></thead>
+<tbody>
+<tr><td>Fox in the reeds (dark)</td><td>0.039</td><td>0.171</td><td>0.672</td><td>0.42</td><td>0.23</td><td>0</td></tr>
+<tr><td>Sheep (flat)</td><td>0.353</td><td>0.577</td><td>0.834</td><td>0</td><td>0.07</td><td>0.44</td></tr>
+<tr><td>Fox in the snow (dark)</td><td>0.062</td><td>0.158</td><td>0.799</td><td>0.44</td><td>0.10</td><td>0</td></tr>
+</tbody></table></div>
+<figure><div class="row cols-4">
+<div><img src="img/tuning/fox-orig.jpg" width="640" height="427" alt="The dark fox photo, as photographed" loading="lazy"><span class="label">Fox: original</span></div>
+<div><img src="img/tuning/fox-wand.jpg" width="640" height="427" alt="The fox after Auto lighting: much brighter, the background visible" loading="lazy"><span class="label">Auto lighting</span></div>
+<div><img src="img/tuning/sheep-0.jpg" width="560" height="300" alt="The flat sheep photo, as photographed" loading="lazy"><span class="label">Sheep: original</span></div>
+<div><img src="img/tuning/sheep-wand.jpg" width="560" height="300" alt="The sheep after Auto lighting: deeper shadows, slightly brighter wool" loading="lazy"><span class="label">Auto lighting</span></div>
+</div><figcaption>The wand's values rendered by Dalíca: <code>tuning(0.42,0.23,0,0,none)</code> on the dark fox, mostly Fill Light, and <code>tuning(0,0.07,0.44,0,none)</code> on the flat sheep, mostly Shadows, because its blacks sit at a luma of 0.35. (The values were computed by re-implementing the wand's measurement on the 256-pixel picture.)</figcaption>
+</figure>
+
+<h3 id="auto-color-wand">Auto color</h3>
+<p>The Auto color wand runs Auto Color's own balance measurement (gray world and white patch combined, clamped to 1/1.35 to 1.35; see <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>) and turns the gains into a neutral color. Since the picker makes a color <code>c</code> gray with the gains <code>luma(c) / c</code>, a color proportional to <code>1 / gains</code> gives back the same proportions. The wand scales it so its brightest channel is 230, which keeps the ratios precise in 8 bits without touching the ceiling, and stores it as <code>#rrggbb</code>. When too few pixels say anything about color (fewer than 1 %, or 16), it picks nothing.</p>
+<p>On the snowy fox, the balance gains are red 1.0022, green 1.0017, blue 0.9764, and the wand picks <code>#e0e0e6</code>, (224, 224, 230). As a neutral color that gives gains of 1.002, 1.002 and 0.976. Unlike the Auto Color operation, the wand takes one measurement and does not fold back its result, and the color is applied through Tuning, where you can adjust the temperature on top of it.</p>
+<figure><div class="row cols-3">
+<div><img src="img/tuning/snow-pick.jpg" width="640" height="512" alt="The snow photo corrected by picking the snow" loading="lazy"><span class="label">Picker on the snow</span></div>
+<div><img src="img/tuning/snow-wand.jpg" width="640" height="512" alt="The snow photo after the Auto color wand: a very slight correction, the snow still faintly blue" loading="lazy"><span class="label">Auto color wand: #e0e0e6</span></div>
+<div><img src="img/tuning/snow-autocolor.jpg" width="640" height="512" alt="The snow photo after the Auto Color operation: nearly the same as the wand" loading="lazy"><span class="label">Auto Color</span></div>
+</div><figcaption>Three ways to fix the same cast. The automatic measurement reads the whole picture, where the forest and the fox count as much as the snow, and removes only 2.4 % of the blue. Your pick of the snow says what should be neutral, and removes 6.9 %.</figcaption>
+</figure>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li><code>crates/edit/src/ops/tone.rs</code>: <code>tuning</code> and <code>fill_light</code>, their ranges, <code>neutral_gains</code>, <code>temp_gains</code> (<code>TEMP_SLOPE</code>), <code>fill_curve</code>, <code>lift</code>, the 1 024-step curve and the pass</li>
+<li><code>crates/edit/src/analysis.rs</code>: <code>auto_lighting</code>, <code>auto_neutral</code> (<code>NEUTRAL_TOP</code>), <code>color_at</code> (<code>PICK_RADIUS</code>), <code>balance</code>, <code>proxy</code></li>
+<li><code>crates/engine/src/cmd/tuning.rs</code>: Tuning sessions, the wand and picker jobs, the picture they measure</li>
+<li><code>crates/edit/tests/tone.rs</code>, <code>crates/edit/tests/auto.rs</code>: the tests of the curves, the wands and the picker</li>
+<li>Specs: <code>docs/editing.md</code> §6.5 (Fill Light), §7 (Tuning); <code>docs/data-model.md</code> §3.1 (the <code>tuning</code> operation)</li>
+</ul>

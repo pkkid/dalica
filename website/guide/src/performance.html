@@ -1,0 +1,84 @@
+<h1>Big libraries</h1>
+<p class="lede">Dalíca is built and measured against a library of 100,000 photos. This chapter gives the measured numbers, explains which costs grow with your library and which stay flat however large it gets, and says exactly where each number comes from.</p>
+
+<h2 id="measured">The 100,000-photo measurements</h2>
+<p>Every milestone ends with a review at which a fixed set of performance budgets is run in release builds on the maintainer's workstation (an Intel i7-13700K with 24 hardware threads and 31 GB of memory, running Fedora). A missed budget has to be fixed, or explicitly raised by the maintainer, before the release ships. These are the large-library numbers from the review of version 1.1 (2026-11-06):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Scenario</th><th>Measured</th><th>Budget</th></tr></thead>
+<tbody>
+<tr><td>A light table frame while scrolling 100,000 photos (95th percentile)</td><td>1.00 ms</td><td>8 ms</td></tr>
+<tr><td>Cold start: a new process opening a 100,000-photo library to its first settled frame (median of five)</td><td>213 ms</td><td>2 s</td></tr>
+<tr><td>Resident memory of that process after 5 s idle</td><td>90 MiB</td><td>600 MiB</td></tr>
+<tr><td>First screenful of thumbnails after adding a folder of 1,000 JPEGs</td><td>117 ms</td><td>1 s</td></tr>
+<tr><td>The same, for a folder of 10,000 JPEGs</td><td>500 ms</td><td>1 s</td></tr>
+<tr><td>Every photo's color summary made from its stored sketch when a 100,000-photo library indexed before 1.1 is opened</td><td>950 ms</td><td>1,445 ms</td></tr>
+<tr><td><code>color:green</code> over 100,000 photos</td><td>2.9 ms</td><td>5.4 ms</td></tr>
+</tbody></table></div>
+<figure>
+<img src="img/performance/budgets.png" width="1600" height="700" alt="Horizontal bars showing the share of each budget used: the scrolling frame 1.00 of 8 ms, the cold start 213 of 2,000 ms, idle memory 90 of 600 MiB, the first screenful after adding 1,000 JPEGs 117 of 1,000 ms and after 10,000 JPEGs 500 of 1,000 ms." loading="lazy">
+<figcaption>How much of each fixed budget the 1.1 review used. The first screenful of a 10,000-photo folder is the tightest, at half its budget; the 100,000-photo frame, start and memory use an eighth or less.</figcaption>
+</figure>
+<p>Memory is the easiest number to read per photo: 90 MiB for a library of 100,000 photos is under 1 KB per photo, and that figure includes the program itself, its fonts, its window state and every fixed-size cache. Of the per-photo part, the color sketch held for every photo takes about 4.8 MB in all.</p>
+<h3>More measurements at 100,000 photos</h3>
+<p>These come from the benches' first measurements, recorded in the development docs, on two hardware threads of the same machine (one performance core) unless noted:</p>
+<ul>
+<li><strong>Scrolling, at an earlier milestone</strong> (2026-10-11): frame times of 0.234 ms at the median, 0.261 ms at the 95th percentile and 0.737 ms at worst while scrolling 100,000 photos. The light table has gained captions, badges, accessibility and themes since, which is why the 1.1 number is higher; both are far inside 8 ms.</li>
+<li><strong>The speed-control thumb at its top speed</strong> through 100,000 sketched photos: 0 gray placeholder cells in 5,317 frames, frame p95 0.31 ms. Through a fully scanned 100,000-photo library with thumbnails: 0 placeholder cells, frame p95 0.75 ms.</li>
+<li><strong>Cold start in detail</strong> (2026-10-15): 239 ms at the median of five runs, 315 ms for the slowest, of which reading the index took 204 ms and the rest three frames; idle memory 83 MiB.</li>
+<li><strong>Scanning</strong> 5,000 JPEGs of 1,024 pixels into a new library: every photo in the library with its header read in 0.48 s, 10,325 photos per second on two threads (22,739 on all 24). Making every 128 and 256 thumbnail of those photos took 21.4 s on two threads (233 photos per second; 1,470 on all 24). A scanned 100,000-photo library with all its thumbnails was made in 30.3 s on all cores (3,299 photos per second).</li>
+<li><strong>Search</strong> (2026-10-14), on a library of 100,000 photos in 1,000 folders with a caption on every photo, tags, and 100 albums: building the search index 417 ms, a one-word search 1.12 ms (13,441 matches), three words with Starred on 0.38 ms, a lone <code>-word</code> 3.39 ms (86,559 matches), and from the search box's change to its result on screen 14.9 ms. The first search of a session also copies the library to the search worker and builds the index: 757 ms.</li>
+<li><strong>The folder tree</strong> for 5,000 folders and 100,000 photos: 3.0 to 4.3 ms flat, 6.7 to 7.3 ms as a tree. The tag index for 100,000 photos with 5 tags each: 110 ms. Both are built once per change of the library, not per frame.</li>
+<li><strong>Batch Edit</strong>: Auto Fix applied to 1,000 photos as one undo step in 4.65 ms, and undone in 3.31 ms.</li>
+</ul>
+
+<h2 id="scales">What grows with the library, and what does not</h2>
+<p>The design rule is that work proportional to the size of the library may happen when the library changes or when it opens, but never in a frame. A frame touches only what is on screen.</p>
+<figure>
+<img src="img/performance/flat-frames.png" width="1600" height="700" alt="Two bar charts. Frame time while scrolling at the 95th percentile: 0.265 ms with 10,000 photos and 0.261 ms with 100,000. Cells visited per frame: a median of 35 in both, ranging from 13 to 42 with 10,000 photos and 12 to 42 with 100,000." loading="lazy">
+<figcaption>The same scroll through a library ten times larger (measured 2026-10-11): the frame does not get slower, because it visits the same 35 or so cells either way.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Grows with the library</th><th>Stays flat</th></tr></thead>
+<tbody>
+<tr><td>The index on disk: about 157 bytes per photo in the test library's snapshot with sketches (15.67 MB at 100,000), and reading it at open (204 ms of the cold start)</td><td>A frame's cost and the cells it visits</td></tr>
+<tr><td>The library model and sketches in memory</td><td>Decoded thumbnails in memory: a fixed 192 MiB, least recently used first out</td></tr>
+<tr><td>Building the search index, the folder tree and the tag index, once per change</td><td>The thumbnail cache on disk: 2 GiB by default, pruned to 80 %</td></tr>
+<tr><td>A verification walk of your folders, bound by the disk</td><td>Work applied per frame: at most 500 photos from a scan and 256 finished jobs</td></tr>
+<tr><td>The time until every thumbnail exists (minutes for a first scan of a large library)</td><td>The time until the first screenful of thumbnails, since visible cells jump the queue</td></tr>
+</tbody></table></div>
+<p>The first scan of a big library is the one cost you can feel: making 100,000 sets of thumbnails is minutes of work for any program. Dalíca keeps it off your path. The library is usable from the first folder, cells on screen are served first, and every cell can draw its sketch from the moment the scan reaches it. Once the thumbnails exist, opening the library again reads only the index.</p>
+
+<h2 id="per-frame">Per-frame rules</h2>
+<p>A frame has 8 ms to stay smooth on a 120 Hz display, and these rules keep the work inside it independent of the library's size:</p>
+<ol class="steps-list">
+<li><strong>The owner thread never waits.</strong> The thread that draws the window never decodes an image, never touches the file system, never waits on a lock held by a worker and never blocks on a dialog. In test builds every file call made from it fails, so a violation shows up as a failed test rather than a stutter. Answers needed while painting (does this folder exist, is this drive online) come from caches that workers fill.</li>
+<li><strong>Everything derived is cached per revision.</strong> Every change to the library bumps its revision number. Tree rows, the light table's layout, counts and search results are computed once per revision and reused by every frame until the next change.</li>
+<li><strong>Find what is visible, do not walk to it.</strong> The light table's section offsets are summed once per layout, in 64-bit floating point because a 100,000-photo library is millions of points tall. The section at the scroll position is found by binary search and the rows on screen by arithmetic, so a frame visits only the cells it shows.</li>
+<li><strong>Background results arrive in slices.</strong> A scan's changes are applied at most 500 photos per frame, at most 256 finished thumbnail jobs are taken in per frame, and when more than 96 MiB of scan images are waiting, scans send only sketches until the owner catches up.</li>
+<li><strong>Every cell can be drawn now.</strong> The color sketch of every photo is in memory, so no cell ever waits for the disk to draw something (the Thumbnails chapter has the details).</li>
+<li><strong>Textures follow the view.</strong> Thumbnails become textures as they arrive; results that are no longer wanted are dropped, and prefetch the view has moved away from is cancelled.</li>
+</ol>
+
+<h2 id="sources">Where the numbers come from</h2>
+<p>Every number in this chapter is a measurement recorded in the repository, with its machine, date and conditions: docs/development.md §8 gives each budget with its first measurement and how it was taken, and docs/status.md records each review's results in its Metrics table and milestone summaries. Nothing here is an estimate.</p>
+<dl class="terms">
+<dt>The benches</dt>
+<dd><code>library_bench</code> (crates/ui) scrolls, selects and builds the tree over a synthetic 100,000-photo library; <code>cold_start</code> (crates/ui) starts the real app in a headless driver on an index-only library of 100,000 photos in 1,000 folders, every photo sketched. <code>first_thumbnails</code> and <code>scan_throughput</code> (crates/engine) scan real JPEGs written to a temporary folder. <code>search</code>, <code>colour_summary</code> and <code>batch_edit</code> (crates/engine) and <code>pack</code> (crates/thumbs) cover the rest.</dd>
+<dt>How a budget is set</dt>
+<dd>Most budgets are 1.5 times the first measurement, taken as the median of three runs in one sitting on two hardware threads (<code>taskset -c 0,1</code>, one performance core). A few are fixed targets that never move: 8 ms per frame, 2 s to start a 100,000-photo library, 600 MiB idle, 1 s to the first screenful, at least 500 photos per second scanned, and zero gray cells at top scroll speed. Budgets only ever tighten or stay; loosening one is the maintainer's decision.</dd>
+<dt>How a budget is judged</dt>
+<dd><code>cargo xtask budgets</code> builds in release, runs every budget, prints each row's verdict and fails when one is missed. It is checked against itself: <code>--plant-ms 8</code> adds a planted 8 ms slowdown to every frame and must make the frame budgets fail. The cold start leaves out the window and GPU setup, and the page cache is warm, since the files were just written.</dd>
+<dt>On your own machine</dt>
+<dd>Help &gt; Stats for Nerds shows resident memory, the thumbnail memory budget, the thumbnail cache's size per ladder size and hit rate, the library folder's files, and the last scan's duration and files per second. Starting Dalíca with <code>DALICA_PROFILE=1</code> logs every frame slower than 8 ms with what it touched: cells, section headers and tree rows laid out, and thumbnail jobs asked for.</dd>
+</dl>
+<div class="note warn"><p><b>Caveat:</b> the numbers were measured on a fast desktop with an NVMe disk and a warm file cache. A library on a spinning disk or a network share scans and verifies more slowly, since those walks are bound by the disk. The frame rules do not depend on the disk at all, which is the point of keeping it off the drawing thread.</p></div>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li>docs/development.md §8 (performance budgets and their first measurements) and §10 (profiling with DALICA_PROFILE=1).</li>
+<li>docs/status.md: the M16.R numbers and the Metrics table (the M4 and M5 rows for scrolling, the thumb at top speed, the pack and the sketch).</li>
+<li>docs/architecture.md §4 to §6: revisions, threading and the never-blank layers.</li>
+<li>crates/ui/benches/library_bench.rs and cold_start.rs; crates/engine/benches/first_thumbnails.rs, scan_throughput.rs, search.rs, colour_summary.rs, batch_edit.rs; crates/thumbs/benches/pack.rs.</li>
+<li>xtask/src/accept.rs (BUDGETS and the judges of cargo xtask budgets).</li>
+<li>crates/ui/src/panels/light_table/layout.rs (prefix sums and binary search), crates/ui/src/perf.rs (per-frame counters), crates/engine/src/thumbs.rs and scanning.rs (the per-frame limits).</li>
+</ul>

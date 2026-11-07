@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export · Dalíca guide</title>
+<meta name="description" content="How Dalíca turns your edited photos into new files for sharing: the order the pixels are rendered, resized and stamped in, what the quality presets really set, what metadata the copies carry, and why an export folder never holds a half-written file.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html">Scanning and watching</a>
+    <a href="thumbnails.html">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html">Edits are recipes</a>
+    <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html" aria-current="page">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Export</h1>
+<p class="lede">How Dalíca turns your edited photos into new files for sharing: the order the pixels are rendered, resized and stamped in, what the quality presets really set, what metadata the copies carry, and why an export folder never holds a half-written file.</p>
+
+<h2 id="one-pipeline">One pipeline for every new file</h2>
+<p>Export does not have a renderer of its own. Every new file Dalíca makes from a photo's pixels (Save, Save a Copy, Save As and Export) goes through one function, the output pipeline in <code>dalica-create</code>. The window, the command line and the MCP server all call the same code, so an export made from a script is byte for byte the export the dialog makes. The pipeline is pure: bytes in, bytes out, nothing written to disk. Writing is a separate step.</p>
+<figure class="wide">
+<svg viewBox="0 0 900 200" role="img" aria-label="Export pipeline: read the source under limits, convert to 8-bit sRGB, render the recipe at full size with orientation, resize to the long side, draw the watermark, encode JPEG or PNG, carry the metadata, then write to a temporary name and rename.">
+  <defs><marker id="ex-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker></defs>
+  <g font-family="Inter, sans-serif" font-size="13" fill="#ebdbb2">
+    <rect x="5" y="20" width="120" height="70" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="65" y="48" text-anchor="middle">Read</text>
+    <text x="65" y="68" text-anchor="middle" font-size="11" fill="#a89984">at most 1 GiB</text>
+    <rect x="145" y="20" width="130" height="70" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="210" y="48" text-anchor="middle">Render recipe</text>
+    <text x="210" y="68" text-anchor="middle" font-size="11" fill="#a89984">full size, upright</text>
+    <rect x="295" y="20" width="120" height="70" rx="8" fill="#32302f" stroke="#83a598"/>
+    <text x="355" y="48" text-anchor="middle">Resize</text>
+    <text x="355" y="68" text-anchor="middle" font-size="11" fill="#a89984">area average</text>
+    <rect x="435" y="20" width="120" height="70" rx="8" fill="#32302f" stroke="#fe8019"/>
+    <text x="495" y="48" text-anchor="middle">Watermark</text>
+    <text x="495" y="68" text-anchor="middle" font-size="11" fill="#a89984">at output size</text>
+    <rect x="575" y="20" width="120" height="70" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="635" y="48" text-anchor="middle">Encode</text>
+    <text x="635" y="68" text-anchor="middle" font-size="11" fill="#a89984">JPEG or PNG</text>
+    <rect x="715" y="20" width="180" height="70" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="805" y="48" text-anchor="middle">Carry metadata</text>
+    <text x="805" y="68" text-anchor="middle" font-size="11" fill="#a89984">EXIF, XMP, IPTC + library</text>
+    <path d="M125,55 L141,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#ex-a)"/>
+    <path d="M275,55 L291,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#ex-a)"/>
+    <path d="M415,55 L431,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#ex-a)"/>
+    <path d="M555,55 L571,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#ex-a)"/>
+    <path d="M695,55 L711,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#ex-a)"/>
+    <path d="M805,90 L805,126" stroke="#a89984" stroke-width="1.5" marker-end="url(#ex-a)"/>
+    <rect x="555" y="130" width="340" height="56" rx="8" fill="#32302f" stroke="#b8bb26"/>
+    <text x="725" y="154" text-anchor="middle">Write: temporary name, then its own name</text>
+    <text x="725" y="173" text-anchor="middle" font-size="11" fill="#a89984">never replaces a file; -001 when the name is taken</text>
+    <text x="10" y="150" font-size="12" fill="#a89984">Cancel is checked before reading,</text>
+    <text x="10" y="168" font-size="12" fill="#a89984">before rendering and before writing.</text>
+  </g>
+</svg>
+<figcaption>The order matters: the edits are rendered at full resolution first, the result is then scaled down, and the watermark is drawn last on the final pixels, so it is always sharp and always the same relative size.</figcaption>
+</figure>
+
+<h2 id="render">The render: your current edits, at full size</h2>
+<p>An export renders each photo's <em>current</em> recipe, the list of edits the library holds for it. Edits you have not saved into the file are exported too; nothing has to be saved first, and the original file is never changed. For each photo:</p>
+<ol class="steps-list">
+  <li><strong>Read</strong> the source file (at most 1 GiB) under the same decode limits as everywhere else: the header and its declared size first, then the pixels, inside the decoder's panic guard. A file that cannot be read as a picture is skipped with its reason and the export goes on.</li>
+  <li><strong>Convert</strong> to 8-bit sRGB through the color stage, whatever the source was (16-bit, grayscale, CMYK, any ICC profile). The one exception is a 16-bit PNG export (a source with transparency) without a profile, whose recipe only rotates or flips and which is neither resized nor watermarked: its samples are moved pixel for pixel at their own precision.</li>
+  <li><strong>Render</strong> the recipe at the full resolution of the source, with the file's EXIF orientation applied. This is the same CPU renderer that Save uses, so an export and a save of the same recipe have the same pixels before resizing.</li>
+</ol>
+<h3 id="rotations">Rotations</h3>
+<p>Rotations from the library (the rotate buttons, or a rotation chosen in the import tab) are entries in the recipe, and the camera's orientation tag is applied when the pixels are read, so the exported pixels are always upright and the file says Orientation 1. A viewer that ignores EXIF orientation still shows the export the right way up. In the sample run below, a portrait photo of 1684 &#215; 2400 pixels turned a quarter turn clockwise exported at 480 &#215; 337.</p>
+<div class="note"><p><b>Why render at full size and then shrink:</b> many edits have a radius or a neighborhood (sharpening, soft focus, vignettes, retouching). Rendering them at the source's resolution means the export looks like the edit view, only smaller. All of Dalíca's edit parameters are resolution independent, so the result does not depend on the export size you pick.</p></div>
+
+<h2 id="resizing">Resizing</h2>
+<p>"Resize to" sets the <strong>long side</strong> of the picture in pixels, after any crop and rotation. The other side follows from the aspect ratio, rounded to the nearest pixel. The slider runs from 100 to 4000 with stops at 480, 640, 800, 1024, 1280, 1600 (the default), 2048 and 3840, and the field accepts any whole number in that range.</p>
+<ul>
+  <li><strong>Never enlarged.</strong> A picture whose long side is already at or under the size you ask for is exported at its own size. This also holds after a crop has made a picture smaller than the target.</li>
+  <li><strong>"Use original size"</strong> exports the rendered size, which is the crop's size when there is one.</li>
+</ul>
+<p>The scaling itself is an <strong>exact area average</strong>: each output pixel is the mean of the block of source pixels it covers, with partial pixels at the block's edges weighted by how much of them it covers. It runs as two separable passes (horizontal, then vertical) in integer arithmetic, rounding once at the end.</p>
+<figure>
+<svg viewBox="0 0 700 260" role="img" aria-label="Area-average resampling: a row of 7 source pixels mapped onto 3 output pixels; each output pixel averages the source pixels under it, weighting the partly covered ones by their overlap.">
+  <g font-family="Inter, sans-serif" font-size="13" fill="#ebdbb2">
+    <text x="20" y="40" fill="#a89984">source</text>
+    <g stroke="#504945">
+      <rect x="100" y="20" width="80" height="34" fill="#665c54"/><rect x="180" y="20" width="80" height="34" fill="#7c6f64"/>
+      <rect x="260" y="20" width="80" height="34" fill="#928374"/><rect x="340" y="20" width="80" height="34" fill="#a89984"/>
+      <rect x="420" y="20" width="80" height="34" fill="#bdae93"/><rect x="500" y="20" width="80" height="34" fill="#d5c4a1"/>
+      <rect x="580" y="20" width="80" height="34" fill="#ebdbb2"/>
+    </g>
+    <text x="20" y="190" fill="#a89984">output</text>
+    <g stroke="#fe8019" stroke-width="2" fill="#32302f">
+      <rect x="100" y="166" width="186.7" height="34"/><rect x="286.7" y="166" width="186.7" height="34"/><rect x="473.3" y="166" width="186.7" height="34"/>
+    </g>
+    <g stroke="#fe8019" stroke-dasharray="4 4" stroke-width="1.2">
+      <line x1="286.7" y1="54" x2="286.7" y2="166"/><line x1="473.3" y1="54" x2="473.3" y2="166"/>
+    </g>
+    <text x="193" y="188" text-anchor="middle" font-size="12">2 + 1/3 pixels</text>
+    <text x="380" y="188" text-anchor="middle" font-size="12">2/3 + 1 + 2/3</text>
+    <text x="567" y="188" text-anchor="middle" font-size="12">1/3 + 2 pixels</text>
+    <text x="380" y="232" text-anchor="middle" font-size="12" fill="#a89984">7 pixels to 3: every output pixel covers 7/3 source pixels;</text>
+    <text x="380" y="250" text-anchor="middle" font-size="12" fill="#a89984">a source pixel cut by a boundary counts toward both sides by its share</text>
+  </g>
+</svg>
+<figcaption>Area averaging is the box filter taken exactly. It never rings or overshoots (no halos at high-contrast edges), and because it is integer arithmetic it gives the same pixels on every processor.</figcaption>
+</figure>
+<p>The trade-off is that an area average is slightly softer than a windowed-sinc filter would be at the same size: it does not sharpen while it shrinks. In exchange it cannot produce halos around the white railings and dark rooflines of a picture like the one below, and the same export made on two different machines is identical.</p>
+<figure>
+<img src="img/export/house-1600.jpg" width="1400" height="1213" alt="A blue and white Victorian house with white railings on three levels and a shingled tower, under a clear blue sky." loading="lazy">
+<figcaption>The test picture, exported at 1600 pixels and Normal quality (scaled for this page). The crops below come from the railing on the roof of the right-hand tower and the porch at the center.</figcaption>
+</figure>
+<figure><div class="row cols-4">
+  <div><img src="img/export/size-q-normal-480.png" width="500" height="354" alt="The porch and windows at 480 pixels, blocky when enlarged." loading="lazy"><span class="label">480 px (49 KB)</span></div>
+  <div><img src="img/export/size-q-normal-800.png" width="500" height="357" alt="The same porch at 800 pixels." loading="lazy"><span class="label">800 px (128 KB)</span></div>
+  <div><img src="img/export/size-q-normal-1600.png" width="500" height="357" alt="The same porch at 1600 pixels, railings and lamps clear." loading="lazy"><span class="label">1600 px (428 KB)</span></div>
+  <div><img src="img/export/size-q-normal-original.png" width="500" height="357" alt="The same porch at the original 2400 pixels." loading="lazy"><span class="label">2400 px, original (1046 KB)</span></div>
+</div><figcaption>The same part of the scene from four real exports at Normal quality, each enlarged to the same width without smoothing. The file size grows roughly with the pixel count: the 480 px file has 1/25 of the original's pixels and is about 1/21 of its size.</figcaption></figure>
+
+<h2 id="quality">Quality presets and their JPEG settings</h2>
+<p>Exports are JPEG, except a source with real transparency (an alpha value below fully opaque somewhere), which becomes a PNG so the transparency survives. For JPEG, the "Image quality" choice sets one number, the quality on the usual 1 to 100 scale:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Preset</th><th>Quality</th><th>What it is for</th></tr></thead>
+<tbody>
+<tr><td>Automatic (default)</td><td>the source's own, else 90</td><td>keeps the original's quality</td></tr>
+<tr><td>Normal</td><td>85</td><td>balances quality and size</td></tr>
+<tr><td>Maximum</td><td>95</td><td>keeps fine detail; large files</td></tr>
+<tr><td>Minimum</td><td>60</td><td>small files with some quality loss</td></tr>
+<tr><td>Custom</td><td>1 to 100</td><td>your own number</td></tr>
+</tbody></table></div>
+<h3 id="automatic">How Automatic finds the source's quality</h3>
+<p>A JPEG does not record its quality setting, but it does carry the quantization tables it was compressed with. Most encoders make those tables by scaling the two example tables of the JPEG standard (ITU-T T.81 Annex K) with the same quality curve, so Dalíca reads the tables the frame header actually uses and finds the quality whose scaled tables match them best. For a file made that way the answer is exact; for a camera's own tables it is the closest fit. The chroma subsampling is read from the same header. A source that is not a JPEG, or whose header gives no estimate, gets 90.</p>
+<p>The test picture is a quality 90 JPEG with 4:2:0 chroma. Its Automatic export carried exactly the source's luma table (first row <code>3 2 2 3 5 8 10 12</code>), while Normal wrote <code>5 3 3 5 7 12 15 18</code>, Minimum <code>13 9 8 13 19 32 41 49</code> and Maximum <code>2 1 1 2 2 4 5 6</code>.</p>
+<h3 id="encoder">What the encoder writes</h3>
+<p>Dalíca's JPEG encoder is its own, written in Rust: baseline (sequential) JPEG, readable by every decoder.</p>
+<ul>
+  <li><strong>Quantization:</strong> the Annex K example tables, scaled by the quality: the scale is 5000/q below quality 50 and 200 &#8722; 2q from 50 up, each step is (table value &#215; scale + 50) / 100, kept between 1 and 255. Higher quality means smaller steps and more of each frequency kept.</li>
+  <li><strong>Huffman coding:</strong> the Annex K example tables (not optimized per image).</li>
+  <li><strong>Chroma subsampling:</strong> the source's, when it is a JPEG (4:2:0 stays 4:2:0, anything else becomes 4:4:4), at every preset, not only Automatic; 4:4:4 for every other source. A grayscale source whose edits leave every pixel neutral is written as a one-channel grayscale JPEG.</li>
+  <li><strong>Threads:</strong> the image is cut into bands of whole MCU rows separated by restart markers, so bands can be coded on separate threads (up to 8). The band layout depends only on the image size, so the bytes are the same whatever the thread count.</li>
+  <li><strong>Color:</strong> the output is sRGB. An sRGB ICC profile is embedded only when the source had a profile; a source without one stays untagged, which viewers read as sRGB by convention.</li>
+</ul>
+<figure>
+<img src="img/export/quantizer.png" width="1600" height="680" alt="Chart of the luma quantizer step against JPEG quality from 30 to 100: the mean step falls from about 95 at quality 30 to about 1 at 100, the DC step from 27 to 1. Vertical lines mark 60, 85, 90 and 95." loading="lazy">
+<figcaption>The luma quantizer steps Dalíca's encoder uses at each quality, from the scaling rule above. The curve flattens near the top: going from 85 to 95 roughly thirds the steps, which is why Maximum files are so much larger.</figcaption>
+</figure>
+<figure><div class="row cols-4">
+  <div><img src="img/export/crop-q-custom-30-1600.png" width="500" height="324" alt="Roof railing at quality 30: blocky sky and colored fringes along the white posts." loading="lazy"><span class="label">Custom 30</span></div>
+  <div><img src="img/export/crop-q-minimum-1600.png" width="500" height="324" alt="Roof railing at quality 60: slight fringes at the base of the posts." loading="lazy"><span class="label">Minimum (60)</span></div>
+  <div><img src="img/export/crop-q-normal-1600.png" width="500" height="324" alt="Roof railing at quality 85: clean posts and smooth sky." loading="lazy"><span class="label">Normal (85)</span></div>
+  <div><img src="img/export/crop-q-maximum-1600.png" width="500" height="324" alt="Roof railing at quality 95: indistinguishable from 85 at this zoom." loading="lazy"><span class="label">Maximum (95)</span></div>
+</div><figcaption>The same 128 &#215; 83 pixel crop from four real 1600 px exports, enlarged about four times without smoothing. Look at the base of the white posts: at 30 the colors smear into blocks, at 60 a faint fringe remains, and 85 and 95 look the same at this size.</figcaption></figure>
+<figure>
+<img src="img/export/file-sizes.png" width="1760" height="720" alt="Two bar charts. Left: file size at 1600 px by quality: Custom 30 164 KB, Minimum 250 KB, Normal 428 KB, Automatic (90) 538 KB, Maximum 772 KB. Right: file size at Normal by size: 480 px 49 KB, 800 px 128 KB, 1600 px 428 KB, 2400 px 1046 KB." loading="lazy">
+<figcaption>File sizes of the real exports of the test picture (1 KB = 1024 bytes). Halving the long side cuts the file to about a third; dropping from Maximum to Normal at the same size saves about 45 %.</figcaption>
+</figure>
+
+<h2 id="numbering">File names and numbering</h2>
+<p>Each export makes a <strong>new folder</strong> inside the export location (by default <code>Pictures/Dalica/Exports</code>). Its name is the one in the dialog, through the same sanitizer as every name Dalíca makes; when that name is already taken, the folder becomes <code>&lt;name&gt;-001</code>, <code>&lt;name&gt;-002</code> and so on. An export never adds files to an older export's folder. The first photo to run makes the folder and writes a small <code>.dalica.json</code> into it that marks it as an export:</p>
+<pre><code>{
+  <span class="s">"dalica"</span>: { <span class="s">"version"</span>: <span class="n">1</span> },
+  <span class="s">"folder"</span>: { <span class="s">"project"</span>: <span class="s">"exported"</span> }
+}</code></pre>
+<p>That mark is how the folder appears in the library's Exported group, and because it lives in the folder, a library rebuild still finds it. If the export location is not inside a watched folder, the new folder is added as one (Scan Always) when the job ends.</p>
+<p>Inside the folder, each picture keeps its <strong>own name's stem</strong>, sanitized (or <code>Photo</code> when nothing is left of it), with <code>.jpg</code> (or <code>.png</code>). "Add numbers to file names to keep the order" puts <code>001-</code>, <code>002-</code>, ... in front, in the order of the tray or the section; from 1,000 pictures on, four digits are used, so the names always sort in that order. The real run for this guide gave:</p>
+<pre><code>numbered/              <span class="c">first export, numbers on</span>
+  001-DSC_1251.jpg
+  002-DSC_0884.jpg
+  003-DSC_4141.jpg
+numbered-001/          <span class="c">second export with the same folder name</span>
+  DSC_0884.jpg
+  DSC_1251.jpg</code></pre>
+
+<h3 id="collisions">Naming collisions</h3>
+<p>Two photos from different folders may share a stem (two <code>IMG_0001.JPG</code> from two cameras). Names are never decided ahead and then forced: each file is written to a temporary name and then given its own name by a step that never replaces an existing file. If the name is taken, the next one is tried: <code>beach.jpg</code>, then <code>beach-001.jpg</code>, <code>beach-002.jpg</code>. So two photos exported at the same moment on the two export threads can never overwrite each other.</p>
+
+<h2 id="watermark">The watermark</h2>
+<p>The watermark is drawn on the final pixels, after resizing and before encoding. It is plain text, always in the bottom-right corner, white with a soft shadow, set in Inter SemiBold (the interface's typeface, built into the program).</p>
+<figure>
+<svg viewBox="0 0 760 470" role="img" aria-label="Watermark geometry on a 1600 by 1061 export, drawn to scale: the text's line height is 3 percent of the long side, 48 pixels; its right and bottom margins are 2.5 percent of the long side, 40 pixels.">
+  <defs><marker id="wm-a" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#83a598"/></marker></defs>
+  <g font-family="Inter, sans-serif" fill="#ebdbb2">
+    <rect x="20" y="20" width="600" height="398" fill="#32302f" stroke="#504945"/>
+    <text x="40" y="50" font-size="13" fill="#a89984">export, 1600 &#215; 1061 pixels, drawn to scale</text>
+    <rect x="452" y="385" width="153" height="18" fill="none" stroke="#fe8019" stroke-dasharray="3 2"/>
+    <text x="604" y="399" text-anchor="end" font-size="14.5" font-weight="600" fill="#ebdbb2">&#169; Dalíca guide 2026</text>
+    <line x1="605" y1="394" x2="620" y2="394" stroke="#83a598" stroke-width="1.5"/>
+    <line x1="530" y1="403" x2="530" y2="418" stroke="#83a598" stroke-width="1.5"/>
+    <path d="M452,385 L330,300" stroke="#fe8019" stroke-width="1"/>
+    <text x="325" y="285" text-anchor="end" font-size="12" fill="#fe8019">text box: line height 3 % of the long side (48 px);</text>
+    <text x="325" y="301" text-anchor="end" font-size="12" fill="#fe8019">width from the text, shrunk if it would not fit</text>
+    <path d="M620,394 L640,360" stroke="#83a598" stroke-width="1"/>
+    <text x="645" y="340" font-size="12" fill="#83a598">right margin</text>
+    <text x="645" y="356" font-size="12" fill="#83a598">2.5 % (40 px)</text>
+    <path d="M530,418 L500,445" stroke="#83a598" stroke-width="1"/>
+    <text x="495" y="452" text-anchor="end" font-size="12" fill="#83a598">bottom margin 2.5 % of the long side (40 px)</text>
+  </g>
+</svg>
+<figcaption>The watermark's box. Every length is a fraction of the picture's long side, so the mark covers the same share of the picture at every export size.</figcaption>
+</figure>
+<ul>
+  <li><strong>Size:</strong> the text's line height (ascent to descent) is 3 % of the picture's long side: 48 px on a 1600 px export, 19 px on a 640 px one.</li>
+  <li><strong>Position:</strong> its right and bottom edges sit 2.5 % of the long side in from the picture's edges (at most a quarter of that side, so a very narrow picture still has room).</li>
+  <li><strong>Fit:</strong> text too wide for the picture minus its margins is shrunk until it fits exactly. Text that would have to shrink below 2 px is not drawn at all.</li>
+  <li><strong>Look:</strong> the text is 85 % opaque, so a little of the photo shows through and it reads as white even on dark areas. Its shadow is 55 % opaque at its densest, offset down and to the right by 5 % of the line height (at least one pixel) and blurred by two box passes of 4 % of the line height each.</li>
+  <li><strong>Text cleaning:</strong> tabs and line breaks become spaces; control characters, direction overrides, zero-width characters and variation selectors are removed (they would draw nothing, or reorder the text); the result is trimmed and cut at 200 characters.</li>
+</ul>
+<figure><div class="row">
+  <div><img src="img/export/watermark-1600.png" width="640" height="188" alt="Bottom right corner of the church photo at 1600 pixels with the white watermark text." loading="lazy"><span class="label">1600 px export</span></div>
+  <div><img src="img/export/watermark-640.png" width="640" height="189" alt="Bottom right corner of the same photo at 640 pixels, the watermark the same relative size but softer when enlarged." loading="lazy"><span class="label">640 px export</span></div>
+</div><figcaption>The bottom-right corner of two real exports of the same photo, each shown at the same width. The watermark occupies the same share of the picture at both sizes; at 640 px it was drawn 19 px tall, so it is simply softer when enlarged here.</figcaption></figure>
+
+<h2 id="metadata">Metadata in exported copies</h2>
+<p>An exported file takes the source's metadata, adjusted to its new pixels, and then everything the library knows about the photo on top:</p>
+<dl class="terms">
+  <dt>EXIF</dt>
+  <dd>The source's block, edited in place so camera maker notes keep their offsets: Orientation set to 1 (the pixels are already upright), the new pixel size, the sRGB color space. The embedded EXIF thumbnail is dropped in exports (Save writes a fresh 160 px one; an export has no use for it). A source without EXIF gets a small block holding just those facts.</dd>
+  <dt>XMP</dt>
+  <dd>The source's packet with <code>tiff:Orientation</code> 1 and the new size where it states them, every other property kept byte for byte. A JPEG also takes an extended XMP packet unchanged; a PNG has no place for one.</dd>
+  <dt>IPTC</dt>
+  <dd>Kept, as Photoshop resources (APP13) in a JPEG and as a "Raw profile type iptc" text chunk in a PNG.</dd>
+  <dt>From the library</dt>
+  <dd>The caption, the tags, the star (also written as a rating) and a date you set by hand are merged in, so the export reads back the way the library shows the photo. The place is not rewritten: it stays as the file has it.</dd>
+</dl>
+<p>After writing, the result is read back and checked: it must parse cleanly, say Orientation 1 and the new size in both EXIF and XMP, and hold no GPS data when the location was removed.</p>
+<h3 id="remove-location">Removing the location</h3>
+<p>Options &#8594; Export &#8594; "Remove location from exported photos" takes out the EXIF GPS block and every <code>exif:GPS*</code> property of the XMP. If the extended XMP packet holds GPS too, it is left out entirely. Place <em>names</em> (city, country, the IPTC location fields) are kept, because they are text you can see and edit, not coordinates; if you do not want those shared either, remove them from the photo first.</p>
+<div class="note"><p><b>Formats without readable metadata:</b> for sources whose metadata Dalíca does not read (GIF, BMP, HEIF, JPEG XL, PSD and the raw formats that are not TIFF based), the export holds only the facts above and the library's fields; nothing of the original's own metadata can be carried.</p></div>
+
+<h2 id="videos">Videos in an export</h2>
+<p>When the photos being exported include videos, "Export videos as" decides what happens to them:</p>
+<dl class="terms">
+  <dt>First frame (default)</dt>
+  <dd>The clip's poster frame (the frame its thumbnail shows, see the Video chapter) is decoded no larger than the export's long side, held losslessly in memory, and then sent through the same pipeline as a photo: the clip's rotations, the size, the quality, the watermark, and its caption, tags, star and date. It is written as <code>&lt;clip&gt;.jpg</code>. A clip whose codec this build cannot decode has no poster frame; it is skipped and counted with the reason, for example "This video can't be played (ProRes)". An export of such clips alone does not start.</dd>
+  <dt>Full video (no resizing)</dt>
+  <dd>Every clip is copied exactly as it is, never re-encoded and never resized, under the export's name with its own extension (<code>003-IMG_0042.MOV</code> with numbers on). The copy streams through a temporary file, is synced and compared byte for byte with the source before it gets its name, and never replaces a file. Because nothing is decoded, this works for any clip, including ones Dalíca cannot play.</dd>
+</dl>
+<p>The finishing message counts both kinds: "Exported 2 pictures and 1 video".</p>
+
+<h2 id="job">The export job, cancel and failures</h2>
+<p>An export runs as a file job on <strong>two threads</strong>. Each thread holds one full-size picture at a time, and the JPEG encoder is itself parallel, so two keep the processor busy without holding many large pictures in memory. Everything that can be checked without the disk (the options, the photos, each one's current recipe and library fields) is checked first, on the window's thread; the job only starts when that succeeds.</p>
+<ul>
+  <li><strong>Cancel</strong> is checked before a photo is read, before it is rendered and before it is written. The photos already being written finish; no new one starts.</li>
+  <li><strong>Only complete files.</strong> A file is fully encoded in memory before anything is written, then written to a temporary name and given its own name in one step. A cancel, a full disk or a crash can never leave a truncated picture under an export name.</li>
+  <li><strong>Failures are per photo.</strong> A photo that cannot be read is skipped with its reason; one that cannot be written fails with its reason; the rest are exported. The result lists what was written, skipped and failed, and the message says so: "Exported 48 pictures; 2 skipped, 1 failed".</li>
+</ul>
+<p>An export is not an undo step: it only adds a new folder and never changes a photo.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li><code>crates/create/src/output.rs</code>, <code>output/target.rs</code>, <code>output/pixels.rs</code>: the one output pipeline and the format choice</li>
+  <li><code>crates/create/src/export.rs</code>, <code>export/options.rs</code>, <code>export/plan.rs</code>: presets, sizes, names, numbering, videos</li>
+  <li><code>crates/create/src/watermark.rs</code>: placement, cleaning and drawing of the watermark</li>
+  <li><code>crates/image/src/resize.rs</code>: the area-average resize</li>
+  <li><code>crates/image/src/encode.rs</code>, <code>encode/jpeg.rs</code>: the JPEG encoder; <code>crates/image/src/jpeg_quality.rs</code>: reading a JPEG's quality and subsampling</li>
+  <li><code>crates/meta/src/carry.rs</code>: metadata carried to new files, location removal</li>
+  <li><code>crates/engine/src/cmd/export.rs</code>: <code>export.defaults</code>, <code>export.run</code> and the two-thread job</li>
+  <li>Specs: <code>docs/creating.md</code> §2, <code>docs/data-model.md</code> §6, <code>docs/security.md</code> §5.4</li>
+  <li>The pictures in this chapter: <code>docs-tools/export/run_exports.py</code>, <code>figures.py</code>, <code>quant.py</code></li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="import.html"><span>Previous</span>Import</a><a class="next" href="collage-slideshow.html"><span>Next</span>Collages and slideshows</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#one-pipeline">One pipeline for every new file</a>
+    <a href="#render">The render: your current edits, at full size</a>
+    <a href="#resizing">Resizing</a>
+    <a href="#quality">Quality presets and their JPEG settings</a>
+    <a href="#numbering">File names and numbering</a>
+    <a href="#watermark">The watermark</a>
+    <a href="#metadata">Metadata in exported copies</a>
+    <a href="#videos">Videos in an export</a>
+    <a href="#job">The export job, cancel and failures</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>

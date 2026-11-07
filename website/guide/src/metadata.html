@@ -1,0 +1,399 @@
+<h1>Metadata in your files</h1>
+<p class="lede">Captions, tags, places, dates and named faces live in two places at once: in Dalíca's own sidecar file and inside the photos themselves, as standard XMP, IPTC and EXIF. This chapter explains which fields are read and written, how a write merges into data other applications left there, why it never touches a pixel, and what happens when the two copies disagree.</p>
+
+<h2 id="three-homes">Three homes for the same facts</h2>
+<p>Everything you say about a photo is first recorded in the <strong>folder sidecar</strong>, a small JSON file named <code>.dalica.json</code> in the photo's own folder. That file is Dalíca's record: stars, captions, tags, places, date corrections, faces, hidden flags, edit recipes and album membership all live there, so a folder carries its data with it when you copy it to another disk.</p>
+<p>A subset of those facts is also written <strong>into the photo file</strong>, in the standard metadata blocks every photo application reads: XMP, IPTC and EXIF. That is how a caption you type in Dalíca shows up in another program, and how tags another program wrote show up in Dalíca. Only the fields in the table below go into files, and each one follows its own option.</p>
+<p>The third home is the <strong>library index</strong>, a cache in the library directory. It holds a copy of everything above for speed, plus things that exist only there: search facts (camera, video, geotagged), content digests, and the <em>last-synced hashes</em> that let Dalíca tell your changes from another application's (see <a href="#conflicts">Conflicts</a>). Deleting the index loses nothing but time: a rescan rebuilds it from the sidecars and the files.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 880 420" role="img" aria-label="Diagram of where each piece of data lives: the photo file holds caption, tags, place, date, an optional rating and optional named faces; the folder sidecar holds all of those plus hidden flags, edits, albums and faces; the library index is a rebuildable cache with last-synced hashes and search facts. Arrows show the first scan importing from the file into the sidecar, the write queue writing from the sidecar into the file per option, and both feeding the index.">
+  <g stroke="#504945" stroke-width="1.5" fill="#32302f">
+    <rect x="15" y="40" width="240" height="340" rx="8"/>
+    <rect x="320" y="40" width="240" height="340" rx="8"/>
+    <rect x="625" y="40" width="240" height="340" rx="8"/>
+  </g>
+  <g stroke="none" fill="#fe8019" font-size="15" font-weight="600">
+    <text x="30" y="68">Photo file</text>
+    <text x="335" y="68">Folder sidecar</text>
+    <text x="640" y="68">Library index (cache)</text>
+  </g>
+  <g stroke="none" fill="#a89984" font-size="12">
+    <text x="30" y="88">XMP, IPTC and EXIF blocks</text>
+    <text x="335" y="88">.dalica.json, one per folder</text>
+    <text x="640" y="88">rebuilt by a rescan</text>
+  </g>
+  <g stroke="none" fill="#ebdbb2" font-size="13">
+    <text x="30" y="122">Caption</text>
+    <text x="30" y="148">Tags</text>
+    <text x="30" y="174">Place (GPS)</text>
+    <text x="30" y="200">Date taken</text>
+    <text x="30" y="226">Star as rating 5</text>
+    <text x="30" y="252">Named faces (MWG)</text>
+    <text x="335" y="122">"caption"</text>
+    <text x="335" y="148">"tags"</text>
+    <text x="335" y="174">"geo" (or null: removed)</text>
+    <text x="335" y="200">"date" (your correction)</text>
+    <text x="335" y="226">"star"</text>
+    <text x="335" y="252">"faces" + "people"</text>
+    <text x="335" y="290">"hidden", "edits", "redo",</text>
+    <text x="335" y="310">"albums", "folder", "changed"</text>
+    <text x="640" y="122">a copy of every sidecar field</text>
+    <text x="640" y="148">last-synced hash per field</text>
+    <text x="640" y="174">search facts: camera, video,</text>
+    <text x="640" y="192">geotagged</text>
+    <text x="640" y="218">content digests</text>
+    <text x="640" y="262">Beside it in the library dir:</text>
+    <text x="640" y="284">people.json, albums.json,</text>
+    <text x="640" y="304">folders.json, face caches</text>
+  </g>
+  <g stroke="none" fill="#a89984" font-size="11">
+    <text x="30" y="272">the last two only with their</text>
+    <text x="30" y="286">option on (off by default)</text>
+    <text x="30" y="318">RAW: an .xmp file beside it</text>
+    <text x="30" y="332">(its own option, off)</text>
+    <text x="30" y="354">HEIC, video, GIF, BMP:</text>
+    <text x="30" y="368">read, never written</text>
+  </g>
+  <g stroke="#8ec07c" stroke-width="2" fill="none">
+    <path d="M258 140 H312"/><path d="M304 134 L313 140 L304 146"/>
+    <path d="M317 210 H263"/><path d="M271 204 L262 210 L271 216"/>
+  </g>
+  <g stroke="#83a598" stroke-width="2" fill="none">
+    <path d="M563 175 H617"/><path d="M609 169 L618 175 L609 181"/>
+  </g>
+  <g stroke="none" font-size="11">
+    <text x="262" y="126" fill="#8ec07c">import</text>
+    <text x="262" y="160" fill="#8ec07c">1st scan</text>
+    <text x="262" y="228" fill="#8ec07c">write,</text>
+    <text x="262" y="242" fill="#8ec07c">per</text>
+    <text x="262" y="256" fill="#8ec07c">option</text>
+    <text x="566" y="160" fill="#83a598">cached</text>
+    <text x="566" y="194" fill="#83a598">for speed</text>
+  </g>
+  <g stroke="none" fill="#d5c4a1" font-size="12">
+    <text x="15" y="24">Each photo's facts, and where each copy lives</text>
+  </g>
+</svg>
+<figcaption>The folder sidecar is the record. The photo file gets a copy of the six fields on the left (two of them only when you turn their option on), and the index is a cache of both that Dalíca can always rebuild.</figcaption>
+</figure>
+
+<h2 id="fields">The fields Dalíca reads and writes</h2>
+<p>Each field can come from several places in a file. When a file has more than one, Dalíca takes the <strong>first source that has a value</strong>, in the order shown. The order is deliberate: for the date and the place, the camera's own EXIF value wins over the XMP copy, because XMP copies of EXIF fields are often stale. For captions, tags and ratings, XMP wins over IPTC and EXIF, because XMP is where current applications keep them.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Field</th><th>Read from (first with a value wins)</th><th>Written to</th><th>Option (default)</th></tr></thead>
+<tbody>
+<tr><td>Caption</td><td>XMP <code>dc:description</code> (<code>x-default</code>), then IPTC 2:120 Caption-Abstract, then EXIF ImageDescription (camera placeholder text ignored)</td><td>XMP <code>dc:description</code> <code>x-default</code> and IPTC 2:120</td><td>Write captions, tags and places into photo files (on)</td></tr>
+<tr><td>Tags</td><td>XMP <code>dc:subject</code>, then every IPTC 2:25 Keywords dataset</td><td>XMP <code>dc:subject</code> (an <code>rdf:Bag</code>) and IPTC 2:25, one dataset per tag</td><td>same (on)</td></tr>
+<tr><td>Star</td><td>XMP <code>xmp:Rating</code>; only a rating of 5 counts as a star</td><td>XMP <code>xmp:Rating</code> 5 on star; on unstar, 0 only if the file's rating is 5</td><td>Write stars as ratings (XMP) (off)</td></tr>
+<tr><td>Place</td><td>EXIF GPS latitude and longitude with their N/S and E/W refs, then XMP <code>exif:GPSLatitude</code> / <code>exif:GPSLongitude</code></td><td>EXIF GPS IFD (degree, minute, second rationals, GPSVersionID 2.3.0.0) and the XMP mirror when the file has an XMP packet</td><td>Write captions, tags and places into photo files (on)</td></tr>
+<tr><td>Date taken</td><td>EXIF DateTimeOriginal (with OffsetTimeOriginal and SubSecTimeOriginal), then XMP <code>exif:DateTimeOriginal</code>, <code>photoshop:DateCreated</code>, <code>xmp:CreateDate</code>, then IPTC 2:55 + 2:60</td><td>EXIF DateTimeOriginal and DateTimeDigitized; the XMP mirrors when present</td><td>Write date changes to files (on)</td></tr>
+<tr><td>People</td><td>XMP MWG regions of type <code>Face</code></td><td>XMP MWG regions, named faces only</td><td>Store people names in photos (off)</td></tr>
+<tr><td>Everything else</td><td>Camera, lens, exposure, title, creator, rights, location names, other ratings: shown in Properties</td><td>never</td><td>none</td></tr>
+</tbody>
+</table></div>
+
+<p>A few details matter in practice:</p>
+<ul>
+<li><strong>Camera placeholders are not captions.</strong> Many cameras fill EXIF ImageDescription with text such as <code>DIGITAL CAMERA</code>, a generic word like <code>IMAGE</code> or <code>PHOTO</code>, or the camera's own make or model. Dalíca keeps a list of 18 such strings and also ignores a description equal to the make, the model, or the make followed by "DIGITAL CAMERA" (case and surrounding spaces ignored), so your photos do not all arrive captioned with a brand name.</li>
+<li><strong>A star is a yes or no; a rating is a number.</strong> A file rating of 5 imports as a star. Ratings 1 to 4, and the "rejected" value of -1, are shown in Properties and left alone. When Dalíca unstars a photo it writes 0 only if the file says 5 (the value Dalíca would have set), so another application's 3-star rating survives you unstarring a photo there.</li>
+<li><strong>Tags are flat.</strong> Dalíca writes <code>dc:subject</code> only. Hierarchical keyword lists other applications keep in their own properties are left as they are, so such a list can still name a tag you removed in Dalíca.</li>
+<li><strong>Languages are kept.</strong> <code>dc:description</code> can hold one caption per language. Dalíca writes the <code>x-default</code> entry and keeps every other language untouched.</li>
+<li><strong>Text from a file is cleaned.</strong> Control characters (other than tab and line breaks) and the two characters XML forbids are dropped, surrounding spaces trimmed, and tags compared without case, the first spelling kept. Inside the library a caption is at most 16 KiB, a tag at most 256 bytes and a photo has at most 1,000 tags.</li>
+</ul>
+
+<h2 id="write-path">How a write happens</h2>
+<p>Changing a caption does not rewrite the file on the spot. The change goes into the folder sidecar first (your record is safe at that point), and a write request goes into a queue that runs on its own thread, named <code>dalica-metadata-writes</code>, so the window never waits for the disk.</p>
+<ol class="steps-list">
+<li><strong>Collect.</strong> Each command that changes an owned field (undo and redo included) queues one request per photo with the fields whose option is on. Changes that came from the files themselves, during scans and imports, are never written back.</li>
+<li><strong>Wait one second.</strong> A photo is written once it has been left alone for 1 second. Typing a caption and then adding three tags therefore costs one write, not four.</li>
+<li><strong>Re-read.</strong> The file is read again from disk (never a cached copy), up to 1 GiB. A symbolic link is refused: Dalíca does not write through links. If the file changed while being read, the request goes back in the queue.</li>
+<li><strong>Decide per field.</strong> The file's current values are compared with Dalíca's and with the last-synced hashes (see <a href="#conflicts">Conflicts</a>). A field another application changed is imported instead of written.</li>
+<li><strong>Merge.</strong> Only the metadata blocks are rebuilt, in memory, keeping everything Dalíca does not own. If the file's EXIF, XMP or IPTC block cannot be read, the file is not rewritten at all, because its contents could not be preserved.</li>
+<li><strong>Verify.</strong> Before the new bytes may replace anything, Dalíca re-reads them: the same container, every metadata block readable, every byte outside the metadata unchanged, and every field it changed reading back as requested.</li>
+<li><strong>Replace atomically.</strong> The new file is written to a temporary file in the same folder, flushed to disk and renamed over the old one. The file's modification time is put back afterwards, unless you turn on "Update file modification time on metadata changes" (off by default).</li>
+<li><strong>Record.</strong> The new hashes become the last-synced values, and the library takes the file's new size and time, so the next scan does not mistake Dalíca's own write for an outside change.</li>
+</ol>
+<p>Due writes run as a job labeled "Writing metadata", with progress and a Cancel button. Cancel drops the writes not made yet; the folder sidecar keeps those values, and the next change of the field writes it. A photo on a disconnected drive waits: the queue looks again every 10 seconds and the write lands when the drive returns. When the library closes, the writer finishes what is still queued first. A failed write shows a caution toast naming the file and the fields, and the sidecar stays the record.</p>
+<div class="note"><p><b>Why queue at all:</b> a photo file can be tens of megabytes. Rewriting it on every keystroke would be slow, would wear out flash storage and would race with backup and sync tools that watch the folder. One verified write per quiet second keeps the file current without any of that.</p></div>
+
+<h2 id="merge">Merge, never replace</h2>
+<p>A file's metadata belongs to you and to every application that has written it. Dalíca <strong>owns</strong> only these properties, and only while their option is on: <code>dc:description</code>, <code>dc:subject</code>, <code>xmp:Rating</code> (under the star rule), <code>exif:GPSLatitude</code>, <code>exif:GPSLongitude</code>, <code>exif:DateTimeOriginal</code>, <code>photoshop:DateCreated</code>, <code>xmp:CreateDate</code> (only on a date change), the <code>Face</code> entries of the MWG region list, IPTC 1:90, 2:25 and 2:120, and in EXIF the GPS latitude and longitude tags plus DateTimeOriginal and DateTimeDigitized. Every XMP write also sets <code>xmp:MetadataDate</code> to the time of the write. Dalíca writes no private namespace of its own: anything Dalíca-specific stays in <code>.dalica.json</code>.</p>
+
+<h3>Inside XMP</h3>
+<p>Owned properties go into one <code>rdf:Description</code> of Dalíca's own. If another application wrote the same property in its description, it is moved out of there; that description otherwise stays as it was. A write moves only what it sets or clears, so writing tags leaves another application's caption where it is. Clearing a value in Dalíca (an empty caption, the last tag removed) removes the property from the file. Writing the same values again changes nothing, not even <code>xmp:MetadataDate</code>.</p>
+<p>The packet wrapper and its padding are reused, so a rewrite can stay in place: the padding grows or shrinks by the change in size and the packet keeps its length while the padding lasts. A new packet gets 2 KiB of padding.</p>
+<p>Here is a real run. A test JPEG arrived with an XMP packet "from another application": a caption in two languages, a rating of 3, and two properties in a private namespace. Dalíca imported the caption on the first scan, and then the tags <code>Kyoto</code> and <code>temple</code> were added in Dalíca. This is the packet after the write (namespace declarations left out for width):</p>
+<pre><code><span class="c">&lt;!-- the other application's description: untouched --&gt;</span>
+&lt;rdf:Description rdf:about=""
+    <span class="k">xmp:Rating</span>=<span class="s">"3"</span>
+    <span class="k">other:Workflow</span>=<span class="s">"to-print"</span>&gt;
+ &lt;dc:description&gt;&lt;rdf:Alt&gt;
+  &lt;rdf:li xml:lang="x-default"&gt;Gate at dusk&lt;/rdf:li&gt;
+  &lt;rdf:li xml:lang="ja"&gt;夕暮れの門&lt;/rdf:li&gt;
+ &lt;/rdf:Alt&gt;&lt;/dc:description&gt;
+ &lt;other:Note&gt;printed 2025&lt;/other:Note&gt;
+&lt;/rdf:Description&gt;
+<span class="c">&lt;!-- Dalíca's description: only what it wrote --&gt;</span>
+&lt;rdf:Description rdf:about=""&gt;
+ &lt;dc:subject&gt;&lt;rdf:Bag&gt;
+  &lt;rdf:li&gt;Kyoto&lt;/rdf:li&gt;
+  &lt;rdf:li&gt;temple&lt;/rdf:li&gt;
+ &lt;/rdf:Bag&gt;&lt;/dc:subject&gt;
+ &lt;xmp:MetadataDate&gt;2026-11-07T03:34:31+00:00&lt;/xmp:MetadataDate&gt;
+&lt;/rdf:Description&gt;</code></pre>
+<p>The caption stayed in the other description because only the tags changed. The rating of 3 was not turned into anything. The XMP segment of the JPEG was 1,215 bytes before and 1,215 bytes after: the new description was paid for out of the padding, which went from 514 to 190 bytes, so nothing after the segment had to move inside it. The file grew by 94 bytes only because a new IPTC block was added for the tags.</p>
+
+<h3>Inside IPTC</h3>
+<p>IPTC lives in an image resource block (resource 0x0404) inside the JPEG's APP13 segment. Other image resources are kept byte for byte, and the IPTC digest resource (0x0425) is updated to match (added when the file had none), so other applications do not treat the IPTC as stale. Dalíca's 2:120 takes the place of the first old caption, its 2:25 datasets take the place of the first old keyword, and every other dataset keeps its bytes and its position.</p>
+<p>When Dalíca writes IPTC it also writes 1:90 CodedCharacterSet = UTF-8. Older IPTC without that declaration is read as UTF-8 when it is valid and as Latin-1 otherwise; when Dalíca adds the declaration to such a stream, it re-encodes the record-2 text datasets that are not valid UTF-8 from Latin-1 to UTF-8, so every one reads the same text afterwards (binary datasets are never touched). IPTC has length limits that XMP does not: a caption over 2,000 bytes or a keyword over 64 bytes is written in full to XMP and cut at a character boundary in IPTC. IPTC is written whenever a caption or tags change, even into a file that had none, for older tools that read only IPTC.</p>
+
+<h3>Inside EXIF</h3>
+<p>EXIF is <strong>edited in place or appended, never repacked</strong>. Camera maker notes often contain absolute offsets into the EXIF block, so moving existing data would silently corrupt them. A changed value of the same size is overwritten where it is; a new or larger value (a GPS directory, a date) is appended at the end of the block with only the pointer to it updated. When Dalíca replaces or removes a value, the old bytes are zeroed if nothing else points at them, so a removed location does not linger in the file. A new EXIF directory starts with ExifVersion 0232, a new GPS directory with GPSVersionID 2.3.0.0. Removing a place deletes the latitude and longitude tags and their refs, and leaves altitude, GPS time and direction alone.</p>
+<p>An EXIF ImageDescription that reads as a real caption is treated as a copy of the caption: a new caption replaces it and a cleared caption removes it. Otherwise the read order above would bring the old text back as the caption. A camera placeholder is left alone, and Dalíca never adds an ImageDescription that was not there.</p>
+
+<h2 id="pixels">Never touching pixels</h2>
+<p>A metadata write rewrites only the metadata segments: in a JPEG the first EXIF APP1, the first XMP APP1 and the APP13 segment that holds IPTC; in PNG, WebP and TIFF their equivalent chunks or tags. Everything else, including the compressed image data, ICC profiles, comments, unknown segments and any extra images a phone appended after the main one, is copied unchanged. The verification step enforces it by comparing every byte outside the rewritable spans before and after; if a single one differs, the write is thrown away.</p>
+<p>The figure below is a real write. A JPEG with no metadata at all (only a JFIF header and a comment) was given a caption, three tags, a place and a corrected date, then the library was closed so the queue flushed.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 880 316" role="img" aria-label="Segment map of a JPEG before and after a metadata write. Before: SOI, APP0, COM, 589 bytes of tables, 774,073 bytes of scan data, EOI, 774,725 bytes in all. After: SOI, APP0, then three new segments, EXIF APP1 250 bytes, XMP APP1 2,988 bytes and IPTC APP13 134 bytes, then the same COM, tables, scan data and EOI, 778,097 bytes in all. Dashed lines link the identical blocks.">
+  <g stroke="none" fill="#d5c4a1" font-size="13">
+    <text x="12" y="28">Before: 774,725 bytes</text>
+    <text x="12" y="304">After: 778,097 bytes (+3,372)</text>
+  </g>
+  <g stroke="#504945" stroke-width="1.5" fill="#32302f">
+    <rect x="12" y="42" width="34" height="56" rx="4"/>
+    <rect x="50" y="42" width="50" height="56" rx="4"/>
+    <rect x="104" y="42" width="46" height="56" rx="4"/>
+    <rect x="154" y="42" width="90" height="56" rx="4"/>
+    <rect x="248" y="42" width="330" height="56" rx="4"/>
+    <rect x="582" y="42" width="34" height="56" rx="4"/>
+    <rect x="12" y="192" width="34" height="56" rx="4"/>
+    <rect x="50" y="192" width="50" height="56" rx="4"/>
+    <rect x="356" y="192" width="46" height="56" rx="4"/>
+    <rect x="406" y="192" width="90" height="56" rx="4"/>
+    <rect x="500" y="192" width="330" height="56" rx="4"/>
+    <rect x="834" y="192" width="34" height="56" rx="4"/>
+  </g>
+  <g stroke="#fe8019" stroke-width="2" fill="#3c2a1e">
+    <rect x="104" y="192" width="80" height="56" rx="4"/>
+    <rect x="188" y="192" width="80" height="56" rx="4"/>
+    <rect x="272" y="192" width="80" height="56" rx="4"/>
+  </g>
+  <g stroke="#83a598" stroke-width="1.2" stroke-dasharray="4 4" fill="none">
+    <path d="M29 98 V192"/><path d="M75 98 V192"/>
+    <path d="M127 98 L379 192"/><path d="M199 98 L451 192"/>
+    <path d="M413 98 L665 192"/><path d="M599 98 L851 192"/>
+  </g>
+  <g stroke="none" fill="#ebdbb2" font-size="12" text-anchor="middle">
+    <text x="29" y="74">SOI</text>
+    <text x="75" y="74">APP0</text>
+    <text x="127" y="74">COM</text>
+    <text x="199" y="68">tables</text>
+    <text x="413" y="68">compressed image data</text>
+    <text x="599" y="74">EOI</text>
+    <text x="29" y="224">SOI</text>
+    <text x="75" y="224">APP0</text>
+    <text x="379" y="224">COM</text>
+    <text x="451" y="218">tables</text>
+    <text x="665" y="218">compressed image data</text>
+    <text x="851" y="224">EOI</text>
+  </g>
+  <g stroke="none" fill="#a89984" font-size="11" text-anchor="middle">
+    <text x="199" y="86">589 B</text>
+    <text x="413" y="86">774,073 B</text>
+    <text x="451" y="236">589 B</text>
+    <text x="665" y="236">774,073 B</text>
+  </g>
+  <g stroke="none" fill="#fe8019" font-size="12" text-anchor="middle">
+    <text x="144" y="216">EXIF</text>
+    <text x="228" y="216">XMP</text>
+    <text x="312" y="216">IPTC</text>
+  </g>
+  <g stroke="none" fill="#ebdbb2" font-size="11" text-anchor="middle">
+    <text x="144" y="232">APP1</text>
+    <text x="228" y="232">APP1</text>
+    <text x="312" y="232">APP13</text>
+    <text x="144" y="270">250 B</text>
+    <text x="228" y="270">2,988 B</text>
+    <text x="312" y="270">134 B</text>
+  </g>
+  <g stroke="none" fill="#8ec07c" font-size="12">
+    <text x="630" y="64">identical bytes: the SHA-256 of</text>
+    <text x="630" y="80">tables and image data is the same</text>
+    <text x="630" y="96">before and after</text>
+  </g>
+</svg>
+<figcaption>A real write into a JPEG that had no metadata. Three segments were inserted where readers look for them (EXIF right after APP0, XMP right after EXIF, IPTC after the last APP segment), and everything from the comment to the end moved down 3,372 bytes without changing. The file's modification time was the same afterwards.</figcaption>
+</figure>
+
+<p>Reading the new blocks back shows exactly the owned fields and nothing more. The EXIF block holds ExifVersion <code>0232</code>, DateTimeOriginal and DateTimeDigitized both set to <code>2024:07:15 14:17:00</code>, and a GPS directory with version 2.3.0.0, <code>N</code> 65° 36′ 39.6″ and <code>W</code> 19° 30′ 18″. The XMP packet holds the caption, the tags, the place mirror (<code>65,36.66N</code>, <code>19,30.3W</code>), the date mirror and <code>xmp:MetadataDate</code>, followed by 2 KiB of padding. The IPTC block holds 1:90 (UTF-8), 2:00 RecordVersion, three 2:25 keywords, the 2:120 caption, and the digest resource. The photo was also starred, but no <code>xmp:Rating</code> appears: "Write stars as ratings" is off by default.</p>
+<p>A place or a date alone never starts a new XMP packet; they go into XMP only as mirrors of a packet that exists or is being started for a caption, tags or a rating in the same write. In the run above the packet was started for the caption and tags, so it got the place and date too. Writing the same values twice produces the same bytes.</p>
+
+<h3>Other containers and their limits</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Format</th><th>Read</th><th>Written</th></tr></thead>
+<tbody>
+<tr><td>JPEG</td><td>EXIF, XMP (and extended XMP), IPTC, ICC, MPF</td><td>XMP, IPTC and EXIF; extended XMP is never written</td></tr>
+<tr><td>PNG</td><td><code>eXIf</code>, XMP in <code>iTXt</code>, text chunks, raw profile texts</td><td>XMP as <code>iTXt</code>; EXIF for place and date; IPTC only into a raw profile the file already has</td></tr>
+<tr><td>WebP</td><td><code>EXIF</code> and <code>XMP </code> chunks</td><td>both chunks; a simple-format file is promoted to the extended format with the image chunk unchanged</td></tr>
+<tr><td>TIFF</td><td>IFD0, EXIF and GPS directories, XMP, IPTC</td><td>XMP and IPTC tags only, append-only; place and date only through the XMP mirrors</td></tr>
+<tr><td>HEIC, HEIF, AVIF, JPEG XL, PSD</td><td>embedded EXIF where the decoder exposes it</td><td>never: values stay in the folder sidecar</td></tr>
+<tr><td>RAW</td><td>embedded EXIF and XMP, and an <code>.xmp</code> sidecar</td><td>never into the RAW; an <code>.xmp</code> sidecar when enabled</td></tr>
+<tr><td>GIF, BMP, video</td><td>container dates where available</td><td>never</td></tr>
+</tbody>
+</table></div>
+<p>A JPEG's EXIF and standard XMP must each fit in one APP1 segment, 65,533 bytes including its header. If a change would push a block over, Dalíca first drops the packet's padding; if it still does not fit, the write fails with a toast naming the field and the sidecar keeps the value. Dalíca never drops another application's data to make room. In a phone photo with an MPF index (the table that finds the extra images stored after the main one), nothing after the index may change size: new segments always go before it, and a write that would still change the size of something after it is refused, naming the field.</p>
+<p>A TIFF is written <strong>append-only</strong>: nothing outside the first image directory's table and the old values of the XMP and IPTC tags changes or moves, so strips, tiles and maker notes keep their offsets. Because place and date reach a TIFF only through XMP mirrors, a TIFF whose place lives in EXIF is refused for that field before anything is written, with an error naming the field.</p>
+
+<h2 id="options">Turning it off</h2>
+<p>Each kind of write has its own option in Options, General, Files (and Options, People for names). With an option off, Dalíca still <strong>reads</strong> that field from files and imports it as usual, but never writes it. Your values stay in the folder sidecar either way.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Option</th><th>Stored as</th><th>Default</th><th>Controls</th></tr></thead>
+<tbody>
+<tr><td>Write captions, tags and places into photo files</td><td><code>files.writeCaptionsTagsPlaces</code></td><td>on</td><td>caption, tags and GPS place</td></tr>
+<tr><td>Write stars as ratings (XMP)</td><td><code>files.writeStarsAsRatings</code></td><td>off</td><td><code>xmp:Rating</code> 5 and 0</td></tr>
+<tr><td>Write date changes to files</td><td><code>files.writeDates</code></td><td>on</td><td>the EXIF dates and their XMP mirrors</td></tr>
+<tr><td>Write XMP sidecars for RAW files</td><td><code>files.writeRawXmpSidecars</code></td><td>off</td><td><code>.xmp</code> files beside RAWs</td></tr>
+<tr><td>Update file modification time on metadata changes</td><td><code>files.updateModificationTime</code></td><td>off</td><td>whether a write leaves a new file time</td></tr>
+<tr><td>Store people names in photos</td><td><code>people.storeNamesInPhotos</code></td><td>off</td><td>MWG face regions</td></tr>
+</tbody>
+</table></div>
+<p>Turning an option on writes nothing by itself: the next change of a field writes it. Read-only files and offline volumes are never written whatever the options say; their values stay in the sidecar, and writes for an offline volume wait until it returns.</p>
+<div class="note"><p><b>Why the file time stays:</b> many people sort or back up by modification time. A caption should not make a ten-year-old photo look like it was taken today, so by default the old time is put back after the rename.</p></div>
+
+<h2 id="conflicts">When the sidecar and the file disagree</h2>
+<p>Two copies of the same fact can drift apart: you edit a caption in another program, or a sync tool brings back an older file. Dalíca resolves each field on its own with three values: the file's value, Dalíca's value, and the <strong>last-synced hash</strong>, a 64-bit FNV-1a hash of the value as it was last read from or written to the file, kept per photo and per field in the index. (Tags hash as a set, since order in an XMP bag means nothing; a place hashes to the micro-degree; a date as its ISO text.)</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Situation</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>File and Dalíca agree</td><td>nothing to do</td></tr>
+<tr><td>First scan: the photo has no entry in its folder sidecar yet</td><td>every value in the file is imported (this is how captions, tags, places, dates, ratings of 5 and named faces from other programs arrive)</td></tr>
+<tr><td>The file still matches the last sync; Dalíca's value changed</td><td>Dalíca's value is written (if its option is on)</td></tr>
+<tr><td>Dalíca's value still matches the last sync; the file changed</td><td>another application edited it: the file's value is imported as one undoable step, "Import Metadata", and nothing is written back</td></tr>
+<tr><td>Both changed since the last sync</td><td>Dalíca's value is kept and written, and Properties notes that the value was changed in another application and Dalíca's was kept</td></tr>
+<tr><td>No last-synced hash (the index was rebuilt)</td><td>the sidecar wins and is written on the next write of that field</td></tr>
+</tbody>
+</table></div>
+<p>Two exceptions protect data. A date is never removed from a file: if Dalíca has no date, the file's date stays. And a place you removed (stored as <code>"geo": null</code>) is never brought back by a file that still has GPS. A place another application changed follows the file with no undo step, since bringing it in changes nothing you set.</p>
+<p>A field whose write option is off may legitimately differ from the file forever; the rules then only decide what Dalíca shows. Rescans only look at a file again when its size or modification time changed, which is why Dalíca records the size and time its own write left: otherwise every write would look like an outside edit.</p>
+
+<h2 id="date-taken">Which date is "date taken"</h2>
+<p>A photo's date decides where it sorts, which year it falls under and what the timeline shows, so Dalíca is careful about where it comes from. The date you see is the first of these that exists:</p>
+
+<figure class="wide">
+<svg viewBox="0 0 880 300" role="img" aria-label="Order of sources for the date taken. First, a date you set in Dalíca, stored in the folder sidecar. Then, from the file: EXIF DateTimeOriginal with its offset and sub-seconds; XMP exif:DateTimeOriginal; XMP photoshop:DateCreated; XMP xmp:CreateDate; IPTC 2:55 date plus 2:60 time; and finally the file's modification time, flagged date from file.">
+  <g stroke="#fe8019" stroke-width="2" fill="#3c2a1e"><rect x="30" y="20" width="820" height="44" rx="8"/></g>
+  <g stroke="none" fill="#ebdbb2" font-size="13"><text x="46" y="47">0. A date you set or shifted in Dalíca: "date" in .dalica.json (overrides everything below)</text></g>
+  <g stroke="#504945" stroke-width="1.5" fill="#32302f">
+    <rect x="30" y="100" width="240" height="60" rx="8"/>
+    <rect x="320" y="100" width="240" height="60" rx="8"/>
+    <rect x="610" y="100" width="240" height="60" rx="8"/>
+    <rect x="610" y="210" width="240" height="60" rx="8"/>
+    <rect x="320" y="210" width="240" height="60" rx="8"/>
+    <rect x="30" y="210" width="240" height="60" rx="8"/>
+  </g>
+  <g stroke="#8ec07c" stroke-width="2" fill="none">
+    <path d="M150 64 V96"/><path d="M144 88 L150 97 L156 88"/>
+    <path d="M272 130 H316"/><path d="M308 124 L317 130 L308 136"/>
+    <path d="M562 130 H606"/><path d="M598 124 L607 130 L598 136"/>
+    <path d="M730 162 V206"/><path d="M724 198 L730 207 L736 198"/>
+    <path d="M608 240 H564"/><path d="M572 234 L563 240 L572 246"/>
+    <path d="M318 240 H274"/><path d="M282 234 L273 240 L282 246"/>
+  </g>
+  <g stroke="none" fill="#fe8019" font-size="13" font-weight="600">
+    <text x="44" y="124">1. EXIF</text>
+    <text x="334" y="124">2. XMP</text>
+    <text x="624" y="124">3. XMP</text>
+    <text x="624" y="234">4. XMP</text>
+    <text x="334" y="234">5. IPTC</text>
+    <text x="44" y="234">6. The file system</text>
+  </g>
+  <g stroke="none" fill="#ebdbb2" font-size="12">
+    <text x="44" y="146">DateTimeOriginal + offset, sub-sec</text>
+    <text x="334" y="146">exif:DateTimeOriginal</text>
+    <text x="624" y="146">photoshop:DateCreated</text>
+    <text x="624" y="256">xmp:CreateDate</text>
+    <text x="334" y="256">2:55 DateCreated + 2:60 Time</text>
+    <text x="44" y="256">modification time, "date from file"</text>
+  </g>
+</svg>
+<figcaption>The order Dalíca uses for the date taken. Your own correction comes first, then the camera's EXIF value, the XMP copies, IPTC, and only as a last resort the file's modification time, which Properties marks "date from file".</figcaption>
+</figure>
+
+<p>The scan reads the EXIF DateTimeOriginal straight from the photo's header and keeps it as the <em>file's date</em>. Where the full metadata read finds a different answer (for example a photo whose only date is in XMP), that answer becomes the photo's date, recorded as a date of Dalíca's because it differs from the header's. Offsets from UTC (OffsetTimeOriginal, or the zone in an ISO 8601 XMP date) are accepted up to ±18 hours, fractions of a second up to nine digits. A malformed date, such as the <code>0000:00:00 00:00:00</code> some cameras write when their clock was never set, counts as no date.</p>
+
+<h3>What the date commands change</h3>
+<p>Adjust Date and Time runs one command, <code>photo.dates.set</code>, in one of two forms: <strong>shift</strong> every selected photo by the same number of seconds from its own effective date, or <strong>set</strong> them all to one date and time. The new value is stored as your date in the folder sidecar (<code>"date"</code>); the file's own date is kept beside it. A new date equal to the file's own date clears your date instead, so shifting forward and back again leaves nothing behind. All photos change in one undo step and re-sort at once.</p>
+<p>With "Write date changes to files" on, the write-back then puts the date into the file: EXIF DateTimeOriginal and DateTimeDigitized both get it, the file's existing offset from UTC is kept (it is the camera's time zone), and the sub-second fraction is dropped because Dalíca's dates are to the second. The XMP mirrors <code>exif:DateTimeOriginal</code>, <code>photoshop:DateCreated</code> and <code>xmp:CreateDate</code> are updated when the file already has them. Once that write lands and the file is scanned again, the file's own date equals yours. Undo then sets the old date back and the write-back puts the old date back in the file, so undo works whether or not the write had happened yet.</p>
+
+<h2 id="raw-xmp">XMP sidecars for RAW files</h2>
+<p>Dalíca never modifies a RAW file. With "Write XMP sidecars for RAW files" on, the owned fields of a RAW go into an XMP file next to it instead.</p>
+<ul>
+<li><strong>Name.</strong> <code>&lt;stem&gt;.xmp</code> (<code>IMG_0001.CR3</code> gets <code>IMG_0001.xmp</code>), the name most applications use. Reading also accepts <code>IMG_0001.CR3.xmp</code> and an upper-case <code>.XMP</code>, and an existing sidecar is written back under its own name. In a RAW+JPEG pair the stem sidecar belongs to the RAW; the JPEG keeps its metadata inside itself. When several RAWs share a stem, the one named exactly the stem gets <code>&lt;stem&gt;.xmp</code> (else the first by name) and the others use <code>&lt;file&gt;.xmp</code>, so two photos never share a sidecar. Names are compared without case.</li>
+<li><strong>Merge.</strong> An existing sidecar is merged into exactly like a packet inside a photo: raw converters' develop settings, history and every other namespace stay byte for byte. A new sidecar starts as a copy of the XMP embedded in the RAW (a DNG has one), so the sidecar once created is the RAW's whole XMP; otherwise it starts as a plain <code>x:xmpmeta</code> document without wrapper or padding. A write that changes nothing creates no sidecar.</li>
+<li><strong>Reading</strong> happens on every scan whatever the option says. The sidecar replaces the embedded packet as a whole rather than field by field, so a value cleared in the sidecar stays cleared. The RAW's own EXIF still comes first for date and place.</li>
+<li><strong>Damage.</strong> A sidecar that is not well-formed XMP is kept aside as <code>&lt;name&gt;.xmp.corrupt-&lt;time&gt;</code> and a new one is written on the next write; meanwhile the embedded XMP is read. A blank one counts as none. One that cannot be read at all (permissions) is left alone and the write fails.</li>
+<li><strong>Moving.</strong> Moving, copying or renaming a RAW inside Dalíca takes its sidecar along, renamed to match, and undo brings it back. A sidecar name already taken at the destination is never overwritten. Deleting a RAW leaves its <code>.xmp</code> where it is: the trash takes only what you chose.</li>
+</ul>
+
+<h2 id="face-regions">Named faces in files (MWG regions)</h2>
+<p>Most photo applications store named faces in the Metadata Working Group region schema, <code>mwg-rs:Regions</code>. Dalíca reads it always and writes it only with "Store people names in photos" on (or once, for a selection, with Tools, Experimental, Write People Names to Photos..., which asks first).</p>
+<h3>Reading</h3>
+<p>Entries of type <code>Face</code> become face rectangles, and a <code>mwg-rs:Name</code> becomes a person (matched to an existing person by name ignoring case, else created; an unnamed entry goes to Unnamed). The area <code>stArea:x</code>, <code>y</code> is the box center and <code>w</code>, <code>h</code> its size, normalized to the photo. Areas in pixels are divided by <code>mwg-rs:AppliedToDimensions</code> and skipped without it, as are points, circles and boxes with no positive size. Boxes are clipped to the photo. Entries of other types (pets, focus areas, barcodes) are kept in the file and ignored. Only the first top-level region list counts, and at most 256 faces are read.</p>
+<p>Regions describe the upright photo, the same frame Dalíca's sidecar uses, so they need no conversion, with one exception. Some applications give the box in the sensor's frame and say so with <code>mwg-rs:Rotation</code>. Dalíca turns such a box back to upright:</p>
+<div class="table-wrap"><table>
+<thead><tr><th><code>mwg-rs:Rotation</code></th><th>EXIF orientation it goes with</th><th>Upright box from (x, y, w, h)</th></tr></thead>
+<tbody>
+<tr><td>-π/2</td><td>6</td><td>(1 - y, x, h, w)</td></tr>
+<tr><td>+π/2</td><td>8</td><td>(y, 1 - x, h, w)</td></tr>
+<tr><td>±π</td><td>3</td><td>(1 - x, 1 - y, w, h)</td></tr>
+</tbody>
+</table></div>
+<p>The angle is taken modulo 2π to within 0.05 radians; any other angle, and mirrored orientations, are taken as written.</p>
+<p>On a photo's first scan the file's faces become its faces when the folder sidecar gives it none. Later, when a known photo's file changes, faces in the file that overlap none of the photo's faces come in. Both arrive with no undo step and are never written back.</p>
+<h3>Writing</h3>
+<p>Only <strong>named</strong> faces are written; unnamed and ignored faces never are. Each named face takes the existing <code>Face</code> entry that overlaps it with an intersection-over-union of at least 0.5 (one already carrying its name first, then the closest). A matched entry keeps every other field byte for byte and gets Dalíca's name and box only where they differ (boxes compared to within 10<sup>-5</sup>), written in the entry's own unit and rotation. Unmatched named faces are appended with a normalized area. Readable face entries with no counterpart are removed, because Dalíca imports anything new before every write, so such an entry is a face you removed or ignored. Face entries Dalíca cannot read were never imported, so they stay. <code>mwg-rs:AppliedToDimensions</code> is kept when present and added (the upright pixel size) when missing. At most 256 faces are written, and writing the same faces again changes nothing.</p>
+<p>The library keeps no last-synced hash for faces, so a new face from another application is detected by overlap instead: a write knows every rectangle the photo had before and after your change, and a file holding a face entry none of them overlaps is not written over. That face is imported first, and the write is made again.</p>
+<div class="note"><p><b>Privacy:</b> names are personal data that travel with a file when you share it. That is why writing them is off by default. Face recognition data itself (embeddings) never goes into a photo file.</p></div>
+
+<h2 id="classic-sidecars">Sidecars left by the classic organizer</h2>
+<p>Folders managed by the classic folder-based organizer often contain a hidden per-folder INI file of its own, and sometimes a hidden originals directory. They can hold years of stars, captions, rotations, crops, edit lists, face rectangles, person names, album memberships and album definitions. Dalíca reads them so that this work is not lost, and <strong>never writes them</strong>: not modified, renamed, set aside or deleted, so you can still run the old program on the same folders.</p>
+<h3>When it is read</h3>
+<p>During every scan, automatically; there is no import step. The setting "Read photo data left by the previous organizer" (Options, General, Files, on by default) turns it off, and toggling it rescans so the data leaves or returns without anything being written.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Folder contains</th><th>Dalíca reads</th><th>Dalíca writes on your first change</th></tr></thead>
+<tbody>
+<tr><td>neither file</td><td>nothing</td><td>a new <code>.dalica.json</code></td></tr>
+<tr><td>only the legacy file</td><td>the legacy file, converted in memory</td><td>a new <code>.dalica.json</code> holding the full converted data plus the change</td></tr>
+<tr><td>only <code>.dalica.json</code></td><td><code>.dalica.json</code></td><td><code>.dalica.json</code></td></tr>
+<tr><td>both</td><td><code>.dalica.json</code> only</td><td><code>.dalica.json</code></td></tr>
+</tbody>
+</table></div>
+<p>A scan alone never writes into a legacy-only folder. The first <code>.dalica.json</code> appears with your first change there, and it carries everything the legacy file held for the folder, not just the photo you changed. Dalíca prints it, parses it back and checks it says the same before committing it with an operation that cannot replace an existing file; if a <code>.dalica.json</code> appeared in the meantime (made by another program or a sync tool), that file wins and the folder is read again from it. From then on the folder reads <code>.dalica.json</code>, and later changes the old program makes to its own file are not picked up.</p>
+<h3>What is read, and how</h3>
+<ul>
+<li><strong>Per photo:</strong> star, hidden flag, caption, tags, rotation, mirror flag, crop, the edit list and its redo list, faces with their person, album memberships and the geotag. Sections are matched to files by exact name, else ignoring case when that matches exactly one.</li>
+<li><strong>Per folder:</strong> description, date, place and whether it was hidden; album definitions; and the names of the contacts its faces point to (from the folder's own file, then its ancestors').</li>
+<li><strong>Edits</strong> are mapped to Dalíca operations where an equivalent exists, with parameters converted linearly from the old control's range. Anything without a confident equivalent is kept verbatim as a <code>legacy:&lt;name&gt;(...)</code> entry in its place in the recipe, so the order is preserved and nothing after it is lost; the edit panel shows how many such entries a photo has. Rotation and mirror become the first operations of the recipe, and only the last crop of the list is carried.</li>
+<li><strong>Faces</strong> in the legacy file are stored in the photo's raw pixel frame, so they are turned through the photo's EXIF orientation into Dalíca's upright frame.</li>
+<li><strong>Albums and people</strong> become Dalíca albums and people, matched by their legacy id, so the same album seen in many folders is one album. A person is found by that id, else by name ignoring case, else created.</li>
+<li><strong>The legacy originals directory</strong> is recognized and offered as the original for Revert and Undo Save. Dalíca copies the original back from it and never writes into it or removes anything from it.</li>
+</ul>
+<p>The reader is bounded like every reader of outside input: the file at most 64 MiB, a line at most 1 MiB, at most 1,000,000 sections and 1,000 keys in a section. A file over a limit is reported and skipped whole. Text is read as UTF-8 when the file says so and as Windows-1252 otherwise; a value with bytes that do not decode is left out, so mangled text never reaches a file Dalíca writes.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li>docs/xmp-interop.md (fields, ownership, containers, conflicts, MWG regions, RAW sidecars)</li>
+<li>docs/data-model.md §2 (where each piece of data lives), §5 (writing metadata), §9 (legacy sidecars)</li>
+<li>crates/meta/src/fields.rs (precedence rules, date parsing, text cleaning)</li>
+<li>crates/meta/src/exif/read.rs (camera placeholders), crates/meta/src/exif/edit.rs, crates/meta/src/iptc/write.rs</li>
+<li>crates/meta/src/xmp/merge.rs, crates/meta/src/xmp/regions.rs, crates/meta/src/xmp_sidecar.rs</li>
+<li>crates/meta/src/write/mod.rs (write_owned, verify), crates/meta/src/write/jpeg.rs, png.rs, webp.rs, tiff.rs</li>
+<li>crates/store/src/metawrite.rs and crates/store/src/metawrite/file.rs (the queue, debounce, retry, one write)</li>
+<li>crates/library/src/sync.rs (last-synced hashes and the conflict decision)</li>
+<li>crates/scan/src/meta.rs (what a scan imports), crates/scan/src/legacy.rs, crates/sidecar/src/legacy.rs, crates/edit/src/legacy.rs</li>
+<li>crates/engine/src/metadata.rs, crates/engine/src/settings.rs (MetadataWrites), crates/engine/src/cmd/dates.rs, crates/engine/src/cmd/face_regions.rs, crates/engine/src/legacy.rs</li>
+</ul>

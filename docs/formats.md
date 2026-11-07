@@ -279,7 +279,7 @@ allocated (and again after orientation swaps width and height):
 |---|---|---|
 | Width or height | ≤ 65,535 px (JPEG's own maximum) for full decodes; an absolute ceiling of 262,144 px applies to header reads | no real photo is larger; panoramas up to the JPEG maximum still open |
 | Pixels for a full decode | ≤ 2^30 (1,074 MP; `Limits::max_pixels`, as in `security.md` §4.2) | covers stitched panoramas and medium-format files |
-| Allocation per decode | ≤ min(the codec default, half the memory budget) — the budget is RAM/4 clamped 256 MiB–1.5 GiB (`architecture.md` §5) | a single file can never take the whole budget |
+| Allocation per decode | ≤ 1.5 GiB of pixel buffers (decoded samples and the 8-bit output together; `Limits::max_alloc`, a fixed value, not scaled by RAM; `architecture.md` §5), every buffer reserved fallibly through one `Budget` | a single file can never take more; past it the decode is "too large", never an abort |
 | Source pixels for a thumbnail from a decoder that cannot scale | ≤ 64 MP (the same default as LightCraft); past it a TIFF takes the reduced decode of §5.1 and a lossy WebP its scaled decode | non-JPEG decoders allocate at full size before resizing |
 | PNG text and XMP chunks | bounded by the allocation limit | |
 | ICC profile | ≤ 16 MiB after APP2 reassembly or `iCCP` inflation; ≤ 1,000 tags; the tag table inside the data; `moxcms`' own caps on lookup-table and curve sizes (`security.md` §4.2) | a profile is parsed before any of its numbers are trusted |

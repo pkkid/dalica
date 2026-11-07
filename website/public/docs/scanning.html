@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanning and watching · Dalíca guide</title>
+<meta name="description" content="Dalíca learns what is in your folders by scanning them, and keeps up with changes by watching them. This chapter follows a scan from the first directory listing to the first thumbnail, explains why none of it ever makes the window wait, and shows how a folder renamed while Dalíca was closed comes back with its stars.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html" aria-current="page">Scanning and watching</a>
+    <a href="thumbnails.html">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html">Edits are recipes</a>
+    <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Scanning and watching</h1>
+<p class="lede">Dalíca learns what is in your folders by scanning them, and keeps up with changes by watching them. This chapter follows a scan from the first directory listing to the first thumbnail, explains why none of it ever makes the window wait, and shows how a folder renamed while Dalíca was closed comes back with its stars.</p>
+
+<h2 id="what-a-scan-does">What a scan does</h2>
+<p>A scan answers one question: what photos are in this folder now, and how does that differ from what the library knows? Because Dalíca shows your real files rather than copies, it has to look. It scans when you add a folder, when the watcher says something changed, on a regular verification schedule, and when you ask for a rebuild. Scanning never copies, moves or changes a photo.</p>
+<figure>
+<svg viewBox="0 0 680 470" role="img" aria-label="The scan pipeline. On the scan's own thread: walk a folder at a time, recognize each file by its content, read its header inside a guard, read the folder's sidecar and the metadata of new or changed photos, then hand the folder out. On the owner thread: diff against the library and apply at most 500 photos per frame, journaled to the index. On pool workers: one decode per photo makes the 256 and 128 thumbnails and the color sketch; the images go to the thumbnail cache and the sketch back to the index.">
+  <defs><marker id="sa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#fe8019"/></marker></defs>
+  <text x="20" y="20" fill="#fe8019" font-size="14">On the scan's own thread</text>
+  <g font-size="14" text-anchor="middle">
+    <rect x="20" y="30" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="120" y="56" fill="#ebdbb2" font-size="16" font-weight="bold">1. Walk</text>
+    <text x="120" y="76" fill="#d5c4a1">a folder at a time,</text>
+    <text x="120" y="94" fill="#d5c4a1">depth first, by name</text>
+    <rect x="240" y="30" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="340" y="56" fill="#ebdbb2" font-size="16" font-weight="bold">2. Recognize</text>
+    <text x="340" y="76" fill="#d5c4a1">by content, not name;</text>
+    <text x="340" y="94" fill="#d5c4a1">skip rules applied</text>
+    <rect x="460" y="30" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="560" y="56" fill="#ebdbb2" font-size="16" font-weight="bold">3. Header</text>
+    <text x="560" y="76" fill="#d5c4a1">size, orientation, date,</text>
+    <text x="560" y="94" fill="#d5c4a1">embedded thumbnail</text>
+    <rect x="460" y="124" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="560" y="150" fill="#ebdbb2" font-size="16" font-weight="bold">4. What is said</text>
+    <text x="560" y="170" fill="#d5c4a1">the sidecar; metadata of</text>
+    <text x="560" y="188" fill="#d5c4a1">new or changed photos</text>
+    <rect x="240" y="124" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="340" y="150" fill="#ebdbb2" font-size="16" font-weight="bold">Folder handed out</text>
+    <text x="340" y="170" fill="#d5c4a1">complete, as soon</text>
+    <text x="340" y="188" fill="#d5c4a1">as it is read</text>
+  </g>
+  <line x1="220" y1="67" x2="238" y2="67" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <line x1="440" y1="67" x2="458" y2="67" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <line x1="560" y1="104" x2="560" y2="122" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <line x1="460" y1="161" x2="442" y2="161" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <line x1="340" y1="198" x2="340" y2="242" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <text x="20" y="236" fill="#fe8019" font-size="14">On the owner thread, a little each frame</text>
+  <g font-size="14" text-anchor="middle">
+    <rect x="240" y="244" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="340" y="270" fill="#ebdbb2" font-size="16" font-weight="bold">5. Diff and apply</text>
+    <text x="340" y="290" fill="#d5c4a1">at most 500 photos</text>
+    <text x="340" y="308" fill="#d5c4a1">per frame</text>
+    <rect x="460" y="244" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="560" y="270" fill="#ebdbb2" font-size="16" font-weight="bold">Index journal</text>
+    <text x="560" y="290" fill="#d5c4a1">one synced record</text>
+    <text x="560" y="308" fill="#d5c4a1">per batch</text>
+  </g>
+  <line x1="440" y1="281" x2="458" y2="281" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <line x1="340" y1="318" x2="340" y2="362" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <text x="20" y="356" fill="#fe8019" font-size="14">On pool workers</text>
+  <g font-size="14" text-anchor="middle">
+    <rect x="240" y="364" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="340" y="390" fill="#ebdbb2" font-size="16" font-weight="bold">6. One decode</text>
+    <text x="340" y="410" fill="#d5c4a1">256, then 128,</text>
+    <text x="340" y="428" fill="#d5c4a1">then the sketch</text>
+    <rect x="460" y="364" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="560" y="390" fill="#ebdbb2" font-size="16" font-weight="bold">Thumbnail cache</text>
+    <text x="560" y="410" fill="#d5c4a1">the 128 and 256</text>
+    <text x="560" y="428" fill="#d5c4a1">entries, on disk</text>
+    <rect x="20" y="364" width="200" height="74" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="120" y="390" fill="#ebdbb2" font-size="16" font-weight="bold">Sketch</text>
+    <text x="120" y="410" fill="#d5c4a1">back to the index,</text>
+    <text x="120" y="428" fill="#d5c4a1">held in memory</text>
+  </g>
+  <line x1="440" y1="401" x2="458" y2="401" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <line x1="240" y1="401" x2="222" y2="401" stroke="#fe8019" stroke-width="1.5" marker-end="url(#sa)"/>
+  <text x="20" y="462" fill="#d5c4a1" font-size="13">The first folder's photos appear while the walk is still deep in the tree.</text>
+</svg>
+<figcaption>A scan's pipeline. Each folder is handed on as soon as it is read, so the first folder's photos appear while the walk is still deep in the tree.</figcaption>
+</figure>
+<ol class="steps-list">
+<li><strong>Walk.</strong> The scan lists one folder at a time through Dalíca's file layer, depth first, each folder before its subfolders, in name order. Walks are bounded: 32 levels deep and 1,000,000 entries at most, folder links followed only after the real tree, with loops detected; FIFOs and device files are never opened.</li>
+<li><strong>Recognize and skip.</strong> Every file is recognized by its first bytes, never by its name: a <code>.jpg</code> that holds a PNG is a PNG, and text named <code>.jpg</code> is nothing. Formats turned off in Options &gt; File Types are dropped (JPEG is always on). Dot-files and dot-folders are skipped, which covers Dalíca's own <code>.dalica-originals</code>, and so are recycle bins and volume bookkeeping (<code>$RECYCLE.BIN</code>, <code>lost+found</code>, <code>@eaDir</code> and others), operating-system folders at the top of a drive, other programs' photo libraries and preview caches (names ending in <code>.photoslibrary</code>, <code>.lrdata</code> and the like), and tool folders such as <code>node_modules</code>. Pictures smaller than 64 × 64 pixels are left out of the view unless View &gt; Small Pictures is on (the threshold is in Options &gt; File Types).</li>
+<li><strong>Read the header.</strong> For each photo, only the header: pixel size, orientation, the EXIF date, and where the embedded thumbnail is, if there is one. A video's container is probed for its frame size, duration and codec instead. Each read runs inside a guard: a time budget of 10 seconds, and any crash inside a decoder caught and turned into a failure for that file. Failures are remembered by path, size and modification time, so a broken file is not read again on the next scan unless it changes.</li>
+<li><strong>Read what is said about it.</strong> The folder's <code>.dalica.json</code> is read on the same thread (stars, captions, albums with their position keys, faces, places). For photos the library does not know at their current size and time, the metadata is read too (caption, tags, rating, place, date), along with the search facts (camera make and model, video, geotagged). Photos the library already knows at the same size and time are not read again.</li>
+<li><strong>Diff and apply.</strong> The folder's photos are compared with the library: new photos, removed ones, changed ones (a different size or modification time), and renames. The result is a list of changes applied by the thread that owns the library, at most 500 photos per frame, each batch journaled to the index. If anything else changed the library in between (you starred a photo while the scan ran), the folder is diffed again before its changes apply, so a scan never overwrites an edit you just made.</li>
+<li><strong>Make thumbnails.</strong> Each photo the scan adds or changes gets one background job that decodes it once to 256 pixels, shrinks that to 128, and makes the color sketch from the 128 image. The two images go to the thumbnail cache; the sketch goes back to the index. A photo whose entries are already cached is not decoded again.</li>
+</ol>
+<p>Anything Dalíca cannot read becomes a warning or a failure for that one file. A scan never fails as a whole.</p>
+
+<h2 id="never-blocks">Never blocking</h2>
+<p>Scans never stop or block you. The thread that owns the window never decodes an image, never touches the disk, and never waits on a lock held by a worker; in test builds, any file call made from that thread fails the test. Opening a library reads its index and shows it. Scans, rescans, the verification pass and thumbnails all run in the background, shown by the activity indicator.</p>
+
+<h3>The first screenful first</h3>
+<p>A big first scan could take minutes to make every thumbnail, but you only look at one screen at a time. So the cells on screen jump the queue: a visible cell raises its photo's scan job to the visible priority, and while that photo has nothing in memory yet, an even quicker job decodes the camera's embedded thumbnail and shows it at once when it is big enough for the cell. The proper downscale replaces it when its scan lands. Measured at the 1.1 review (2026-11-06), the first screenful of thumbnails appeared 117 ms after adding a folder of 1,000 JPEGs and 500 ms after adding one of 10,000, against a budget of 1 second.</p>
+
+<h3>One queue, ordered by what you are looking at</h3>
+<p>Thumbnail and preview work runs on a pool of worker threads: one fewer than your processor's cores, at least 2 and at most 8. Every job has a key (a photo and a size) and a priority, and the pool always runs the highest-priority job first, first come first served within one priority. A job submitted again with the same key is not queued twice: if it is still waiting, it just takes the higher of the two priorities. A cancelled job is never delivered, so prefetch the view has moved away from is dropped instead of finishing for nothing.</p>
+<figure>
+<svg viewBox="0 0 680 330" role="img" aria-label="Job priorities from highest to lowest: the edit view's main image 70, the photo under the pointer 60, the embedded thumbnail of a photo on screen 55, thumbnails on screen 50, the filmstrip 40, effect tiles 30, prefetch 20, background thumbnail generation 10.">
+  <g font-size="15">
+    <text x="20" y="18" fill="#d5c4a1" font-size="13">Priority</text>
+    <text x="20" y="48" fill="#ebdbb2">70</text><rect x="70" y="28" width="560" height="30" rx="4" fill="#fe8019"/><text x="82" y="48" fill="#1d2021">The edit view's main image</text>
+    <text x="20" y="84" fill="#ebdbb2">60</text><rect x="70" y="64" width="480" height="30" rx="4" fill="#fe8019" fill-opacity="0.85"/><text x="82" y="84" fill="#1d2021">The photo under the pointer</text>
+    <text x="20" y="120" fill="#ebdbb2">55</text><rect x="70" y="100" width="440" height="30" rx="4" fill="#fabd2f"/><text x="82" y="120" fill="#1d2021">Embedded thumbnail, photo on screen</text>
+    <text x="20" y="156" fill="#ebdbb2">50</text><rect x="70" y="136" width="400" height="30" rx="4" fill="#fabd2f" fill-opacity="0.85"/><text x="82" y="156" fill="#1d2021">Thumbnails on screen</text>
+    <text x="20" y="192" fill="#ebdbb2">40</text><rect x="70" y="172" width="320" height="30" rx="4" fill="#83a598"/><text x="82" y="192" fill="#1d2021">Filmstrip</text>
+    <text x="20" y="228" fill="#ebdbb2">30</text><rect x="70" y="208" width="240" height="30" rx="4" fill="#83a598" fill-opacity="0.8"/><text x="82" y="228" fill="#1d2021">Effect tiles</text>
+    <text x="20" y="264" fill="#ebdbb2">20</text><rect x="70" y="244" width="160" height="30" rx="4" fill="#504945"/><text x="82" y="264" fill="#ebdbb2">Prefetch</text>
+    <text x="20" y="300" fill="#ebdbb2">10</text><rect x="70" y="280" width="80" height="30" rx="4" fill="#504945" fill-opacity="0.7"/><text x="162" y="300" fill="#ebdbb2">Background thumbnail generation</text>
+  </g>
+</svg>
+<figcaption>The pool's priorities. A scan's thumbnail jobs start at the bottom and move up when their photo comes on screen. A video's poster runs one step below a photo at the same priority, so a folder's photos fill first.</figcaption>
+</figure>
+
+<h3>Prefetch follows your scrolling</h3>
+<p>Around the visible cells, Dalíca loads the cells you are about to see. When the view stands still, that is one screen on each side, alternating. When it moves, it is one screen plus 0.75 seconds of travel at the current speed ahead (at most four screens), then half a screen behind. Scrolling faster reaches further ahead.</p>
+<figure>
+<svg viewBox="0 0 680 200" role="img" aria-label="A strip of cells: half a screen behind the visible screen, the visible screen, then one screen ahead plus 0.75 seconds of travel at the current speed, at most four screens ahead in all.">
+  <line x1="190" y1="20" x2="380" y2="20" stroke="#fe8019" stroke-width="2"/>
+  <polygon points="380,14 392,20 380,26" fill="#fe8019"/>
+  <text x="402" y="25" fill="#d5c4a1" font-size="14">scroll direction</text>
+  <rect x="10" y="40" width="90" height="66" rx="4" fill="#32302f" stroke="#504945"/>
+  <rect x="100" y="40" width="170" height="66" rx="4" fill="#fe8019" fill-opacity="0.22" stroke="#fe8019" stroke-width="2"/>
+  <rect x="270" y="40" width="170" height="66" rx="4" fill="#32302f" stroke="#83a598" stroke-width="1.5"/>
+  <rect x="440" y="40" width="160" height="66" rx="4" fill="#32302f" stroke="#83a598" stroke-dasharray="5 4"/>
+  <rect x="600" y="40" width="70" height="66" rx="4" fill="#282828" stroke="#504945" stroke-dasharray="3 4"/>
+  <g font-size="14" text-anchor="middle">
+    <text x="55" y="78" fill="#ebdbb2">½ screen</text>
+    <text x="185" y="78" fill="#ebdbb2" font-weight="bold">visible</text>
+    <text x="355" y="78" fill="#ebdbb2">1 screen</text>
+    <text x="520" y="70" fill="#ebdbb2">+ 0.75 s</text>
+    <text x="520" y="90" fill="#d5c4a1">of travel</text>
+    <text x="635" y="78" fill="#d5c4a1">later</text>
+    <text x="55" y="128" fill="#d5c4a1">behind</text>
+    <text x="435" y="128" fill="#d5c4a1">ahead, nearest first, 4 screens at most</text>
+  </g>
+  <text x="10" y="166" fill="#d5c4a1" font-size="14">The faster you scroll, the further ahead it reaches.</text>
+  <text x="10" y="188" fill="#d5c4a1" font-size="14">Standing still: one screen on each side, alternating.</text>
+</svg>
+<figcaption>What the prefetch loads while you scroll, in the order it asks for it.</figcaption>
+</figure>
+<p>The results come back the same way. Each frame applies at most 256 finished jobs, so a flood of finished thumbnails cannot make one frame long. If more than 96 MiB of scan images are on their way to the owner thread, scans send only their sketches until it catches up.</p>
+
+<h2 id="watching">Watching for changes</h2>
+<p>Dalíca has two ways of noticing that something changed on disk without you telling it: the watcher, which is fast but can miss things, and the verification pass, which is slow but complete. The rule is <strong>events are hints, verification is the truth</strong>.</p>
+<h3>The watcher</h3>
+<p>The watcher runs on its own thread and subscribes to the operating system's change notifications for your Scan Always folders. Where those cannot be had (network shares, a system out of watch slots, a root that disappeared), a poller written in Rust sweeps the folder instead. Changes are debounced on Dalíca's clock: a folder is reported dirty after 500 ms without further changes, or 5 seconds after the first change at the latest, so copying 2,000 photos into a folder produces a handful of rescans, not 2,000. Up to 4,096 dirty folders are queued; past that, the deepest folders fold into their parents, so nothing is dropped.</p>
+<p>Each dirty folder gets a rescan: only that folder, or a new or renamed folder with its subtree, never the whole library. Rescans wait while a full scan runs (it will see the same changes) and while Dalíca itself is writing files (a Save, an export, a move), so a rescan never reads half of Dalíca's own writes. Dalíca's own writes record their results in the library before any rescan reads them, so the watcher never imports Dalíca's own moves as foreign changes.</p>
+<h3>The verification pass</h3>
+<p>The verification pass rescans each watched unit whole: 6 hours after a scan last walked it, 60 seconds after the session's first frame for units no scan has walked since Dalíca opened (this is what catches changes made while it was closed), and a minute later again if a unit could not be walked because its drive was offline. With the watcher switched off, the verification pass alone still finds every change.</p>
+
+<h3>Scan Always, Scan Once, and inheritance</h3>
+<p>Each folder in the Folder Manager is set to one of three modes, or inherits one:</p>
+<dl class="terms">
+<dt>Scan Always</dt><dd>Indexed, watched, and verified on the schedule above.</dd>
+<dt>Scan Once</dt><dd>Indexed once, then frozen: the verification pass never walks it again, and no watcher is set on it. Meant for removable or slow media, such as an archive drive you plug in now and then. Switching it to Scan Always scans it again.</dd>
+<dt>Remove from Dalíca</dt><dd>Not indexed. Nothing on disk changes; the folder's photos and sidecars stay exactly as they are.</dd>
+</dl>
+<p>A folder's effective mode is that of its nearest ancestor (itself included) that sets one; a folder with no setting above it is not indexed. Each folder that sets Scan Always or Scan Once is a <em>unit</em>: it owns its subtree minus the folders inside it that set a mode of their own. A scan walks one unit's region at a time and never enters a folder inside it that has its own setting. The "Find faces in this folder" flag inherits the same way and is on when nothing sets it.</p>
+<figure>
+<svg viewBox="0 0 680 300" role="img" aria-label="A folder tree. Pictures is set to Scan Always and forms one unit with Trips, Kyoto and Cape May, which inherit it. Archive drive is set to Scan Once and is its own unit, walked once and then frozen. Screenshots is set to Remove and is not indexed.">
+  <rect x="10" y="10" width="660" height="150" rx="8" fill="#fe8019" fill-opacity="0.07" stroke="#fe8019" stroke-dasharray="6 4"/>
+  <rect x="10" y="172" width="660" height="56" rx="8" fill="#83a598" fill-opacity="0.08" stroke="#83a598" stroke-dasharray="6 4"/>
+  <g font-size="15" font-family="monospace">
+    <text x="24" y="42" fill="#ebdbb2">Pictures/</text>
+    <text x="54" y="74" fill="#ebdbb2">Trips/</text>
+    <text x="84" y="106" fill="#ebdbb2">Kyoto/</text>
+    <text x="84" y="138" fill="#ebdbb2">Cape May/</text>
+    <text x="54" y="206" fill="#ebdbb2">Archive drive/</text>
+    <text x="54" y="266" fill="#a89984">Screenshots/</text>
+  </g>
+  <g font-size="14">
+    <text x="230" y="42" fill="#fe8019">Scan Always, set</text>
+    <text x="230" y="74" fill="#d5c4a1">Scan Always, inherited</text>
+    <text x="230" y="106" fill="#d5c4a1">Scan Always, inherited</text>
+    <text x="230" y="138" fill="#d5c4a1">Scan Always, inherited</text>
+    <text x="230" y="206" fill="#83a598">Scan Once, set</text>
+    <text x="230" y="266" fill="#fb4934">Remove, set</text>
+    <text x="440" y="42" fill="#ebdbb2">Unit 1: watched,</text>
+    <text x="440" y="62" fill="#ebdbb2">verified every 6 h</text>
+    <text x="440" y="92" fill="#d5c4a1">its walk never enters</text>
+    <text x="440" y="112" fill="#d5c4a1">Archive drive or</text>
+    <text x="440" y="132" fill="#d5c4a1">Screenshots</text>
+    <text x="440" y="198" fill="#ebdbb2">Unit 2: walked once,</text>
+    <text x="440" y="218" fill="#ebdbb2">then frozen</text>
+    <text x="440" y="266" fill="#d5c4a1">not indexed; files untouched</text>
+  </g>
+</svg>
+<figcaption>Modes and units. Each dashed box is a unit that one scan walks on its own. The folders under Pictures that set nothing take its mode.</figcaption>
+</figure>
+<p>A change in the Folder Manager is one undo step. Folders that are no longer indexed leave the library (their files and sidecars are untouched), and regions that became indexed are scanned in the background. Undo puts back both the settings and the folders with their photos, ids and stars. Setting a whole drive or your home folder to Scan Always asks first, because it can fill the library with icons and screenshots.</p>
+
+<h2 id="closing">Closing mid-scan and coming back</h2>
+<p>Closing Dalíca in the middle of a scan is safe and prompt: closing never waits for a walk to end. Every running scan and rescan is let go the way Cancel lets it go:</p>
+<ul>
+<li>The walk stops before its next file.</li>
+<li>The folder being applied is finished; folders read but not yet applied are dropped.</li>
+<li>Nothing is removed. Only a scan that walked a folder to the end may take photos out of the library, so a stopped scan never deletes what it did not get to see.</li>
+<li>What was already applied is in the index journal, synced to disk.</li>
+</ul>
+<p>At the next start, Dalíca opens from its index at once, and the verification pass walks every unit 60 seconds after the first frame. That walk finds whatever the stopped scan did not reach, and everything that changed while Dalíca was closed.</p>
+
+<h3>Changes other programs made while Dalíca was closed</h3>
+<p>The verification pass compares each file's size and modification time with what the index recorded. A changed photo has its header read again, and its thumbnails are made again (its cache key includes its size and time, so the old entries simply stop matching). Its metadata is read too, and compared field by field with what Dalíca last synced:</p>
+<ul>
+<li>A field changed in the file while Dalíca's value stayed the same is imported, as one undoable step named "Import from Files".</li>
+<li>A field changed on both sides keeps Dalíca's value, and the photo's Properties notes the conflict.</li>
+<li>A photo Dalíca has nothing for takes every value its file has, with no undo step.</li>
+</ul>
+
+<h3>A rename while closed, tried</h3>
+<p>To see this in action, a library was made for this guide that watches a folder <code>Trips</code> holding <code>Kyoto</code> and <code>Cape May</code>, 11 photos in all. Photo 9, <code>Kyoto/DSC_4410.jpg</code>, was starred and put first in an album called Gates. Then, with Dalíca closed, the folder was renamed to <code>Kyoto 2024</code> and the photo to <code>Gate.jpg</code>, both from the shell. Dalíca was then started headless and left alone:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Time after start</th><th>What happened</th></tr></thead>
+<tbody>
+<tr><td>0 s</td><td>The library opened from its index, still showing <code>Kyoto/DSC_4410.jpg</code>.</td></tr>
+<tr><td>60 s</td><td>The verification pass walked <code>Trips</code>: "Scan finished: 11 pictures", 2 folders.</td></tr>
+<tr><td>After it</td><td>Photo 9 is <code>Kyoto 2024/Gate.jpg</code>: same id, still starred, still first in Gates.</td></tr>
+</tbody></table></div>
+<p>The folder's sidecar had moved with the folder, so its data was simply there. The file rename was recognized because a photo disappeared and another appeared in the same folder with the same size and modification time; the album key <code>a0</code> moved to the new name's entry. The old entry was not deleted, it was marked:</p>
+<pre><code>"dalica": {
+  <span class="k">"missing"</span>: { <span class="k">"DSC_4410.jpg"</span>: <span class="s">"2026-11-07T03:41:08Z"</span> },
+  <span class="k">"version"</span>: <span class="n">1</span>
+},</code></pre>
+
+<h2 id="moves">Offline drives, moves and renames</h2>
+<h3>How stars survive renames and moves</h3>
+<p>Stars, captions and everything else follow a photo by three mechanisms, depending on what moved:</p>
+<dl class="terms">
+<dt>A file renamed in place</dt><dd>A photo gone and a photo new in the same folder, with the same size and modification time, is a rename. The photo keeps its id, its star and everything else the library says about it.</dd>
+<dt>A folder renamed or moved</dt><dd>Recognized by its photos: a folder at an unknown path holding most of a vanished folder's photos (by size and modification time) is that folder, moved. It keeps its folder and photo ids, stars, sketches, captions, tags, recipes, dates, album memberships and covers, and its sort. When the move crosses from one watched unit to another, the folder found gone is kept in the library until every running scan's walk is over, so the two halves can still pair up.</dd>
+<dt>A folder moved in from elsewhere</dt><dd>Brings its sidecar with it, so its stars and album memberships arrive with it.</dd>
+</dl>
+<p>A photo deleted outside Dalíca leaves the library at once, but its sidecar entry stays: the folder's next sidecar write marks it in <code>"missing"</code> with the time, and the first write 30 days or more later prunes it. The time is in the sidecar, not the index, so it survives a rebuild and travels with the folder. If the file comes back in the meantime, its entry is still there. An entry is only ever pruned if it holds Dalíca's own data; entries only other programs wrote are never touched.</p>
+
+<h3>Offline drives</h3>
+<p>A drive you unplug must not look like a drive whose photos you deleted. Dalíca keeps three rules:</p>
+<ol class="steps-list">
+<li><strong>Never remove what was not seen.</strong> A root that cannot be walked keeps everything: its folders stay in the tree, dimmed with an "offline" marker, with their cached thumbnails. Thumbnail pruning steps over the entries of photos whose folder cannot be reached, since they could not be made again until the drive returns.</li>
+<li><strong>An empty mount point is offline.</strong> When a drive is unmounted, its mount point often stays behind as an empty folder. A watched root that holds no entries at all while the library has photos there counts as offline, not empty. So does a root whose device changed (another drive mounted in its place) when none of the library's files are found there; a drive plugged back in with a new device number but its own files is accepted. Device ids are not checked on Windows.</li>
+<li><strong>Nothing is written under an offline root.</strong> Edits to its photos are applied and journaled at once, and their sidecar writes wait. The list of waiting folders is kept in <code>pending-writes.json</code>, so it survives a restart. Online checks run every 10 seconds on a thread of their own (a hung network share holds only that thread), and because a drive can disappear between two checks, each write also checks its root right before it lands. When the drive returns, the waiting folders are written within a second.</li>
+</ol>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li>Specs: docs/data-model.md §7 (scanning and watching) and §10 (lessons as tests); docs/architecture.md §5 (threading); docs/organizing.md §1 and §2 (first run, Folder Manager); docs/xmp-interop.md §5 (metadata changed elsewhere); docs/development.md §8 (the first-thumbnails budget).</li>
+<li>crates/scan/src/walk.rs (the walk and the guarded header reads, BUDGET), skip.rs (the skip rules), diff.rs (renames and the diff), rules.rs (modes and units), watch.rs and watch/queue.rs (FULL_VERIFICATION, DEBOUNCE, MAX_DELAY, QUEUE_CAP).</li>
+<li>crates/engine/src/scanning.rs (scans as jobs, PHOTOS_PER_POLL, closing), watching.rs (FIRST_VERIFICATION, RETRY), offline.rs (CHECK_EVERY, pending writes), thumbs.rs (scan-time thumbnails, POLL_MAX, IN_FLIGHT).</li>
+<li>crates/thumbs/src/pool.rs (priorities, workers) and ladder.rs (prefetch, LOOKAHEAD_SECS, MAX_AHEAD_SCREENS).</li>
+<li>crates/store/src/stale.rs (the 30-day pruning of missing entries).</li>
+<li>The rename test drove a headless Dalíca over its control channel; the script is in the guide's tools folder.</li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="library.html"><span>Previous</span>Your library on disk</a><a class="next" href="thumbnails.html"><span>Next</span>Thumbnails</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#what-a-scan-does">What a scan does</a>
+    <a href="#never-blocks">Never blocking</a>
+    <a href="#watching">Watching for changes</a>
+    <a href="#closing">Closing mid-scan and coming back</a>
+    <a href="#moves">Offline drives, moves and renames</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>

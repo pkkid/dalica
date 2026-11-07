@@ -260,9 +260,9 @@ pub struct CommandSpec {
     the **open photo's own history**, persisted in its folder sidecar (`"edits"` / `"redo"`, so it
     works across restarts). Everything done in the edit view (tools, effects, rotations, flips)
     goes into that photo's history and not onto the library stack.
-  - Both are commands: `edit.undo` / `edit.redo` resolve to `library.undo` / `library.redo` or
-    `photo.history.undo` / `photo.history.redo {id}` by context, so agents can call either directly.
-    `edit.undo {id}` / `edit.redo {id}` walk that photo's history; without `id`, the library stack.
+  - Both are commands: `edit.undo` / `edit.redo` without `id` walk the library stack, and
+    `edit.undo {id}` / `edit.redo {id}` walk that photo's history, as `photo.history.undo` /
+    `photo.history.redo {id}` do. There is no separate `library.undo` command.
   - **The photo's history** (`crates/engine/src/history.rs`, `cmd/history.rs`): a step
     (`photo.history.apply {id, op}`, `History::Photo`) appends to the recipe by `edit`'s rules and
     clears the redo list; undo moves the last entry to the end of `"redo"`, redo moves it back.
@@ -334,8 +334,11 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
   (applied a few hundred per frame so the light table fills progressively).
 - **File-system answers** used while painting (folder exists? volume online?) come from caches
   filled by workers.
-- Memory budget: RAM/4 clamped 256 MiB–1.5 GiB, split between texture cache, decode buffers and
-  render caches (prior art: LightCraft `engine/src/memory.rs`).
+- Memory limits are fixed constants, not scaled by the machine's RAM: one decode may allocate at
+  most 1.5 GiB for its pixels (`Limits::max_alloc`, `crates/image/src/limits.rs`), a zoomed view
+  keeps a full decode of at most 1 GiB (`preview::MAX_FULL_BYTES`), the face scan's photos in
+  progress share 768 MiB (`faces_scan::MEMORY_SHARE`), and the thumbnail memory cache holds
+  192 MiB (`thumbs::MEMORY`) plus 32 MiB of quick previews.
 - Per-frame cost must stay flat at 100 k photos: everything derived from the library is cached per
   revision; visible rows are found by binary search.
 
@@ -343,8 +346,11 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
 
 1. **Thumbnail fast path:** embedded EXIF thumbnail (JPEG) or embedded RAW preview → shown
    immediately; a proper downscale replaces it in the background.
-2. **Previews:** decode at the smallest scale that covers the target (JPEG DCT scaling), apply
-   EXIF orientation, convert to sRGB (ICC via `moxcms`), resample, cache.
+2. **Previews:** decode, apply EXIF orientation, convert to sRGB (ICC via `moxcms`), resample,
+   cache. `zune-jpeg` has no DCT scaling, so a JPEG is decoded in full and then resized, up to a
+   64 MP source (`decode::THUMBNAIL_SOURCE_MAX_PIXELS`); past that a TIFF is decoded a strip or
+   tile at a time and reduced as it goes, a lossy WebP is decoded scaled, and any other format uses
+   its embedded thumbnail or is refused (`crates/image/src/decode.rs`).
 3. **Edits:** the recipe is applied by `edit::render(source, &recipe, target_size)`. Every
    operation is resolution independent (normalised coordinates, radii relative to the image) so
    thumbnails, the edit view and full-size output match. Thumbnails always show edits. The CPU

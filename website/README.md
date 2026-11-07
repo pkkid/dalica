@@ -1,18 +1,23 @@
 # dalica.pkarma.com
 
-The project's website: one static page that says what Dalica is, hands visitors the right
-download and sends bug reports to GitHub. Plain HTML, CSS and JavaScript with no build step and no
-third-party requests; Cloudflare serves the files in `public/` as they are.
+The project's website: a one-page overview of what Dalica is, with the download, and the guide
+(`/docs/`), which explains what happens inside Dalica that the window does not show. Plain HTML,
+CSS and JavaScript with no build step for the page and no third-party requests; Cloudflare serves
+the files in `public/` as they are.
 
 | Path | What |
 |---|---|
-| `public/index.html` | the page |
-| `public/style.css` | all styles, including the self-hosted `@font-face` rules |
-| `public/main.js` | the release on offer (`RELEASE`: version and file sizes) and the download links built from it, the download button that picks the visitor's system, the animated hex grid behind the page, the count-up numbers, the scroll reveals and the click-to-enlarge screenshots |
+| `public/index.html` | the page: hero, the six-step tour (one screenshot over a filmstrip), the feature tabs, "Your files stay yours", download, FAQ |
+| `public/style.css` | all styles, for the page and the guide, including the self-hosted `@font-face` rules |
+| `public/main.js` | the download button that names the visitor's system, the tour's filmstrip viewer, the feature tabs, the quiet reveals, the lightbox (fit, actual size, drag to pan), and the guide's "On this page" highlight |
+| `public/docs/` | the guide, built from `guide/src/` (below); `docs/img/<chapter>/` holds each chapter's figures |
+| `public/credits.html` | every photo shown in the screenshots and the guide, with its author, licence and page |
 | `public/404.html` | the not-found page |
-| `public/_headers` | security headers (a strict Content-Security-Policy: everything is served from this site) and cache lifetimes |
-| `public/img/` | screenshots of Dalica, the link-preview image `og.png`, the app icon, one photo, and the CC0 licence of the system logos inlined in the page |
+| `public/_headers` | security headers (a strict Content-Security-Policy: everything is served from this site, and no inline styles or scripts) and cache lifetimes |
+| `public/img/` | screenshots of Dalica and the tour's thumbnails, the app icon, the link-preview image `og.png`, and the CC0 licence of the system logos inlined in the page |
 | `public/fonts/` | Schibsted Grotesk and IBM Plex Mono, with their OFL licence texts |
+| `guide/src/<chapter>.html` | each guide chapter as an HTML fragment (its `<h1>`, a `<p class="lede">` and the body) |
+| `guide/build.py` | wraps every fragment in the guide's page (header, chapter list, "On this page", previous and next) into `public/docs/` |
 | `wrangler.jsonc` | the Cloudflare configuration: a Worker with static assets only |
 
 ## Look at it locally
@@ -21,8 +26,7 @@ third-party requests; Cloudflare serves the files in `public/` as they are.
 python3 -m http.server 8000 --directory website/public
 ```
 
-Then open <http://localhost:8000>. The page uses root-relative paths (`/style.css`), so serve the
-`public` folder as the web root rather than opening `index.html` as a file.
+Then open <http://localhost:8000>. Every link is relative, so the site works from any folder.
 
 ## Deploy to Cloudflare
 
@@ -32,145 +36,76 @@ download links point at GitHub Releases, which keep the files and their checksum
 1. **Domain:** `pkarma.com` must be an active zone in the Cloudflare account. `wrangler.jsonc`
    attaches `dalica.pkarma.com` as the Worker's custom domain, so a deploy creates its DNS record
    and certificate; there is nothing to add by hand.
-2. **Connect the repository:** Workers & Pages → Create → Import a repository → `pkkid/dalica`.
-   Root directory `website`, no build command, deploy command `npx wrangler deploy`, production
-   branch `main`. Set the build watch paths to `website/**` so code changes never redeploy the
-   site.
+2. **Deploy by hand:** from this folder, once the change is merged to `main`, run
+   `npx wrangler deploy` (logged in with `npx wrangler login`). The site is never deployed from
+   GitHub: there is no Workers Builds connection, so pushing to `main` changes nothing live.
 3. **HTTPS:** Always Use HTTPS is on for the `pkarma.com` zone. Turn on HSTS once the site has run
    on HTTPS for a while.
 
-`npx wrangler deploy` from this folder deploys by hand.
+After a deploy, check the live site: `curl -sI https://dalica.pkarma.com/` and
+`curl -sI https://dalica.pkarma.com/docs/` should both answer 200.
 
 ## Editing the page
 
-- The page is dark only and uses one accent, Gruvbox orange (`#fe8019`, and `#d65d0e` for darker
-  uses). Buttons stay quiet greys; screenshots have a 3 px corner radius.
+- Dark Gruvbox only: one warm accent (orange `#fe8019`, `#d65d0e` for darker uses) and one cool
+  one (blue-gray `#83a598`); the colors are tokens at the top of `style.css`. Screenshots sit in a
+  `#313131` mat, the app's own window gray.
 - On this website, and only here, the name is spelled **Dalíca** in visible text. Everywhere else
   (code, docs, the app) it is Dalica, and addresses keep `dalica` (`dalica.pkarma.com`, `dalica-cli`).
-- Name only Dalica's own features. The rules on naming other software are in `AGENTS.md`.
-- The numbers in "Fast where it counts" come from the project's measurements (`docs/status.md`,
-  `docs/roadmap.md` → Where we stand) and the command registry (`dalica-cli commands`). Update them
-  when those change.
-- The road to 1.0 lists every release with the roadmap's own words (`docs/roadmap.md` →
-  Overview). When a release ships, move its card from "Next" to "Shipped" (`class="done"`) and
-  mark the following one `class="soon"`. A release after 1.0 also has `class="after"`, which
-  spans the whole row below the ten cards up to 1.0.
-- The Linux, Apple and Windows logos are Simple Icons path data (CC0), inlined as `<symbol>`s at
-  the top of `index.html`; the download arrow and the note icons are drawn for this page.
+- Name only Dalica's own features, and photo-management ones first. The rules on naming other
+  software are in `AGENTS.md`.
+- No `style="…"` attributes and no inline scripts: the Content-Security-Policy in `_headers` refuses
+  them. A value an element needs comes from a small class (`.cols-3`, `.d35`, see the end of
+  `style.css`).
+- Animations stay quiet: short, eased, and off under `prefers-reduced-motion`.
+- Every claim must hold for the current release. Check it against the code, and the specs in
+  `docs/`, before it goes on the page.
+
+## The guide
+
+- Each chapter is a fragment in `guide/src/`. Edit it there, then run `python3 website/guide/build.py`,
+  which writes every page of `public/docs/`. The chapter list and its order are `CHAPTERS` at the
+  top of `build.py`; a chapter without a fragment shows as "Coming soon".
+- The guide explains the machinery, not the buttons: the algorithms, the numbers, the files, the
+  order of operations. Facts come from the code; where a spec in `docs/` disagrees, the spec is
+  fixed to match the code.
+- Building blocks a fragment may use: `<h2 id="…">` (every one needs an id; they make "On this
+  page"), `<h3>`, `<ol class="steps-list">`, `<dl class="terms">`, `<div class="note">` (and
+  `note warn`), `<pre><code>`, `<div class="table-wrap"><table>`, `<figure>` with one image or a
+  `<div class="row cols-N">` of images each followed by a `<span class="label">`, and inline SVG
+  diagrams (with a `viewBox`, `role="img"` and an `aria-label`). Every image needs an `alt` text and
+  a caption.
+- Pictures that show an edit are Dalica's own output: the photo's recipe set with `edit.recipe.set`
+  and exported with `export.run` through `dalica-cli`, never an imitation. Charts are computed from
+  those renders.
 
 ## Releasing a new version
 
-Every milestone ends in a release (`docs/roadmap.md` → How milestones work), and the page offers
-exactly one. The version lives in one place, `RELEASE` at the top of the download code in
-`public/main.js`; the links and labels in the HTML hold no copy of it. Each download link names its file with `{v}` for the
-version (`data-file="dalica-{v}-windows-x64.msi"`), and the script fills in the address, the file
-name, the size and every version label ("Dalíca 1.0"). Without JavaScript, the links open the latest
-release's page on GitHub instead.
+The version appears in `public/index.html` only: the "New in" pill under the headline, the
+download section's heading, and the download links (`releases/download/v1.1.0/dalica-1.1.0-…`).
+When a release ships:
 
-1. Once the release is published on GitHub, print its sizes (for 0.3.0):
-
-   ```sh
-   gh release view v0.3.0 -R pkkid/dalica --json assets \
-     --jq '[.assets[] | {key: (.name | sub("0\\.3\\.0"; "{v}")), value: .size}] | from_entries'
-   ```
-
-2. In `RELEASE`, set `version: "0.3.0"` and replace `sizes` with that output.
-3. If the release added, renamed or dropped a file, change its row in the download section.
-4. Check every link: serve the page, or run
-   `for f in $(grep -o 'data-file="[^"]*"' public/index.html | cut -d'"' -f2 | sed 's/{v}/0.3.0/'); do curl -sIL -o /dev/null -w "%{http_code} $f\n" https://github.com/pkkid/dalica/releases/download/v0.3.0/$f; done`
-   (every line should say 200).
-5. Update the road to 1.0, the feature grid and "Coming next" if the release changed them, and
-   the numbers from the review's *Where we stand*.
+1. Print its file sizes: `gh release view v1.2.0 -R pkkid/dalica --json assets --jq '.assets[] | "\(.name) \(.size)"'`.
+2. Replace `1.1.0` and `1.1` with the new version in the links and labels, update the sizes on the
+   three download buttons, and say what is new in the pill (link it to the release's notes).
+3. Check every link: `for u in $(grep -o 'https://github.com/pkkid/dalica/releases/download/[^"]*' website/public/index.html); do curl -sIL -o /dev/null -w "%{http_code} $u\n" "$u"; done` (every line should say 200).
+4. If the release changed what a chapter of the guide describes, update the chapter.
 
 ## Images
 
-Screenshots are real captures of Dalica, taken headlessly with `dalica-cli snapshot --size
-2800x1800 --scale 2` and cropped. For the 0.2 shots, a library was built with `dalica-cli run`
-from copies of corpus photos in four folders (`folders.add`, `folder.info.set`,
-`photo.tags.add`, `photo.star.set`, a crop, a straighten, a tuning and Auto Fix), then shown with
-script steps such as `{"command": "view.edit", "params": {"id": 3}}` and
-`{"command": "edit.tool.open", "params": {"tool": "crop"}}`. The hero shot, `library-1.0.jpg`, is
-the 1.0 library described below, snapshotted at `--size 2800x1800 --scale 2` and resized to 2000 × 1286. The 0.3 shots (`crop-save.jpg`,
-`crop-export.jpg`, `crop-projects.jpg`) use the generated demo library
-(`dalica-cli snapshot --demo-fresh`): a crop on two photos of the Hills folder, then steps such as
-`{"command": "photo.save", "params": {"ids": [25, 27]}}` (which opens the Save dialog),
-`export.run` with a size, numbers and a watermark, and `output.export` with
-`output.export.location`. Run them with `HOME` and the `XDG_*` folders pointed at a scratch
-folder, so no real path shows in the Export dialog. The export progress window is caught while
-the export is still running: export all 60 demo photos so the last frame comes before it ends.
-The five feature shots of 0.5 (`feat-*.jpg`, 1500 × 1000, 3:2) use a library like the hero's (25 corpus
-photos in Highlands, Spring, Old towns and By train) with tags, stars, two captions and an album
-(`album.create`), snapshotted at `--size 2800x1800 --scale 2` (the edit view at `2280x1800`, so its crop
-is 3:2) with steps such as `{"command": "search.set", "params": {"text": "mountains", "filters":
-{"starred": true}}}`, `edit.autoFix`, `scroll.nextSection` and `output.export` with
-`output.export.location` and clicks on `check:dialog.numbers` and `check:dialog.watermark`.
-The four 0.6 shots (`feat-import.jpg`, `feat-compare.jpg`, `feat-slideshow.jpg`, and `feat-viewer.jpg`, since replaced,
-1500 × 1000) were taken from the running app, not `dalica-cli snapshot`: `dalica --headless --control`
-(and `dalica --view FILE --headless` for the viewer) with `interface.uiScale` at 200 and `ui.resize`
-to 1350 × 900 points, so `ui.screenshot` writes 2700 × 1800, then resized. The library is the 25 corpus
-photos in Highlands, Spring, Old towns and By train again, with stars, tags, captions and folder
-dates and descriptions. The import source is a folder `Card/DCIM/100DALIC` of eleven corpus photos
-renamed `DSC_41xx.jpg`, their metadata stripped and their file times set to three sessions so they
-group (`import.openSource {path}`, `import.exclude`, `import.mark`, `import.destination`,
-`import.select`); compare is `view.edit`, `edit.compare {"mode": "same"}`, `edit.switchFocus` and
-`edit.autoFix`; the slideshow is `section.slideshow` with captions on and `slideshow.pause`, which
-shows the control bar; the viewer has `viewer.hideControls` off and is shot once two captures in a
-row are the same, so the filmstrip's thumbnails are in.
-The three 0.7 shots (`feat-effects.jpg`, `feat-effect-panel.jpg`, `feat-frames.jpg`, 1500 × 1000) use the
-generated demo library: `dalica-cli snapshot --demo-fresh --size 1800x1200 --scale 2` (a compact 900 × 600 window, so the small demo photos read), resized. Each script opens a
-Hills photo (`view.edit` with id 22 or 26), picks an effects tab (`edit.tab` with `effects` or `effects3`), opens an
-effect's panel (`edit.tool.open {"tool": "effect", "name": "graduated_tint"}`), or applies one
-(`museum_matte`, then `edit.tool.apply`), and zooms in one step with `edit.zoom.in` (the demo photos are 480 × 320).
-The three 0.8 shots (`feat-face-model.jpg`, `feat-places.jpg`, `feat-focal-zoom.jpg`, 1500 × 1000) use the
-library of 25 corpus photos again (Highlands, Spring, Old towns, By train), snapshotted with
-`dalica-cli snapshot --library … --size 2400x1600 --scale 2` (a 1200 × 800 window) and resized. Four Highlands
-photos got places with `dalica-cli run` (`photo.geo.set` with `confirm`, at the places their captions name); the
-Places shot is `select.set` on them, `pane.places`, `map.allowTiles {"on": false}` (the offline map, nothing
-fetched) and `map.pan`. The People feature is shown by its Face Model dialog (`faceModel.open`), not by faces:
-the corpus photos hold no faces, and the public-faces set's portraits of public figures are kept out of the
-page. Focal Zoom is `view.edit` on the castle photo, `edit.tab {"tab": "effects3"}` and
-`edit.tool.open {"tool": "effect", "name": "focal_zoom"}`.
-The three 0.9 shots (`feat-collage-pile.jpg`, `feat-collage-mosaic.jpg`, `feat-edit-collage.jpg`, 1500 × 1000)
-use one folder, Highlands and coast, of fourteen corpus photos (renamed `IMG_41xx`), added with `folders.add`
-and snapshotted with `dalica-cli snapshot --library … --size 2400x1600 --scale 2` (`HOME` and the `XDG_*`
-folders in a scratch folder), then resized. The Collage room is `create.collage {"section": "folder:1",
-"seed": "5a17"}` and `collage.set` (`pile` with white borders, shadows and `#2b2b2b`; `frameMosaic` on a
-`4 × 6` page with `#efe9dc`). Edit Collage: the pile is written first with `dalica-cli run`
-(`create.collage`, `collage.set`, `collage.create`; a snapshot's `settle` does not wait for the collage
-job), then the snapshot is `view.edit` on the new collage (id 15).
-The 1.0 shots (`library-1.0.jpg`, and `feat-videos.jpg`, `feat-trim.jpg`, `feat-thai.jpg`, `feat-keyboard.jpg` and
-`feat-default-viewer.jpg` at 1500 × 1000) use one library: four folders added with `folders.add` (Summer clips,
-Out and about, Spring, Travels) with a date and a description each, 31 corpus photos, and four clips of the corpus's
-`video` set (release `video-v1`; only CC0 and public-domain ones, none showing people up close):
-`20260418_0635.MOV`, `BTS_iPhone12mini_4K60.MOV` and `IMG_6851.MOV` (H.264) and `M-6_Fun_Fact.MOV` (HEVC, so it
-shows the plain video tile). The app is built with `CRAFT_FONTS_DIR` set to a `storytold/craft-fonts` checkout at
-the pin in `.github/workflows/ci.yml`, or Thai shows boxes. Each is `dalica-cli snapshot --library … --size
-2400x1600 --scale 2` (the hero `2800x1800`), with `HOME` and the `XDG_*` folders in a scratch folder, every script
-starting with `{"command": "view.groupCollapse", "params": {"group": "albums", "collapsed": true}}` so the
-Albums sections stay out: the player is `view.edit` on the mantis clip, `video.setStart`, `video.setEnd` and
-`video.seek`; Thai is `options.set {"values": {"interface.language": "th"}}` (in a run before the snapshot) and
-`app.preferences`; the keyboard shot is `interface.fontSize` `large`, `app.preferences` and three `{"key":
-"Tab"}` steps; the viewer shot is `app.preferences {"tab": "viewer"}`. A snapshot keeps what its script
-changed (a trim, an option), so set it back after.
-The six 1.1 shots (`feat-themes.jpg`, `feat-color-search.jpg`, `feat-slideshow-window.jpg`, `feat-history.jpg`,
-`feat-discard.jpg`, `feat-stats.jpg`, 1500 × 1000) use one library of 26 corpus photos in four folders (Highlands and
-coast, Spring, Old towns, By train), added with `folders.add`, with a date and a description each (`folder.info.set`),
-three captions, five stars and tags, and `HOME` and the `XDG_*` folders in a scratch folder. Each is `dalica-cli
-snapshot --library … --size 2400x1600 --scale 2` (colour search `3000x2000`, so more sections fit), resized, every
-script starting with `view.groupCollapse` on the albums. Themes: four captures with `theme.proLight`,
-`theme.classic`, `theme.solarizedDark` and `theme.breezeDark`, then `select.set` on the castle photo and
-`section.scrollTo` the first folder, tiled 2 × 2 with `magick montage` (set `theme.dark` back after). Colour search
-is `search.color {"color": "blue"}`; the slideshow is `section.slideshow` on the first folder from the harbour photo,
-`slideshow.captions` on and `slideshow.pause`; History is `view.edit` on the cliff photo with `edit.autoFix`,
-`photo.straighten.apply`, `photo.crop.apply` and `edit.effect.apply {"name": "warmify"}` in one snapshot, then
-`photo.history.goto {"index": 3}` and `pane.history` in the next, so Warmify shows as a step to redo; Discard is
-three more photos edited (`edit.autoFix`, `bw`, `sepia`), `view.library` and `search.set {"filters": {"edited":
-true}}`; Stats for Nerds is `help.statsForNerds`, `{"settle": true}` and a click on
-`header:statsForNerds.library` (the paths stay in the closed groups).
-The photos inside the 0.2, 0.5, 0.6, 0.8, 0.9, 1.0 and 1.1 shots, and `img/castle.jpg`, come from the `photos` set of the
-project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
-`6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
-Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.
+Screenshots are real captures of Dalica 1.1, made headlessly: `dalica-cli snapshot --library … --size
+2400x1560 --scale 2` (a 1200 × 780 window), or, for the Import room and the Places pane, the
+running app with `dalica --headless --control` and `ui.screenshot {scale: 2}` (an import listing and
+map tiles arrive while the app runs). The library holds 56 openly licensed photos from Wikimedia
+Commons in five folders ("Iceland ring road", "Kyoto", "Garden in June", "Backyard foxes", "Cape
+May") and a card of 12 more, with dates set from each photo's capture time, captions, tags, stars,
+places and a "Wildlife" album, built with `folders.add`, `photo.dates.set`, `photo.caption.set`,
+`photo.tags.add`, `photo.star.set`, `photo.geo.set` and `album.create`. Each shot is cropped to the
+part its step is about (the title bar always removed), resized to 1800 px wide and saved as JPEG.
+Run Dalica with `HOME` and the `XDG_*` folders pointed at a scratch folder, so no real path shows
+(the Export dialog's location is set with `output.export.location`).
 
-Images and fonts are cached for a week and a month (`_headers`), so give a replaced image a new
-file name.
+Every photo shown, here or in the guide, is listed on `credits.html` with its author and licence
+(CC BY 4.0, CC BY-SA 4.0 or CC0), and the images have rows in `ATTRIBUTION.md`. Never use personal
+photos. Images and fonts are cached for a week and a month (`_headers`), so give a replaced image a
+new file name.

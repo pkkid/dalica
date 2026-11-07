@@ -1,0 +1,145 @@
+<h1>Crop, straighten and retouch</h1>
+<p class="lede">The three tools that move or replace pixels in the first edit tab are stored as small, resolution-independent recipe entries. This chapter shows how each one is written down, how the renderer turns it back into pixels, and how the crop suggestions and the retouch patch are computed.</p>
+
+<h2 id="geometry-first">Geometry comes first</h2>
+<p>Your edits are kept as a recipe: a list of entries such as <code>straighten(2.5)</code>, <code>crop(0.1,0,0.9,0.75)</code> or <code>retouch(…)</code>, in the order you made them. The renderer does not simply replay that list. It works in a fixed order:</p>
+<ol class="steps-list">
+  <li>The decoded photo is turned upright by its EXIF orientation.</li>
+  <li>The <strong>last</strong> <code>straighten</code> in the recipe is applied, then the <strong>last</strong> <code>crop</code>, wherever they stand in the list. Together with the scale to the size being rendered (a thumbnail, the edit view, a Save), this is one single resample.</li>
+  <li>Every other operation runs in the order you applied it: Auto Fix, Tuning, Retouch, the effects.</li>
+  <li>The recipe's 90° rotations and flips are applied last, pixel for pixel, without resampling.</li>
+</ol>
+<p>So it never matters whether you cropped before or after you straightened: the picture is always straightened first, then cropped. Only one straighten and one crop count. Applying a new crop appends a new entry instead of rewriting the old one, so undoing it brings the earlier crop back and the edits made after the first crop stay where they are.</p>
+<div class="note"><p><b>Why one resample:</b> every resample softens a little. Folding the turn, the crop and the scale into one mapping means each output pixel is computed once from the source, by averaging bilinear taps over its footprint (with a box reduction first when the footprint covers two or more source pixels). A crop on whole pixels at full size, with no straighten, copies the source pixels exactly.</p></div>
+
+<h3>The stored frame</h3>
+<p>Every rectangle and point these tools store is measured in the <strong>stored frame</strong>: the photo after its EXIF orientation and before Dalíca's own rotations and flips. <code>(0, 0)</code> is the top-left corner and <code>(1, 1)</code> the bottom-right, whatever the photo's size. Because rotations and flips are applied last and every coordinate ignores them, turning a photo is always one recipe entry and nothing else: it never rewrites a crop rectangle, a retouch point or an effect's centre. When the edit view draws a rectangle, or reads your drag back, it converts between the stored frame and what you see on the fly.</p>
+<p>Lengths (a retouch radius, an effect's size) are relative to the photo's shorter side, so they are the same in both frames and at every render size. A thumbnail, the edit view, a zoomed region and a full-size Save of the same recipe agree.</p>
+
+<h2 id="straighten">Straighten</h2>
+<p>A straighten is stored as one number, the angle in degrees: <code>straighten(-2.4)</code>. Positive turns the picture clockwise on screen. The range is −10 to +10; a value outside it is clamped to the nearest end when the recipe is read, and a value that is not a finite number makes the entry unreadable (it is kept in the recipe, as written, and skipped). The angle is measured in the stored frame, so on a photo the recipe mirrors, the turn appears the other way round on screen.</p>
+
+<h3>Turned, then enlarged until no corner is empty</h3>
+<p>Turning a rectangle about its centre swings its corners outside the original frame and leaves four empty triangles inside it. Dalíca does not show those triangles and does not ask you to crop them away: it enlarges the turned picture by the least factor that covers the frame again. The output keeps the input's width and height. Seen from the photo's side, the picture that remains is the largest upright rectangle of the photo's own shape that fits inside the turned photo.</p>
+<figure class="wide">
+<svg viewBox="0 0 520 330" role="img" aria-label="A 3:2 photo turned 10 degrees about its centre, with the largest upright 3:2 rectangle inscribed in it touching its edges; the original upright frame is shown dashed.">
+  <rect x="0" y="0" width="520" height="330" fill="#1d2021"/>
+  <rect x="110" y="65" width="300" height="200" fill="none" stroke="#504945" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <polygon points="129.6,40.5 425.1,92.6 390.4,289.5 94.9,237.4" fill="#32302f" stroke="#83a598" stroke-width="2"/>
+  <rect x="139.5" y="84.7" width="240.9" height="160.6" fill="#fe8019" fill-opacity="0.14" stroke="#fe8019" stroke-width="2.5"/>
+  <circle cx="260" cy="165" r="3" fill="#ebdbb2"/>
+  <circle cx="380.5" cy="84.7" r="4" fill="#fabd2f"/>
+  <circle cx="139.5" cy="245.3" r="4" fill="#fabd2f"/>
+  <circle cx="139.5" cy="84.7" r="4" fill="#fabd2f"/>
+  <circle cx="380.5" cy="245.3" r="4" fill="#fabd2f"/>
+  <text x="240" y="34" fill="#83a598" font-size="13">photo turned 10°</text>
+  <text x="400" y="282" fill="#a89984" font-size="13">original frame</text>
+  <text x="260" y="170" fill="#fe8019" font-size="13" text-anchor="middle" dy="22">kept: 80.3 % of each side</text>
+  <text x="260" y="186" fill="#fe8019" font-size="13" text-anchor="middle" dy="22">then enlarged × 1.245</text>
+  <text x="20" y="315" fill="#ebdbb2" font-size="13">The four corners of the kept rectangle (yellow) touch the turned photo's edges.</text>
+</svg>
+<figcaption>A 3:2 photo straightened by 10°. The orange rectangle has the photo's own shape and touches the turned photo on all four sides; the renderer enlarges it by 1.245 so it fills the original frame (dashed). Drawn to scale from the formula below.</figcaption>
+</figure>
+<p>The factor comes from a corner test. For a centred rectangle of half-width <code>x</code> and half-height <code>y</code> to fit inside a <code>w × h</code> picture turned by θ, its corner turned back into the picture must satisfy both</p>
+<pre><code>x·cos θ + y·sin|θ| ≤ w/2
+x·sin|θ| + y·cos θ ≤ h/2</code></pre>
+<p>Putting the picture's own half-size <code>(w/2, h/2)</code> in and solving for the largest scale that passes both gives the enlargement</p>
+<pre><code>k = cos θ + max(w/h, h/w) · sin|θ|</code></pre>
+<p>That is <code>crop_geom::fill_scale</code> (it takes <code>1 / max_inscribed_scale</code> and never goes below 1). The formula only depends on how elongated the photo is, so a portrait photo loses exactly as much as the same photo in landscape. A square loses least; panoramic shapes lose most.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Shape</th><th>5°: enlargement</th><th>5°: area kept</th><th>10°: enlargement</th><th>10°: area kept</th></tr></thead>
+<tbody>
+<tr><td>1:1</td><td>1.083</td><td>85.2 %</td><td>1.159</td><td>74.5 %</td></tr>
+<tr><td>3:2</td><td>1.127</td><td>78.7 %</td><td>1.245</td><td>64.5 %</td></tr>
+<tr><td>16:9</td><td>1.151</td><td>75.5 %</td><td>1.294</td><td>59.8 %</td></tr>
+</tbody></table></div>
+<figure><img src="img/crop-straighten-retouch/straighten-area.png" width="1600" height="720" alt="Line chart of the share of the picture area kept against the straighten angle from 0 to 10 degrees, for 1:1, 4:3, 3:2 and 16:9 photos. All start at 100 percent; at 10 degrees they reach 75, 68, 64 and 60 percent." loading="lazy"><figcaption>How much of the picture a straighten keeps, by angle and shape. The loss grows almost linearly with the angle; this is why the slider stops at ±10°.</figcaption></figure>
+<figure><div class="row cols-3">
+  <div><img src="img/crop-straighten-retouch/st0.jpg" width="700" height="468" alt="A black sand beach with surf and a headland under a blue sky, as taken." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/crop-straighten-retouch/st5.jpg" width="700" height="468" alt="The same beach turned 5 degrees clockwise and enlarged, the horizon now sloping down to the right." loading="lazy"><span class="label">straighten(5)</span></div>
+  <div><img src="img/crop-straighten-retouch/st-10.jpg" width="700" height="468" alt="The same beach turned 10 degrees counterclockwise and enlarged further, the horizon sloping up to the right." loading="lazy"><span class="label">straighten(-10)</span></div>
+</div><figcaption>Rendered by Dalíca. All three are the same size; no empty corner shows. Compare how much of the headland and the foreground surf is still in the frame: at −10° the picture is enlarged by 1.245 and about a third of its area is gone.</figcaption></figure>
+
+<h3>What a crop is measured on</h3>
+<p>Because the straightened picture is enlarged to fill its frame, a crop measured on it can use the whole unit square: its bounds are always <code>0..1</code> on both axes, never a turned shape. The crop rectangle is a rectangle of the <em>straightened</em> picture. If you change the angle later, the crop keeps its numbers and therefore its place in the frame, but the content under it turns.</p>
+<figure><div class="row">
+  <div><img src="img/crop-straighten-retouch/rockcrop.jpg" width="700" height="467" alt="A crop of a sea stack in calm water with clouds above, at 3:2." loading="lazy"><span class="label">crop(0.248,0,0.998,0.749)</span></div>
+  <div><img src="img/crop-straighten-retouch/rockcrop-st.jpg" width="700" height="467" alt="The same crop after a 4 degree straighten: the sea stack is larger and the horizon slopes." loading="lazy"><span class="label">straighten(4), same crop</span></div>
+</div><figcaption>The same <code>crop(…)</code> entry with and without a straighten, both rendered by Dalíca. The rectangle covers the same part of the frame; the straighten is applied first, so the content under it is turned and enlarged.</figcaption></figure>
+
+<h2 id="crop">Crop</h2>
+<p>A crop is stored as its two corners, normalized: <code>crop(x0,y0,x1,y1)</code>, with <code>x0 ≤ x1</code> and <code>y0 ≤ y1</code>, in the stored frame of the straightened picture. Numbers are written as the shortest text that reads back to the same value, so a crop survives any number of save and load cycles bit for bit. Values outside 0..1 are clamped into the picture when read; a rectangle that is reversed or empty after clamping, a value that is not a finite number, or a count other than four leaves the entry unreadable (kept and skipped, so nothing after it is lost).</p>
+<p>When the rectangle is turned into pixels it is at least one pixel wide and high at any render size: a thinner one is widened about its centre, inside the picture. So a crop that is a sliver on a 128-pixel thumbnail still renders something there, and the full-size render shows what the rectangle really holds.</p>
+<div class="note"><p><b>Why normalized:</b> the same entry must work on a 256-pixel thumbnail, the 2560-pixel edit view and a 24-megapixel Save. A rectangle in pixels would have to be scaled for every one of them; a fraction of the picture needs nothing. It also makes the crop independent of a later Save of other edits or a replaced file of a different size.</p></div>
+
+<h3>Ratios</h3>
+<p>A ratio is width over height <strong>in pixels</strong>, so a 4 × 6 print ratio on a portrait photo is a different rectangle in normalized units than on a landscape one. Choosing a size draws the largest centred rectangle of that ratio (<code>crop_geom::ratio_rect</code>). The live first row of the size list shows the current rectangle's size in pixels. Custom ratios are kept in the settings, at most 100 of them, each side at most 10,000 and the ratio between 1:20 and 20:1.</p>
+<p>Dragging follows a few hard rules, written as properties the code tests for any input, including hostile numbers:</p>
+<ul>
+  <li>The edges opposite the handle you drag stay where they were; dragging the inside moves the frame without changing its size.</li>
+  <li>With a ratio chosen, every handle keeps that shape. Ratios more elongated than 20:1 are treated as 20:1.</li>
+  <li>No side gets smaller than 2 % of the picture's shorter side.</li>
+  <li>The frame stops at the picture's edge and slides along it instead of being pushed around. The code finds that stopping point by bisection on the drag distance, horizontally first, then vertically.</li>
+</ul>
+<p><strong>Rotate</strong> swaps the frame's pixel width and height about its centre. If the turned frame no longer fits, it is moved toward the picture's centre in 32 steps until it does, and only if no step fits is it shrunk about the centre, keeping the new ratio.</p>
+
+<h3>How the three suggestions are found</h3>
+<p>The Crop panel proposes three rectangles in the chosen ratio. They come from a background job (<code>photo.crop.suggest</code>) that renders a proxy of the photo as the Crop tool shows it (the recipe without its crops: straightened and turned), 256 pixels on its longer side. Asking again for the same photo cancels the job before it. The method is Dalíca's own and fully deterministic: the same picture, size, ratio and faces always give the same three rectangles.</p>
+<ol class="steps-list">
+  <li><strong>Analysis grid.</strong> The proxy is box-averaged into at most 96 cells on its longer side and moved into a simple opponent color space: lightness <code>(r + g + b) / 3</code>, red-green <code>(r − g) / 2</code> and yellow-blue <code>(r + g) / 4 − b / 2</code>.</li>
+  <li><strong>Saliency.</strong> Each cell scores its color distinctness (its distance from the picture's median color in that space) plus half its local contrast (its lightness against a wide blur, a box of a radius of one eighth of the grid). The map is blurred lightly and its strongest peak found. Under a peak of 0.06 the picture is flat and has no subject.</li>
+  <li><strong>Subject.</strong> The connected region of cells above half the peak, grown from it, is the subject, unless it is really background: more than 40 % of the picture, or spanning nine tenths of its width or height. Its saliency-weighted centre is the point to place.</li>
+  <li><strong>Horizon.</strong> Lines across the full width are tried at seven slopes up to about 7°. A line counts when at least 60 % of the columns step in lightness the same way across it (all lighter below, or all darker below, by more than 0.02) and the mean step is at least 0.05; the strongest such line wins, refined between rows by fitting a parabola through its neighbours.</li>
+  <li><strong>Faces.</strong> When the photo has faces (named or unnamed, never ignored ones), a rectangle holding every face comes first: the faces' eyes, taken as 40 % down each face box and averaged weighted by face area, go on the upper third line, and the faces are centred across.</li>
+</ol>
+<p>Each placement tries nine sizes, from the ratio's largest fit down to 60 % of it in steps of 5 %, and keeps the best by one score:</p>
+<pre><code>score = 0.5 · size − 4 · (distance from the third, in rectangle sides) − 2 · (share of the subject cut off)</code></pre>
+<p>Landing on the third matters most, then not cutting the subject, then being large. For faces, a cut-off face costs twice as much as a cut-off subject, since that rectangle exists for the faces. A subject is tried on all four thirds points; a horizon on the upper and the lower third line, placed across the subject when there is one.</p>
+<p>The candidates are ranked faces, subject, horizon, the centred rectangle, then the subject on its other thirds points, then ever smaller centred rectangles (80 %, 64 %, 50 %, 40 %, 32 % of the largest). A candidate is kept only if it overlaps every rectangle already kept by at most 0.8 (intersection over union), so the three are visibly different.</p>
+<figure><div class="row">
+  <div><img src="img/crop-straighten-retouch/suggest-3x2.jpg" width="700" height="468" alt="A sea stack photo with three rectangles drawn on it: an orange subject crop on the right two thirds, a green horizon crop slightly lower and smaller, and a yellow centred crop covering almost the whole photo." loading="lazy"><span class="label">3:2</span></div>
+  <div><img src="img/crop-straighten-retouch/suggest-1x1.jpg" width="700" height="468" alt="The same photo with three square rectangles: orange subject, green horizon and yellow centred." loading="lazy"><span class="label">1:1</span></div>
+</div><figcaption>Dalíca's own suggestions for this photo, drawn over it: 1 subject (orange), 2 horizon (green), 3 centred (yellow). In both ratios the sea stack lands on a left thirds point of the subject rectangle, and the horizon rectangle puts the waterline on its upper third. The 3:2 subject rectangle is the crop rendered in the previous section.</figcaption></figure>
+<p>The rectangles are answered in the stored frame, so a suggestion stays valid however the photo is turned.</p>
+
+<h2 id="retouch">Retouch</h2>
+<p>A retouch entry holds every patch of one session with the tool, in the order you made them, separated by <code>;</code>. Each patch is five numbers: the source point, the target point and the radius.</p>
+<pre><code>retouch(<span class="n">0.79</span>,<span class="n">0.695</span>,<span class="n">0.854</span>,<span class="n">0.695</span>,<span class="n">0.045</span>;<span class="n">0.70</span>,<span class="n">0.664</span>,<span class="n">0.74</span>,<span class="n">0.664</span>,<span class="n">0.02</span>)
+<span class="c">        source x,y   target x,y     radius ; next patch …</span></code></pre>
+<dl class="terms">
+  <dt>Points</dt><dd>Normalized in the stored frame and brought into −1..2 (anything further out is off the picture all the same). They are mapped through the straighten and the crop at render time, so a patch stays on the same blemish when you crop or straighten afterwards.</dd>
+  <dt>Radius</dt><dd>Relative to the stored photo's shorter side, 0.001 to 0.1 (a tenth of the shorter side at most). The same patch therefore covers the same detail in a thumbnail and in a full-size Save.</dd>
+  <dt>Limits</dt><dd>At most 1,000 patches in one entry. A patch without exactly five finite numbers makes the entry unreadable (kept and skipped). <code>retouch()</code> with no patches changes nothing.</dd>
+</dl>
+<p>Retouch is not geometry: it runs among the other operations, in the order you applied it. A Retouch made before an Auto Fix is healed first and then fixed with the rest of the picture.</p>
+
+<h3>Copy the texture, keep the tone</h3>
+<p>A plain copy of the source area would carry its brightness and color along and show as a patch of the wrong shade. Dalíca heals instead: it takes the <em>detail</em> from the source and the <em>tone</em> from around the target. This is frequency separation done for one small area at a time.</p>
+<ol class="steps-list">
+  <li><strong>The box.</strong> Each patch works in a square of two radii around the target: the patch itself plus one radius of surroundings.</li>
+  <li><strong>The weight.</strong> Every pixel in the box gets a weight by its distance <code>d</code> from the target's centre: 1 out to 0.6 of the radius, then falling smoothly (a smoothstep) to 0 at the radius. The pixels where the weight is under 0.02 are the <em>surroundings</em>.</li>
+  <li><strong>The source.</strong> Every pixel of the box reads the picture at the same offset as the source is from the target, with bilinear sampling (reads past the picture's edge take the nearest edge pixel).</li>
+  <li><strong>The tone.</strong> The difference <code>target − source</code> is measured on the surroundings only, and spread over the whole box by a normalized Gaussian blur (sigma 0.6 of the radius, at least one pixel; three box passes): <code>tone = blur(diff × outside) / blur(outside)</code>. Inside the patch this is a smooth guess of how much lighter, darker or more tinted the target's neighbourhood is than the source's.</li>
+  <li><strong>The blend.</strong> <code>healed = source + tone</code>, then <code>out = target + (healed − target) × weight</code>, clamped to 0..1.</li>
+</ol>
+<figure><img src="img/crop-straighten-retouch/retouch-profile.png" width="1600" height="640" alt="Chart of the patch weight against distance from the target's centre in radii: 1 up to 0.6, a smooth S-shaped fall to 0 at 1, and a shaded band from about 1 to 2 radii marking the surroundings where the tone is measured." loading="lazy"><figcaption>The feathered blend mask of one patch. Inside 0.6 radius the healed pixels replace the target fully; the feather blends them out by the radius; the surroundings out to the box's edge (two radii along each axis) are only read, to measure the tone.</figcaption></figure>
+<figure><div class="row">
+  <div><img src="img/crop-straighten-retouch/retouch-geometry.jpg" width="640" height="300" alt="A close crop of a meadow with a fence and a walking person, annotated: an orange target circle around the person with a yellow inner circle at 0.6 of its radius, a green source circle on clean grass to the left joined to it by a line, and a light square of two radii around the target." loading="lazy"><span class="label">Before, with the first patch drawn</span></div>
+  <div><img src="img/crop-straighten-retouch/retouch-after.jpg" width="640" height="300" alt="The same crop after the retouch: the walking person and the seated pair are gone, the grass and the fence rope continue through." loading="lazy"><span class="label">After two patches</span></div>
+</div><figcaption>A 1:1 crop of a full-size render of the recipe above. The first patch (radius 0.045 of the shorter side, 72 pixels here) copies the grass and fence from 154 pixels to the left; the second, smaller one removes the seated pair. Look at the fence rope: it continues through the patch because the source sits on the same rope, while the grass keeps the brightness of the area around the target.</figcaption></figure>
+<h3>Patches on top of patches</h3>
+<p>Patches apply in order, each on the picture the earlier ones left, so a later patch can copy from an area an earlier one already cleaned. The healed patches are computed once per render into one buffer that every band of the renderer copies from. For a zoomed region, the renderer must read a margin around the window big enough for every pixel's inputs. Retouch works that margin out as the longest chain of reads: a patch reads across its own box and on to its source, and if that area holds an earlier patch, that patch's own reach is added. A region render therefore equals the same window of the whole render, without healing the whole picture. A patch whose target lies outside the picture (or outside the crop) draws nothing.</p>
+<p>Like every operation of the renderer, the heal works on sRGB-encoded working values from 0 to 1, not on linear light.</p>
+<p>Patches from the classic folder-based organizer's sidecars are not carried over: its retouch marker records no parameters (the fix was written into the pixels), so it stays in the recipe as a kept, skipped <code>legacy:</code> entry.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li><code>crates/edit/src/ops/straighten.rs</code>: the <code>straighten</code> entry, its range and its output-to-input mapping.</li>
+  <li><code>crates/edit/src/crop_geom.rs</code>: <code>max_inscribed_scale</code>, <code>fill_scale</code>, <code>ratio_rect</code>, <code>rotate</code>, <code>drag</code> and the minimum size.</li>
+  <li><code>crates/edit/src/ops/crop.rs</code>: the <code>crop</code> entry, clamping and the one-pixel minimum.</li>
+  <li><code>crates/edit/src/suggest.rs</code>: the analysis grid, saliency, horizon, faces, scoring and ranking.</li>
+  <li><code>crates/engine/src/cmd/crop.rs</code>: <code>photo.crop.apply</code>, <code>photo.crop.suggest</code> and the custom ratios.</li>
+  <li><code>crates/edit/src/ops/retouch.rs</code>: the <code>retouch</code> entry, the heal and its reach.</li>
+  <li><code>crates/edit/src/render.rs</code>: the pipeline order and the single resample.</li>
+  <li><code>docs/editing.md</code> §6.1, §6.2, §6.4; <code>docs/data-model.md</code> §3.1 and §3.3.</li>
+</ul>

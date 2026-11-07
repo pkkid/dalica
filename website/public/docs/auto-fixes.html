@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto Fix, Contrast and Color · Dalíca guide</title>
+<meta name="description" content="The three one-click fixes store no settings at all: each one looks at the picture every time it is drawn and decides what to do. This chapter shows exactly what they measure, the formulas and limits they apply, and why pressing a fix a second time normally changes nothing, with the numbers taken from Dalíca&#x27;s own renders of real photos.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html">Scanning and watching</a>
+    <a href="thumbnails.html">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html">Edits are recipes</a>
+    <a href="auto-fixes.html" aria-current="page">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Auto Fix, Contrast and Color</h1>
+<p class="lede">The three one-click fixes store no settings at all: each one looks at the picture every time it is drawn and decides what to do. This chapter shows exactly what they measure, the formulas and limits they apply, and why pressing a fix a second time normally changes nothing, with the numbers taken from Dalíca's own renders of real photos.</p>
+
+<h2 id="what-they-see">What the fixes look at</h2>
+<p>In the recipe the fixes are just <code>autocontrast()</code>, <code>autocolor()</code> and <code>autofix()</code>, with nothing between the parentheses. The numbers they use are worked out at render time, from the picture as it stands at their place in the recipe: after the crop and the straighten, and after every operation applied before them. That is why cropping first changes what Auto Fix does, and why an Auto Color after a Sepia sees a sepia picture.</p>
+<p>They never measure the picture they are drawing. The renderer gives each of them its own copy of the picture at that point, rendered so that its longer side is <strong>256 pixels</strong> (smaller pictures as they are). A 128-pixel thumbnail, the edit view and a full-resolution Save all hand the fix the same 256-pixel picture, so all three reach exactly the same black point and the same color gains. Fully transparent pixels are left out. All values are the sRGB-encoded channel values scaled to 0..1.</p>
+<p>Each fix then becomes one pass over the pixels: per-channel gains, then the levels curve (read from a table of 4 096 steps with linear interpolation), then, for Auto Fix, a little Fill Light. When the measurement finds nothing to change, there is no pass at all and the picture is left exactly as it was.</p>
+<figure><div class="row cols-4">
+<div><img src="img/auto-fixes/DSC_2793-orig.jpg" width="800" height="440" alt="A hazy Icelandic valley with mountains and clouds, flat and a little washed out" loading="lazy"><span class="label">Original</span></div>
+<div><img src="img/auto-fixes/DSC_2793-ac.jpg" width="800" height="440" alt="The same valley after Auto Contrast: deeper shadows on the mountains, the haze reduced" loading="lazy"><span class="label">Auto Contrast</span></div>
+<div><img src="img/auto-fixes/DSC_2793-acol.jpg" width="800" height="440" alt="The same valley after Auto Color: almost unchanged, very slightly warmer" loading="lazy"><span class="label">Auto Color</span></div>
+<div><img src="img/auto-fixes/DSC_2793-af.jpg" width="800" height="440" alt="The same valley after Auto Fix: the contrast of Auto Contrast with a slightly warmer balance" loading="lazy"><span class="label">Auto Fix</span></div>
+</div><figcaption>A hazy photo through each fix, rendered by Dalíca. Auto Contrast does most of the work here (black point 37.5, white point 249.5, a midtone gamma of 1.13). The photo has almost no cast, so Auto Color's gains are small (red 1.015, green 0.997, blue 0.982).</figcaption>
+</figure>
+<div class="note"><p><b>About the numbers in this chapter:</b> Dalíca does not report the values a fix chose. To draw the charts, the measurement was re-implemented line by line from <code>crates/edit/src/analysis.rs</code>, including the renderer's own resampling for the 256-pixel picture, and checked against Dalíca: applying the re-implemented gains and levels to the original gives Dalíca's full-size render to within 0.5 to 2 levels on average (out of 255), where Auto Contrast and Auto Fix move these photos' pixels by 14 to 35 levels.</p></div>
+
+<h2 id="auto-contrast">Auto Contrast</h2>
+<p>Auto Contrast sets three numbers, a black point <code>b</code>, a white point <code>w</code> and a midtone gamma <code>γ</code>, and applies them to every channel with the same curve:</p>
+<pre><code>out = clamp((v - b) / (w - b), 0, 1) ^ γ</code></pre>
+<p>The same three numbers are used for red, green and blue (the channels are <strong>linked</strong>). Stretching each channel separately would also change the color balance, which is Auto Color's job; with one curve, a gray stays gray and the fix changes contrast only.</p>
+
+<h3 id="black-white">Black and white points</h3>
+<ol class="steps-list">
+<li>For each channel, take the value below which 0.5 % of the pixels lie (the 0.5th percentile) and the value below which 99.5 % lie (the 99.5th percentile), by nearest rank.</li>
+<li>The black point is the <strong>darkest</strong> of the three 0.5th percentiles, and the white point the <strong>brightest</strong> of the three 99.5th percentiles. Taking the extreme channel means no channel loses more than 0.5 % of its pixels at either end.</li>
+<li>Both are moved <strong>half an 8-bit level further out</strong> (0.5 / 255), so the pixels exactly at the percentile keep a trace of their detail and only the ones beyond it clip.</li>
+</ol>
+<figure>
+<img src="img/auto-fixes/histograms.png" width="1600" height="1120" alt="Red, green and blue histograms of the hazy valley before and after Auto Contrast. Before, nothing lies below about level 38 or above 250; the colored ticks mark each channel's 0.5th and 99.5th percentiles, the dashed orange lines the black point 37.5 and white point 249.5. After, the histogram spans the full range." loading="lazy">
+<figcaption>The hazy valley, per channel. Top: the 256-pixel picture Auto Contrast measures. The colored ticks are each channel's 0.5th and 99.5th percentiles (red 38, green 43, blue 44 at the dark end; 249, 249, 248 at the bright end); the black point takes the darkest, 38, minus half a level, and the white point the brightest, 249, plus half a level. Bottom: Dalíca's render after Auto Contrast, now reaching from 0 to 255, with the median luma moved from 0.676 to 0.600 by the gamma.</figcaption>
+</figure>
+
+<h3 id="contrast-cap">The 4× cap</h3>
+<p>If the black and white points are less than 0.25 apart (64 levels), the range is widened about its center to exactly 0.25 before it is used. A stretch from <code>w - b</code> to the full range multiplies contrast by <code>1 / (w - b)</code>, so this caps Auto Contrast at <strong>4 times the contrast</strong>. Without it, a nearly uniform picture (a gray wall, fog, a sheet of paper) would have its sensor noise stretched across the whole range. A completely flat picture stays flat: a gray of 0.5 comes out as 0.5.</p>
+
+<h3 id="midtone-gamma">The midtone gamma</h3>
+<p>After the linear stretch, Auto Contrast looks at the <strong>median luma</strong> of the stretched picture (luma with Rec. 709 weights, 0.2126 R + 0.7152 G + 0.0722 B, on the encoded values). It wants that median inside the band <strong>0.4 to 0.6</strong>:</p>
+<ul>
+<li>A median inside the band gets no gamma (γ = 1).</li>
+<li>A median below it is brought up to 0.4, and one above it down to 0.6: the nearer edge, not the middle. The gamma that does that is <code>γ = ln(target) / ln(median)</code>.</li>
+<li>The gamma is kept within <strong>0.8 to 1.25</strong>, so a very dark or very bright picture is moved only part of the way.</li>
+<li>A median at or below 0.02, or at or above 0.98, gets no gamma (there is nothing in the midtones to move).</li>
+</ul>
+<figure>
+<img src="img/auto-fixes/levels-curves.png" width="1600" height="760" alt="Left: the levels curves of three photos. The valley's curve starts at 37.5 and bends slightly below the diagonal; the sheep's curve is a straight steep line from 61.5 to 226.5; the fox's curve starts at 7.5 and bows upward. Right: gamma as a function of the stretched median luma, flat at 1 inside the band 0.4 to 0.6, rising to the 1.25 limit above it and falling to the 0.8 limit below it, with the three photos marked." loading="lazy">
+<figcaption>Left: the curve Auto Contrast applied to three photos (black point / white point / gamma). Right: the gamma rule. The valley's stretched median is 0.636, so it is darkened to 0.6 with γ 1.13. The sheep's falls inside the band and gets a straight stretch. The fox's is 0.188: reaching 0.4 would take γ 0.55, so the 0.8 limit holds it back.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Photo</th><th>Black</th><th>White</th><th>Contrast</th><th>Stretched median</th><th>Gamma</th></tr></thead>
+<tbody>
+<tr><td>Iceland valley (hazy)</td><td>37.5</td><td>249.5</td><td>1.20×</td><td>0.636</td><td>1.129</td></tr>
+<tr><td>Sheep (flat)</td><td>61.5</td><td>226.5</td><td>1.55×</td><td>0.519</td><td>1.000</td></tr>
+<tr><td>Fox (dark)</td><td>7.5</td><td>199.5</td><td>1.33×</td><td>0.188</td><td>0.800 (limit)</td></tr>
+</tbody></table></div>
+<div class="note"><p><b>Why a band and not a target:</b> an earlier version pulled the median part of the way toward 0.5 on every press, so each press moved the picture again and presses stacked. With a band, a picture already in it needs nothing, which is what makes a second press settle (below).</p></div>
+
+<h2 id="auto-color">Auto Color</h2>
+<p>Auto Color multiplies each channel by its own gain to remove a color cast. It estimates the cast twice, in two classic ways, and takes the geometric mean.</p>
+<h3>Which pixels it reads</h3>
+<p>Only pixels that can say something about color: luma between 0.06 and 0.94 (not near black or white) and every channel below 0.98 (not clipped). If fewer than 1 % of the pixels qualify (or fewer than 16, on a tiny picture), Auto Color changes nothing.</p>
+<h3>The two estimates</h3>
+<dl class="terms">
+<dt>Gray world</dt>
+<dd>Assumes the scene averages to gray. The mean of each channel over the usable pixels gives the gains <code>luma(mean) / mean[c]</code>, which would turn that mean into a gray of the same luma.</dd>
+<dt>White patch</dt>
+<dd>Assumes the brightest usable things are white. The 99th percentile of each channel gives the gains <code>luma(white) / white[c]</code>.</dd>
+</dl>
+<p>The two are combined channel by channel as <code>sqrt(grayworld × whitepatch)</code>, divided by the luma of the result (so the picture keeps its brightness), and each gain is clamped to <strong>1/1.35 to 1.35</strong> (0.741 to 1.35).</p>
+<figure>
+<img src="img/auto-fixes/gains.png" width="1600" height="680" alt="Bar chart of Auto Color's red, green and blue gains for five photos, with lines for the gray-world estimate and diamonds for the white-patch estimate. The valley's gains are all near 1; the sand's red is lowered and blue raised; the gates' gray-world estimate wants blue at 2.38, far past the 1.35 limit." loading="lazy">
+<figcaption>Auto Color's first measurement on five photos. The two estimates often disagree: on the warm sand, gray world wants blue at 1.161 while white patch wants 0.978, and the combination settles on 1.064. On the orange gates, gray world asks for red 0.516 and blue 2.381; the clamp stops them at 0.741 and 1.35.</figcaption>
+</figure>
+<figure><div class="row cols-3">
+<div><img src="img/auto-fixes/DSC_1274-orig.jpg" width="640" height="425" alt="A geothermal hillside of yellow and orange sand under a gray sky, with a strong warm tint" loading="lazy"><span class="label">Original</span></div>
+<div><img src="img/auto-fixes/DSC_1274-acol.jpg" width="640" height="425" alt="The same hillside after Auto Color: the sand paler and the sky bluer" loading="lazy"><span class="label">Auto Color</span></div>
+<div><img src="img/auto-fixes/DSC_1274-af.jpg" width="640" height="425" alt="The same hillside after Auto Fix: more contrast as well as the cooler balance" loading="lazy"><span class="label">Auto Fix</span></div>
+</div><figcaption>A warm picture. The sand's mean color is (186, 166, 145), and Auto Color's gains (red 0.939, green 1.012, blue 1.064) take some of the warmth out. Gray world alone would have gone further; white patch, which sees the gray clouds as nearly neutral already, holds it back.</figcaption>
+</figure>
+
+<h3 id="fold-back">The fold-back: measuring again</h3>
+<p>One measurement is not the end. Clipping, the clamp and the changing set of usable pixels mean that a picture balanced with the first gains, measured again, may still show a little cast. So Auto Color measures the balanced picture again and folds what it still finds back into the gains, round after round:</p>
+<ol class="steps-list">
+<li>Measure the picture with the current gains applied. The result is a correction for each channel.</li>
+<li>Stop if every channel's correction is under <strong>0.2 %</strong> (less than half an 8-bit level at white), or the channel is held at a limit and the correction asks it to go further.</li>
+<li>Otherwise multiply the correction into the gains (clamped to the limits) and go again, at most <strong>12 rounds</strong>. Stop early if the gains would move by less than 0.05 %.</li>
+</ol>
+<p>Finally, if no channel's gain differs from 1 by 1 % or more, the gains are dropped altogether. Most photos need one or two rounds. The limits always apply to the whole result, never per round, so pressing Auto Color can never push a channel past 1.35.</p>
+<figure>
+<img src="img/auto-fixes/rounds.png" width="1600" height="720" alt="Left: the gates photo's red, green and blue gains round by round; red jumps to the lower limit and blue to the upper limit in the first round, while green climbs from 1.08 to 1.28 over twelve rounds. Right: the correction still found at each measurement for four photos, on a log scale, with dashed lines at 0.2 % and 1 %; sand, fox and sheep drop below the lines within a few measurements, the gates take twelve." loading="lazy">
+<figcaption>Left: on the orange gates, red and blue hit their limits in the first round, and the remaining correction is taken up by green, the only channel still free, which climbs for all twelve rounds. Right: what each measurement still finds, through both phases of Auto Fix (next section). The sand, the fox and the sheep converge in two or three measurements.</figcaption>
+</figure>
+
+<h2 id="auto-fix">Auto Fix</h2>
+<p>Auto Fix is the color, the contrast and a little Fill Light, measured together on the 256-pixel picture and applied as one pass. The order of the measurement matters, because the levels magnify any color error:</p>
+<ol class="steps-list">
+<li><strong>Color on its own.</strong> The gains are found exactly as Auto Color finds them: full corrections, until under 0.2 %.</li>
+<li><strong>Color on the leveled picture.</strong> The gains are then measured again on the picture as Auto Fix will leave it: balanced, then leveled with levels measured afresh on that balanced picture. This is what a second press of Auto Fix would read. Here each round takes only <strong>half</strong> of the correction it finds (the correction to the power 0.5), at most 12 rounds, stopping when what is left is under <strong>1 %</strong>. Taking half avoids overshoot: a change of the gains moves the levels, which magnify the change, and full steps could swing back and forth.</li>
+<li><strong>Drop tiny corrections.</strong> Gains within 1 % of 1 in every channel are dropped.</li>
+<li><strong>Levels.</strong> Auto Contrast's black point, white point and gamma, measured on the balanced picture (never stacked on earlier rounds), and dropped if they would move no value by half a level.</li>
+<li><strong>Fill Light, only if still needed.</strong> On the balanced and leveled picture, take the median luma <code>m</code>. If it is below 0.4, the bottom of Auto Contrast's band, Auto Fix adds Fill Light of <code>(0.4 - m) × 0.8</code>, at most 0.2, through the same curve as the Tuning tab's Fill Light (see <a href="tuning.html">Tuning and the neutral picker</a>). A picture whose levels already brought its midtones into the band gets none.</li>
+</ol>
+<p>On the warm sand, the second phase measures twice, takes one half-step, and ends at red 0.933, green 1.013, blue 1.071, slightly further than Auto Color alone. On the dark fox, the levels leave the median at about 0.275 (the gamma limit held them back), so Auto Fix adds Fill Light of 0.10. On the hazy valley the median is in the band and the fill is 0.</p>
+
+<h2 id="settles">Why pressing again settles</h2>
+<p>A fix is a step in the recipe, so a second press of Auto Fix measures the picture the first press made. Each part of the fix is built to find nothing to do on its own output:</p>
+<ul>
+<li><strong>Black and white points.</strong> After a press, the darkest 0.5 % sit at 0 and the brightest 0.5 % at 1, piled up where they were clipped. The second press finds its percentiles at the ends, so the black point is 0, the white point 1, and there is no stretch.</li>
+<li><strong>Midtones.</strong> The first press put the median luma on the edge of the band (or left it inside), so the second finds it in the band and uses no gamma.</li>
+<li><strong>Color.</strong> The first press's gains were already folded back until a new measurement found under 0.2 % (Auto Color) or 1 % (Auto Fix), measured on exactly the picture a second press reads. The second press finds less than that and drops it.</li>
+<li><strong>Fill Light.</strong> Only for a median under 0.4, and the first press left it at 0.4 or above.</li>
+<li><strong>Nothing left.</strong> Levels whose black point is under one level, whose white point is within one level of the top, and which move none of 17 sample values by half a level count as no levels. With no gains, no levels and no fill, the fix prepares no pass: the second press still records a step in the photo's history, but it renders as nothing.</li>
+</ul>
+<figure><div class="row cols-3">
+<div><img src="img/auto-fixes/DSC_2793-af-640.jpg" width="640" height="352" alt="The hazy valley after Auto Fix" loading="lazy"><span class="label">autofix()</span></div>
+<div><img src="img/auto-fixes/DSC_2793-af2.jpg" width="640" height="352" alt="The hazy valley after Auto Fix pressed twice, identical to the first" loading="lazy"><span class="label">autofix()|autofix()</span></div>
+<div><img src="img/auto-fixes/DSC_2793-diff.png" width="640" height="352" alt="A completely black image: the difference between the two" loading="lazy"><span class="label">difference ×16</span></div>
+</div><figcaption>Dalíca's render of one Auto Fix and of two. The difference image, amplified 16 times, is completely black: the two renders are identical in every pixel (largest difference 0).</figcaption>
+</figure>
+
+<h3 id="when-again-does-more">When pressing again does more</h3>
+<p>The limits hold for each press: at most 4× the contrast, gains within 1/1.35 to 1.35, the gamma within 0.8 to 1.25. When one of them held the first press back, the picture still has something the fix wants to change, and the next press moves it again, again within the limits. Pressing again is how you ask for more on such a photo.</p>
+<figure><div class="row cols-3">
+<div><img src="img/auto-fixes/DSC_4138-ac.jpg" width="640" height="427" alt="A red fox in a dark reed bed after one Auto Contrast" loading="lazy"><span class="label">autocontrast()</span></div>
+<div><img src="img/auto-fixes/DSC_4138-ac2.jpg" width="640" height="427" alt="The fox after two Auto Contrasts, visibly brighter in the midtones" loading="lazy"><span class="label">autocontrast() twice</span></div>
+<div><img src="img/auto-fixes/DSC_4138-diff.jpg" width="640" height="427" alt="An orange difference image showing the whole picture changed, most in the midtones" loading="lazy"><span class="label">difference ×8</span></div>
+</div><figcaption>A dark photo. The first press wanted a gamma of 0.55 and was held at 0.8, leaving the median luma at 0.26. The second press finds the median still below the band and lifts it again (a mean difference of 14.6 levels).</figcaption>
+</figure>
+<figure>
+<img src="img/auto-fixes/presses.png" width="1600" height="640" alt="Median luma after zero to five presses of Auto Contrast. The fox climbs from 0.17 to 0.26, 0.34 and 0.40 over three presses and then stays flat; the valley drops from 0.68 to 0.60 on the first press and stays flat." loading="lazy">
+<figcaption>Median luma press by press. The hazy valley settles on the first press. The dark fox is lifted at the gamma limit twice (0.80, 0.80), then by 0.84 to bring its median to 0.40, the edge of the band; from the fourth press on nothing changes. Simulated on the 256-pixel picture chain and checked against Dalíca's full-size renders of one to five presses (within 1.5 levels on average).</figcaption>
+</figure>
+<p>The color limit works the same way, and shows why it exists. The torii gates below are mostly vivid orange, which breaks the gray-world assumption: the photo is not a gray scene with an orange cast, it is an orange scene. The limits stop Auto Color from turning it blue in one press, but a second press asks again, and the path between the gates turns cyan.</p>
+<figure><div class="row cols-3">
+<div><img src="img/auto-fixes/DSC_4476-orig.jpg" width="640" height="965" alt="A tunnel of bright orange torii gates over a stone path" loading="lazy"><span class="label">Original</span></div>
+<div><img src="img/auto-fixes/DSC_4476-acol.jpg" width="640" height="965" alt="After Auto Color: the gates more yellow, the stone path greenish blue" loading="lazy"><span class="label">Auto Color</span></div>
+<div><img src="img/auto-fixes/DSC_4476-acol2.jpg" width="640" height="965" alt="After two Auto Colors: the gates yellow-orange, the path strongly cyan" loading="lazy"><span class="label">Auto Color twice</span></div>
+</div><figcaption>A scene that is mostly one color. Red is held at 0.741 and blue at 1.35 on the first press, so a second press still finds a "cast" and goes further. For a photo like this, Undo is the right answer; the Neutral Color Picker (see <a href="tuning.html">Tuning and the neutral picker</a>) lets you say what should be neutral instead.</figcaption>
+</figure>
+<p>Measured on seven photos (mean absolute difference between one press and two, in 8-bit levels, Dalíca's renders at 1200 pixels):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Photo</th><th>Auto Contrast</th><th>Auto Color</th><th>Auto Fix</th><th>What held the first press back</th></tr></thead>
+<tbody>
+<tr><td>Iceland valley (hazy)</td><td>identical</td><td>identical</td><td>identical</td><td>nothing</td></tr>
+<tr><td>Sheep (flat)</td><td>identical</td><td>identical</td><td>identical</td><td>nothing</td></tr>
+<tr><td>Glacier lagoon</td><td>identical</td><td>identical</td><td>identical</td><td>nothing</td></tr>
+<tr><td>Sand (warm)</td><td>0.96</td><td>identical</td><td>identical</td><td>see the note below</td></tr>
+<tr><td>Fox in the snow (dark)</td><td>11.5</td><td>identical</td><td>14.3</td><td>gamma limit</td></tr>
+<tr><td>Fox in the reeds (dark)</td><td>14.6</td><td>identical</td><td>15.0</td><td>gamma limit</td></tr>
+<tr><td>Torii gates (one color)</td><td>3.0</td><td>11.8</td><td>17.8</td><td>gamma limit, gain limits</td></tr>
+</tbody></table></div>
+<div class="note"><p><b>A near miss:</b> on the warm sand, Auto Contrast's first press puts the median luma on the top edge of the band, and after rounding to 8 bits it lands a hair above it (0.601). Each further press then applies a gamma of about 1.008, darkening the midtones by about one level. Auto Fix on the same photo settles.</p></div>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li><code>crates/edit/src/ops/auto.rs</code>: the three operations, the levels table, the pass (gains, levels, fill)</li>
+<li><code>crates/edit/src/analysis.rs</code>: <code>levels</code>, <code>balance</code>, <code>settle</code>, <code>settle_gains</code>, <code>settled</code>, <code>fill_amount</code> and every constant quoted here (<code>CLIP</code>, <code>MIN_RANGE</code>, <code>MID_BAND</code>, <code>GAMMA_RANGE</code>, <code>MAX_GAIN</code>, <code>WHITE_PATCH</code>, <code>BALANCE_LUMA</code>, <code>CLIPPED</code>, <code>SETTLE_ROUNDS</code>, <code>SETTLE_STEP</code>, <code>GAIN_EPSILON</code>, <code>SETTLED</code>, <code>PROXY_EDGE</code>)</li>
+<li><code>crates/edit/src/render.rs</code>: how the 256-pixel analysis picture is rendered at the fix's place in the pipeline</li>
+<li><code>crates/edit/src/ops/tone.rs</code>: the Fill Light curve Auto Fix uses</li>
+<li><code>crates/edit/tests/auto.rs</code>: the tests (planted casts removed, low-contrast scenes stretched, thumbnail and full size agreeing, repeated presses settling)</li>
+<li>Spec: <code>docs/editing.md</code> §6.3 (Auto Fix, Auto Contrast, Auto Color, and pressing again)</li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="recipes.html"><span>Previous</span>Edits are recipes</a><a class="next" href="tuning.html"><span>Next</span>Tuning and the neutral picker</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#what-they-see">What the fixes look at</a>
+    <a href="#auto-contrast">Auto Contrast</a>
+    <a href="#auto-color">Auto Color</a>
+    <a href="#auto-fix">Auto Fix</a>
+    <a href="#settles">Why pressing again settles</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>
