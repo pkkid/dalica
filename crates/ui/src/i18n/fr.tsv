@@ -1,0 +1,1775 @@
+# French (fr) catalog for Dalica. UTF-8, one entry per line: context<TAB>English source<TAB>translation.
+# Empty context: plain UI text; @id: a command id or option:<key>; @plural: `one|other` English
+# source with the two French forms `one|other` (French uses the singular for 0 and 1); any other
+# context disambiguates an English word (`month`, `verb`, …).
+# A line starting with `~` is a machine-assisted DRAFT awaiting the fluent review: the reviewer
+# checks the translation, fixes it if needed, and deletes the `~` (docs/localization.md → Draft
+# entries). `cargo xtask i18n` prints how many drafts remain.
+# Keep {name} placeholders, the escapes \n \t \, and a trailing … ; keep product and technology
+# names (Dalica, JPEG, EXIF, XMP, GPS, …) in Latin letters. Style guide: docs/localization-fr.md.
+# Original translations written from the meaning of Dalica's English text; no other product's
+# localisation resources were consulted or copied. Licensed MIT OR Apache-2.0; see
+# LICENSE-translations.txt and ATTRIBUTION.md.
+
+~	({nth} of {of})	({nth} sur {of})
+~	, {rate} files a second	, {rate} fichiers par seconde
+~	16:10 (Widescreen)	16:10 (écran large)
+~	16:9 (HD video)	16:9 (vidéo HD)
+~	4:3 (Standard screen)	4:3 (écran standard)
+~	5:3 (Photo frame)	5:3 (cadre photo)
+~	8 ms of work a frame (ui.inspect perf: frameP95Ms)	8 ms de travail par image (ui.inspect perf : frameP95Ms)
+~	A change rescans your folders. Files of a type turned off are hidden, never deleted.	Une modification relance l'analyse de vos dossiers. Les fichiers d'un type désactivé sont masqués, jamais supprimés.
+~	A custom ratio already has that name.	Un format personnalisé porte déjà ce nom.
+~	A folder's own music isn't kept yet: the music folder in Options › Slideshow plays	La musique propre à un dossier n'est pas encore conservée : c'est le dossier de musique d'Options › Diaporama qui est lu
+~	A mosaic around a large center picture	Une mosaïque autour d'une grande photo centrale
+~	A photo organizer with simple editing	Un organiseur de photos avec retouche simple
+~	A soft, bright, dreamy glow.	Une lueur douce, lumineuse et onirique.
+~	A tag is at most {max} bytes.	Une étiquette fait au plus {max} octets.
+~	A web address with {query} for the place typed in "Search for a place".	Une adresse web avec {query} à la place du lieu saisi dans « Rechercher un lieu ».
+~	A web address with {z}, {x} and {y} for the tile's zoom, column and row.	Une adresse web avec {z}, {x} et {y} pour le zoom, la colonne et la ligne de la tuile.
+~	A zoom blur outside a sharp circle.	Un flou de zoom autour d'un cercle net.
+~	AI models credited in the Co-Authored-By trailers of Dalica's commits.	Modèles d'IA crédités dans les lignes Co-Authored-By des commits de Dalica.
+~	AVIF	AVIF
+~	About Dalica	À propos de Dalica
+~	Actions	Actions
+~	Actual Size	Taille réelle
+~	Actual size	Taille réelle
+~	Add	Ajouter
+~	Add Custom Ratio	Ajouter un format personnalisé
+~	Add Custom Ratio…	Ajouter un format personnalisé…
+~	Add Folder	Ajouter un dossier
+~	Add Folder…	Ajouter un dossier…
+~	Add Model	Ajouter un modèle
+~	Add Tags	Ajouter des étiquettes
+~	Add a Folder…	Ajouter un dossier…
+~	Add a Model File	Ajouter un fichier de modèle
+~	Add a Model File…	Ajouter un fichier de modèle…
+~	Add a Person Manually	Ajouter une personne manuellement
+~	Add a caption	Ajouter une légende
+~	Add a description	Ajouter une description
+~	Add a folder of photos to see them here, or import them from a camera or a card.	Ajoutez un dossier de photos pour les voir ici, ou importez-les depuis un appareil photo ou une carte.
+~	Add a name	Ajouter un nom
+~	Add a tag:	Ajouter une étiquette :
+~	Add numbers to file names to keep the order	Numéroter les noms de fichiers pour garder l'ordre
+~	Add or remove “{tag}” on the selected photos	Ajouter ou retirer « {tag} » sur les photos sélectionnées
+~	Add or remove “{tag}” on the selected photos ({key})	Ajouter ou retirer « {tag} » sur les photos sélectionnées ({key})
+~	Add the date taken to the name	Ajouter la date de prise de vue au nom
+~	Add the image size to the name	Ajouter la taille de l'image au nom
+~	Add the photos in the tray to the collage and go back to it	Ajouter les photos du bac au collage et y revenir
+~	Add the tag to the selected photos	Ajouter l'étiquette aux photos sélectionnées
+~	Add these photos to an album	Ajouter ces photos à un album
+~	Add to Album	Ajouter à l'album
+~	Add to All Selected	Ajouter à toute la sélection
+~	Add to Collage	Ajouter au collage
+~	Add watermark	Ajouter un filigrane
+~	Adds the grain of film.	Ajoute le grain de la pellicule.
+~	Adjust Date	Modifier la date
+~	Adjust Date and Time…	Modifier la date et l'heure…
+~	Adjust Picture Date	Modifier la date de la photo
+~	Adwaita (Dark)	Adwaita (sombre)
+~	Adwaita (Light)	Adwaita (clair)
+~	After copying:	Après la copie :
+~	Album Properties	Propriétés de l'album
+~	Album Properties…	Propriétés de l'album…
+~	Album name	Nom de l'album
+~	Albums	Albums
+~	All pictures	Toutes les photos
+~	All textures	Toutes les textures
+~	Allow	Autoriser
+~	Allow Map Tiles	Autoriser les tuiles de carte
+~	Allow map tiles	Autoriser les tuiles de carte
+~	Already in your library	Déjà dans votre photothèque
+~	Also delete the face data Dalica worked out from your photos? Face rectangles and names stay.	Supprimer aussi les données de visages que Dalica a calculées à partir de vos photos ? Les cadres des visages et les noms sont conservés.
+~	Another program is using this camera ({detail}); close it, or import from the folder it shows	Un autre programme utilise cet appareil ({detail}) ; fermez-le, ou importez depuis le dossier qu'il affiche
+~	Applies at next launch.	S'applique au prochain lancement.
+~	Apply	Appliquer
+~	Apply Changes	Appliquer les modifications
+~	Apply Edit	Appliquer la retouche
+~	Apply Effect	Appliquer l'effet
+~	Apply Quick Tag	Appliquer l'étiquette rapide
+~	Apply Quick Tag 1	Appliquer l'étiquette rapide 1
+~	Apply Quick Tag 10	Appliquer l'étiquette rapide 10
+~	Apply Quick Tag 2	Appliquer l'étiquette rapide 2
+~	Apply Quick Tag 3	Appliquer l'étiquette rapide 3
+~	Apply Quick Tag 4	Appliquer l'étiquette rapide 4
+~	Apply Quick Tag 5	Appliquer l'étiquette rapide 5
+~	Apply Quick Tag 6	Appliquer l'étiquette rapide 6
+~	Apply Quick Tag 7	Appliquer l'étiquette rapide 7
+~	Apply Quick Tag 8	Appliquer l'étiquette rapide 8
+~	Apply Quick Tag 9	Appliquer l'étiquette rapide 9
+~	Apply changes to the current photo?	Appliquer les modifications à la photo actuelle ?
+~	Apply the crop (Enter)	Appliquer le recadrage (Entrée)
+~	Ascending: reverse the order	Croissant : inverser l'ordre
+~	Asking the system which applications open this file.	Recherche auprès du système des applications qui ouvrent ce fichier.
+~	Auto Color	Couleurs auto
+~	Auto Contrast	Contraste auto
+~	Auto Fix	Correction automatique
+~	Auto Tuning	Réglages fins auto
+~	Auto color	Couleurs auto
+~	Auto follows the system's scale and the monitor.	Automatique suit l'échelle du système et de l'écran.
+~	Auto lighting	Éclairage auto
+~	Automatic	Automatique
+~	B&W	N&B
+~	BMP	BMP
+~	Back	Retour
+~	Back to Collage	Retour au collage
+~	Back to Library	Retour à la photothèque
+~	Back to the window (Esc)	Retour à la fenêtre (Échap)
+~	Background activity	Activité en arrière-plan
+~	Background color	Couleur de fond
+~	Backups (.dalica-originals)	Sauvegardes (.dalica-originals)
+~	Balances quality and size	Équilibre qualité et taille
+~	Basic fixes	Corrections de base
+~	Batch Edit	Retouche par lot
+~	Binary assets added	Ressources binaires ajoutées
+~	Binary assets removed	Ressources binaires supprimées
+~	Black and White	Noir et blanc
+~	Black and white as if shot through a coloured filter.	Noir et blanc comme à travers un filtre coloré.
+~	Black and white infrared film: bright foliage, dark skies.	Pellicule infrarouge noir et blanc : feuillage clair, ciel sombre.
+~	Blue	Bleu
+~	Blurs the photo outside a sharp circle.	Floute la photo autour d'un cercle net.
+~	Boost	Renforcer
+~	Border	Bordure
+~	Bottom of Library	Bas de la photothèque
+~	Breeze Dark	Breeze (sombre)
+~	Breeze Light	Breeze (clair)
+~	Bring to Top	Mettre au premier plan
+~	Bring to Top / Send to Bottom	Mettre au premier plan / à l'arrière-plan
+~	Brings out detail with strong local contrast.	Fait ressortir les détails par un fort contraste local.
+~	Browse Folders	Parcourir les dossiers
+~	Browse…	Parcourir…
+~	Brush size	Taille du pinceau
+~	Build	Build
+~	Build date	Date de compilation
+~	Camera card	Carte mémoire
+~	Camera or phone	Appareil photo ou téléphone
+~	Cameras	Appareils photo
+~	Can Edit Collage	Collage modifiable
+~	Cancel	Annuler
+~	Cancel Face Model Download	Annuler le téléchargement du modèle de visages
+~	Cancelling…	Annulation…
+~	Cannot show this photo: {why}	Impossible d'afficher cette photo : {why}
+~	Cannot show this photo: {why}\n{hint}	Impossible d'afficher cette photo : {why}\n{hint}
+~	Caption	Légende
+~	Caption: {caption}	Légende : {caption}
+~	Captions	Légendes
+~	Change Folder Settings	Modifier les réglages du dossier
+~	Change Location	Modifier le lieu
+~	Change this collage in the Collage room	Modifier ce collage dans l'espace Collage
+~	Changed in another application; Dalica's value kept	Modifié dans une autre application ; la valeur de Dalica est conservée
+~	Choose Another Name	Choisir un autre nom
+~	Choose Folder	Choisir le dossier
+~	Choose a Folder…	Choisir un dossier…
+~	Choose a folder	Choisir un dossier
+~	Choose a folder name to continue	Choisissez un nom de dossier pour continuer
+~	Choose a folder on this computer	Choisir un dossier sur cet ordinateur
+~	Choose a size below, then drag on the photo to select the part you want to keep.	Choisissez une taille ci-dessous, puis faites glisser sur la photo pour sélectionner la partie à garder.
+~	Choose a source	Choisir une source
+~	Choose another folder	Choisir un autre dossier
+~	Choose folders…	Choisir des dossiers…
+~	Choose more pictures in the library	Choisir d'autres photos dans la photothèque
+~	Choose the External Editor	Choisir l'éditeur externe
+~	Choose the quality yourself	Choisir la qualité soi-même
+~	Choose this if you keep your photos in these folders.	Choisissez ceci si vous rangez vos photos dans ces dossiers.
+~	Choose…	Choisir…
+~	Circle	Cercle
+~	Classic	Classique
+~	Clear	Effacer
+~	Clear Location	Effacer le lieu
+~	Clear Location…	Effacer le lieu…
+~	Clear Thumbnail Cache	Vider le cache des vignettes
+~	Clear Thumbnail Cache…	Vider le cache des vignettes…
+~	Clear Tray	Vider le bac
+~	Clear all photos from the tray?	Retirer toutes les photos du bac ?
+~	Clear the thumbnail cache? It is rebuilt as you browse; nothing about your photos is lost.	Vider le cache des vignettes ? Il est reconstruit pendant la navigation ; rien de vos photos n'est perdu.
+~	Clearing	Effacement
+~	Click Import All or Import Selected	Cliquez sur Tout importer ou Importer la sélection
+~	Click a blemish, then click a clean area to copy from.	Cliquez sur une imperfection, puis sur une zone propre à recopier.
+~	Click a shortcut to change it: Esc cancels, Backspace removes it.	Cliquez sur un raccourci pour le modifier : Échap annule, Retour arrière le supprime.
+~	Click ✓ to confirm a match or × to reject it.	Cliquez sur ✓ pour confirmer une correspondance ou sur × pour la refuser.
+~	Clips ({n})	Clips ({n})
+~	Close	Fermer
+~	Close (Esc)	Fermer (Échap)
+~	Close Collage	Fermer le collage
+~	Close Import Source	Fermer la source d'importation
+~	Close Open With	Fermer Ouvrir avec
+~	Close Room	Fermer l'espace
+~	Close Video	Fermer la vidéo
+~	Close the list	Fermer la liste
+~	Close the pane	Fermer le panneau
+~	Close without cropping (Esc)	Fermer sans recadrer (Échap)
+~	Close without the patches	Fermer sans les retouches locales
+~	Collage	Collage
+~	Collage Settings	Réglages du collage
+~	Collage Style	Style du collage
+~	Collage page	Page du collage
+~	Collapse	Réduire
+~	Collapse Folder	Réduire le dossier
+~	Collapse Group	Réduire le groupe
+~	Collapse {name}	Réduire {name}
+~	Color Temperature	Température de couleur
+~	Commit	Commit
+~	Commits	Commits
+~	Company	Société
+~	Compare	Comparer
+~	Compare Photo	Comparer la photo
+~	Compare Two Versions	Comparer deux versions
+~	Compare two photos	Comparer deux photos
+~	Compare two versions of this photo	Comparer deux versions de cette photo
+~	Compared photo	Photo comparée
+~	Configure Photo Viewer…	Configurer la visionneuse…
+~	Configure Quick Tags	Configurer les étiquettes rapides
+~	Configure Quick Tags…	Configurer les étiquettes rapides…
+~	Confirm	Confirmer
+~	Confirm All	Tout confirmer
+~	Contact Sheet	Planche contact
+~	Context	Contexte
+~	Continue	Continuer
+~	Contributors	Contributeurs
+~	Coordinates, such as 38.7, -9.14	Coordonnées, par exemple 38.7, -9.14
+~	Copied Stats for Nerds as text.	Statistiques pour geeks copiées en texte.
+~	Copy	Copier
+~	Copy All Edits	Copier toutes les retouches
+~	Copy Files	Copier les fichiers
+~	Copy Location	Copier le lieu
+~	Copy Path	Copier le chemin
+~	Copy as Text	Copier en texte
+~	Copy to the Clipboard	Copier dans le presse-papiers
+~	Copyright © 2026 the Dalica contributors; see the Contributors and Models tabs.	Copyright © 2026 les contributeurs de Dalica ; voir les onglets Contributeurs et Modèles.
+~	Could not analyse the photo.	Impossible d'analyser la photo.
+~	Could not copy {name}: {reason}	Impossible de copier {name} : {reason}
+~	Could not export {name}	Impossible d'exporter {name}
+~	Could not export {name}: {reason}	Impossible d'exporter {name} : {reason}
+~	Could not import {name}	Impossible d'importer {name}
+~	Could not import {name}: {reason}	Impossible d'importer {name} : {reason}
+~	Could not move {name} back: {reason}	Impossible de remettre {name} en place : {reason}
+~	Could not move {name} to the Trash: {reason}	Impossible de mettre {name} à la corbeille : {reason}
+~	Could not move {name}: {reason}	Impossible de déplacer {name} : {reason}
+~	Could not read the file: {error}	Impossible de lire le fichier : {error}
+~	Could not remove the copy {name}: {reason}	Impossible de supprimer la copie {name} : {reason}
+~	Could not rename {name} back: {reason}	Impossible de rendre son nom à {name} : {reason}
+~	Could not rename {name}: {reason}	Impossible de renommer {name} : {reason}
+~	Could not restore {name}: {reason}	Impossible de restaurer {name} : {reason}
+~	Could not save {name}	Impossible d'enregistrer {name}
+~	Could not save {name}: {reason}	Impossible d'enregistrer {name} : {reason}
+~	Count Again	Recompter
+~	Count Backups	Compter les sauvegardes
+~	Counting	Comptage
+~	Create Collage	Créer un collage
+~	Create a new album	Créer un album
+~	Crop	Recadrer
+~	Crop Photo	Recadrer la photo
+~	Crop Ratios	Formats de recadrage
+~	Crop rectangle {w} × {h}	Rectangle de recadrage {w} × {h}
+~	Crop the photo	Recadrer la photo
+~	Crops to a wide 1.7:1 frame with a film look and black bars. Changes the picture's size.	Recadre en un cadre large 1,7:1 avec un aspect pellicule et des bandes noires. Modifie la taille de l'image.
+~	Current	Actuel
+~	Current Display	Écran actuel
+~	Current date	Date actuelle
+~	Current ratio	Format actuel
+~	Custom	Personnalisé
+~	Custom ({quality})	Personnalisée ({quality})
+~	Custom quality	Qualité personnalisée
+~	Custom ratios	Formats personnalisés
+~	Cut	Couper
+~	Dalica	Dalica
+~	Dalica does not know this model, so it assumes:	Dalica ne connaît pas ce modèle ; il suppose donc :
+~	Dalica is ready to look for pictures on your computer	Dalica est prêt à chercher des photos sur votre ordinateur
+~	Dalica knows no face model by this name.	Dalica ne connaît aucun modèle de visages de ce nom.
+~	Dalica may not open this camera ({detail})	Dalica ne peut peut-être pas ouvrir cet appareil ({detail})
+~	Dalica: Stats for Nerds	Dalica : statistiques pour geeks
+~	Damaged files kept aside	Fichiers endommagés mis de côté
+~	Dark	Sombre
+~	Darkens the edges, or takes them toward a colour.	Assombrit les bords, ou les teinte d'une couleur.
+~	Date	Date
+~	Date taken (YYYY-MM-DD)	Date de prise de vue (AAAA-MM-JJ)
+~	Default Export Location	Emplacement d'exportation par défaut
+~	Default Viewer	Visionneuse par défaut
+~	Default export location	Emplacement d'exportation par défaut
+~	Default watermark text	Texte du filigrane par défaut
+~	Delete	Supprimer
+~	Delete Album	Supprimer l'album
+~	Delete Album…	Supprimer l'album…
+~	Delete Copied Files from the Card	Supprimer de la carte les fichiers copiés
+~	Delete Custom Ratio	Supprimer le format personnalisé
+~	Delete Face Data	Supprimer les données de visages
+~	Delete Folder	Supprimer le dossier
+~	Delete Folder…	Supprimer le dossier…
+~	Delete Page Format	Supprimer le format de page
+~	Delete Person	Supprimer la personne
+~	Delete copied files from the camera	Supprimer de l'appareil les fichiers copiés
+~	Delete copied files from the card	Supprimer de la carte les fichiers copiés
+~	Delete copied files from the drive	Supprimer du disque les fichiers copiés
+~	Delete from Disk…	Supprimer du disque…
+~	Delete from disk without asking	Supprimer du disque sans demander
+~	Delete the album "{name}"? The pictures in it are not deleted.	Supprimer l'album « {name} » ? Les photos qu'il contient ne sont pas supprimées.
+~	Delete this album? The pictures in it are not deleted.	Supprimer cet album ? Les photos qu'il contient ne sont pas supprimées.
+~	Delete this custom ratio	Supprimer ce format personnalisé
+~	Delete this page format	Supprimer ce format de page
+~	Delete this photo	Supprimer cette photo
+~	Delete {person}? Their faces go back to Unnamed.	Supprimer {person} ? Ses visages reviennent dans Sans nom.
+~	Delete…	Supprimer…
+~	Descending: reverse the order	Décroissant : inverser l'ordre
+~	Description	Description
+~	Destination	Destination
+~	Details	Détails
+~	Detect duplicates while importing	Détecter les doublons pendant l'importation
+~	Discard	Abandonner
+~	Disk: in your photo folders	Disque : dans vos dossiers de photos
+~	Disk: the library folder	Disque : le dossier de la photothèque
+~	Disk: the thumbnail cache	Disque : le cache des vignettes
+~	Display Time	Durée d'affichage
+~	Display name	Nom affiché
+~	Display time	Durée d'affichage
+~	Dissolve	Fondu
+~	Don't ask again	Ne plus demander
+~	Don't ask again, always apply	Ne plus demander, toujours appliquer
+~	Don't show this again	Ne plus afficher
+~	Don't use Dalica as a viewer	Ne pas utiliser Dalica comme visionneuse
+~	Download	Télécharger
+~	Download Face Model	Télécharger le modèle de visages
+~	Downloading…	Téléchargement…
+~	Download…	Télécharger…
+~	Drag onto a photo to magnify it	Faites glisser sur une photo pour l'agrandir
+~	Drag the box to fit the face, then type a name.	Ajustez le cadre au visage, puis saisissez un nom.
+~	Draw shadows	Dessiner les ombres
+~	Dream Glow	Lueur onirique
+~	Drop Photos on the Map	Déposer les photos sur la carte
+~	Drop Shadow	Ombre portée
+~	Duo-Tone	Bichromie
+~	Duplicate Files	Fichiers en double
+~	Each capture date gets its own folder	Chaque date de prise de vue a son propre dossier
+~	Edit Caption	Modifier la légende
+~	Edit Collage	Modifier le collage
+~	Edit Description…	Modifier la description…
+~	Edit Tab	Onglet Retouche
+~	Edit View	Vue Retouche
+~	Edit panel	Panneau de retouche
+~	Edit toolbar	Barre de retouche
+~	Edit view	Vue Retouche
+~	Edited	Retouchées
+~	Effects	Effets
+~	English	English
+~	Enter the folder's name.	Saisissez le nom du dossier.
+~	Entries	Entrées
+~	Erase	Effacer
+~	Erase Soften where it was painted	Effacer l'adoucissement là où il a été peint
+~	Errors only	Erreurs seulement
+~	Evaluate Suggestions	Évaluer les suggestions
+~	Even more effects	Encore plus d'effets
+~	Every MP3, OGG, FLAC and WAV file in it plays in name order, looping.	Tous les fichiers MP3, OGG, FLAC et WAV qu'il contient sont lus par ordre de nom, en boucle.
+~	Every picture chosen is excluded.	Toutes les photos choisies sont exclues.
+~	Every selected photo has this tag.	Toutes les photos sélectionnées ont cette étiquette.
+~	Example: {name}	Exemple : {name}
+~	Example: {name} ({width} × {height})	Exemple : {name} ({width} × {height})
+~	Exclude	Exclure
+~	Exclude All	Tout exclure
+~	Exclude Duplicates	Exclure les doublons
+~	Exclude duplicates	Exclure les doublons
+~	Exclude or Include	Exclure ou inclure
+~	Excluded	Exclues
+~	Exit	Quitter
+~	Exit Slideshow	Quitter le diaporama
+~	Exit the slideshow (Esc)	Quitter le diaporama (Échap)
+~	Expand	Développer
+~	Expand Groups	Développer les groupes
+~	Expand {name}	Développer {name}
+~	Experimental	Expérimental
+~	Export	Exporter
+~	Export Clip	Exporter le clip
+~	Export Defaults	Valeurs d'exportation par défaut
+~	Export Location	Emplacement d'exportation
+~	Export Pictures to Folder…	Exporter les photos vers un dossier…
+~	Export location	Emplacement d'exportation
+~	Export the trimmed clip	Exporter le clip découpé
+~	Export these photos to a folder	Exporter ces photos vers un dossier
+~	Export to Folder	Exporter vers un dossier
+~	Export videos as	Exporter les vidéos en
+~	Exporting	Exportation
+~	Exporting {done} of {total}	Exportation {done} sur {total}
+~	Exporting…	Exportation…
+~	Extend Selection to First Photo	Étendre la sélection à la première photo
+~	Extend Selection to Item Above	Étendre la sélection à l'élément au-dessus
+~	Extend Selection to Item Below	Étendre la sélection à l'élément en dessous
+~	Extend Selection to Last Photo	Étendre la sélection à la dernière photo
+~	Extend Selection to Next Item	Étendre la sélection à l'élément suivant
+~	Extend Selection to Next Photo	Étendre la sélection à la photo suivante
+~	Extend Selection to Photo Above	Étendre la sélection à la photo au-dessus
+~	Extend Selection to Photo Below	Étendre la sélection à la photo en dessous
+~	Extend Selection to Previous Item	Étendre la sélection à l'élément précédent
+~	Extend Selection to Previous Photo	Étendre la sélection à la photo précédente
+~	External editor	Éditeur externe
+~	Face Model	Modèle de visages
+~	Face Models	Modèles de visages
+~	Face Model…	Modèle de visages…
+~	Face Scan Status	État de l'analyse des visages
+~	Face model	Modèle de visages
+~	Face models cannot be added here: this session has no models folder.	Impossible d'ajouter des modèles de visages ici : cette session n'a pas de dossier de modèles.
+~	Faces	Visages
+~	Faces appear here once face recognition finds them.	Les visages apparaissent ici dès que la reconnaissance faciale les trouve.
+~	Faces are found on this computer; nothing is sent anywhere.	Les visages sont trouvés sur cet ordinateur ; rien n'est envoyé ailleurs.
+~	Features	Fonctionnalités
+~	File Types	Types de fichiers
+~	Filename	Nom du fichier
+~	Files	Fichiers
+~	Files that cannot be read	Fichiers illisibles
+~	Files with the Same Names	Fichiers portant le même nom
+~	Fill Empty with Common Tags	Compléter avec les étiquettes communes
+~	Fill Light	Lumière d'appoint
+~	Film Grain	Grain de pellicule
+~	Filmstrip	Pellicule
+~	Filter by People	Filtrer par personne
+~	Filtered B&W	N&B filtré
+~	Filters	Filtres
+~	Find	Rechercher
+~	Find Faces Again	Rechercher à nouveau les visages
+~	Find Faces Now	Rechercher les visages maintenant
+~	Find Faces in My Photos	Rechercher les visages dans mes photos
+~	Find More	Rechercher plus
+~	Find faces in my photos	Rechercher les visages dans mes photos
+~	Find faces in this folder	Rechercher les visages dans ce dossier
+~	Finding faces… {done} of {total}	Recherche des visages… {done} sur {total}
+~	First Photo	Première photo
+~	First commit	Premier commit
+~	First frame	Première image
+~	Fit	Ajuster
+~	Fit the photo to the window	Ajuster la photo à la fenêtre
+~	Fit to the window	Ajuster à la fenêtre
+~	Fits pictures into the page automatically	Place automatiquement les photos dans la page
+~	Fix the contrast and color in one click	Corriger le contraste et les couleurs en un clic
+~	Flat Folder View	Vue à plat des dossiers
+~	Flip Horizontal	Retourner horizontalement
+~	Flip Vertical	Retourner verticalement
+~	Floats the photo over a background with a shadow. Changes the picture's size.	Fait flotter la photo sur un fond avec une ombre. Modifie la taille de l'image.
+~	Focal B&W	N&B focal
+~	Focal Zoom	Zoom focal
+~	Folder Manager	Gestionnaire de dossiers
+~	Folder Manager…	Gestionnaire de dossiers…
+~	Folder Properties	Propriétés du dossier
+~	Folder View	Vue par dossiers
+~	Folder name	Nom du dossier
+~	Folder name:	Nom du dossier :
+~	Folders	Dossiers
+~	Folders with a .dalica.json	Dossiers avec un .dalica.json
+~	Folders with a damaged sidecar	Dossiers avec un fichier annexe endommagé
+~	Folder…	Dossier…
+~	For each folder, choose whether Dalica looks for pictures in it. Watched folders are checked for new pictures automatically.	Pour chaque dossier, choisissez si Dalica y cherche des photos. Les dossiers surveillés sont vérifiés automatiquement à la recherche de nouvelles photos.
+~	For the selected folder:	Pour le dossier sélectionné :
+~	Frame Mosaic	Mosaïque de cadres
+~	Frame budget	Budget par image
+~	Frame interval (95 %)	Intervalle entre images (95 %)
+~	Frames per second	Images par seconde
+~	Frames the photo with two bands of colour. Changes the picture's size.	Encadre la photo de deux bandes de couleur. Modifie la taille de l'image.
+~	From {site}	Depuis {site}
+~	Full Screen	Plein écran
+~	Full screen	Plein écran
+~	Full video (no resizing)	Vidéo complète (sans redimensionnement)
+~	GIF	GIF
+~	Geocoding service	Service de géocodage
+~	Geotag	Géolocalisation
+~	Get More	En obtenir plus
+~	Get photos from a camera, card or folder	Récupérer des photos depuis un appareil, une carte ou un dossier
+~	Glow	Lueur
+~	Go back to the photo with no edits; every step stays redoable	Revenir à la photo sans retouche ; chaque étape reste rétablissable
+~	Go back to the saved file; every step stays redoable	Revenir au fichier enregistré ; chaque étape reste rétablissable
+~	Go back to this step; the steps after it stay redoable	Revenir à cette étape ; les étapes suivantes restent rétablissables
+~	Go to History Step	Aller à l'étape de l'historique
+~	Go to Time	Aller au temps
+~	Grab bag	Fourre-tout
+~	Graduated Tint	Teinte dégradée
+~	Green	Vert
+~	Grid spacing	Espacement de la grille
+~	Grouping confidence	Confiance du regroupement
+~	HDR Look	Aspect HDR
+~	HEIC/HEIF	HEIC/HEIF
+~	Height	Hauteur
+~	Held	Mises de côté
+~	Help	Aide
+~	Help Contents	Sommaire de l'aide
+~	Hidden	Masquées
+~	Hidden Folders	Dossiers masqués
+~	Hidden Pictures	Photos masquées
+~	Hide	Masquer
+~	Hide Dalica	Masquer Dalica
+~	Hide Folder	Masquer le dossier
+~	Hide controls automatically	Masquer automatiquement les commandes
+~	Higher values make fewer, more certain suggestions.	Des valeurs plus élevées donnent des suggestions moins nombreuses et plus sûres.
+~	Higher values make smaller, more certain groups of unnamed faces.	Des valeurs plus élevées donnent des groupes de visages sans nom plus petits et plus sûrs.
+~	Highlights	Hautes lumières
+~	Histogram & Camera Info	Histogramme et infos de l'appareil
+~	History	Historique
+~	Hit rate this session	Taux de réussite de cette session
+~	Hold	Mettre de côté
+~	I have read these terms and accept them for my own use	J'ai lu ces conditions et je les accepte pour mon usage personnel
+~	ISO {iso}	ISO {iso}
+~	Ignore Face	Ignorer le visage
+~	Ignore Faces	Ignorer les visages
+~	Ignore Group	Ignorer le groupe
+~	Ignore these faces	Ignorer ces visages
+~	Ignore these faces?	Ignorer ces visages ?
+~	Ignored faces · {count}	Visages ignorés · {count}
+~	Image quality	Qualité d'image
+~	Image size	Taille d'image
+~	Import	Importer
+~	Import All	Tout importer
+~	Import Destination	Destination de l'importation
+~	Import From…	Importer depuis…
+~	Import Listing	Liste d'importation
+~	Import Selected	Importer la sélection
+~	Import Selected ({n})	Importer la sélection ({n})
+~	Import Sources	Sources d'importation
+~	Import Status	État de l'importation
+~	Import To	Importer vers
+~	Import from Folder	Importer depuis un dossier
+~	Import from:	Importer depuis :
+~	Import to:	Importer vers :
+~	Import tray	Bac d'importation
+~	Import tray position	Position du bac d'importation
+~	Import…	Importer…
+~	Include All	Tout inclure
+~	Infrared Film	Pellicule infrarouge
+~	Insert a camera's card or a removable drive, or choose a folder from “Import from:”.	Insérez la carte d'un appareil ou un disque amovible, ou choisissez un dossier dans « Importer depuis : ».
+~	Inspect Collage	Inspecter le collage
+~	Inspect Face Model File	Inspecter le fichier de modèle de visages
+~	Inspect Legacy Data	Inspecter les anciennes données
+~	Inspect Library	Inspecter la photothèque
+~	Inspect Photos	Inspecter les photos
+~	Inspect Video	Inspecter la vidéo
+~	Installed	Installé
+~	Installed · in use	Installé · utilisé
+~	Instant photo border	Bordure de photo instantanée
+~	Interface	Interface
+~	Invert Colors	Inverser les couleurs
+~	Invert Selection	Inverser la sélection
+~	JPEG	JPEG
+~	JPEG XL	JPEG XL
+~	Jobs running	Tâches en cours
+~	Keep Faces	Garder les visages
+~	Keep Files	Garder les fichiers
+~	Keep Importing	Continuer l'importation
+~	Keep Version	Garder la version
+~	Keep Which Version?	Quelle version garder ?
+~	Keep each side at most 10000.	Chaque côté doit faire au plus 10000.
+~	Keep the name at most 256 bytes.	Le nom doit faire au plus 256 octets.
+~	Keep the patches	Garder les retouches locales
+~	Keep the ratio between 1:20 and 20:1.	Le format doit rester entre 1:20 et 20:1.
+~	Keep these photos in the tray	Garder ces photos dans le bac
+~	Keep which version?	Quelle version garder ?
+~	Keeps fine detail; large files	Garde les détails fins ; fichiers volumineux
+~	Keeps the colour inside a circle and turns the rest black and white.	Garde la couleur dans un cercle et passe le reste en noir et blanc.
+~	Keeps the original's quality	Garde la qualité de l'original
+~	Kept in Dalica's file in this folder.	Conservé dans le fichier de Dalica de ce dossier.
+~	Kept in Dalica's file. The previous organizer's file is also here; it is no longer read and never changed.	Conservé dans le fichier de Dalica. Le fichier de l'ancien organiseur est aussi présent ; il n'est plus lu et jamais modifié.
+~	Kept in the photo's edits in their place, but Dalica cannot show them	Conservées à leur place dans les retouches de la photo, mais Dalica ne peut pas les afficher
+~	Keyboard Shortcuts…	Raccourcis clavier…
+~	Landscape	Paysage
+~	Language	Langue
+~	Large	Grande
+~	Last Photo	Dernière photo
+~	Last commit	Dernier commit
+~	Last scan	Dernière analyse
+~	Leave files on the camera	Laisser les fichiers sur l'appareil
+~	Leave files on the card	Laisser les fichiers sur la carte
+~	Leave files on the drive	Laisser les fichiers sur le disque
+~	Legacy Notice Shown	Avis sur les anciennes données affiché
+~	Library	Photothèque
+~	Library View	Vue Photothèque
+~	Library tree	Arborescence de la photothèque
+~	Library tree position	Position de l'arborescence
+~	Licence	Licence
+~	Licence: {name} · {commercial}	Licence : {name} · {commercial}
+~	Light table	Table lumineuse
+~	Lighting and color tuning	Réglage de l'éclairage et des couleurs
+~	Line delta	Écart de lignes
+~	Lines +/−	Lignes +/−
+~	Lines added	Lignes ajoutées
+~	Lines deleted	Lignes supprimées
+~	List Albums	Lister les albums
+~	List Faces	Lister les visages
+~	List Options	Lister les options
+~	List People	Lister les personnes
+~	List Places	Lister les lieux
+~	List Shortcuts	Lister les raccourcis
+~	List Tags	Lister les étiquettes
+~	Loading…	Chargement…
+~	Locate on Disk	Afficher sur le disque
+~	Locate on Disk is not available yet.	Afficher sur le disque n'est pas encore disponible.
+~	Location	Lieu
+~	Longest frame interval	Plus long intervalle entre images
+~	Looking at the file…	Examen du fichier…
+~	Looking for pictures never moves or copies files. You can change which folders are shown at any time with Tools → Folder Manager.	La recherche de photos ne déplace ni ne copie jamais de fichiers. Vous pouvez changer à tout moment les dossiers affichés avec Outils → Gestionnaire de dossiers.
+~	Looking for your folders…	Recherche de vos dossiers…
+~	Looks like a pile of scattered pictures	Ressemble à une pile de photos éparpillées
+~	Loop slideshow	Diaporama en boucle
+~	Make a collage from this folder	Faire un collage avec ce dossier
+~	Make a collage from this person's photos	Faire un collage avec les photos de cette personne
+~	Make the pane narrower	Rétrécir le panneau
+~	Make the pane wider	Élargir le panneau
+~	Makes a negative, or turns a scanned negative positive.	Crée un négatif, ou repasse en positif un négatif numérisé.
+~	Makes the bright areas glow.	Fait briller les zones claires.
+~	Makes the colours richer or paler.	Rend les couleurs plus riches ou plus pâles.
+~	Manual	Manuel
+~	Manual: {w} × {h}	Manuel : {w} × {h}
+~	Map	Carte
+~	Map attribution	Attribution de la carte
+~	Map tile server	Serveur de tuiles de carte
+~	Maps the photo's tones onto two colours.	Projette les tons de la photo sur deux couleurs.
+~	Mark for Import	Marquer pour l'importation
+~	Maximum	Maximale
+~	Medium	Moyenne
+~	Memory	Mémoire
+~	Menu bar	Barre de menus
+~	Merge Into	Fusionner avec
+~	Merge People	Fusionner des personnes
+~	Merge {person} into {into}? {person}'s faces become {into}'s.	Fusionner {person} avec {into} ? Les visages de {person} deviennent ceux de {into}.
+~	Merged pull requests	Pull requests fusionnées
+~	Minimum	Minimale
+~	Models	Modèles
+~	More	Plus
+~	More actions	Plus d'actions
+~	More effects	Plus d'effets
+~	More folders are not shown.	D'autres dossiers ne sont pas affichés.
+~	More…	Plus…
+~	Mosaic	Mosaïque
+~	Mounts the photo in a double mat. Changes the picture's size.	Monte la photo dans un double passe-partout. Modifie la taille de l'image.
+~	Mouse wheel	Molette de la souris
+~	Mouse wheel moves through photos (hold Ctrl to zoom)	La molette fait défiler les photos (Ctrl pour zoomer)
+~	Mouse wheel zooms (hold Ctrl to navigate)	La molette zoome (Ctrl pour naviguer)
+~	Move	Déplacer
+~	Move Files	Déplacer les fichiers
+~	Move Folder	Déplacer le dossier
+~	Move Folder…	Déplacer le dossier…
+~	Move Picture	Déplacer la photo
+~	Move the Map	Déplacer la carte
+~	Move the folder "{name}" and everything in it (including non-picture files) to the trash?	Mettre à la corbeille le dossier « {name} » et tout son contenu (y compris les fichiers qui ne sont pas des photos) ?
+~	Move the selected pictures to the trash?	Mettre les photos sélectionnées à la corbeille ?
+~	Move these files on disk? The files will be moved, not copied.	Déplacer ces fichiers sur le disque ? Les fichiers seront déplacés, pas copiés.
+~	Move this folder and everything in it (including non-picture files) to the trash?	Mettre à la corbeille ce dossier et tout son contenu (y compris les fichiers qui ne sont pas des photos) ?
+~	Move to New Folder	Déplacer vers un nouveau dossier
+~	Move to New Folder…	Déplacer vers un nouveau dossier…
+~	Move to New Person…	Déplacer vers une nouvelle personne…
+~	Move to Person	Déplacer vers une personne
+~	Move to Trash	Mettre à la corbeille
+~	Moved the folder	Dossier déplacé
+~	Moved the folder back	Dossier remis en place
+~	Moved the folder to the Trash	Dossier mis à la corbeille
+~	Moved the folder to {folder}	Dossier déplacé vers {folder}
+~	Move…	Déplacer…
+~	Multiple Exposure	Exposition multiple
+~	Museum Matte	Passe-partout de musée
+~	Music Folder	Dossier de musique
+~	Music folder	Dossier de musique
+~	Music for slideshows	Musique des diaporamas
+~	Name	Nom
+~	Name (A–Z)	Nom (A–Z)
+~	Name Faces	Nommer les visages
+~	Name Group	Nommer le groupe
+~	Name Suggestions	Suggestions de noms
+~	Name a face first: a person is made when you type a name.	Nommez d'abord un visage : une personne est créée quand vous saisissez un nom.
+~	Name of exported folder	Nom du dossier exporté
+~	Name the album.	Nommez l'album.
+~	Name the folder.	Nommez le dossier.
+~	Name the ratio.	Nommez le format.
+~	Name them in the Unnamed view.	Nommez-les dans la vue Sans nom.
+~	Navigator	Navigateur
+~	Network log level	Niveau de journal réseau
+~	Neutral Color Picker	Pipette de couleur neutre
+~	New Album	Nouvel album
+~	New Album…	Nouvel album…
+~	New Folder	Nouveau dossier
+~	New Person	Nouvelle personne
+~	New date	Nouvelle date
+~	New name	Nouveau nom
+~	Next	Suivant
+~	Next Photo	Photo suivante
+~	Next Section	Section suivante
+~	Next Theme	Thème suivant
+~	Next photo	Photo suivante
+~	Next section	Section suivante
+~	Nickname	Surnom
+~	No background work	Aucune tâche en arrière-plan
+~	No border	Sans bordure
+~	No camera information	Aucune information sur l'appareil
+~	No collage is open. Choose photos and click Collage to make one.	Aucun collage n'est ouvert. Choisissez des photos et cliquez sur Collage pour en créer un.
+~	No contributor data was built into this copy.	Aucune donnée sur les contributeurs n'a été intégrée à cette copie.
+~	No face models are known here.	Aucun modèle de visages n'est connu ici.
+~	No folder	Aucun dossier
+~	No folders are watched.	Aucun dossier n'est surveillé.
+~	No model credits were built into this copy.	Aucun crédit de modèle n'a été intégré à cette copie.
+~	No other applications	Aucune autre application
+~	No people yet	Aucune personne pour l'instant
+~	No photo here has a date.	Aucune photo ici n'a de date.
+~	No photo in this folder has unsaved edits.	Aucune photo de ce dossier n'a de retouches non enregistrées.
+~	No photo in this folder is starred.	Aucune photo de ce dossier n'a d'étoile.
+~	No photos found	Aucune photo trouvée
+~	No picture chosen is excluded.	Aucune photo choisie n'est exclue.
+~	No picture to preview	Aucune photo à prévisualiser
+~	No pictures yet	Aucune photo pour l'instant
+~	No pictures yet. Click Get More to choose some.	Aucune photo pour l'instant. Cliquez sur En obtenir plus pour en choisir.
+~	No places found.	Aucun lieu trouvé.
+~	No places in the selection	Aucun lieu dans la sélection
+~	No selection	Aucune sélection
+~	No shortcuts match.	Aucun raccourci ne correspond.
+~	None	Aucun
+~	None of these folders exists here: Continue opens the Folder Manager.	Aucun de ces dossiers n'existe ici : Continuer ouvre le Gestionnaire de dossiers.
+~	None saved for this folder yet.	Aucun n'est encore enregistré pour ce dossier.
+~	Normal	Normal
+~	Normal Thumbnails	Vignettes normales
+~	Not Now	Pas maintenant
+~	Not available yet.	Pas encore disponible.
+~	Not downloaded	Non téléchargé
+~	Not recorded (a development build)	Non enregistré (une version de développement)
+~	Nothing copied: {skipped}	Rien n'a été copié : {skipped}
+~	Nothing is downloaded until you accept. Your photos and faces never leave this computer.	Rien n'est téléchargé tant que vous n'avez pas accepté. Vos photos et vos visages ne quittent jamais cet ordinateur.
+~	Nothing is written here until you reset it or restore the file.	Rien n'est écrit ici tant que vous ne le réinitialisez pas ou ne restaurez pas le fichier.
+~	Nothing moved back: {skipped}	Rien n'a été remis en place : {skipped}
+~	Nothing moved to the Trash: {skipped}	Rien n'a été mis à la corbeille : {skipped}
+~	Nothing moved: {skipped}	Rien n'a été déplacé : {skipped}
+~	Nothing removed: {skipped}	Rien n'a été retiré : {skipped}
+~	Nothing renamed back: {skipped}	Aucun nom n'a été rétabli : {skipped}
+~	Nothing renamed: {skipped}	Rien n'a été renommé : {skipped}
+~	Nothing restored: {skipped}	Rien n'a été restauré : {skipped}
+~	Nothing to import yet	Rien à importer pour l'instant
+~	OK	OK
+~	Off: use the original size.	Désactivé : garder la taille d'origine.
+~	One folder for each capture date	Un dossier par date de prise de vue
+~	One folder named with today's date	Un dossier nommé à la date du jour
+~	Only look in my Pictures, Documents and Desktop folders	Chercher seulement dans mes dossiers Images, Documents et Bureau
+~	Only the first fields are listed.	Seuls les premiers champs sont listés.
+~	Open Camera	Ouvrir l'appareil
+~	Open File…	Ouvrir un fichier…
+~	Open Folder	Ouvrir le dossier
+~	Open Import Source	Ouvrir la source d'importation
+~	Open Tool	Ouvrir l'outil
+~	Open Video	Ouvrir la vidéo
+~	Open With	Ouvrir avec
+~	Open a Bubble	Ouvrir une bulle
+~	Open in Dalica	Ouvrir dans Dalica
+~	Open in External Editor	Ouvrir dans l'éditeur externe
+~	Open page	Ouvrir la page
+~	Open the Collage Room	Ouvrir l'espace Collage
+~	Optional	Facultatif
+~	Options	Options
+~	Options…	Options…
+~	Orange	Orange
+~	Original	Original
+~	Other photo	Autre photo
+~	PNG	PNG
+~	PSD	PSD
+~	Page Down	Page suivante
+~	Page Up	Page précédente
+~	Page format	Format de page
+~	Paint	Peindre
+~	Paint where Soften applies	Peindre là où l'adoucissement s'applique
+~	Pan and Zoom	Panoramique et zoom
+~	Panic	Panique
+~	Partly downloaded ({size})	Partiellement téléchargé ({size})
+~	Paste	Coller
+~	Paste All Edits	Coller toutes les retouches
+~	Paste Location	Coller le lieu
+~	Pause	Pause
+~	Pause / Play	Pause / Lecture
+~	People	Personnes
+~	People Manager…	Gestionnaire de personnes…
+~	People in these photos	Personnes sur ces photos
+~	Photo	Photo
+~	Photo History	Historique de la photo
+~	Photo Metadata	Métadonnées de la photo
+~	Photo Viewer Photos	Photos de la visionneuse
+~	Photo Viewer Settings	Réglages de la visionneuse
+~	Photo data	Données de la photo
+~	Photo tray	Bac photo
+~	Photo viewer	Visionneuse
+~	Photo {index} of {count}	Photo {index} sur {count}
+~	Photos and videos	Photos et vidéos
+~	Photos with unsaved edits	Photos avec des retouches non enregistrées
+~	Pick a Colour from the Photo	Prélever une couleur dans la photo
+~	Pick a grey or white area of the photo to remove a color cast	Prélevez une zone grise ou blanche de la photo pour supprimer une dominante de couleur
+~	Pick the background colour	Choisir la couleur de fond
+~	Pick the folders you want Dalica to watch. You can change this at any time in the Folder Manager.	Choisissez les dossiers que Dalica doit surveiller. Vous pouvez changer cela à tout moment dans le Gestionnaire de dossiers.
+~	Picture	Photo
+~	Picture Collage…	Collage de photos…
+~	Picture Pile	Pile de photos
+~	Picture borders	Bordures des photos
+~	Picture {id}	Photo {id}
+~	Pictures blended on top of one another	Photos fondues les unes sur les autres
+~	Pictures in regular rows and columns	Photos en lignes et colonnes régulières
+~	Pictures smaller than this on both sides show only with View › Small Pictures.	Les photos plus petites que ceci des deux côtés ne s'affichent qu'avec Affichage › Petites photos.
+~	Pictures will go into a folder named with today's date	Les photos iront dans un dossier nommé à la date du jour
+~	Pictures/Dalica/Exports unless chosen.	Images/Dalica/Exports sauf choix contraire.
+~	Pixelate	Pixelliser
+~	Place	Lieu
+~	Place the Pin	Placer l'épingle
+~	Places	Lieux
+~	Plastic Lens	Objectif plastique
+~	Play	Lecture
+~	Play / Pause	Lecture / Pause
+~	Play a slideshow from this photo	Lancer un diaporama à partir de cette photo
+~	Play a slideshow of the folder	Lancer un diaporama du dossier
+~	Play a slideshow of this folder	Lancer un diaporama de ce dossier
+~	Play a slideshow of this person's photos	Lancer un diaporama des photos de cette personne
+~	Play music during slideshows	Jouer de la musique pendant les diaporamas
+~	Play video sound	Lire le son des vidéos
+~	Plays the photos of folders in your library.	Affiche les photos des dossiers de votre photothèque.
+~	Portrait	Portrait
+~	Preferences…	Préférences…
+~	Press and hold to show the original (or hold \\)	Maintenir appuyé pour voir l'original (ou maintenir \\)
+~	Previous	Précédent
+~	Previous Photo	Photo précédente
+~	Previous Section	Section précédente
+~	Previous photo	Photo précédente
+~	Previous section	Section précédente
+~	Print, Banner…	Imprimer, Bannière…
+~	Privacy	Confidentialité
+~	Pro (Dark)	Pro (sombre)
+~	Pro (Light Gray)	Pro (gris clair)
+~	Pro (Light)	Pro (clair)
+~	Pro (Medium Gray)	Pro (gris moyen)
+~	Projects	Projets
+~	Properties	Propriétés
+~	Properties of {name}	Propriétés de {name}
+~	Proxy	Proxy
+~	Proxy host	Hôte du proxy
+~	Proxy port	Port du proxy
+~	Purple	Violet
+~	Push	Push
+~	Put Photos Here	Placer les photos ici
+~	Put back the edit removed last	Rétablir la dernière retouche retirée
+~	Put back the patch removed last	Rétablir la dernière retouche locale retirée
+~	Put every Tuning control back to its default	Remettre chaque réglage fin à sa valeur par défaut
+~	Put on Page	Placer sur la page
+~	Put the selected pictures on the page	Placer les photos sélectionnées sur la page
+~	Put the settings back to their defaults	Rétablir les réglages par défaut
+~	Query Library	Interroger la photothèque
+~	Quick Preview (hold Ctrl+Alt)	Aperçu rapide (maintenir Ctrl+Alt)
+~	Quick Tags	Étiquettes rapides
+~	Quick tag {n} has no tag: click to choose quick tags	L'étiquette rapide {n} n'a pas d'étiquette : cliquez pour choisir les étiquettes rapides
+~	Quick tags	Étiquettes rapides
+~	Quick tags add a tag to the selected photos with one click, or with Ctrl+Alt+1 … Ctrl+Alt+0. Type the tags you use most below. With the option ticked, the top two buttons show the tags you added most recently instead.	Les étiquettes rapides ajoutent une étiquette aux photos sélectionnées en un clic, ou avec Ctrl+Alt+1 … Ctrl+Alt+0. Saisissez ci-dessous les étiquettes que vous utilisez le plus. Si l'option est cochée, les deux premiers boutons affichent plutôt les étiquettes ajoutées le plus récemment.
+~	Quit Dalica	Quitter Dalica
+~	RAW formats	Formats RAW
+~	Read from the previous organizer's file, which is never changed. Dalica writes its own file on the first change.	Lu depuis le fichier de l'ancien organiseur, qui n'est jamais modifié. Dalica écrit son propre fichier à la première modification.
+~	Read photo data left by the previous organizer	Lire les données de photos laissées par l'ancien organiseur
+~	Read this face model's terms before it is added. The file is copied into Dalica's models folder.	Lisez les conditions de ce modèle de visages avant de l'ajouter. Le fichier est copié dans le dossier des modèles de Dalica.
+~	Read this face model's terms before it is downloaded. It stays on this computer.	Lisez les conditions de ce modèle de visages avant de le télécharger. Il reste sur cet ordinateur.
+~	Reading camera information…	Lecture des informations de l'appareil…
+~	Reading the file…	Lecture du fichier…
+~	Reading the folder…	Lecture du dossier…
+~	Reading the models folder…	Lecture du dossier des modèles…
+~	Real name	Vrai nom
+~	Rebuild Library…	Reconstruire la photothèque…
+~	Recent folder	Dossier récent
+~	Recent folder name	Nom de dossier récent
+~	Recently Updated	Mis à jour récemment
+~	Recently used	Utilisées récemment
+~	Rectangle	Rectangle
+~	Red	Rouge
+~	Redo	Rétablir
+~	Redo Edit	Rétablir la retouche
+~	Redo Patch	Rétablir la retouche locale
+~	Redo up to this step	Rétablir jusqu'à cette étape
+~	Redo {action}	Rétablir {action}
+~	Refresh Thumbnails	Actualiser les vignettes
+~	Refreshed every second. Everything here stays on this computer.	Actualisé chaque seconde. Tout ici reste sur cet ordinateur.
+~	Reject	Refuser
+~	Release Notes	Notes de version
+~	Removable drive	Disque amovible
+~	Remove	Retirer
+~	Remove Edits	Retirer les retouches
+~	Remove Face Model	Retirer le modèle de visages
+~	Remove Faces	Retirer les visages
+~	Remove Folder	Retirer le dossier
+~	Remove Imported Files	Retirer les fichiers importés
+~	Remove Location	Retirer le lieu
+~	Remove Tags	Retirer des étiquettes
+~	Remove a color cast	Supprimer une dominante de couleur
+~	Remove blemishes and spots	Supprimer les imperfections et les taches
+~	Remove every patch	Retirer toutes les retouches locales
+~	Remove from Album	Retirer de l'album
+~	Remove from Card	Retirer de la carte
+~	Remove from Clips	Retirer des clips
+~	Remove from Dalica	Retirer de Dalica
+~	Remove from Dalica…	Retirer de Dalica…
+~	Remove from Person	Retirer de la personne
+~	Remove from Selected	Retirer de la sélection
+~	Remove from Tray	Retirer du bac
+~	Remove from albums without asking	Retirer des albums sans demander
+~	Remove location from exported photos	Retirer le lieu des photos exportées
+~	Remove photos from the tray	Retirer des photos du bac
+~	Remove the face rectangles found in these folders? Names you've given stay with the photos that are still scanned.	Retirer les cadres de visages trouvés dans ces dossiers ? Les noms que vous avez donnés restent sur les photos toujours analysées.
+~	Remove the folder "{name}" and its subfolders from Dalica? The files stay on your disk.	Retirer de Dalica le dossier « {name} » et ses sous-dossiers ? Les fichiers restent sur votre disque.
+~	Remove the imported files from the card? This cannot be undone.	Retirer de la carte les fichiers importés ? Cette action est irréversible.
+~	Remove the last patch	Retirer la dernière retouche locale
+~	Remove the latest edit	Retirer la dernière retouche
+~	Remove the selected pictures from this album? The files are not deleted.	Retirer de cet album les photos sélectionnées ? Les fichiers ne sont pas supprimés.
+~	Remove the tag from the selected photos	Retirer l'étiquette des photos sélectionnées
+~	Remove the unsaved edits from these photos	Retirer les retouches non enregistrées de ces photos
+~	Remove this face model? Its file and the face data worked out with it are deleted; face rectangles and names stay.	Retirer ce modèle de visages ? Son fichier et les données de visages calculées avec lui sont supprimés ; les cadres des visages et les noms sont conservés.
+~	Remove this folder and its subfolders from Dalica? The files stay on your disk.	Retirer de Dalica ce dossier et ses sous-dossiers ? Les fichiers restent sur votre disque.
+~	Rename Duplicates	Renommer les doublons
+~	Rename Files	Renommer les fichiers
+~	Rename Folder	Renommer le dossier
+~	Rename Person	Renommer la personne
+~	Rename Tag	Renommer l'étiquette
+~	Rename Tag…	Renommer l'étiquette…
+~	Renamed the folder	Dossier renommé
+~	Renamed the folder back	Nom du dossier rétabli
+~	Renamed the folder to {name}	Dossier renommé en {name}
+~	Rename…	Renommer…
+~	Rendering	Rendu
+~	Reorder Album	Réordonner l'album
+~	Replace	Remplacer
+~	Report a Problem…	Signaler un problème…
+~	Requests	Requêtes
+~	Rescanning your folders…	Nouvelle analyse de vos dossiers…
+~	Reset	Réinitialiser
+~	Reset All	Tout réinitialiser
+~	Reset Folder Data	Réinitialiser les données du dossier
+~	Reset Shortcuts	Réinitialiser les raccourcis
+~	Reset folder data	Réinitialiser les données du dossier
+~	Reset the data of the folder "{name}"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	Réinitialiser les données du dossier « {name} » ? Dalica écrit un nouveau fichier de données à partir de ce qu'il sait de ces photos. Le fichier endommagé reste à côté des photos, intact.
+~	Reset this folder's data? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	Réinitialiser les données de ce dossier ? Dalica écrit un nouveau fichier de données à partir de ce qu'il sait de ces photos. Le fichier endommagé reste à côté des photos, intact.
+~	Resident memory	Mémoire résidente
+~	Resize	Redimensionner
+~	Resize the library tree	Redimensionner l'arborescence de la photothèque
+~	Resize the window	Redimensionner la fenêtre
+~	Resize to	Redimensionner à
+~	Resolution	Résolution
+~	Restore all default shortcuts?	Rétablir tous les raccourcis par défaut ?
+~	Restore the default: no shortcut	Rétablir la valeur par défaut : aucun raccourci
+~	Restore the default: {keys}	Rétablir la valeur par défaut : {keys}
+~	Restored the folder from the Trash	Dossier restauré depuis la corbeille
+~	Retouch	Retouche locale
+~	Reverse Order	Inverser l'ordre
+~	Revert to the original? Your edits will be lost. To undo only the last save and keep the edits, choose Undo Save.	Revenir à l'original ? Vos retouches seront perdues. Pour annuler seulement le dernier enregistrement et garder les retouches, choisissez Annuler l'enregistrement.
+~	Revert…	Revenir à l'original…
+~	Rooms	Espaces
+~	Rotate	Faire pivoter
+~	Rotate Clockwise	Rotation horaire
+~	Rotate Counterclockwise	Rotation antihoraire
+~	Rotate Left	Rotation à gauche
+~	Rotate Right	Rotation à droite
+~	Rotate clockwise	Rotation horaire
+~	Rotate counterclockwise	Rotation antihoraire
+~	Rotate left	Rotation à gauche
+~	Rotate right	Rotation à droite
+~	Rotate the video clockwise	Faire pivoter la vidéo dans le sens horaire
+~	Rotate the video counterclockwise	Faire pivoter la vidéo dans le sens antihoraire
+~	Saturation	Saturation
+~	Save	Enregistrer
+~	Save As	Enregistrer sous
+~	Save As…	Enregistrer sous…
+~	Save Draft	Enregistrer le brouillon
+~	Save Frame as Picture	Enregistrer l'image comme photo
+~	Save Imported Pictures In	Enregistrer les photos importées dans
+~	Save Search Results…	Enregistrer les résultats de recherche…
+~	Save a Copy	Enregistrer une copie
+~	Save edited photos to disk	Enregistrer sur le disque les photos retouchées
+~	Save imported pictures in	Enregistrer les photos importées dans
+~	Save the changes to this collage?	Enregistrer les modifications de ce collage ?
+~	Save the frame shown as a picture	Enregistrer l'image affichée comme photo
+~	Saving writes your edits into the photo's file. Dalica first keeps the original, unchanged, in a hidden .dalica-originals folder beside it, so Undo Save and Revert can always bring it back.	L'enregistrement écrit vos retouches dans le fichier de la photo. Dalica garde d'abord l'original, inchangé, dans un dossier caché .dalica-originals à côté, pour qu'Annuler l'enregistrement et Revenir à l'original puissent toujours le rétablir.
+~	Saving {name} in Video Frames	Enregistrement de {name} dans Images de vidéos
+~	Scan Always	Toujours analyser
+~	Scan Once	Analyser une fois
+~	Scanning now	Analyse en cours
+~	Scramble Collage	Mélanger le collage
+~	Screen-size previews	Aperçus à la taille de l'écran
+~	Scroll bar	Barre de défilement
+~	Scroll down	Défiler vers le bas
+~	Scroll menu down	Faire défiler le menu vers le bas
+~	Scroll menu up	Faire défiler le menu vers le haut
+~	Scroll speed	Vitesse de défilement
+~	Scroll the import tray	Faire défiler le bac d'importation
+~	Scroll the library tree	Faire défiler l'arborescence de la photothèque
+~	Scroll to Section	Aller à la section
+~	Scroll up	Défiler vers le haut
+~	Search	Rechercher
+~	Search Suggestions	Suggestions de recherche
+~	Search commands and keys	Rechercher des commandes et des touches
+~	Search for	Rechercher
+~	Search for Color	Rechercher par couleur
+~	Search for This Tag	Rechercher cette étiquette
+~	Search for a Place	Rechercher un lieu
+~	Search for a place:	Rechercher un lieu :
+~	Search results	Résultats de recherche
+~	Search results for "{text}"	Résultats de recherche pour « {text} »
+~	Searching…	Recherche…
+~	Seek	Atteindre
+~	Select	Sélectionner
+~	Select All	Tout sélectionner
+~	Select Clips	Sélectionner les clips
+~	Select First Photo of Section	Sélectionner la première photo de la section
+~	Select Item Above	Sélectionner l'élément au-dessus
+~	Select Item Below	Sélectionner l'élément en dessous
+~	Select Last Photo of Section	Sélectionner la dernière photo de la section
+~	Select Next Item	Sélectionner l'élément suivant
+~	Select Next Photo	Sélectionner la photo suivante
+~	Select None	Ne rien sélectionner
+~	Select Photo Above	Sélectionner la photo au-dessus
+~	Select Photo Below	Sélectionner la photo en dessous
+~	Select Pictures	Sélectionner des photos
+~	Select Previous Item	Sélectionner l'élément précédent
+~	Select Previous Photo	Sélectionner la photo précédente
+~	Select Section	Sélectionner la section
+~	Select Starred	Sélectionner les photos étoilées
+~	Select a folder first.	Sélectionnez d'abord un dossier.
+~	Select a photo of this person first.	Sélectionnez d'abord une photo de cette personne.
+~	Select in Import	Sélectionner dans l'importation
+~	Select in Tray	Sélectionner dans le bac
+~	Select one photo to see all of its metadata.	Sélectionnez une seule photo pour voir toutes ses métadonnées.
+~	Select one photo to see its history	Sélectionnez une seule photo pour voir son historique
+~	Select some photos first.	Sélectionnez d'abord des photos.
+~	Select the photos to put here.	Sélectionnez les photos à placer ici.
+~	Select the starred photos in this folder	Sélectionner les photos étoilées de ce dossier
+~	Selection	Sélection
+~	Send to Bottom	Mettre à l'arrière-plan
+~	Sepia	Sépia
+~	Set Caption	Définir la légende
+~	Set End	Définir la fin
+~	Set Location	Définir le lieu
+~	Set Options	Définir les options
+~	Set Recipe	Définir la recette
+~	Set Shortcut	Définir le raccourci
+~	Set Star	Définir l'étoile
+~	Set Start	Définir le début
+~	Set all pictures to the same date and time	Mettre toutes les photos à la même date et heure
+~	Set as Album Cover	Utiliser comme couverture de l'album
+~	Set as Background	Utiliser comme fond
+~	Set as Frame Center	Utiliser comme centre du cadre
+~	Set as Person Thumbnail	Utiliser comme vignette de la personne
+~	Set the black and white points	Définir les points noir et blanc
+~	Settings…	Réglages…
+~	Shadows	Ombres
+~	Share of commits	Part des commits
+~	Sharpen	Netteté
+~	Sharpens detail and edges.	Accentue les détails et les contours.
+~	Shift all dates by the same amount	Décaler toutes les dates de la même durée
+~	Show All	Tout afficher
+~	Show All Metadata	Afficher toutes les métadonnées
+~	Show Collage Tab	Afficher l'onglet Collage
+~	Show Duplicate Files	Afficher les fichiers en double
+~	Show Edit Controls	Afficher les commandes de retouche
+~	Show Fewer	Afficher moins
+~	Show Folder	Afficher le dossier
+~	Show Ignored Faces	Afficher les visages ignorés
+~	Show JPEG files and:	Afficher les fichiers JPEG et :
+~	Show Log Folder	Afficher le dossier des journaux
+~	Show Original (hold \\)	Afficher l'original (maintenir \\)
+~	Show Room	Afficher l'espace
+~	Show Tag as Album…	Afficher l'étiquette comme un album…
+~	Show These Photos	Afficher ces photos
+~	Show Thumbnails in Tree	Afficher les vignettes dans l'arborescence
+~	Show Whole Photos	Afficher les photos entières
+~	Show a Place Found	Afficher un lieu trouvé
+~	Show captions	Afficher les légendes
+~	Show captions in the slideshow	Afficher les légendes dans le diaporama
+~	Show commands without a shortcut	Afficher les commandes sans raccourci
+~	Show folders as a flat list	Afficher les dossiers en liste à plat
+~	Show in File Manager	Afficher dans le gestionnaire de fichiers
+~	Show in Folder	Afficher dans le dossier
+~	Show map tiles from {provider}? Dalica fetches map pictures from the internet while this pane is open.	Afficher les tuiles de carte de {provider} ? Dalica télécharge des images de carte sur Internet tant que ce panneau est ouvert.
+~	Show one photo	Afficher une photo
+~	Show only edited photos	Afficher seulement les photos retouchées
+~	Show only geotagged photos	Afficher seulement les photos géolocalisées
+~	Show only photos with faces	Afficher seulement les photos avec des visages
+~	Show only recent photos	Afficher seulement les photos récentes
+~	Show only suggestions	Afficher seulement les suggestions
+~	Show side by side, or one above the other	Afficher côte à côte, ou l'une au-dessus de l'autre
+~	Show starred photos only	Afficher seulement les photos étoilées
+~	Show the cropped photo (hold to look while pressed)	Afficher la photo recadrée (maintenir pour voir tant que c'est appuyé)
+~	Show the folder tree	Afficher l'arborescence des dossiers
+~	Show the photo at actual size	Afficher la photo en taille réelle
+~	Show tooltips	Afficher les infobulles
+~	Show videos only	Afficher seulement les vidéos
+~	Show/hide the History pane	Afficher/masquer le panneau Historique
+~	Show/hide the People pane	Afficher/masquer le panneau Personnes
+~	Show/hide the Places pane	Afficher/masquer le panneau Lieux
+~	Show/hide the Properties pane	Afficher/masquer le panneau Propriétés
+~	Show/hide the Tags pane	Afficher/masquer le panneau Étiquettes
+~	Shown on the map under the tiles.	Affiché sur la carte sous les tuiles.
+~	Shuffle Pictures	Mélanger les photos
+~	Side pane	Panneau latéral
+~	Simplified Tree	Arborescence simplifiée
+~	Simplified Tree View	Vue d'arborescence simplifiée
+~	Single click on the photo returns to the library	Un simple clic sur la photo revient à la photothèque
+~	Size	Taille
+~	Size and quality	Taille et qualité
+~	Size on disk	Taille sur le disque
+~	Skip Duplicates	Ignorer les doublons
+~	Skip pictures that are already in your library	Ignorer les photos déjà dans votre photothèque
+~	Slideshow	Diaporama
+~	Slideshow Photos	Photos du diaporama
+~	Slideshow: photo {p}	Diaporama : photo {p}
+~	Small	Petite
+~	Small Pictures	Petites photos
+~	Small Thumbnails	Petites vignettes
+~	Small files with some quality loss	Fichiers légers avec une perte de qualité
+~	Small pictures	Petites photos
+~	Small pictures with their names	Petites photos avec leurs noms
+~	Small-picture threshold	Seuil des petites photos
+~	Smooth transitions when rotating, applying edits and previewing.	Transitions douces lors des rotations, de l'application des retouches et des aperçus.
+~	Soft Dark	Sombre doux
+~	Soft Focus	Flou artistique
+~	Soft Light	Lumière douce
+~	Soften	Adoucir
+~	Softens the photo, or only where you paint.	Adoucit la photo, ou seulement là où vous peignez.
+~	Solarized Dark	Solarized (sombre)
+~	Solid color	Couleur unie
+~	Sort	Trier
+~	Sort Album By	Trier l'album par
+~	Sort By	Trier par
+~	Sort Folders	Trier les dossiers
+~	Sort People	Trier les personnes
+~	Sort People by Count	Trier les personnes par nombre
+~	Sort People by Name	Trier les personnes par nom
+~	Sort by Date	Trier par date
+~	Sort by Name	Trier par nom
+~	Sort by Recent Changes	Trier par modifications récentes
+~	Sort by Size	Trier par taille
+~	Source code: {address}	Code source : {address}
+~	Split Folder Here…	Scinder le dossier ici…
+~	Square (1:1)	Carré (1:1)
+~	Stamp photos with your name, a web address or a copyright notice.	Marquez les photos avec votre nom, une adresse web ou une mention de copyright.
+~	Star / Unstar	Ajouter / retirer l'étoile
+~	Starred	Étoilées
+~	Starred Photos	Photos étoilées
+~	Start again from the crop in effect	Recommencer depuis le recadrage en vigueur
+~	Start slideshows full screen	Lancer les diaporamas en plein écran
+~	Stats for Nerds	Statistiques pour geeks
+~	Stats for Nerds…	Statistiques pour geeks…
+~	Status line	Ligne d'état
+~	Step Frame	Avancer d'une image
+~	Step Frames	Avancer image par image
+~	Stop Import	Arrêter l'importation
+~	Stop importing?	Arrêter l'importation ?
+~	Store people names in photos	Enregistrer les noms des personnes dans les photos
+~	Straighten	Redresser
+~	Straighten a tilted photo	Redresser une photo inclinée
+~	Straighten angle	Angle de redressement
+~	Stronger colour and contrast.	Couleurs et contraste plus intenses.
+~	Studio (Dark)	Studio (sombre)
+~	Studio (Light)	Studio (clair)
+~	Suggest Crops	Suggérer des recadrages
+~	Suggest names	Suggérer des noms
+~	Suggested crop {n}	Recadrage suggéré {n}
+~	Suggested crop {n} (on its way)	Recadrage suggéré {n} (en cours)
+~	Suggested crop {n} ({reason})	Recadrage suggéré {n} ({reason})
+~	Suggestion confidence	Confiance des suggestions
+~	Suggestions	Suggestions
+~	Suggestions:	Suggestions :
+~	Swap Pictures	Échanger les photos
+~	Switch Focus	Changer de focus
+~	Switch Layout	Changer de disposition
+~	Switch focus to the other side	Passer le focus de l'autre côté
+~	System	Système
+~	System default	Valeur du système
+~	TIFF	TIFF
+~	TIFF-based: {makers}	Basés sur TIFF : {makers}
+~	Table	Tableau
+~	Tags	Étiquettes
+~	Tags in the selection:	Étiquettes de la sélection :
+~	Tags: {tags}	Étiquettes : {tags}
+~	Take off Page	Retirer de la page
+~	Take the selected pictures out of the Clips	Retirer les photos sélectionnées des clips
+~	Takes the colour out, then tints the photo with one colour.	Retire la couleur, puis teinte la photo d'une seule couleur.
+~	The Pictures folder unless chosen.	Le dossier Images sauf choix contraire.
+~	The Places pane fetches map pictures from the tile server while it is open.	Le panneau Lieux télécharge des images de carte depuis le serveur de tuiles tant qu'il est ouvert.
+~	The camera did not answer as expected ({detail})	L'appareil n'a pas répondu comme prévu ({detail})
+~	The default folder	Le dossier par défaut
+~	The file could not be looked at.	Impossible d'examiner le fichier.
+~	The file holds no other metadata.	Le fichier ne contient pas d'autres métadonnées.
+~	The folder already has files with the same names.	Le dossier contient déjà des fichiers portant les mêmes noms.
+~	The folder holds no photo Dalica can show.	Le dossier ne contient aucune photo que Dalica puisse afficher.
+~	The folder is not in the library.	Le dossier n'est pas dans la photothèque.
+~	The library is still opening.	La photothèque est encore en cours d'ouverture.
+~	The map needs an https:// address with {z}, {x} and {y}.	La carte a besoin d'une adresse https:// avec {z}, {x} et {y}.
+~	The model is kept on this computer only; Dalica never uploads or shares it.	Le modèle est conservé sur cet ordinateur uniquement ; Dalica ne l'envoie ni ne le partage jamais.
+~	The new name is the same.	Le nouveau nom est identique.
+~	The page's address is on the clipboard: {url}	L'adresse de la page est dans le presse-papiers : {url}
+~	The photo is here	La photo est ici
+~	The program Open in External Editor starts; empty for the system's editor.	Le programme que lance Ouvrir dans l'éditeur externe ; vide pour l'éditeur du système.
+~	The saved file. Undo Save in the edit panel restores the original.	Le fichier enregistré. Annuler l'enregistrement, dans le panneau de retouche, rétablit l'original.
+~	The search needs an https:// address with {query}.	La recherche a besoin d'une adresse https:// avec {query}.
+~	The soft edges, grain and dark corners of a toy camera.	Les bords flous, le grain et les coins sombres d'un appareil jouet.
+~	The source cannot be read: {reason}	Impossible de lire la source : {reason}
+~	The system offers no other application for this file.	Le système ne propose aucune autre application pour ce fichier.
+~	Theme	Thème
+~	There are no release notes in this copy.	Cette copie ne contient pas de notes de version.
+~	These are your originals from before Save. Delete them only if you're sure you won't want Undo Save.	Ce sont vos originaux d'avant l'enregistrement. Supprimez-les seulement si vous êtes sûr de ne pas vouloir Annuler l'enregistrement.
+~	This clip plays without sound ({codec} sound can't be played)	Ce clip est lu sans le son (impossible de lire le son {codec})
+~	This file cannot be used.	Ce fichier est inutilisable.
+~	This file cannot be used: {why}	Ce fichier est inutilisable : {why}
+~	This folder cannot be read.	Impossible de lire ce dossier.
+~	This folder's data file was damaged and kept aside.	Le fichier de données de ce dossier était endommagé et a été mis de côté.
+~	This is the first photo (turn on Loop slideshow to go round).	C'est la première photo (activez Diaporama en boucle pour reprendre au début).
+~	This model is installed already.	Ce modèle est déjà installé.
+~	This photo cannot be shown.	Impossible d'afficher cette photo.
+~	This photo has two different sets of edits. Which one do you want to keep?	Cette photo a deux jeux de retouches différents. Lequel voulez-vous garder ?
+~	This session has no face models folder (DALICA_FACE_MODELS, or the configuration folder).	Cette session n'a pas de dossier de modèles de visages (DALICA_FACE_MODELS, ou le dossier de configuration).
+~	This video can't be played	Impossible de lire cette vidéo
+~	This video can't be played ({codec})	Impossible de lire cette vidéo ({codec})
+~	Thumbnail Caption	Légende des vignettes
+~	Thumbnail jobs	Tâches de vignettes
+~	Thumbnail size	Taille des vignettes
+~	Thumbnail textures	Textures des vignettes
+~	Thumbnails in memory	Vignettes en mémoire
+~	Thumbnails that failed	Vignettes en échec
+~	Tint	Teinte
+~	Tints the photo with a gradient, such as a deeper sky.	Teinte la photo d'un dégradé, par exemple pour un ciel plus profond.
+~	To find faces, Dalica needs these model files. Each is downloaded once from its own site and stays on this computer.	Pour trouver les visages, Dalica a besoin de ces fichiers de modèle. Chacun est téléchargé une fois depuis son propre site et reste sur cet ordinateur.
+~	Today's date	Date du jour
+~	Toggle Side Pane	Afficher/masquer le panneau latéral
+~	Toggle Tag	Basculer l'étiquette
+~	Too many changed shortcuts: apply them first.	Trop de raccourcis modifiés : appliquez-les d'abord.
+~	Tool Action	Action de l'outil
+~	Toolbar	Barre d'outils
+~	Top of Library	Haut de la photothèque
+~	Total	Total
+~	Transition	Transition
+~	Translucent Background	Fond translucide
+~	Translucent background	Fond translucide
+~	Tray buttons	Boutons du bac
+~	Tree View	Vue en arborescence
+~	Trim	Découper
+~	Trim end	Fin du découpage
+~	Trim start	Début du découpage
+~	Troubleshooting	Dépannage
+~	Try fewer words or other filters.	Essayez moins de mots ou d'autres filtres.
+~	Tuning	Réglages fins
+~	Turn and Scale Picture	Tourner et mettre à l'échelle la photo
+~	Turn the rectangle between portrait and landscape	Basculer le rectangle entre portrait et paysage
+~	Turns the photo black and white.	Passe la photo en noir et blanc.
+~	Turns the photo into large square pixels.	Transforme la photo en grands pixels carrés.
+~	Turns the photo warm brown, like an old print.	Donne à la photo un brun chaud, comme un vieux tirage.
+~	Type a name	Saisir un nom
+~	Type a tag	Saisir une étiquette
+~	Type a width and a height above 0.	Saisissez une largeur et une hauteur supérieures à 0.
+~	Type the date as YYYY-MM-DD.	Saisissez la date au format AAAA-MM-JJ.
+~	Type the tag's new name.	Saisissez le nouveau nom de l'étiquette.
+~	UI font size	Taille de police de l'interface
+~	UI scale	Échelle de l'interface
+~	Undo	Annuler
+~	Undo All Edits	Annuler toutes les retouches
+~	Undo All Edits…	Annuler toutes les retouches…
+~	Undo Edit	Annuler la retouche
+~	Undo Patch	Annuler la retouche locale
+~	Undo Save	Annuler l'enregistrement
+~	Undo {action}	Annuler {action}
+~	Unhide	Afficher
+~	Unhide Folder	Afficher le dossier
+~	Unknown licence	Licence inconnue
+~	Unnamed faces	Visages sans nom
+~	Unnamed people	Personnes sans nom
+~	Update file modification time on metadata changes	Mettre à jour la date de modification des fichiers lors des changements de métadonnées
+~	Use Color Management	Utiliser la gestion des couleurs
+~	Use Dalica	Utiliser Dalica
+~	Use Dalica as the Default Viewer	Utiliser Dalica comme visionneuse par défaut
+~	Use Dalica as the default viewer for these file types	Utiliser Dalica comme visionneuse par défaut pour ces types de fichiers
+~	Use Dalica as the default viewer for these file types:	Utiliser Dalica comme visionneuse par défaut pour ces types de fichiers :
+~	Use Face Model	Utiliser le modèle de visages
+~	Use animations	Utiliser les animations
+~	Use original size	Utiliser la taille d'origine
+~	Use picture	Utiliser la photo
+~	Use system title bar	Utiliser la barre de titre du système
+~	Use the date of the newest photo	Utiliser la date de la photo la plus récente
+~	Use the date of the oldest photo	Utiliser la date de la photo la plus ancienne
+~	Use the system's proxy settings	Utiliser les réglages de proxy du système
+~	Use the top two buttons for recently used tags	Utiliser les deux premiers boutons pour les étiquettes récentes
+~	Username	Nom d'utilisateur
+~	Version	Version
+~	Video	Vidéo
+~	Video State	État de la vidéo
+~	Video, {duration}	Vidéo, {duration}
+~	Videos	Vidéos
+~	Videos (MP4, MOV, M4V, MKV)	Vidéos (MP4, MOV, M4V, MKV)
+~	View Slideshow	Lancer le diaporama
+~	View and Edit	Afficher et retoucher
+~	View controls	Commandes d'affichage
+~	View options	Options d'affichage
+~	Vignette	Vignettage
+~	Volume	Volume
+~	Warmify	Réchauffer
+~	Warms the colours and gives skin a golden tone.	Réchauffe les couleurs et donne à la peau un teint doré.
+~	Watch Drive	Surveiller le disque
+~	Watched Folders	Dossiers surveillés
+~	Watched folders	Dossiers surveillés
+~	Watching a whole drive can slow down your computer and fill the library with non-photo images. It's usually better to choose a few folders. Watch the whole drive anyway?	Surveiller un disque entier peut ralentir votre ordinateur et remplir la photothèque d'images qui ne sont pas des photos. Il vaut généralement mieux choisir quelques dossiers. Surveiller quand même tout le disque ?
+~	Watermark	Filigrane
+~	WebP	WebP
+~	What it was trained on is not known.	On ne sait pas sur quoi il a été entraîné.
+~	Where these photos were taken	Lieux de prise de vue de ces photos
+~	White border	Bordure blanche
+~	Why temporary	Pourquoi temporaire
+~	Widescreen Film	Film panoramique
+~	Width	Largeur
+~	Width × Height	Largeur × hauteur
+~	Window	Fenêtre
+~	Wipe	Volet
+~	Work in progress	Travail en cours
+~	Working in the background	Travail en arrière-plan
+~	Write Names	Écrire les noms
+~	Write People Names	Écrire les noms des personnes
+~	Write People Names to Photos…	Écrire les noms des personnes dans les photos…
+~	Write XMP sidecars for RAW files	Écrire des fichiers annexes XMP pour les fichiers RAW
+~	Write a new data file for this folder	Écrire un nouveau fichier de données pour ce dossier
+~	Write captions, tags and places into photo files	Écrire légendes, étiquettes et lieux dans les fichiers photo
+~	Write date changes to files	Écrire les changements de date dans les fichiers
+~	Write stars as ratings (XMP)	Écrire les étoiles comme notes (XMP)
+~	Write the names of the people in the selected picture into the files? Other applications will show them.	Écrire dans les fichiers les noms des personnes de la photo sélectionnée ? Les autres applications les afficheront.
+~	Writes the names of the people in a photo into its file as face regions (XMP).	Écrit les noms des personnes d'une photo dans son fichier sous forme de zones de visage (XMP).
+~	Writes waiting	Écritures en attente
+~	Yellow	Jaune
+~	You can change this at any time in Tools → Options → Photo Viewer.	Vous pouvez changer cela à tout moment dans Outils → Options → Visionneuse.
+~	Zoom	Zoom
+~	Zoom (pauses the slideshow)	Zoom (met le diaporama en pause)
+~	Zoom In	Zoom avant
+~	Zoom Out	Zoom arrière
+~	Zoom in	Zoom avant
+~	Zoom out	Zoom arrière
+~	Zoom to Faces	Zoomer sur les visages
+~	Zoom {percent} %	Zoom {percent} %
+~	Zoomed to {pct} %	Zoomé à {pct} %
+~	commercial use allowed	usage commercial autorisé
+~	commercial use not stated	usage commercial non précisé
+~	counting again…	nouveau comptage…
+~	counting…	comptage…
+~	face detector	détecteur de visages
+~	face recogniser	reconnaissance de visages
+~	folder {folder}	dossier {folder}
+~	it could not be read	il n'a pas pu être lu
+~	list…	liste…
+~	measuring…	mesure…
+~	no	non
+~	none	aucun
+~	none (thumbnails are off)	aucun (les vignettes sont désactivées)
+~	none this session	aucun dans cette session
+~	not counted yet	pas encore compté
+~	not for commercial use	pas d'usage commercial
+~	not known on this system	inconnu sur ce système
+~	nothing asked yet	rien n'a encore été demandé
+~	offline	hors ligne
+~	or drop a .onnx file on the window	ou déposez un fichier .onnx sur la fenêtre
+~	the cache is being cleared…	vidage du cache en cours…
+~	the tile server	le serveur de tuiles
+~	unknown	inconnu
+~	version {version}	version {version}
+~	yes: {indexed} of {found} found	oui : {indexed} sur {found} trouvées
+~	{command}, {context}: {keys}	{command}, {context} : {keys}
+~	{contributors} · {commits}	{contributors} · {commits}
+~	{done} of {total}	{done} sur {total}
+~	{done}. {failed}	{done}. {failed}
+~	{done}; the rest was cancelled	{done} ; le reste a été annulé
+~	{done}; {skipped}	{done} ; {skipped}
+~	{files} files in {folders} folders, {size}	{files} fichiers dans {folders} dossiers, {size}
+~	{files} files in {secs} s{rate}	{files} fichiers en {secs} s{rate}
+~	{key} is already {command} in {context}.	{key} est déjà {command} dans {context}.
+~	{length} equiv.	{length} équiv.
+~	{login}: {prs} merged pull requests, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binary_added} / −{binary_deleted} binary assets, {first} – {last}	{login} : {prs} pull requests fusionnées, {commits} commits, +{added} / −{deleted} lignes (Δ {delta}), +{binary_added} / −{binary_deleted} ressources binaires, {first} – {last}
+~	{maker}, older cameras	{maker}, anciens appareils
+~	{ms} ms	{ms} ms
+~	{name} ({role})	{name} ({role})
+~	{name} ({w} × {h})	{name} ({w} × {h})
+~	{name} · {date} · {size}	{name} · {date} · {size}
+~	{name}, {count}	{name}, {count}
+~	{name}: {reason}	{name} : {reason}
+~	{n} ({size})	{n} ({size})
+~	{n} ({size}), at most 600	{n} ({size}), au plus 600
+~	{n} entries, {size}	{n} entrées, {size}
+~	{n} of {total}	{n} sur {total}
+~	{n} queued or running, {prefetch} ahead of the view	{n} en attente ou en cours, {prefetch} en avance sur la vue
+~	{path} (temporary, for this session only)	{path} (temporaire, pour cette session seulement)
+~	{percent} %	{percent} %
+~	{question} Saved pictures keep their saved pixels: {names} (Undo Save gives the original back).	{question} Les photos enregistrées gardent leurs pixels enregistrés : {names} (Annuler l'enregistrement rend l'original).
+~	{rate} ({loads} read from the cache, {decodes} decoded)	{rate} ({loads} lues depuis le cache, {decodes} décodées)
+~	{section} — Dalica	{section} — Dalica
+~	{sidecars} sidecars, {metadata} photo files	{sidecars} fichiers annexes, {metadata} fichiers photo
+~	{size} GB	{size} Go
+~	{size} KB	{size} Ko
+~	{size} MB	{size} Mo
+~	{size} TB	{size} To
+~	{size} in the file	{size} dans le fichier
+~	{size} of {limit} (settings.json: cache.thumbnailBytes)	{size} sur {limit} (settings.json : cache.thumbnailBytes)
+~	{size} on disk	{size} sur le disque
+~	{size} px	{size} px
+~	{tag} ({count} of {of})	{tag} ({count} sur {of})
+~	{tool} tool open	Outil {tool} ouvert
+~	{type} ({program})	{type} ({program})
+~	{used} of {budget}	{used} sur {budget}
+~	{watched} watched, {once} scanned once, {excluded} excluded, {offline} offline	{watched} surveillés, {once} analysés une fois, {excluded} exclus, {offline} hors ligne
+~	{w} × {h} points at {ppp} pixels per point	{w} × {h} points à {ppp} pixels par point
+~@plural	Adjust Picture Date — {n} picture|Adjust Picture Date — {n} pictures	Modifier la date de la photo — {n} photo|Modifier la date des photos — {n} photos
+~@plural	Album selected — {n} photo|Album selected — {n} photos	Album sélectionné — {n} photo|Album sélectionné — {n} photos
+~@plural	Change the location of {n} photo?|Change the location of {n} photos?	Modifier le lieu de {n} photo ?|Modifier le lieu de {n} photos ?
+~@plural	Copied {n} photo to {folder}|Copied {n} photos to {folder}	{n} photo copiée dans {folder}|{n} photos copiées dans {folder}
+~@plural	Copied {n} photo|Copied {n} photos	{n} photo copiée|{n} photos copiées
+~@plural	Copy {n} file to {folder}?|Copy {n} files to {folder}?	Copier {n} fichier dans {folder} ?|Copier {n} fichiers dans {folder} ?
+~@plural	Folder selected — {n} photo|Folder selected — {n} photos	Dossier sélectionné — {n} photo|Dossier sélectionné — {n} photos
+~@plural	Found photo data from your previous photo program in {n} folder. Dalica shows it and saves any changes in its own files; the old files are never changed.|Found photo data from your previous photo program in {n} folders. Dalica shows it and saves any changes in its own files; the old files are never changed.	Des données de votre ancien logiciel photo ont été trouvées dans {n} dossier. Dalica les affiche et enregistre les modifications dans ses propres fichiers ; les anciens fichiers ne sont jamais modifiés.|Des données de votre ancien logiciel photo ont été trouvées dans {n} dossiers. Dalica les affiche et enregistre les modifications dans ses propres fichiers ; les anciens fichiers ne sont jamais modifiés.
+~@plural	Import cancelled: {copied} of {n} picture copied; {failed} could not be imported:|Import cancelled: {copied} of {n} pictures copied; {failed} could not be imported:	Importation annulée : {copied} photo sur {n} copiée ; {failed} n'ont pas pu être importées :|Importation annulée : {copied} photos sur {n} copiées ; {failed} n'ont pas pu être importées :
+~@plural	Import cancelled: {copied} of {n} picture copied|Import cancelled: {copied} of {n} pictures copied	Importation annulée : {copied} photo sur {n} copiée|Importation annulée : {copied} photos sur {n} copiées
+~@plural	Imported {n} picture; {failed} could not be imported:|Imported {n} pictures; {failed} could not be imported:	{n} photo importée ; {failed} n'ont pas pu être importées :|{n} photos importées ; {failed} n'ont pas pu être importées :
+~@plural	Imported {n} picture|Imported {n} pictures	{n} photo importée|{n} photos importées
+~@plural	Loading {done} of {n} file…|Loading {done} of {n} files…	Chargement de {done} fichier sur {n}…|Chargement de {done} fichiers sur {n}…
+~@plural	Move the selected picture to the trash?|Move the {n} selected pictures to the trash?	Mettre la photo sélectionnée à la corbeille ?|Mettre les {n} photos sélectionnées à la corbeille ?
+~@plural	Move {n} photo here?|Move {n} photos here?	Déplacer {n} photo ici ?|Déplacer {n} photos ici ?
+~@plural	Moved {n} copy to the Trash|Moved {n} copies to the Trash	{n} copie mise à la corbeille|{n} copies mises à la corbeille
+~@plural	Moved {n} folder back|Moved {n} folders back	{n} dossier remis en place|{n} dossiers remis en place
+~@plural	Moved {n} folder to the Trash|Moved {n} folders to the Trash	{n} dossier mis à la corbeille|{n} dossiers mis à la corbeille
+~@plural	Moved {n} folder to {folder}|Moved {n} folders to {folder}	{n} dossier déplacé vers {folder}|{n} dossiers déplacés vers {folder}
+~@plural	Moved {n} folder|Moved {n} folders	{n} dossier déplacé|{n} dossiers déplacés
+~@plural	Moved {n} photo back|Moved {n} photos back	{n} photo remise en place|{n} photos remises en place
+~@plural	Moved {n} photo to the Trash|Moved {n} photos to the Trash	{n} photo mise à la corbeille|{n} photos mises à la corbeille
+~@plural	Moved {n} photo to {folder}|Moved {n} photos to {folder}	{n} photo déplacée vers {folder}|{n} photos déplacées vers {folder}
+~@plural	Moved {n} photo|Moved {n} photos	{n} photo déplacée|{n} photos déplacées
+~@plural	Names {n} face.|Names {n} faces.	Nomme {n} visage.|Nomme {n} visages.
+~@plural	Not displaying {n} HEIC image|Not displaying {n} HEIC images	{n} image HEIC non affichée|{n} images HEIC non affichées
+~@plural	Pictures up to {n} day old|Pictures up to {n} days old	Photos de {n} jour au plus|Photos de {n} jours au plus
+~@plural	Pictures up to {n} month old|Pictures up to {n} months old	Photos de {n} mois au plus|Photos de {n} mois au plus
+~@plural	Pictures up to {n} week old|Pictures up to {n} weeks old	Photos de {n} semaine au plus|Photos de {n} semaines au plus
+~@plural	Pictures up to {n} year old|Pictures up to {n} years old	Photos de {n} an au plus|Photos de {n} ans au plus
+~@plural	Properties of {n} photo|Properties of {n} photos	Propriétés de {n} photo|Propriétés de {n} photos
+~@plural	Put {n} photo here?|Put {n} photos here?	Placer {n} photo ici ?|Placer {n} photos ici ?
+~@plural	Remove all edits from {n} picture?|Remove all edits from {n} pictures?	Retirer toutes les retouches de {n} photo ?|Retirer toutes les retouches de {n} photos ?
+~@plural	Remove the location from {n} photo?|Remove the location from {n} photos?	Retirer le lieu de {n} photo ?|Retirer le lieu de {n} photos ?
+~@plural	Remove the selected picture from this album? The file is not deleted.|Remove the {n} selected pictures from this album? The files are not deleted.	Retirer de cet album la photo sélectionnée ? Le fichier n'est pas supprimé.|Retirer de cet album les {n} photos sélectionnées ? Les fichiers ne sont pas supprimés.
+~@plural	Rename “{tag}” on {n} photo to:|Rename “{tag}” on {n} photos to:	Renommer « {tag} » sur {n} photo en :|Renommer « {tag} » sur {n} photos en :
+~@plural	Renamed {n} folder back|Renamed {n} folders back	Nom rétabli pour {n} dossier|Nom rétabli pour {n} dossiers
+~@plural	Renamed {n} folder to {name}|Renamed {n} folders to {name}	{n} dossier renommé en {name}|{n} dossiers renommés en {name}
+~@plural	Renamed {n} folder|Renamed {n} folders	{n} dossier renommé|{n} dossiers renommés
+~@plural	Renamed {n} photo back|Renamed {n} photos back	Nom rétabli pour {n} photo|Nom rétabli pour {n} photos
+~@plural	Renamed {n} photo|Renamed {n} photos	{n} photo renommée|{n} photos renommées
+~@plural	Restored {n} folder from the Trash|Restored {n} folders from the Trash	{n} dossier restauré depuis la corbeille|{n} dossiers restaurés depuis la corbeille
+~@plural	Restored {n} photo from the Trash|Restored {n} photos from the Trash	{n} photo restaurée depuis la corbeille|{n} photos restaurées depuis la corbeille
+~@plural	Scanning: {n} picture found|Scanning: {n} pictures found	Analyse : {n} photo trouvée|Analyse : {n} photos trouvées
+~@plural	Showing {n} picture in {folders} ({seconds} s) · {size}|Showing {n} pictures in {folders} ({seconds} s) · {size}	{n} photo affichée dans {folders} ({seconds} s) · {size}|{n} photos affichées dans {folders} ({seconds} s) · {size}
+~@plural	The picture keeps its date.|Every picture keeps its date.	La photo garde sa date.|Chaque photo garde sa date.
+~@plural	The picture moves {amount} earlier.|Every picture moves {amount} earlier.	La photo avance de {amount}.|Chaque photo avance de {amount}.
+~@plural	The picture moves {amount} later.|Every picture moves {amount} later.	La photo recule de {amount}.|Chaque photo recule de {amount}.
+~@plural	and {n} more|and {n} more	et {n} autre|et {n} autres
+~@plural	{date} · {n} photo|{date} · {n} photos	{date} · {n} photo|{date} · {n} photos
+~@plural	{detail}, and {n} more|{detail}, and {n} more	{detail}, et {n} autre|{detail}, et {n} autres
+~@plural	{names} and {n} more|{names} and {n} more	{names} et {n} autre|{names} et {n} autres
+~@plural	{n} byte|{n} bytes	{n} octet|{n} octets
+~@plural	{n} commit|{n} commits	{n} commit|{n} commits
+~@plural	{n} contributor|{n} contributors	{n} contributeur|{n} contributeurs
+~@plural	{n} day|{n} days	{n} jour|{n} jours
+~@plural	{n} duplicate group ({files})|{n} duplicate groups ({files})	{n} groupe de doublons ({files})|{n} groupes de doublons ({files})
+~@plural	{n} duplicate skipped|{n} duplicates skipped	{n} doublon ignoré|{n} doublons ignorés
+~@plural	{n} edit from the previous program (not supported)|{n} edits from the previous program (not supported)	{n} retouche de l'ancien logiciel (non prise en charge)|{n} retouches de l'ancien logiciel (non prises en charge)
+~@plural	{n} edited|{n} edited	{n} retouchée|{n} retouchées
+~@plural	{n} face They leave Unnamed and are never found again; Show Ignored Faces shows them.|{n} faces They leave Unnamed and are never found again; Show Ignored Faces shows them.	{n} visage. Il quitte Sans nom et n'est plus jamais retrouvé ; Afficher les visages ignorés le montre.|{n} visages. Ils quittent Sans nom et ne sont plus jamais retrouvés ; Afficher les visages ignorés les montre.
+~@plural	{n} face|{n} faces	{n} visage|{n} visages
+~@plural	{n} file selected. Enter a new name:|{n} files selected. Enter a new name:	{n} fichier sélectionné. Saisissez un nouveau nom :|{n} fichiers sélectionnés. Saisissez un nouveau nom :
+~@plural	{n} file|{n} files	{n} fichier|{n} fichiers
+~@plural	{n} folder|{n} folders	{n} dossier|{n} dossiers
+~@plural	{n} item skipped|{n} items skipped	{n} élément ignoré|{n} éléments ignorés
+~@plural	{n} more|{n} more	{n} de plus|{n} de plus
+~@plural	{n} photo here|{n} photos here	{n} photo ici|{n} photos ici
+~@plural	{n} photo moves into the new folder beside {folder}.|{n} photos move into the new folder beside {folder}.	{n} photo va dans le nouveau dossier à côté de {folder}.|{n} photos vont dans le nouveau dossier à côté de {folder}.
+~@plural	{n} photo moves into the new folder.|{n} photos move into the new folder.	{n} photo va dans le nouveau dossier.|{n} photos vont dans le nouveau dossier.
+~@plural	{n} photo|{n} photos	{n} photo|{n} photos
+~@plural	{n} picture|{n} pictures	{n} photo|{n} photos
+~@plural	{n} place found|{n} places found	{n} lieu trouvé|{n} lieux trouvés
+~@plural	{n} place in the selection|{n} places in the selection	{n} lieu dans la sélection|{n} lieux dans la sélection
+~@plural	{n} second|{n} seconds	{n} seconde|{n} secondes
+~@plural	{shown} of {n} face|{shown} of {n} faces	{shown} visage sur {n}|{shown} visages sur {n}
+~@plural	{status} · {n} to import|{status} · {n} to import	{status} · {n} à importer|{status} · {n} à importer
+~@plural	“{tag}” is already on {n} photo: the two tags will become one.|“{tag}” is already on {n} photos: the two tags will become one.	« {tag} » est déjà sur {n} photo : les deux étiquettes n'en feront plus qu'une.|« {tag} » est déjà sur {n} photos : les deux étiquettes n'en feront plus qu'une.
+~about tab	About	À propos
+~action	Collage	Collage
+~action	Export	Exporter
+~action	Slideshow	Diaporama
+~blend mode	Multiply	Produit
+~blend mode	Normal	Normal
+~blend mode	Overlay	Incrustation
+~blend mode	Screen	Superposition
+~blend mode	Soft Light	Lumière douce
+~collage	Background	Fond
+~collage	Remove	Retirer
+~collage	Settings	Réglages
+~collage	Turn and scale	Tourner et mettre à l'échelle
+~collage	Turned {angle}°, scaled {scale} %	Tournée de {angle}°, mise à l'échelle {scale} %
+~collage style	Grid	Grille
+~colour picker	Hex color	Couleur hexadécimale
+~colour picker	Hue	Teinte
+~colour picker	Pick a color from the photo	Prélever une couleur dans la photo
+~colour picker	Saturation and brightness	Saturation et luminosité
+~compare	A	A
+~compare	A|A	A|A
+~compare	A|B	A|B
+~compare	Selected	Sélection
+~credits	Show	Afficher
+~credits	Sort	Trier
+~credits column	+Bin	+Bin
+~credits column	+Lines	+Lignes
+~credits column	First	Premier
+~credits column	Last	Dernier
+~credits column	Model	Modèle
+~credits column	Name	Nom
+~credits column	PRs	PR
+~credits column	ΔLines	ΔLignes
+~credits column	−Bin	−Bin
+~credits column	−Lines	−Lignes
+~crop	Manual	Manuel
+~crop	Preview	Aperçu
+~crop	Rotate	Faire pivoter
+~date	None	Aucune
+~date	YYYY-MM-DD	AAAA-MM-JJ
+~date	{date} {time}	{date} {time}
+~date	{first_month} {first_day}, {first_year} to {last_month} {last_day}, {last_year}	du {first_day} {first_month} {first_year} au {last_day} {last_month} {last_year}
+~date	{month} {day}, {year}	{day} {month} {year}
+~date	{month} {day}, {year} {hour}:{minute} AM	{day} {month} {year}, {hour}:{minute} av. midi
+~date	{month} {day}, {year} {hour}:{minute} PM	{day} {month} {year}, {hour}:{minute} apr. midi
+~date	{start} – {end}	{start} – {end}
+~date	{weekday}, {month} {day}, {year}	{weekday} {day} {month} {year}
+~date	{weekday}, {month} {day}, {year} {hour}:{minute} AM	{weekday} {day} {month} {year}, {hour}:{minute} av. midi
+~date	{weekday}, {month} {day}, {year} {hour}:{minute} PM	{weekday} {day} {month} {year}, {hour}:{minute} apr. midi
+~date field	{year}-{month}-{day}	{day}/{month}/{year}
+~duration	{hours} h	{hours} h
+~duration	{minutes} min	{minutes} min
+~duration	{seconds} s	{seconds} s
+~edit panel	Histogram	Histogramme
+~effect	Amount	Intensité
+~effect	Angle	Angle
+~effect	Background	Fond
+~effect	Blend mode	Mode de fusion
+~effect	Bloom	Éclat
+~effect	Blur	Flou
+~effect	Blur Edges	Flouter les bords
+~effect	Brightness	Luminosité
+~effect	Caption height	Hauteur de la légende
+~effect	Color	Couleur
+~effect	Contrast	Contraste
+~effect	Corner radius	Rayon des coins
+~effect	Crosshair	Réticule
+~effect	Distance	Distance
+~effect	Edge Hardness	Dureté des bords
+~effect	Fade	Atténuer
+~effect	Feather	Contour progressif
+~effect	Filter color	Couleur du filtre
+~effect	First color	Première couleur
+~effect	Focal Size	Taille de la zone nette
+~effect	Grain	Grain
+~effect	Inner color	Couleur intérieure
+~effect	Inner thickness	Épaisseur intérieure
+~effect	Intensity	Intensité
+~effect	Letterbox	Bandes noires
+~effect	Lighten	Éclaircir
+~effect	Outer color	Couleur extérieure
+~effect	Outer thickness	Épaisseur extérieure
+~effect	Pixel Size	Taille des pixels
+~effect	Radius	Rayon
+~effect	Second color	Seconde couleur
+~effect	Shade	Ombre
+~effect	Shadow color	Couleur de l'ombre
+~effect	Sharpness	Netteté
+~effect	Size	Taille
+~effect	Softness	Douceur
+~effect	Strength	Force
+~effect	Tint color	Couleur de teinte
+~effect	Zoom Amount	Force du zoom
+~face	Confirm	Confirmer
+~face	Confirm this match	Confirmer cette correspondance
+~face	Face	Visage
+~face	Ignore	Ignorer
+~face	Ignore this face	Ignorer ce visage
+~face	Not this person	Pas cette personne
+~face	Reject	Refuser
+~face	Unnamed face	Visage sans nom
+~face box handle	Bottom edge	Bord inférieur
+~face box handle	Bottom-left corner	Coin inférieur gauche
+~face box handle	Bottom-right corner	Coin inférieur droit
+~face box handle	Left edge	Bord gauche
+~face box handle	Right edge	Bord droit
+~face box handle	Top edge	Bord supérieur
+~face box handle	Top-left corner	Coin supérieur gauche
+~face box handle	Top-right corner	Coin supérieur droit
+~filter banner	Leave search	Quitter la recherche
+~filter banner	Show All	Tout afficher
+~folder group	Other	Autres
+~form label	{label}:	{label} :
+~group header	Select this group	Sélectionner ce groupe
+~group header	Selects every picture taken in this period	Sélectionne toutes les photos prises pendant cette période
+~history	Original	Original
+~history	Save	Enregistrement
+~import	Exclude	Exclure
+~import	Include	Inclure
+~in progress	{label}…	{label}…
+~list	, 	,
+~list	None	Aucun
+~long date	{weekday}, {month} {day}, {year}	{weekday} {day} {month} {year}
+~map	Drop a pin	Déposer une épingle
+~map	Map	Carte
+~map	Pin	Épingle
+~map	Zoom in	Zoom avant
+~map	Zoom level {zoom}	Niveau de zoom {zoom}
+~map	Zoom out	Zoom arrière
+~menu	Album	Album
+~menu	Create	Créer
+~menu	Dalica	Dalica
+~menu	Edit	Édition
+~menu	File	Fichier
+~menu	Folder	Dossier
+~menu	Help	Aide
+~menu	Picture	Photo
+~menu	Tools	Outils
+~menu	View	Affichage
+~month	April	avril
+~month	August	août
+~month	December	décembre
+~month	February	février
+~month	January	janvier
+~month	July	juillet
+~month	June	juin
+~month	March	mars
+~month	May	mai
+~month	November	novembre
+~month	October	octobre
+~month	September	septembre
+~options group	Faces	Visages
+~options group	Files	Fichiers
+~options group	Map	Carte
+~options group	Proxy	Proxy
+~options group	Slideshow	Diaporama
+~options group	Sound	Son
+~options tab	Export	Exportation
+~options tab	File Types	Types de fichiers
+~options tab	General	Général
+~options tab	Interface	Interface
+~options tab	Keyboard Shortcuts	Raccourcis clavier
+~options tab	Network	Réseau
+~options tab	People	Personnes
+~options tab	Photo Viewer	Visionneuse
+~options tab	Slideshow	Diaporama
+~overlay	Controls	Commandes
+~people	Unnamed	Sans nom
+~photo size	10 × 15	10 × 15
+~photo size	13 × 18	13 × 18
+~photo size	20 × 25	20 × 25
+~photo size	4 × 6	4 × 6
+~photo size	5 × 7	5 × 7
+~photo size	8 × 10	8 × 10
+~photo size	8.5 × 11 (Letter)	8,5 × 11 (Lettre US)
+~photo size	A4	A4
+~place	Desktop	Bureau
+~place	Documents	Documents
+~place	Home	Dossier personnel
+~place	Pictures	Images
+~progress row	Cancel	Annuler
+~property	Aperture	Ouverture
+~property	Camera	Appareil
+~property	Caption	Légende
+~property	Color space	Espace colorimétrique
+~property	Date digitized	Date de numérisation
+~property	Date taken	Date de prise de vue
+~property	Dates	Dates
+~property	Description	Description
+~property	Dimensions	Dimensions
+~property	Exposure	Exposition
+~property	File modified	Fichier modifié
+~property	File size	Taille du fichier
+~property	Flash	Flash
+~property	Focal length	Focale
+~property	GPS	GPS
+~property	ISO	ISO
+~property	Lens	Objectif
+~property	Orientation	Orientation
+~property	Path	Chemin
+~property	Pictures	Photos
+~property	Place	Lieu
+~property	Rating	Note
+~property	Size on disk	Taille sur le disque
+~property	Tags	Étiquettes
+~quality	Automatic	Automatique
+~quality	Custom	Personnalisée
+~quality	Maximum	Maximale
+~quality	Minimum	Minimale
+~quality	Normal	Normale
+~room	Collage	Collage
+~room	Import	Importation
+~room	Library	Photothèque
+~room tab	Close	Fermer
+~room tab	Close {name}	Fermer {name}
+~scale	Auto	Auto
+~search field	Clear search	Effacer la recherche
+~shortcut context	All	Tous
+~shortcut context	Collage	Collage
+~shortcut context	Edit view	Vue Retouche
+~shortcut context	Global	Global
+~shortcut context	Import	Importation
+~shortcut context	Library	Photothèque
+~shortcut context	Photo viewer	Visionneuse
+~shortcut context	Slideshow	Diaporama
+~shortcut context	Text input	Saisie de texte
+~shortcut editor	No shortcut	Aucun raccourci
+~shortcut editor	Press the new shortcut…	Appuyez sur le nouveau raccourci…
+~shortcuts column	Command	Commande
+~shortcuts column	Context	Contexte
+~shortcuts column	Shortcuts	Raccourcis
+~side	Bottom	Bas
+~side	Left	Gauche
+~side	Right	Droite
+~side	Top	Haut
+~slideshow	Exit	Quitter
+~slideshow	Play	Lecture
+~splitter	Splitter	Séparateur
+~star toggle	Star	Étoile
+~star toggle	Star / Unstar	Ajouter / retirer l'étoile
+~stepper	Decrease	Diminuer
+~stepper	Increase	Augmenter
+~suggestion	Confirm	Confirmer
+~suggestion	Reject	Refuser
+~suggestion	{name}?	{name} ?
+~tab strip	More tabs	Plus d'onglets
+~text menu	Copy	Copier
+~text menu	Cut	Couper
+~text menu	Paste	Coller
+~text menu	Select All	Tout sélectionner
+~time	{hour}:{minute} AM	{hour}:{minute} av. midi
+~time	{hour}:{minute} PM	{hour}:{minute} apr. midi
+~time	{hour}:{minute}:{second} AM	{hour}:{minute}:{second} av. midi
+~time	{hour}:{minute}:{second} PM	{hour}:{minute}:{second} apr. midi
+~transition	Circle	Cercle
+~transition	Cut	Coupe franche
+~transition	Dissolve	Fondu
+~transition	Pan and Zoom	Panoramique et zoom
+~transition	Push	Poussée
+~transition	Rectangle	Rectangle
+~transition	Wipe	Volet
+~unit	pixels	pixels
+~unit	px	px
+~unit	{size} KB	{size} Ko
+~unit	{size} MB	{size} Mo
+~verb	Copy	Copier
+~verb	Delete	Supprimer
+~verb	Ignore	Ignorer
+~verb	Keep	Garder
+~verb	Merge	Fusionner
+~verb	Move	Déplacer
+~verb	Remove	Retirer
+~verb	Rename	Renommer
+~verb	Reset	Réinitialiser
+~verb	Revert	Revenir à l'original
+~verb	Star	Étoile
+~verb	Use	Utiliser
+~video	Mute	Couper le son
+~video	Position	Position
+~video	Trim end	Fin du découpage
+~video	Trim start	Début du découpage
+~video	Unmute	Rétablir le son
+~video	Volume	Volume
+~video	{time} (trimmed to {length})	{time} (découpé à {length})
+~viewer	close	fermer
+~weekday	Friday	vendredi
+~weekday	Monday	lundi
+~weekday	Saturday	samedi
+~weekday	Sunday	dimanche
+~weekday	Thursday	jeudi
+~weekday	Tuesday	mardi
+~weekday	Wednesday	mercredi
+~window	Close	Fermer
+~window	Maximize	Agrandir
+~window	Minimize	Réduire
+~window	Restore	Restaurer
+~zoom	Fit	Ajuster

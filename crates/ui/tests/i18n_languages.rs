@@ -29,7 +29,7 @@ fn thai() -> &'static languages::Language {
 #[test]
 fn the_registry_lists_english_then_thai_and_thais_catalog_reads_whole() {
     let codes: Vec<&str> = LANGUAGES.iter().map(|l| l.code).collect();
-    assert_eq!(codes, ["en", "th"]);
+    assert_eq!(codes, ["en", "th", "fr"]);
     let th = thai();
     assert_eq!((th.endonym, th.script, th.plural, th.complete_menus), ("ไทย", "Thai", Plural::Single, true));
     let c = i18n::catalog(th);
@@ -333,6 +333,8 @@ fn switching_between_english_and_thai_keeps_the_view_the_selection_and_the_histo
     let dir = tempfile::tempdir().unwrap();
     let s = demo_open(dir.path(), Arc::new(dalica_core::SystemClock));
     let mut d = new_driver(App::new(Some(s)), LARGE.0, LARGE.1, 1.0);
+    // English chosen, not System: the machine running the test may prefer another language.
+    d.run("options.set", &json!({ "values": { "interface.language": "en" } })).unwrap();
     d.settle(FRAMES).unwrap();
     let first = d.app().session().unwrap().library().photos().next().unwrap().id;
     d.run("select.set", &json!({ "ids": [first.get()] })).unwrap();
