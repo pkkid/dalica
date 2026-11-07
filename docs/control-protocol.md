@@ -58,8 +58,9 @@ request order per connection.
 
 - `--control-token-file PATH`: an existing file is reused (its first line, 64 hex characters); a
   missing file is created with a fresh **256-bit** token from the OS random source, written
-  atomically with mode **0600** on Unix (a user-only ACL on Windows). An existing file that is
-  readable by group or others is refused at startup with a message saying how to fix it.
+  atomically with mode **0600** on Unix (on Windows it gets its folder's permissions; there is no
+  user-only ACL yet, `security.md` §6.8). An existing file that is a link, not a regular file, or
+  (on Unix) readable by group or others is refused at startup with a message saying how to fix it.
 - Without the flag, Dalica creates a fresh token for this launch in the **default token file**
   `<run>/control-<port>.token`, where `<run>` is `$XDG_RUNTIME_DIR/dalica` on Linux when that
   variable is set and Dalica's cache directory + `/run` otherwise (Linux `$XDG_CACHE_HOME/dalica/run`,

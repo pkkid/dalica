@@ -1,0 +1,297 @@
+<h1>Places</h1>
+<p class="lede">Where a photo's coordinates come from, where Dalíca keeps them, how they reach your files, and what the map does with the network. The short version: your places live on your disk, the map works offline, and the network is used only when you allow map tiles and the Places pane is open.</p>
+
+<h2 id="three-words">One place, three records</h2>
+<p>A photo's location (its geotag) can be recorded in three places at once, and Dalíca has to decide which one to believe:</p>
+<dl class="terms">
+  <dt>The file</dt>
+  <dd>The camera or phone wrote GPS coordinates into the photo's EXIF block, and other applications may have mirrored them into XMP. For RAW files, an <code>.xmp</code> sidecar next to the RAW can hold them too.</dd>
+  <dt>The folder sidecar</dt>
+  <dd>Dalíca's own record in the folder, <code>.dalica.json</code>, has a <code>"geo"</code> key per photo when you have said something about its place.</dd>
+  <dt>The library model</dt>
+  <dd>What Dalíca holds in memory and in its index (<code>index.log</code> and <code>index.snap</code> in the library folder), rebuilt from the sidecars and the files whenever needed.</dd>
+</dl>
+<p>The model's word on a photo's place has exactly three states, and the difference between the last two matters:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>State</th><th>In <code>.dalica.json</code></th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>A point</td><td><code>"geo": [64.803, -23.081]</code></td><td>The photo is here. Latitude first, in degrees, stored with six decimals.</td></tr>
+<tr><td>Removed</td><td><code>"geo": null</code></td><td>You removed the location. The photo is not geotagged, whatever its file's GPS says.</td></tr>
+<tr><td>No word</td><td>no <code>geo</code> key at all</td><td>Dalíca has never been told anything, so the file's GPS (if any) is the photo's place.</td></tr>
+</tbody></table></div>
+<p>Six decimals of a degree is about 11 cm of latitude, far finer than any camera's GPS, so rounding never moves a photo in a way you could see. It also makes "the same place" exact: photos whose stored points agree to six decimals are one place on the map, drawn as one marker with their count.</p>
+<div class="note"><p><b>Why a separate "removed" state:</b> if removing a location simply deleted the <code>geo</code> key, the next scan would find the GPS still in the file (for example when writing to files is off, or the file is read-only) and quietly bring the location back. <code>null</code> is a decision you made, and nothing read from a file overrides it.</p></div>
+
+<figure class="wide">
+<svg viewBox="0 0 960 440" role="img" aria-label="Diagram: the photo file, a RAW's xmp sidecar, the classic organizer's folder file and Dalíca's commands all feed the library model; the model is saved to .dalica.json and, through the metadata write queue, written back into the photo file's EXIF GPS and XMP mirror.">
+  <defs>
+    <marker id="pl-read" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8ec07c" stroke="none"/></marker>
+    <marker id="pl-write" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fe8019" stroke="none"/></marker>
+  </defs>
+  <g font-family="sans-serif" font-size="13" fill="#ebdbb2">
+    <rect x="20" y="20" width="280" height="96" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="34" y="44" font-weight="bold" stroke="none">Photo file (read)</text>
+    <text x="34" y="66" fill="#d5c4a1" stroke="none">EXIF GPS IFD: GPSLatitude + Ref,</text>
+    <text x="34" y="84" fill="#d5c4a1" stroke="none">GPSLongitude + Ref (wins)</text>
+    <text x="34" y="104" fill="#d5c4a1" stroke="none">XMP exif:GPSLatitude / GPSLongitude</text>
+
+    <rect x="20" y="132" width="280" height="64" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="34" y="156" font-weight="bold" stroke="none">RAW sidecar: IMG_0001.xmp</text>
+    <text x="34" y="178" fill="#d5c4a1" stroke="none">read on every scan; RAW's EXIF first</text>
+
+    <rect x="20" y="212" width="280" height="64" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="34" y="236" font-weight="bold" stroke="none">Classic organizer's folder file</text>
+    <text x="34" y="258" fill="#d5c4a1" stroke="none">geotag = lat,lon (read only)</text>
+
+    <rect x="20" y="292" width="280" height="84" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="34" y="316" font-weight="bold" stroke="none">Your commands</text>
+    <text x="34" y="338" fill="#d5c4a1" stroke="none">drop on map, pin, Paste Location,</text>
+    <text x="34" y="356" fill="#d5c4a1" stroke="none">Clear Location, undo, redo</text>
+
+    <rect x="380" y="132" width="230" height="144" rx="6" fill="#32302f" stroke="#fe8019"/>
+    <text x="394" y="158" font-weight="bold" stroke="none">Library model</text>
+    <text x="394" y="182" fill="#d5c4a1" stroke="none">point (six decimals)</text>
+    <text x="394" y="202" fill="#d5c4a1" stroke="none">removed</text>
+    <text x="394" y="222" fill="#d5c4a1" stroke="none">no word: the file's GPS</text>
+    <text x="394" y="252" fill="#d5c4a1" font-size="12" stroke="none">index.log + index.snap</text>
+
+    <rect x="690" y="20" width="250" height="96" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="704" y="44" font-weight="bold" stroke="none">.dalica.json (folder)</text>
+    <text x="704" y="66" fill="#d5c4a1" stroke="none">"geo": [lat, lon]</text>
+    <text x="704" y="84" fill="#d5c4a1" stroke="none">"geo": null</text>
+    <text x="704" y="102" fill="#d5c4a1" stroke="none">no key: the file's word</text>
+
+    <rect x="690" y="168" width="250" height="84" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="704" y="192" font-weight="bold" stroke="none">Metadata write queue</text>
+    <text x="704" y="214" fill="#d5c4a1" stroke="none">own thread, one write per photo</text>
+    <text x="704" y="232" fill="#d5c4a1" stroke="none">after 1 s without changes</text>
+
+    <rect x="690" y="304" width="250" height="96" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="704" y="328" font-weight="bold" stroke="none">Photo file (written)</text>
+    <text x="704" y="350" fill="#d5c4a1" stroke="none">EXIF GPS IFD + XMP mirror</text>
+    <text x="704" y="368" fill="#d5c4a1" stroke="none">only while "Write captions,</text>
+    <text x="704" y="386" fill="#d5c4a1" stroke="none">tags and places" is on</text>
+
+    <path d="M300,68 C340,68 340,160 378,170" fill="none" stroke="#8ec07c" stroke-width="2" marker-end="url(#pl-read)"/>
+    <path d="M300,164 L378,190" fill="none" stroke="#8ec07c" stroke-width="2" marker-end="url(#pl-read)"/>
+    <path d="M300,244 L378,226" fill="none" stroke="#8ec07c" stroke-width="2" marker-end="url(#pl-read)"/>
+    <path d="M300,334 C340,334 340,262 378,258" fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#pl-write)"/>
+    <path d="M610,160 C650,150 650,80 688,72" fill="none" stroke="#fe8019" stroke-width="2" marker-start="url(#pl-read)" marker-end="url(#pl-write)"/>
+    <path d="M610,212 L688,210" fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#pl-write)"/>
+    <path d="M815,252 L815,302" fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#pl-write)"/>
+
+    <text x="322" y="120" font-size="12" fill="#8ec07c" stroke="none">scan</text>
+    <text x="316" y="300" font-size="12" fill="#fe8019" stroke="none">one undo step</text>
+    <text x="634" y="140" font-size="12" fill="#d5c4a1" stroke="none">save / read</text>
+    <text x="622" y="202" font-size="12" fill="#d5c4a1" stroke="none">yours only</text>
+    <circle cx="40" cy="418" r="5" fill="#8ec07c"/><text x="52" y="423" font-size="12" fill="#d5c4a1" stroke="none">read into the model</text>
+    <circle cx="210" cy="418" r="5" fill="#fe8019"/><text x="222" y="423" font-size="12" fill="#d5c4a1" stroke="none">a change you made, on its way out</text>
+  </g>
+</svg>
+<figcaption>Where a place lives. Green arrows are reads (scans), orange arrows are your changes on their way to disk. The photo file appears twice because it is both a source and a destination; only your own commands ever reach the write queue, so a place read from a file is never written back into it.</figcaption>
+</figure>
+
+<h2 id="sources">Where coordinates come from</h2>
+<h3>The file's GPS</h3>
+<p>When a scan reads a photo, the metadata reader looks for a place in this order and takes the first one that is complete:</p>
+<ol class="steps-list">
+  <li><strong>EXIF GPS IFD:</strong> <code>GPSLatitude</code> and <code>GPSLongitude</code>, each one to three rationals (degrees, minutes, seconds), signed by <code>GPSLatitudeRef</code> (<code>S</code> makes it negative) and <code>GPSLongitudeRef</code> (<code>W</code>). A missing reference is taken as north or east. A rational with a zero denominator makes that coordinate unreadable, and a point needs both coordinates.</li>
+  <li><strong>XMP:</strong> <code>exif:GPSLatitude</code> and <code>exif:GPSLongitude</code>, the XMP copies of the same values.</li>
+</ol>
+<p>EXIF wins over XMP for the place (and for the date) because XMP copies of EXIF fields are often stale: an application changes the EXIF value and forgets the mirror. For captions, tags and ratings the order is the other way round.</p>
+<p>For a RAW file, an <code>.xmp</code> sidecar is read on every scan whether or not Dalíca is set to write such sidecars. Dalíca looks for <code>&lt;stem&gt;.xmp</code> first (<code>IMG_0001.CR3</code> gives <code>IMG_0001.xmp</code>), then <code>&lt;file&gt;.xmp</code> and the <code>.XMP</code> spellings. The sidecar replaces the XMP embedded in the RAW as a whole, but the RAW's own EXIF still comes first for the place.</p>
+
+<h3>How the file's GPS enters the library</h3>
+<p>The model, not the file, is the truth for what Dalíca shows. A file's GPS becomes the photo's point under these rules, always without an undo step (the place was already the photo's, so nothing you see changes):</p>
+<ul>
+  <li><strong>No word yet:</strong> the photo takes its file's GPS as its point. For a new photo this happens in the same operation that adds it, after its <code>.dalica.json</code> entry was read, so a sidecar's word (including <code>null</code>) always comes first. A library indexed before geotags were read has those photos' files read again on the next scan.</li>
+  <li><strong>Changed elsewhere:</strong> the index keeps a hash of the place as last read from or written to the file. If a rescan finds the file's place different from that hash while Dalíca's own point has not changed, another application moved it, and Dalíca follows the file. If the file lost its GPS, the point goes too.</li>
+  <li><strong>Changed on both sides:</strong> Dalíca's point stays, and the Properties pane notes that the value was changed in another application.</li>
+  <li><strong>Removed:</strong> a location you removed is never brought back, whatever the file says.</li>
+</ul>
+<p>The <strong>Geotagged</strong> filter and the pin badge on thumbnails follow the same rule: the model's word, else the file's GPS.</p>
+
+<h3>The library's own geotags</h3>
+<p>Every place you set in Dalíca goes into the model first, as one library operation with one undo step, and from there into the folder's <code>.dalica.json</code>. That sidecar is what makes a geotag survive an index rebuild, a move to another computer, or a file that cannot be written: on a rebuild, the scan reads the sidecar's <code>geo</code> keys (<code>null</code> included) in the same operation that adds the photos, before any file's GPS is considered.</p>
+<p>Everything that changes a geotag goes through the same command, <code>photo.geo.set</code>, whether it came from dropping photos on the map, the pin, Paste Location, an agent over MCP, or the CLI. Clear Location is the same command with <code>null</code>. Copy Location writes nothing at all: it keeps one point in memory for the session.</p>
+
+<h3>Folders left by the classic folder-based organizer</h3>
+<p>The per-folder INI file the classic folder-based organizer left behind can hold a <code>geotag</code> entry per photo, as decimal degrees <code>lat,lon</code>. While "Read photo data left by the previous organizer" is on (the default), a scan of a folder that has only that file reads the geotags into the model as points (rounded to six decimals), with everything else it holds. That file is never written. The first change you make in such a folder creates its <code>.dalica.json</code>, holding the full converted data; from then on the INI file is ignored.</p>
+
+<h2 id="writing">Where coordinates are written</h2>
+<p>A geotag you set, change, paste, clear, undo or redo is written into the photo file while Options ▸ General ▸ Files ▸ <strong>Write captions, tags and places into photo files</strong> is on (the default). The metadata write queue runs on its own thread, batches a photo's changes, and writes once the photo has been left alone for a second. Every write merges into the file's existing metadata, is written atomically and is verified by reading it back. Pixels are never touched.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Format</th><th>Where the place goes</th></tr></thead>
+<tbody>
+<tr><td>JPEG</td><td>EXIF GPS IFD, plus the XMP mirror when the file already has an XMP packet</td></tr>
+<tr><td>PNG</td><td>EXIF in the <code>eXIf</code> chunk (or the raw-profile text that held it), plus the XMP mirror</td></tr>
+<tr><td>WebP</td><td>the <code>EXIF</code> chunk, plus the XMP mirror (a simple-format file is promoted to <code>VP8X</code>, the image data unchanged)</td></tr>
+<tr><td>TIFF</td><td>the XMP mirror only; refused when no packet exists and the write starts none, or when EXIF already holds the place (it would win on reading)</td></tr>
+<tr><td>RAW</td><td>never into the RAW; an <code>.xmp</code> sidecar when "Write XMP sidecars for RAW files" is on (off by default)</td></tr>
+<tr><td>HEIC, AVIF, JPEG XL, PSD, GIF, BMP, video</td><td>never; <code>.dalica.json</code> keeps the place</td></tr>
+</tbody></table></div>
+<p>How the EXIF part is written:</p>
+<ul>
+  <li>Latitude and longitude become three rationals each: whole degrees, whole minutes, and seconds in millionths of a second. The rounding is about 3·10<sup>-10</sup> of a degree. The references are <code>N</code>/<code>S</code> and <code>E</code>/<code>W</code>.</li>
+  <li>A GPS IFD that has no <code>GPSVersionID</code> gets 2.3.0.0; an existing version is kept.</li>
+  <li>EXIF is edited in place or appended, never repacked, because maker notes often hold offsets counted from the start of the block. A value that fits where the old one was is written there; a larger or new one is appended and only its pointer changes.</li>
+  <li><strong>Removing</strong> a place deletes the four latitude and longitude tags and their XMP mirrors, nothing else: altitude, GPS time and direction stay as the camera wrote them. The old bytes are zeroed when nothing else points into them, so a removed location does not linger in the file for a forensic tool to find.</li>
+  <li>A place alone never starts a new XMP packet. A packet that Dalíca starts for a caption, tags or a rating gets the place in the same write.</li>
+</ul>
+<p>With the option off, nothing is written to files and <code>.dalica.json</code> keeps the place. A file Dalíca cannot write (read-only, on an offline volume, a format it does not write) keeps its old GPS while the model and the sidecar hold your point. When the two disagree, the sidecar wins for display, and the file is rewritten at the next write of that field.</p>
+<div class="note"><p><b>Exporting without a location:</b> Export's "Remove location from exported photos" is stronger than Clear Location. It removes the whole GPS IFD from the exported copy (altitude and time included) and never touches the original.</p></div>
+
+<h2 id="offline-map">The offline base map</h2>
+<p>The Places pane always has a map, even on a computer that has never been online. Its bottom layer is compiled into the program: the world's land from Natural Earth at 1:110 million (public domain), converted into a compact file, <code>land-110m.bin</code>. It holds 128 rings (land outlines, and lakes as holes in the land before them) with 5,001 points stored as 16-bit hundredths of a degree, 20,398 bytes in all. The file is read as hostile input like any other (bounded counts, every point checked to be on the globe), each ring is projected once to Web Mercator and cut into triangles by ear clipping, so a frame only scales, offsets and culls them.</p>
+<figure class="wide"><img src="img/places/offline-layer.png" width="1600" height="860" alt="Left: the whole world drawn from Dalíca's compiled-in land outlines in Web Mercator, divided into the 16 tiles of zoom 2, with tile 2/1/1 outlined. Right: a box around Iceland at zoom 6, with the nine tiles 6/27/15 to 6/29/17 that cover it and Iceland drawn as the coarse offline outline." loading="lazy"><figcaption>The offline layer, drawn here from <code>land-110m.bin</code> with the same projection the map uses. Left: the whole world and the 16 tiles of zoom 2 (Iceland falls in 2/1/1). Right: an example box around Iceland at zoom 6 and the nine tile addresses that cover it. Note how coarse the outline is at that zoom: 1:110 million is meant for finding the right part of the world, not the right road.</figcaption></figure>
+<p>The map is Web Mercator with zoom levels 0 to 19 and 256-pixel tiles: at zoom <i>z</i> the world is 256 × 2<sup><i>z</i></sup> pixels square, latitudes beyond ±85.0511° are clamped to the projection's edge, and longitudes wrap so the map pans round the globe. From the bottom up, the layers are the sea and a graticule, the offline land, any downloaded tiles, the markers, the pin, the controls and the attribution line.</p>
+<p>Markers closer than 32 points on screen are drawn as one with the sum of their counts, and split again as you zoom in. Typed coordinates in "Search for a place:" never need the network: decimal degrees (<code>38.7116, -9.1389</code>) or degrees, minutes and seconds (<code>38°42'41.8"N 9°8'20"W</code>), at most 256 bytes. Without hemisphere letters, latitude comes first; with them, either order works. Anything that is not exactly two coordinates is refused, never guessed at.</p>
+
+<h2 id="tiles">Downloaded map tiles</h2>
+<p>Detailed maps (roads, towns, terrain) come from a tile server: by default OpenStreetMap's standard tiles at <code>https://tile.openstreetmap.org/{z}/{x}/{y}.png</code>. Options ▸ Network ▸ <strong>Allow map tiles</strong> is off in a new installation. The first time the Places pane opens, a card asks whether to show map tiles from the provider. Either answer is remembered in <code>settings.json</code> (<code>network.tilesAsked</code>), so you are asked once; afterwards the switch lives in Options ▸ Network.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/places/pane-question.png" width="477" height="1000" alt="The Places pane showing 24 places in Iceland as blue markers on the gray offline land, with a card asking: Show map tiles from OpenStreetMap? Dalica fetches map pictures from the internet while this pane is open. Buttons Allow and Not Now." loading="lazy"><span class="label">The one-time question</span></div>
+  <div><img src="img/places/pane-offline.png" width="477" height="1000" alt="The same Places pane after Not Now: the markers over the coarse gray outline of Iceland, attribution Natural Earth." loading="lazy"><span class="label">Tiles off: offline layer</span></div>
+  <div><img src="img/places/pane-tiles.png" width="399" height="1000" alt="The Places pane with OpenStreetMap tiles: roads, glaciers and place names under the same markers, attribution OpenStreetMap contributors." loading="lazy"><span class="label">Tiles allowed</span></div>
+</div><figcaption>The same 24 places (31 photos of the "Iceland ring road" folder) three ways. The first two were rendered headlessly with tiles off and made no network connection; the attribution line says "Natural Earth" until a downloaded tile is on screen, then switches to the tile provider's.</figcaption></figure>
+
+<h3>When tiles are fetched</h3>
+<p>Two conditions must both hold: Allow map tiles is on, <em>and</em> the Places pane is open right now. Every frame that draws the pane tells the session it is open; a frame that does not draw it (the pane closed, another pane chosen, a room in front of it) tells it the pane closed, which cancels the tiles on their way. Nothing is fetched at start-up, during scans, or with the pane closed. Turning the option off cancels whatever is in flight at once.</p>
+<p>While the pane is open, the request for one view goes like this:</p>
+<ol class="steps-list">
+  <li>The pane works out the tiles covering its visible box at its current whole zoom level (crossing the antimeridian if needed) and asks for them only when that set changes, never on every frame. One request covers at most 256 tiles.</li>
+  <li>Tiles of the previous view that are not in the new one, and have not started, are cancelled. A tile already on its way is not asked twice. A tile that failed since the pane opened is handed back as a placeholder without a new request (up to 4,096 are remembered; reopening the pane tries them again).</li>
+  <li>Each tile goes to one of <strong>two</strong> worker threads, so at most two tiles are downloaded at the same time. That is the tile usage policy of the default server: only the tiles on screen, no prefetching, no bulk download.</li>
+  <li>The worker looks in the cache. A tile younger than 30 days is used without any request. An older one is deleted and fetched again (up to two attempts).</li>
+  <li>The bytes are checked before they are trusted: at most 1 MiB (a longer reply is cut off as it arrives, whatever size it announced), at most 1,024 pixels a side (read from the image header before a single pixel is decoded), then decoded under the normal raster limits. A tile that fails any check becomes a placeholder and is deleted from the cache, so it is asked for again next time instead of being kept broken.</li>
+  <li>The pane takes finished tiles each frame and keeps them as textures (at most 384, the least recently drawn dropped first). While finer tiles arrive, coarser tiles already held fill in; a placeholder draws nothing, so the offline land shows through.</li>
+</ol>
+
+<h2 id="cache">The tile cache</h2>
+<p>Tiles are kept in a folder named <code>tiles</code> beside the thumbnail cache, so on Linux usually <code>~/.cache/dalica/tiles/</code>. When there is no thumbnail cache, a temporary folder is used and removed with the session.</p>
+<pre><code>~/.cache/dalica/
+  thumbs/                       <span class="c">the thumbnail cache</span>
+  tiles/
+    &lt;16 hex digits&gt;/            <span class="c">one folder per server address</span>
+      6-28-16.tile              <span class="c">a tile: &lt;zoom&gt;-&lt;x&gt;-&lt;y&gt;.tile</span>
+      6-29-16.tile.part         <span class="c">a download in progress</span>
+    &lt;16 hex digits&gt;/            <span class="c">the geocoding service</span>
+      q-&lt;16 hex digits&gt;.json    <span class="c">one place-search reply</span></code></pre>
+<ul>
+  <li><strong>Folder names</strong> are the 64-bit FNV-1a hash of the server's address template, written as 16 lower-case hex digits. Changing the tile server therefore never mixes two servers' tiles, and switching back finds the old tiles still there.</li>
+  <li><strong>Size:</strong> the cache is kept under 200 MB. When its own files add up to more, the oldest (by modification time) are deleted until it is at 160 MB, four fifths of the budget. It is checked by the first job of a session and again after every 16 MiB added.</li>
+  <li><strong>Age:</strong> a tile or search reply older than 30 days is asked for again the next time it is needed.</li>
+  <li><strong>Safety:</strong> pruning lists and deletes only files of the cache's own name shapes (<code>&lt;zoom&gt;-&lt;x&gt;-&lt;y&gt;.tile</code>, <code>q-&lt;hex&gt;.json</code> and their <code>.part</code> files) inside folders of the 16-hex-digit shape, never follows links, and looks at no more than 200,000 entries. A file you put in that folder yourself is left alone.</li>
+</ul>
+<p>The cache is the reason a familiar area appears instantly and offline: once a tile is on disk, nothing goes out for it for a month. Deleting the <code>tiles</code> folder is always safe; it holds nothing but copies of public map pictures and search replies.</p>
+
+<h2 id="network">What goes over the network</h2>
+<figure class="wide">
+<svg viewBox="0 0 960 360" role="img" aria-label="Diagram of the network boundary: inside your computer are the library, photos, captions, tags, faces and geotags, which never leave, and the tile cache. Only while Allow map tiles is on and the Places pane is open do HTTPS requests cross the boundary: tile addresses to the tile server and typed place names to the geocoding service.">
+  <defs>
+    <marker id="pl-net" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fe8019" stroke="none"/></marker>
+  </defs>
+  <g font-family="sans-serif" font-size="13" fill="#ebdbb2">
+    <rect x="16" y="16" width="560" height="328" rx="8" fill="none" stroke="#504945"/>
+    <text x="32" y="40" font-weight="bold" stroke="none">Your computer</text>
+
+    <rect x="32" y="56" width="250" height="150" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="46" y="80" font-weight="bold" stroke="none">Never leaves</text>
+    <text x="46" y="102" fill="#d5c4a1" stroke="none">photos and file names</text>
+    <text x="46" y="122" fill="#d5c4a1" stroke="none">captions, tags, people, faces</text>
+    <text x="46" y="142" fill="#d5c4a1" stroke="none">your geotags as numbers</text>
+    <text x="46" y="162" fill="#d5c4a1" stroke="none">folders, albums, settings</text>
+    <text x="46" y="182" fill="#d5c4a1" stroke="none">cookies, tokens, accounts</text>
+
+    <rect x="32" y="224" width="250" height="104" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="46" y="248" font-weight="bold" stroke="none">Tile cache</text>
+    <text x="46" y="270" fill="#d5c4a1" stroke="none">&lt;cache&gt;/tiles/, 200 MB</text>
+    <text x="46" y="290" fill="#d5c4a1" stroke="none">fresh for 30 days</text>
+    <text x="46" y="310" fill="#d5c4a1" stroke="none">a hit sends nothing</text>
+
+    <rect x="310" y="56" width="250" height="150" rx="6" fill="#32302f" stroke="#fe8019"/>
+    <text x="324" y="80" font-weight="bold" stroke="none">The gate</text>
+    <text x="324" y="102" fill="#d5c4a1" stroke="none">Allow map tiles is on</text>
+    <text x="324" y="122" fill="#d5c4a1" stroke="none">AND the Places pane is open</text>
+    <text x="324" y="148" fill="#d5c4a1" stroke="none">2 tiles at a time</text>
+    <text x="324" y="168" fill="#d5c4a1" stroke="none">1 place search a second,</text>
+    <text x="324" y="188" fill="#d5c4a1" stroke="none">only when you press Enter</text>
+
+    <rect x="310" y="224" width="250" height="104" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="324" y="248" font-weight="bold" stroke="none">HTTPS transport</text>
+    <text x="324" y="270" fill="#d5c4a1" stroke="none">TLS 1.2 / 1.3, built-in roots</text>
+    <text x="324" y="290" fill="#d5c4a1" stroke="none">certificate always checked</text>
+    <text x="324" y="310" fill="#d5c4a1" stroke="none">redirects: https only, at most 8</text>
+
+    <line x1="600" y1="16" x2="600" y2="344" stroke="#fe8019" stroke-width="2" stroke-dasharray="6 6"/>
+    <text x="608" y="340" font-size="12" fill="#fe8019" stroke="none">the internet</text>
+
+    <rect x="680" y="56" width="264" height="110" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="694" y="80" font-weight="bold" stroke="none">Tile server</text>
+    <text x="694" y="102" fill="#d5c4a1" stroke="none">tile.openstreetmap.org</text>
+    <text x="694" y="124" fill="#d5c4a1" stroke="none">receives: zoom, x, y of</text>
+    <text x="694" y="144" fill="#d5c4a1" stroke="none">each tile on screen</text>
+
+    <rect x="680" y="200" width="264" height="110" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="694" y="224" font-weight="bold" stroke="none">Geocoding service</text>
+    <text x="694" y="246" fill="#d5c4a1" stroke="none">nominatim.openstreetmap.org</text>
+    <text x="694" y="268" fill="#d5c4a1" stroke="none">receives: the place name</text>
+    <text x="694" y="288" fill="#d5c4a1" stroke="none">you typed</text>
+
+    <path d="M560,276 C620,276 620,112 678,112" fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#pl-net)"/>
+    <path d="M560,290 C630,290 630,256 678,256" fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#pl-net)"/>
+    <path d="M435,206 L435,222" fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#pl-net)"/>
+  </g>
+</svg>
+<figcaption>The network boundary. Everything on the left of the dashed line stays there. Only two kinds of request ever cross it for places, and only through the gate: tile addresses and the place names you search for.</figcaption>
+</figure>
+
+<h3>A tile request, byte for byte</h3>
+<p>Requests are built by one function in <code>dalica-fetch</code>, whatever carries them, so the list below is complete. For the tile <code>6/28/16</code> on the default server, Dalíca sends:</p>
+<pre><code><span class="k">GET</span> /6/28/16.png HTTP/1.1
+<span class="k">Host:</span> tile.openstreetmap.org
+<span class="k">User-Agent:</span> Dalica/1.1.0        <span class="c">the version of your copy</span>
+<span class="k">Accept:</span> */*
+<span class="k">Accept-Encoding:</span> identity
+<span class="k">Connection:</span> close</code></pre>
+<ul>
+  <li><strong>The User-Agent</strong> is the program's name and version, nothing about you, your machine or your system. The four header names <code>User-Agent</code>, <code>Accept</code>, <code>Accept-Encoding</code> and <code>Range</code> are the only ones a request can carry, plus <code>Host</code> and <code>Connection</code> that HTTP itself needs. <code>Range</code> is used only to resume a download pinned to a checksum (face models), so tiles never send it.</li>
+  <li><strong>No cookie, token, referrer or credential</strong> is ever sent, and Dalíca keeps no cookies. Each connection carries one request.</li>
+  <li><strong>TLS</strong> is rustls with a pure-Rust crypto provider, TLS 1.2 or 1.3, trusting Mozilla's root certificates compiled into the program, so validation never depends on the system's certificate store. There is no setting or API to turn certificate checks off. The host name is sent in the TLS handshake, as for any HTTPS connection.</li>
+  <li><strong>Addresses must be https.</strong> A tile server template without <code>{z}</code>, <code>{x}</code> and <code>{y}</code>, or with a plain <code>http://</code> address, is refused. Redirects are followed only to https addresses and at most 8 times.</li>
+  <li><strong>Timeouts:</strong> 15 seconds to connect, 30 seconds of silence once connected.</li>
+  <li><strong>A proxy</strong> (Options ▸ Network: the system's <code>HTTPS_PROXY</code> and <code>NO_PROXY</code>, or a host and port you enter) is used only through <code>CONNECT</code>. The TLS session runs end to end inside the tunnel, so the proxy sees the host and port, never the tile address or the reply. Proxies that ask for a password are not supported.</li>
+</ul>
+
+<h3>What the servers can learn</h3>
+<p>Be clear about what an HTTPS request reveals by its nature. The tile server sees your IP address, the time, the Dalíca version, and the addresses of the tiles you look at. A tile address is a zoom level and a square of the map, so it says which part of the world your Places pane was showing. When you look at the markers of your photos, that is roughly where those photos were taken, at the precision of the tiles on screen. If that matters to you, leave tiles off: the offline layer and typed coordinates do everything except draw streets.</p>
+<p>What is never sent: the photos, their file or folder names, captions, tags, people or faces, the coordinates of your photos as numbers, anything from your library or settings, and any identifier of you or your computer. Nothing goes out at start-up, during scans, or while the pane is closed.</p>
+<p>Automation follows the same gate and one more: <code>map.allow</code> and a search by name reach outside Dalíca, so when an agent drives the app over the control channel or MCP they are refused unless Dalíca was started with <code>--automation-allow-external</code>. Your own clicks and keys are never refused.</p>
+
+<h2 id="place-search">Searching for a place by name</h2>
+<p>Text in "Search for a place:" that is not a pair of coordinates is a place name for the geocoding service: by default OpenStreetMap's Nominatim, at the address template <code>https://nominatim.openstreetmap.org/search?format=jsonv2&amp;q={query}</code>. It is covered by the same Allow map tiles switch and needs the Places pane open; otherwise the search is refused and nothing is asked.</p>
+<ol class="steps-list">
+  <li><strong>Only on Enter.</strong> Nothing is looked up as you type. The text is trimmed and may be at most 512 bytes.</li>
+  <li><strong>Encoding.</strong> The text is UTF-8 and percent-encoded (letters, digits and <code>-._~</code> kept), then put in place of <code>{query}</code>. This text, and nothing else, is what the service receives about your search.</li>
+  <li><strong>Memory first.</strong> The last 32 searches of the session are answered from memory with no request at all. Otherwise the disk cache is checked: each reply is kept as <code>q-&lt;16 hex digits&gt;.json</code> (the FNV-1a hash of the full address) and reused for 30 days.</li>
+  <li><strong>One request a second.</strong> Nominatim's usage policy asks for at most one request a second, so every search in the process takes turns: a request waits until no other is on its way and a full second has passed since the last one <em>ended</em> (counting from the end means a slow start never shortens the gap at the server). Each search gets one attempt, since a retry would come sooner than the interval. A new search cancels the one on its way.</li>
+  <li><strong>The reply is hostile until proven otherwise:</strong> at most 1 MiB, arrays and objects nested at most 32 deep (checked by a byte scan before the JSON parser sees it), at most 20 results. Each result needs <code>lat</code> and <code>lon</code> on the globe (numbers, or strings of numbers) and a name; its <code>name</code> is cut to 256 bytes and its <code>display_name</code> to 1 KiB at a character boundary. Entries that do not fit are passed over; a reply that is not a JSON list is an error, never a crash.</li>
+  <li><strong>Picking a result</strong> puts the pin there and moves the map to it, zoomed in to at least level 12. From there it is an ordinary geotag: "Put %d photos here?" and one undo step.</li>
+</ol>
+<div class="note"><p><b>Privacy in the logs:</b> the text you searched for and the places found are never written to the log. A failed search logs only its reason.</p></div>
+<p>The same rules apply to a tile server or geocoder you host yourself: both address templates are editable in Options ▸ Network (at most 2,048 bytes each, with an attribution line of up to 256 bytes), and the cache gives each address its own folder.</p>
+<h3>Names in the library search</h3>
+<p>Place searches by name go one way only: from a name to coordinates. Dalíca does not turn your photos' coordinates into place names (there is no reverse geocoding), so typing "Reykjavík" in the library's search box does not find photos by their GPS. It does find the free-text <strong>Place</strong> field of folders and albums (from their Properties), which is indexed with their names and descriptions, and is separate from geotags.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li>crates/core/src/geo.rs: LatLon, six-decimal rounding, typed coordinates, Web Mercator, tiles_covering</li>
+  <li>crates/meta/src/exif/read.rs, crates/meta/src/exif/edit.rs, crates/meta/src/xmp/, crates/meta/src/fields.rs: reading and writing GPS and its XMP mirror</li>
+  <li>crates/scan/src/meta.rs (place_follows), crates/scan/src/legacy.rs, crates/sidecar/src/legacy/values.rs: how file GPS and legacy geotags enter the model</li>
+  <li>crates/library/src/people.rs (Geo), crates/engine/src/places.rs, crates/engine/src/cmd/places.rs, crates/engine/src/metadata.rs</li>
+  <li>crates/engine/src/map_tiles.rs, crates/engine/src/geocode.rs, crates/engine/src/cmd/map.rs, crates/engine/src/settings.rs (NetworkSettings)</li>
+  <li>crates/fetch/src/lib.rs, transport.rs, http.rs, proxy.rs, spec.rs: the HTTPS transport and its headers</li>
+  <li>crates/ui-kit/src/widgets/map.rs, crates/ui-kit/src/widgets/map/land.rs, assets/maps/README.md: the map widget and the offline layer</li>
+  <li>crates/ui/src/panels/places/tiles.rs, crates/ui/src/commands/map.rs: the pane's question, textures and automation rules</li>
+  <li>docs/organizing.md §7, docs/data-model.md §2, §3 and §5, docs/xmp-interop.md §2 to §7, docs/security.md §4.2 and §8.2, docs/assets.md</li>
+</ul>

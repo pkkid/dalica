@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Color and file formats · Dalíca guide</title>
+<meta name="description" content="Every file Dalíca shows goes through the same path: a format module reads it into one decoded image, a single color stage turns that into 8-bit sRGB, and the orientation is applied. This chapter follows that path: color profiles, bit depth, orientation, which formats are read and written and how, and the limits that keep a huge or hostile file from taking the app down.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html">Scanning and watching</a>
+    <a href="thumbnails.html">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html">Edits are recipes</a>
+    <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html" aria-current="page">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Color and file formats</h1>
+<p class="lede">Every file Dalíca shows goes through the same path: a format module reads it into one decoded image, a single color stage turns that into 8-bit sRGB, and the orientation is applied. This chapter follows that path: color profiles, bit depth, orientation, which formats are read and written and how, and the limits that keep a huge or hostile file from taking the app down.</p>
+
+<h2 id="pipeline">From file to pixels</h2>
+<p>A file's format is recognized from its first bytes, never from its name, so a <code>.jpg</code> that is really a PNG decodes as a PNG. Each format is one module with the same three entry points: a <strong>header</strong> read for scanning (size, orientation, EXIF fields, where an embedded thumbnail lies) that decodes no pixels; a <strong>decode</strong> into the decoded image; and the <strong>embedded thumbnail</strong> for the fast path. Everything is pure Rust; no C decoder is linked.</p>
+<figure class="wide">
+<svg viewBox="0 0 820 300" role="img" aria-label="Diagram of the decode path: a file goes through its format module into a decoded image holding depth, color model, alpha, profile and orientation; the color stage turns it into 8-bit sRGB RGBA, which is turned upright and then used by thumbnails, the viewer and the edit renderer.">
+  <rect width="820" height="300" fill="#1d2021"/>
+  <g font-size="13" fill="#ebdbb2">
+    <rect x="10" y="40" width="110" height="64" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="65" y="68" text-anchor="middle">File</text><text x="65" y="86" text-anchor="middle" fill="#a89984" font-size="11">sniffed by content</text>
+    <rect x="146" y="40" width="130" height="64" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="211" y="68" text-anchor="middle">Format module</text><text x="211" y="86" text-anchor="middle" fill="#a89984" font-size="11">header, decode, thumb</text>
+    <rect x="302" y="20" width="196" height="122" rx="6" fill="#32302f" stroke="#83a598"/>
+    <text x="400" y="42" text-anchor="middle" fill="#83a598">Decoded image</text>
+    <text x="316" y="64" font-size="12">samples: 8/16-bit or float</text>
+    <text x="316" y="82" font-size="12">model: gray, RGB, CMYK</text>
+    <text x="316" y="100" font-size="12">straight alpha (optional)</text>
+    <text x="316" y="118" font-size="12">ICC profile bytes</text>
+    <text x="316" y="136" font-size="12">orientation</text>
+    <rect x="524" y="20" width="286" height="122" rx="6" fill="#32302f" stroke="#fe8019"/>
+    <text x="667" y="42" text-anchor="middle" fill="#fe8019">Color stage</text>
+    <text x="538" y="64" font-size="12">usable profile: to sRGB, relative</text>
+    <text x="538" y="80" font-size="12">colorimetric, at the samples' precision</text>
+    <text x="538" y="100" font-size="12">otherwise (none, unusable, or off):</text>
+    <text x="538" y="116" font-size="12">gray and RGB taken as sRGB,</text>
+    <text x="538" y="132" font-size="12">CMYK naively: R = (1 − C)(1 − K)</text>
+    <rect x="524" y="180" width="286" height="50" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="667" y="202" text-anchor="middle">8-bit sRGB RGBA</text><text x="667" y="220" text-anchor="middle" fill="#a89984" font-size="11">rounded once, alpha carried over</text>
+    <rect x="302" y="180" width="196" height="50" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="400" y="202" text-anchor="middle">EXIF orientation</text><text x="400" y="220" text-anchor="middle" fill="#a89984" font-size="11">gives the stored frame</text>
+    <rect x="10" y="166" width="266" height="78" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="143" y="188" text-anchor="middle">Thumbnails, viewer, renderer</text>
+    <text x="24" y="210" font-size="12" fill="#a89984">edits on 32-bit floats, sRGB-encoded,</text>
+    <text x="24" y="228" font-size="12" fill="#a89984">rounded to 8 bits after each run</text>
+  </g>
+  <g stroke="#d5c4a1" stroke-width="1.5" fill="none">
+    <path d="M120 72 H142"/><path d="M276 72 H298"/><path d="M498 80 H520"/><path d="M667 142 V176"/><path d="M524 205 H502"/><path d="M302 205 H280"/>
+  </g>
+  <g fill="#d5c4a1"><path d="M142 68 l6 4 -6 4z"/><path d="M298 68 l6 4 -6 4z"/><path d="M520 76 l6 4 -6 4z"/><path d="M663 176 l4 6 4 -6z"/><path d="M502 201 l-6 4 6 4z"/><path d="M280 201 l-6 4 6 4z"/></g>
+  <text x="10" y="280" font-size="12" fill="#a89984">Every pixel buffer of one decode (the samples, the color stage's bands and the 8-bit output) is charged to one allocation budget.</text>
+</svg>
+<figcaption>The one path every still image takes. Only the color stage knows about profiles; everything after it sees 8-bit sRGB.</figcaption>
+</figure>
+
+<h2 id="color-management">Color management</h2>
+<p>A pixel's numbers mean nothing until you know which red, green and blue they refer to. An embedded ICC profile says so. Dalíca's color stage reads it and converts the pixels to sRGB with <code>moxcms</code>, a pure-Rust color engine, using the <strong>relative colorimetric</strong> intent: colors inside sRGB keep their appearance, colors outside it are brought to its edge. Profile versions 2 and 4 are read; sRGB, Display P3, Adobe RGB, ProPhoto and Rec.2020 are recognized by name.</p>
+<figure><img src="img/color/gamuts.png" width="1280" height="1200" alt="CIE xy chart with five triangles: the small sRGB triangle inside Display P3, Adobe RGB, Rec.2020 and the largest, ProPhoto, with the D65 white point marked." loading="lazy"><figcaption>The primaries of the profiles the color stage recognizes, from their published chromaticities. Everything outside the light sRGB triangle has to be brought inside it for display.</figcaption></figure>
+
+<h3>Where profiles come from</h3>
+<ul>
+<li><strong>JPEG:</strong> APP2 <code>ICC_PROFILE</code> chunks, reassembled only when every chunk carries the same count and the sequence numbers are exactly 1 to that count. Anything else is an unusable profile.</li>
+<li><strong>PNG:</strong> the <code>iCCP</code> chunk. PNG <code>gAMA</code> and <code>cHRM</code> chunks without an <code>iCCP</code> profile are not interpreted.</li>
+<li><strong>The others</strong> each use their own container: the TIFF page's ICC tag (34675), the WebP <code>ICCP</code> chunk, the PSD profile resource, a GIF <code>ICCRGBG1</code> application extension before the first frame, a BMP V5 header's profile, the JPEG XL profile stream, and HEIC's (with the decoder). A RAW preview tagged with a color space (Adobe RGB on some cameras) is converted to sRGB too.</li>
+</ul>
+
+<h3>Without a profile, and with a bad one</h3>
+<p>Untagged gray and RGB pixels are taken as sRGB, which is what nearly every camera and phone JPEG without a profile means. Untagged CMYK uses a naive conversion, <code>R = (1 − C)(1 − K)</code>, <code>G = (1 − M)(1 − K)</code>, <code>B = (1 − Y)(1 − K)</code>. CMYK JPEGs with an Adobe APP14 segment store their samples inverted (255 means no ink) and are inverted back first; YCCK frames are converted from YCbCr to inverted CMY first.</p>
+<p>A profile is <strong>unusable</strong>, and the pixels are shown as if untagged, when it is over 16 MiB (after APP2 reassembly or <code>iCCP</code> inflation), has more than 1,000 tags, has a tag table that runs past its data, declares more bytes than it has, describes another color space than the pixels (an RGB profile on a gray image), or when <code>moxcms</code> refuses it or fails on it. The fallback is logged. The profile is parsed and checked before any of its numbers are trusted, because a profile is file data like any other: hostile until proven otherwise.</p>
+
+<h3>The display, and View &gt; Use Color Management</h3>
+<p>Dalíca treats your display as sRGB. Reading the real display profile from each operating system is later work, to be done without C dependencies. So on a wide-gamut monitor, colors are shown as sRGB values and the monitor's own handling of sRGB applies.</p>
+<p><strong>View &gt; Use Color Management</strong> (on by default, kept in <code>settings.json</code>) maps to one decode option. Off, every embedded profile is ignored and every file is shown as untagged. The thumbnail cache keys include this setting, so both renderings are cached side by side: switching it off makes the visible cells again without profiles, and switching it back reads the managed thumbnails from the cache instead of decoding again.</p>
+<div class="note"><p><b>Save and Export are always managed.</b> The output pipeline decodes with the default options whatever the view setting, so a file Dalíca writes is always converted from its profile to sRGB. An sRGB profile is embedded in the new file only when the source had a profile; an untagged source gives an untagged output.</p></div>
+<p>None of the sample photos used in this guide carries a profile, so the difference cannot be shown on one of them. What happens to a Display P3 photo shown without management is this: its numbers are read as if they were sRGB numbers, and since the sRGB primaries are less saturated than P3's, every saturated color comes out duller than intended.</p>
+<figure><img src="img/color/p3-swatches.png" width="1600" height="660" alt="Four pairs of color swatches. Top row: stored Display P3 values shown as if they were sRGB, slightly dull red, green, yellow and blue. Bottom row: the same values converted from Display P3 to sRGB, visibly more saturated; the green converts to 0 red and the yellow to 0 blue." loading="lazy"><figcaption>An illustration computed with the standard RGB-to-XYZ matrices from the published primaries and the D65 white, not a Dalíca render. Top: the stored numbers read as sRGB, which is what Use Color Management off does. Bottom: the same numbers converted from Display P3. The converted green and yellow reach 0 in one channel: they lie outside sRGB and are brought to its edge.</figcaption></figure>
+
+<h2 id="bit-depth">Bit depth and color models</h2>
+<p>The decoded image keeps the file's own precision and model: 8- or 16-bit integers or floats, and gray, RGB or CMYK (palettes are expanded by the format module). The color stage works at that precision: 16-bit samples go through <code>moxcms</code>' 16-bit transform and are rounded to 8 bits <strong>once</strong>, at the end; float samples go through its float transform. It works in bands of rows, so its temporary buffers stay small. The transform kernels are chosen so every processor architecture computes the same pixels.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Stage</th><th>Precision</th></tr></thead>
+<tbody>
+<tr><td>Decoded image</td><td>the file's own: 8/16-bit integers or floats; gray, RGB or CMYK; straight alpha</td></tr>
+<tr><td>Color stage</td><td>at the samples' precision; one rounding to 8 bits at the end</td></tr>
+<tr><td>Thumbnails, viewer, edit view</td><td>8-bit sRGB RGBA</td></tr>
+<tr><td>Edit renderer</td><td>32-bit floats per channel, sRGB-encoded 0 to 1; rounded to 8 bits after each run of fused pixel operations</td></tr>
+<tr><td>Save of a JPEG</td><td>8-bit baseline JPEG at the original's estimated quality and chroma subsampling (4:2:2 is written as 4:4:4)</td></tr>
+<tr><td>Save of a 16-bit PNG</td><td>exactly 16-bit for a recipe of only rotations and flips (gray or RGB, no profile, not resized); any other edit is rendered at 8 bits and widened back to 16</td></tr>
+<tr><td>Grayscale sources</td><td>written back as gray while the edits leave every pixel neutral</td></tr>
+</tbody></table></div>
+<p>So the place where 16-bit precision is lost is the color stage's final rounding: editing in Dalíca is 8-bit in, float in the middle, 8-bit out. The same 8-bit sRGB picture serves the thumbnail ladder, the viewer, the edit view and every effect. A rotate-only Save of an untagged 16-bit PNG stays bit-exact because it never enters that path: its samples are moved pixel for pixel at their own precision.</p>
+<p>Not read at all: 12-bit JPEG (no pure-Rust decoder of 12-bit DCT samples was found that Dalíca could use), arithmetic-coded, lossless and hierarchical JPEG frames, and Lab and YCbCr TIFF pages. They are listed with their size and show a tile saying the kind of file is not supported.</p>
+
+<h2 id="orientation">Orientation</h2>
+<p>Cameras usually store pixels the way the sensor read them and write the way to hold the picture into EXIF tag <code>0x0112</code>. Dalíca applies it on every read, so the decoded picture is upright. That upright picture is the <strong>stored frame</strong> every crop, retouch point, effect centre and face rectangle is measured in. Dalíca's own <code>rotate(…)</code>, <code>flip_h()</code> and <code>flip_v()</code> entries are applied on top of it, last in the renderer, pixel for pixel. Files are never rewritten just to fix their orientation.</p>
+<figure class="wide">
+<svg viewBox="0 0 540 290" role="img" aria-label="Eight tiles showing how a letter F is stored for each EXIF orientation value: 1 upright, 2 mirrored, 3 upside down, 4 flipped, 5 transposed, 6 lying turned counterclockwise, 7 transverse, 8 lying turned clockwise.">
+  <rect width="540" height="290" fill="#1d2021"/>
+  <g transform="translate(70 70) "><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g transform="translate(203 70) scale(-1,1)"><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g transform="translate(336 70) rotate(180)"><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g transform="translate(469 70) scale(1,-1)"><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g transform="translate(70 210) rotate(90) scale(1,-1)"><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g transform="translate(203 210) rotate(-90)"><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g transform="translate(336 210) rotate(-90) scale(1,-1)"><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g transform="translate(469 210) rotate(90)"><rect x="-40" y="-30" width="80" height="60" fill="#32302f" stroke="#504945" stroke-width="1.5"/><rect x="-16" y="-20" width="8" height="40" fill="#fe8019"/><rect x="-16" y="-20" width="30" height="8" fill="#fe8019"/><rect x="-16" y="-4" width="22" height="7" fill="#fe8019"/></g>
+  <g font-size="12" fill="#ebdbb2" text-anchor="middle">
+    <text x="70" y="124">1 as stored</text><text x="203" y="124">2 mirror</text><text x="336" y="124">3 rotate 180°</text><text x="469" y="124">4 flip</text>
+    <text x="70" y="272">5 transpose</text><text x="203" y="272">6 turn 90° CW</text><text x="336" y="272">7 transverse</text><text x="469" y="272">8 turn 90° CCW</text>
+  </g>
+</svg>
+<figcaption>How the stored pixels of an upright "F" look for each EXIF orientation value, and what reading the file does to show it upright. Values 5 to 8 swap width and height, so the displayed size of such a file is its stored size turned.</figcaption>
+</figure>
+<p>A photo whose EXIF is damaged still shows, upright as stored, and the header read records why. HEIC files carry their own rotation and mirror boxes (<code>irot</code>, <code>imir</code>), read from the container in the order the item lists them; JPEG XL's orientation is applied by its decoder.</p>
+
+<h3>Lossless rotation on Save</h3>
+<p>A Save normally renders the recipe and writes the file with orientation 1 (top-left). When the recipe holds <strong>only rotations and flips</strong> and the file is a JPEG, re-encoding would cost quality for nothing, so Dalíca transforms the JPEG's quantized DCT coefficients instead and never decodes the pixels:</p>
+<ul>
+<li>Mirroring an 8 × 8 block left to right negates its coefficients of odd horizontal frequency; top to bottom, those of odd vertical frequency; transposing a block transposes its coefficients. Any of the eight orientations is a combination of these, applied to every block and to the block layout.</li>
+<li>The quantization tables are the file's own, never requantized: copied, or transposed entry by entry for the transforms that transpose (orientations 5 to 8, the quarter turns), so every coefficient keeps its own quantizer. New optimal Huffman tables are built for the new data. Other segments are copied byte for byte.</li>
+<li>Baseline and extended sequential Huffman files with 8-bit samples and any sampling factors take this path. It is refused, and the EXIF orientation flag is updated instead (the pixel data left as it is), for progressive, arithmetic-coded, 12-bit, lossless and hierarchical files; for a transform that would move a partial block row or column from the right or bottom edge to the leading edge (the decoder would show its padding); and for files with data after the end-of-image marker, such as MPF secondary images, whose offsets and orientation would go stale.</li>
+</ul>
+
+<h2 id="formats">The format table</h2>
+<p>"JPEG copy beside it" means a Save of a format Dalíca cannot write in place writes <code>name.jpg</code> (or <code>name-001.jpg</code>, the next free number) next to the source and leaves the source byte-identical. The copy is a new, unedited photo with the source's caption, tags and star, transparency drawn over white; the source keeps its edits.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Format</th><th>Shown</th><th>Thumbnail fast path</th><th>Metadata written</th><th>Save edits</th></tr></thead>
+<tbody>
+<tr><td>JPEG</td><td>baseline, progressive, CMYK/YCCK, 8-bit samples</td><td>embedded EXIF thumbnail; the full decode fitted (past 64 MP, the EXIF thumbnail)</td><td>XMP, IPTC, EXIF</td><td>in place, as a baseline JPEG; rotate-only Saves lossless where possible</td></tr>
+<tr><td>PNG</td><td>1 to 16-bit, palette, transparency, interlaced</td><td>scaled decode</td><td>XMP (<code>iTXt</code>), EXIF (<code>eXIf</code>)</td><td>in place without transparency (8 or 16-bit); with transparency a JPEG copy beside it</td></tr>
+<tr><td>TIFF</td><td>8/16-bit integer, float; gray, RGB, CMYK, palette; LZW, Deflate, PackBits, JPEG; first full-resolution page</td><td>embedded thumbnail page, else the full decode fitted up to 64 MP, then the reduced decode (below)</td><td>XMP and IPTC tags (append-only)</td><td>JPEG copy beside it</td></tr>
+<tr><td>WebP</td><td>lossy and lossless, alpha; first frame of animations</td><td>lossy without alpha: scaled decode at any size; others: full decode fitted up to 64 MP</td><td>XMP, EXIF chunks</td><td>JPEG copy beside it</td></tr>
+<tr><td>GIF</td><td>first frame</td><td>scaled decode</td><td>sidecar only</td><td>JPEG copy beside it</td></tr>
+<tr><td>BMP</td><td>yes</td><td>scaled decode</td><td>sidecar only</td><td>JPEG copy beside it</td></tr>
+<tr><td>JPEG XL</td><td>yes</td><td>scaled decode</td><td>sidecar only</td><td>JPEG copy beside it</td></tr>
+<tr><td>PSD / PSB</td><td>merged composite only (8/16/32-bit gray, RGB, CMYK, indexed); no layers</td><td>embedded thumbnail resource or composite</td><td>sidecar only</td><td>JPEG copy beside it</td></tr>
+<tr><td>RAW</td><td>embedded preview only</td><td>embedded preview</td><td><code>.xmp</code> sidecar when enabled</td><td>JPEG copy beside it, rendered from the preview</td></tr>
+<tr><td>HEIC / HEIF</td><td>only in builds with the <code>heif</code> feature; otherwise listed with its size, date and orientation</td><td>none (its thumbnail is HEVC too)</td><td>sidecar only</td><td>JPEG copy beside it (with the feature); otherwise disabled</td></tr>
+<tr><td>AVIF</td><td>no: recognized and listed with a format tile</td><td>none</td><td>sidecar only</td><td>disabled</td></tr>
+<tr><td>Video (MP4, MOV, M4V, MKV)</td><td>poster frame; H.264 in every build, HEVC only with the <code>hevc</code> feature</td><td>none</td><td>sidecar only</td><td>never through the photo path</td></tr>
+</tbody></table></div>
+<p>A file the decoder refuses is still listed: its cell shows the embedded thumbnail if there is one, otherwise a caution mark with the reason ("Damaged file", "Too large to display (W × H)", the format's own text) and, where it helps, a hint on what to do. A damaged or truncated file decodes as far as it can and says so. Panics inside third-party decoders are caught and reported as a damaged file.</p>
+
+<h2 id="raw">RAW: the embedded preview, and why</h2>
+<p>Dalíca recognizes raw files by content: CR3 by its <code>ftyp</code> brand; RAF, CRW, MRW and X3F by their signatures; CR2, ORF and RW2 by their variants of the TIFF header; and other TIFF-structured raws (DNG, NEF, ARW, PEF, SRW and more) by a bounded walk of their directories that finds a DNG tag or raw sensor data. It then shows the <strong>largest embedded JPEG preview</strong> it finds; the next smaller one is the thumbnail fast path. Previews over 64 MiB are passed over. A raw without a usable preview shows a generic tile.</p>
+<p>The preview is what the camera itself rendered from the sensor data, with its own white balance, tone curve and color. Raw development is a different kind of tool, and Dalíca's product spec puts it out of scope: Dalíca organizes and makes simple edits, and the preview is a finished picture it can do that with. Edits apply to the preview, and Save writes a JPEG beside the raw at the preview's size. Open With sends the file to a raw developer. Metadata is read from the raw's EXIF and XMP and an <code>.xmp</code> sidecar, and written only to the sidecar. A RAW and JPEG pair with the same stem are two photos.</p>
+
+<h2 id="heic">HEIC, HEVC and AVIF</h2>
+<p>HEIC photos are HEVC-coded pictures in an ISO container. Decoding HEVC needs a patent licence in some countries, so including a decoder is the distributor's decision, and the official Dalíca downloads leave it out. Their packages do not register HEIC or HEIF with the system. HEVC video is the same: the <code>hevc</code> feature is off in release builds, and such a clip says "This video can't be played (HEVC support isn't included in this build)".</p>
+<p>Without the decoder a HEIC is still organized like any photo. Its header is read from the container in pure Rust, without touching HEVC: the primary item (<code>pitm</code>), its size (<code>ispe</code>), its rotation and mirror (<code>irot</code>, <code>imir</code>) and its EXIF item, capped at 4 MiB with entry lists capped at 65,536. So it is listed with its size and capture date, sorts and searches by date, and shows a tile saying "HEIC support isn't included in this build", with the hint that an iPhone can save new photos as JPEG (Settings › Camera › Formats › Most Compatible) or that the files can be converted.</p>
+<p>If you build Dalíca yourself with <code>cargo build -p dalica --features heif</code>, HEIC decodes with <code>heic-rs</code> (pure Rust, no <code>unsafe</code>, MIT or Apache-2.0), pinned exactly at 0.1.1, through a wrapper that guards against its panics: single pictures and grids, 8 to 12 bits (10 and 12-bit decode to 16-bit), alpha, ICC, EXIF and XMP. Overlays, uncompressed items and 4:2:2 or 4:4:4 streams are refused with a tile text, never shown with wrong pixels. Measured on a set of 36 generated files, everything phones write decodes 46 to 71 dB from its source and a 1.2-megapixel grid decodes in about 30 ms. HEIF is read-only either way: writing it needs an HEVC encoder, and every mature one is C.</p>
+<p>AVIF is recognized and never decoded, because no permissively licensed pure-Rust AV1 decoder exists today.</p>
+
+<h2 id="limits">Decode limits</h2>
+<p>Every number in a file header is hostile until checked. Every decode takes one <code>Limits</code> value, checked against the <strong>header</strong> before any pixel buffer is allocated, and again after the orientation swaps width and height. Whichever limit is reached first applies; for large images it is usually the allocation limit.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Limit</th><th>Value</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Width or height</td><td>65,535 px for a full decode (JPEG's own maximum); 262,144 px for header reads</td><td>panoramas up to the JPEG maximum still open</td></tr>
+<tr><td>Pixels for a full decode</td><td>2<sup>30</sup> (about 1,074 MP)</td><td>covers stitched panoramas and medium-format files</td></tr>
+<tr><td>Allocation per decode</td><td>1.5 GiB by default, and never more than half the memory budget (a quarter of RAM, clamped to 256 MiB to 1.5 GiB)</td><td>one file can never take the whole budget</td></tr>
+<tr><td>Thumbnail source from a decoder that cannot scale</td><td>64 MP</td><td>such decoders allocate at full size before resizing</td></tr>
+<tr><td>ICC profile</td><td>16 MiB, 1,000 tags</td><td>a profile is parsed before its numbers are trusted</td></tr>
+<tr><td>Embedded thumbnail or preview</td><td>64 MiB</td><td></td></tr>
+</tbody></table></div>
+<p>Allocations are fallible (<code>try_reserve</code>), so running out of memory is a "too large" error on the photo's tile, never an abort. A file over a limit still shows its embedded preview if it has one. Container walks are bounded as well: TIFF directory chains (a seen-set against loops, a depth limit, a directory cap), XMP nesting and node counts, EXIF entry counts, ISO box nesting (12 deep and 4,096 boxes per level in the CR3 and video walks). Every parser has a fuzz target.</p>
+
+<h3>Large TIFFs, in strips and bands</h3>
+<p>Stitched panoramas are mostly TIFFs of 100 to 300 megapixels, larger than the 64 MP that a full decode for a thumbnail allows. So a large TIFF takes two paths of its own, under the same limits; nothing the size of the page is ever allocated for a thumbnail.</p>
+<figure class="wide">
+<svg viewBox="0 0 760 222" role="img" aria-label="Diagram: a wide panorama page divided into horizontal strips; one strip at a time is decoded and summed into the cells of a reduced picture, which goes through the color stage once and is fitted to the thumbnail.">
+  <rect width="760" height="222" fill="#1d2021"/>
+  <g font-size="13" fill="#ebdbb2">
+    <text x="10" y="22">TIFF page, 30 000 × 8 700</text>
+    <rect x="10" y="32" width="420" height="122" fill="#32302f" stroke="#504945"/>
+    <g stroke="#504945"><path d="M10 52H430M10 72H430M10 92H430M10 112H430M10 132H430"/></g>
+    <rect x="10" y="72" width="420" height="20" fill="#fe8019" fill-opacity="0.35" stroke="#fe8019"/>
+    <text x="440" y="87" fill="#fe8019">one strip or tile in memory</text>
+    <path d="M436 100 L520 128" stroke="#d5c4a1" stroke-width="1.5"/><path d="M520 128 l-8 0 4 -6z" fill="#d5c4a1"/>
+    <rect x="530" y="110" width="140" height="41" fill="#32302f" stroke="#83a598"/>
+    <g stroke="#504945"><path d="M530 124H670M530 138H670M558 110V151M586 110V151M614 110V151M642 110V151"/></g>
+    <text x="530" y="102" fill="#83a598">reduced sums</text>
+    <text x="530" y="168" font-size="12" fill="#a89984">each cell: the sum of N × N pixels;</text>
+    <text x="530" y="184" font-size="12" fill="#a89984">then the color stage once, then fitted</text>
+    <text x="10" y="212" font-size="12" fill="#a89984">Full decode instead: bands of whole rows (at most 16 MiB of samples) through the color stage into the 8-bit output.</text>
+  </g>
+</svg>
+<figcaption>The reduced decode for thumbnails and screen-size pictures. Memory holds one chunk, the reduced sums and the reduced picture, all charged to the allocation limit before the first chunk is read.</figcaption>
+</figure>
+<ul>
+<li><strong>Thumbnails and the viewer's pictures.</strong> Past 64 MP, when no reduced-resolution page covers the target, the page is decoded one strip or tile at a time and each is summed into the cells of a picture reduced by a whole factor (the largest that keeps the long side asked for). The cell means go through the color stage once and are fitted. A 261 MP 8-bit panorama's 256-pixel thumbnail holds about 13 MB besides the file. Strips and tiles, chunky and planar, 8/16/32-bit integers and 16/32/64-bit floats, gray, RGB, CMYK, YCbCr JPEG strips and alpha all take this path; palette pages and samples under 8 bits still answer "Too large to display".</li>
+<li><strong>No whole read for a preview.</strong> The photo viewer reads a large TIFF from its file chunk by chunk, holding only the header and one chunk. A TIFF whose directory lies after the pixels, as many stitchers write it, is read whole (at most 1 GiB) and decoded the same way from memory.</li>
+<li><strong>Zoom to 100 %.</strong> When a page's samples and its 8-bit output would not fit the allocation limit together, the page is decoded in bands of whole rows of at most 16 MiB of samples, each band going through the color stage into the output, so memory holds the output and one band. The edit view keeps a zoomed picture up to 1 GiB, so pages up to about 268 MP zoom to 100 %.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead><tr><th>Panorama (measured)</th><th>File</th><th>256 px thumbnail</th><th>2560 px picture</th><th>Full decode</th></tr></thead>
+<tbody>
+<tr><td>30 000 × 8 700 (261 MP), 8-bit RGB, Deflate strips, directory at the end</td><td>19 MB</td><td>1.2 s, 50 MB</td><td>1.2 s, 92 MB</td><td>1.5 s, 1.1 GB (bands)</td></tr>
+<tr><td>24 576 × 4 500 (111 MP), 16-bit RGB, Deflate tiles</td><td>267 MB</td><td>2.3 s, 1.3 MB</td><td>2.4 s, 42 MB</td><td>2.3 s, 811 MB (bands)</td></tr>
+<tr><td>20 000 × 5 000 (100 MP), 8-bit RGB, uncompressed strips</td><td>300 MB</td><td>0.25 s, 1.9 MB</td><td>0.32 s, 56 MB</td><td>0.38 s, 1.0 GB</td></tr>
+</tbody></table></div>
+<p>Release build, one thread, procedural panoramas; memory is the measured heap peak. Before this path all three answered "Too large to display" for every thumbnail. Other large formats (a PNG, a JPEG or a PSD composite over 64 MP without an embedded thumbnail) still get "Too large to display" for their thumbnail; each needs a reduced path of its own.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li><code>crates/image/src/color.rs</code>: the color stage, profile checks and fallbacks.</li>
+<li><code>crates/image/src/decode.rs</code>: the decoded image model and <code>DecodeOptions::color_managed</code>.</li>
+<li><code>crates/image/src/limits.rs</code>: <code>Limits</code> and the allocation <code>Budget</code>.</li>
+<li><code>crates/image/src/orient.rs</code> and <code>crates/image/src/jpeg_transform.rs</code>: EXIF orientation and lossless JPEG transforms.</li>
+<li><code>crates/image/src/formats/</code>: one module per format, including the HEIF container reader and the RAW preview walk.</li>
+<li><code>crates/create/src/output.rs</code>: the output pipeline used by Save and Export.</li>
+<li><code>crates/engine/src/thumbs.rs</code> and <code>crates/engine/src/cmd/view.rs</code>: View &gt; Use Color Management.</li>
+<li><code>docs/formats.md</code> (all sections); <code>docs/architecture.md</code> §6; <code>docs/data-model.md</code> §6.</li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="effects.html"><span>Previous</span>The effects</a><a class="next" href="metadata.html"><span>Next</span>Metadata in your files</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#pipeline">From file to pixels</a>
+    <a href="#color-management">Color management</a>
+    <a href="#bit-depth">Bit depth and color models</a>
+    <a href="#orientation">Orientation</a>
+    <a href="#formats">The format table</a>
+    <a href="#raw">RAW: the embedded preview, and why</a>
+    <a href="#heic">HEIC, HEVC and AVIF</a>
+    <a href="#limits">Decode limits</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>

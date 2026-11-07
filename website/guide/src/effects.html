@@ -1,0 +1,282 @@
+<h1>The effects</h1>
+<p class="lede">The three effects tabs hold 27 effects. Each is one recipe entry with its parameters in the order of its panel's controls, and each is a small, exactly specified transformation of the pixels. This chapter gives, for every effect, the formula, the ranges and defaults, and a real render.</p>
+
+<h2 id="common">What every effect shares</h2>
+<p>All effects run in the renderer after the geometry (straighten, crop and the scale to the render size) and before the recipe's rotations and flips, in the order you applied them. You can apply the same effect several times; each entry is its own step. The rules below hold for every one of them.</p>
+<dl class="terms">
+<dt>Working values</dt><dd>The renderer works on 32-bit floats per channel, <strong>sRGB-encoded</strong>, from 0 to 1, in bands of rows run in parallel. Most effects compute on those encoded values directly. A few convert to linear light first because their formula is about light (Warmify, Saturation above 0, Boost, Vignette), through shared 4,096-step tables of the sRGB curve (within 0.01 of a level of the exact curve).</dd>
+<dt>Fusing</dt><dd>Consecutive operations that read only their own pixel (B&amp;W, Sepia, Tint, Invert Colors, Duo-Tone, Infrared Film, Boost, Focal B&amp;W, Graduated Tint and the like) run fused on one band and are rounded to 8 bits once. An operation that reads its neighbours (a blur, Sharpen, Pixelate) starts a new run.</dd>
+<dt>Sizes</dt><dd>Every size is relative to the stored photo's <strong>shorter side</strong>: the focal circles' Size as a fraction of it (0.3 is a radius of 30 %), Glow's Radius in percent, and HDR Look's Radius, Dream Glow's Bloom, Pixelate's cells, Border's and Museum Matte's bands and Drop Shadow's Distance and Blur in thousandths. Vignette's Size is in percent of the half-diagonal. So a 256-pixel thumbnail, the edit view and a full-size Save of the same recipe agree; a large render shrunk matches a small one.</dd>
+<dt>Points and angles</dt><dd>Crosshair points are normalized <code>x,y</code> in the stored frame (after EXIF orientation, before Dalíca's rotations and flips), brought into 0..1. Angles are degrees 0 to 360, clockwise from pointing up. A later rotation or flip never rewrites them.</dd>
+<dt>Fade</dt><dd>On most of the newer effects, Fade 0 to 100 blends the result back toward the effect's input: <code>out = in + (effect − in) · (1 − Fade/100)</code>. Fade 100 changes nothing.</dd>
+<dt>Noise</dt><dd>Grain (Film Grain, Plastic Lens, Widescreen Film) is smooth value noise placed in the stored frame and seeded by a hash of the entry's parameter text (Widescreen Film's by the effect's name), mean 0 and standard deviation 1 before its amount. The same point has the same noise in every render.</dd>
+<dt>Wide blurs</dt><dd>The large blurs (Soft Focus, Glow, HDR Look, Dream Glow, Plastic Lens, Soften) are made once per render on a coarse grid of cell means about a third of the sigma, blurred by three box passes, and read back bilinearly, so their cost stays near the picture's size whatever the radius. A zoomed region render equals that window of the whole render.</dd>
+</dl>
+
+<h3>How an entry is written</h3>
+<p>Numbers are plain decimals, printed as the shortest text that reads back (<code>0.6</code>, <code>20</code>); a number out of range is brought to the nearest end when read. Colors are <code>#rrggbb</code>, read in either case and written in lowercase. Checkboxes are <code>true</code> or <code>false</code>; choices are words (<code>normal</code>, <code>soft_light</code>). A <code>NaN</code>, a missing or extra field, a bad color or an unknown word leaves the entry in the recipe as written and skips it when rendering, like any operation Dalíca cannot read, so nothing after it is lost.</p>
+<pre><code><span class="c"># tab 3, defaults</span>
+sharpen(<span class="n">0.6</span>)   grain(<span class="n">10</span>,<span class="k">false</span>)   tint(<span class="s">#80cfff</span>,<span class="n">0</span>)   soft_focus(<span class="n">0.5</span>,<span class="n">0.5</span>,<span class="n">0.3</span>,<span class="n">0.5</span>)
+<span class="c"># several entries, applied left to right</span>
+autofix()|vignette(<span class="n">35</span>,<span class="n">1.4</span>,<span class="s">#000000</span>,<span class="n">0</span>)|border(<span class="s">#000000</span>,<span class="n">20</span>,<span class="s">#ffffff</span>,<span class="n">5</span>,<span class="n">0</span>,<span class="n">0</span>)</code></pre>
+<div class="note"><p><b>About the pictures:</b> every picture in this chapter is a real render of the recipe under it, made by Dalíca's own command-line tool from the openly licensed sample photos, 700 pixels on the longer side (Sharpen and Film Grain show 1:1 crops of a full-size render, since they are about single pixels).</p></div>
+
+<h2 id="tab-effects">Effects</h2>
+<p>The first effects tab, in grid order: Sharpen, Sepia, B&amp;W, Warmify, Film Grain, Tint, Saturation, Soft Focus, Glow, Filtered B&amp;W, Focal B&amp;W, Graduated Tint. Sepia, B&amp;W and Warmify apply in one click.</p>
+<h3>Sharpen</h3>
+<p><code>sharpen(a)</code></p>
+<p>An unsharp mask: <code>out = in + a · (in − blur(in))</code>, with no threshold. Amount 0 to 3, default 0.6. The blur is a sampled Gaussian of sigma 0.0004 of the stored photo's shorter side (about 1.2 pixels on a 12-megapixel photo), its taps in a fixed order, so a zoomed region at 1:1 equals that window of the whole render exactly. That is why the spec calls it accurate at 1:1. Below 1:1 the sigma would fall under half a pixel, so a render that small (a tile, a thumbnail) sharpens at 0.5 pixel of its own instead: an approximation, close to the full render shrunk.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/sharpen-0.jpg" width="360" height="240" alt="A 1:1 crop of a honeybee's eye and hairy head against purple petals." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/sharpen-06.jpg" width="360" height="240" alt="The same crop, the hairs slightly crisper." loading="lazy"><span class="label">sharpen(0.6)</span></div>
+  <div><img src="img/effects/sharpen-3.jpg" width="360" height="240" alt="The same crop at the maximum amount, hairs and the eye's highlight strongly crisp with bright edges." loading="lazy"><span class="label">sharpen(3)</span></div>
+</div><figcaption>1:1 crops of a full-size render. At the default the hairs gain a little bite; at 3 every edge gets a visible bright and dark rim, the unsharp mask's halo.</figcaption></figure>
+
+<h3>Sepia, B&amp;W and Warmify</h3>
+<p><code>sepia() · bw() · warmify()</code></p>
+<p>The three one-click color effects take no parameters.</p>
+<ul>
+<li><strong>B&amp;W</strong> is the Rec.601 luma of the encoded values: <code>l = 0.299 R + 0.587 G + 0.114 B</code> in every channel.</li>
+<li><strong>Sepia</strong> takes that luma through three fixed curves, <code>R = l^0.75</code>, <code>G = l^0.95</code>, <code>B = l^1.35</code> (chart at the end of this chapter). Since the powers rise from red to blue, R ≥ G ≥ B everywhere: every gray becomes warm brown, black stays black, white stays white, and a brighter pixel never comes out darker.</li>
+<li><strong>Warmify</strong> is a warming photo filter, the color <code>#ec8a00</code> at 25 % density, applied in linear light as one 3 × 3 matrix (to D50 XYZ, each component scaled by the filter's share of white, back to RGB, normalized so the luminance Y stays). Then the input's Rec.601 luma is put back with a luminosity blend. Oranges and skin turn golden, blues lose a little, the brightness stays.</li>
+</ul>
+<figure><div class="row cols-4">
+  <div><img src="img/effects/fox-0.jpg" width="700" height="467" alt="A red fox standing on a gravel path in front of reeds." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/fox-sepia.jpg" width="700" height="467" alt="The fox in warm brown monochrome." loading="lazy"><span class="label">sepia()</span></div>
+  <div><img src="img/effects/fox-bw.jpg" width="700" height="467" alt="The fox in neutral gray monochrome." loading="lazy"><span class="label">bw()</span></div>
+  <div><img src="img/effects/fox-warmify.jpg" width="700" height="467" alt="The fox with a warmer, more golden coat and greener-yellow reeds." loading="lazy"><span class="label">warmify()</span></div>
+</div><figcaption>One photo, the three one-click effects. Sepia and B&amp;W have the same luma; Warmify keeps the luma too, which is why the fox does not get brighter, only more golden.</figcaption></figure>
+
+<h3>Film Grain</h3>
+<p><code>grain(grain,lighten)</code></p>
+<p>Monochrome grain: one noise value added to all three channels of a pixel, so the grain never changes R − G or any other color difference. Grain 0 to 50, default 10; Lighten <code>false</code> by default. The noise is smooth value noise on a lattice of cells 0.0005 of the shorter side (about 1.5 pixels on a 12-megapixel photo), seeded from the entry's own parameter text and placed in the stored frame, so the same grain lands on the same spot in a thumbnail and in a Save, and two entries with the same parameters draw the same grain. Its standard deviation is <code>Grain / 100 · 0.5 / √3</code>, which is uniform noise of ±Grain/200. With Lighten only the light half of the noise is added, <code>max(n, 0)</code>, so the picture only gets lighter. Where a small render's pixel covers several cells the grain fades as averaging would make it, but never below a quarter of its variation, so a tile still shows grain.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/grain-0.jpg" width="360" height="240" alt="A 1:1 crop of a smooth pale blue sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/grain-10.jpg" width="360" height="240" alt="The same sky with fine, even grain." loading="lazy"><span class="label">grain(10,false)</span></div>
+  <div><img src="img/effects/grain-40l.jpg" width="360" height="240" alt="The same sky with coarse, only-lighter speckles." loading="lazy"><span class="label">grain(40,true)</span></div>
+</div><figcaption>1:1 crops of a clear sky, where grain shows most. With Lighten the speckles are only light, and the whole crop is slightly brighter on average.</figcaption></figure>
+
+<h3>Tint</h3>
+<p><code>tint(color,fade)</code></p>
+<p>Desaturate to the Rec.601 luma, then colorize along a path from black to the tint (at the tint's own luma) to white, straight lines between: a pixel of luma <code>l</code> below the tint's luma <code>lt</code> gets <code>l + (l / lt) · (tint − lt)</code>, one above it <code>l + ((1 − l) / (1 − lt)) · (tint − lt)</code>. Every pixel takes the tint's hue and keeps its luma. Color default <code>#80cfff</code>; Fade 0 to 100, default 0. The code notes why it does not use the usual HSL colorize: at full saturation that doubles a channel's contrast and folds at mid-gray, so a thumbnail and a full render of the same edge would disagree. The straight lines keep both slopes near 1.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/church-0.jpg" width="700" height="464" alt="A white church with a red roof under a cloudy blue sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/church-tint.jpg" width="700" height="464" alt="The church toned entirely in light blue." loading="lazy"><span class="label">tint(#80cfff,0)</span></div>
+  <div><img src="img/effects/church-tint-fade.jpg" width="700" height="464" alt="The church toned in warm orange, with some of the original color showing through." loading="lazy"><span class="label">tint(#ffb060,40)</span></div>
+</div><figcaption>Default tint, and an orange tint with Fade 40, which mixes 60 % of the toned picture with 40 % of the original: the red roof shows through.</figcaption></figure>
+
+<h3>Saturation</h3>
+<p><code>saturation(a)</code></p>
+<p>Amount −1 to +1, default 0.16. Below 0 every pixel moves toward its Rec.601 luma by the amount: <code>out = l + (p − l)(1 + a)</code>, so −1 is plain B&amp;W. Above 0 it is Vibrance in linear light, not a plain scale: in the pixel's HSV terms (saturation <code>t = 1 − min/max</code>, value <code>V = max</code>) the boost is largest for dull colors (low <code>t</code>) and darker values, fades to nothing at full saturation, and is damped on reds and skin (HSV hue 0 to 30°, fading out by 45° and back in from 300°). The hue is kept; the boost's constants are fitted to measurements.</p>
+<figure><div class="row cols-4">
+  <div><img src="img/effects/gate-0.jpg" width="700" height="360" alt="A shrine with bright orange-red gates and lanterns, trees and a small patch of blue sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/gate-sat-m06.jpg" width="700" height="360" alt="The shrine much more muted." loading="lazy"><span class="label">saturation(-0.6)</span></div>
+  <div><img src="img/effects/gate-sat-016.jpg" width="700" height="360" alt="The shrine nearly unchanged, greens a little richer." loading="lazy"><span class="label">saturation(0.16)</span></div>
+  <div><img src="img/effects/gate-sat-1.jpg" width="700" height="360" alt="The shrine with stronger green trees and blue sky, the orange gates about as before." loading="lazy"><span class="label">saturation(1)</span></div>
+</div><figcaption>Look at the orange gates against the trees: at +1 the dull greens and the sky gain much more than the already saturated orange, which is the point of Vibrance.</figcaption></figure>
+
+<h3>Soft Focus</h3>
+<p><code>soft_focus(x,y,size,amount)</code></p>
+<p>Blur outside a sharp circle. The crosshair <code>x,y</code> is a stored-frame point (default the centre); Size 0 to 1 (0.3) is the circle's radius as a fraction of the shorter side; Amount 0 to 1 (0.5) scales the blur, a Gaussian of sigma <code>Amount × 0.015</code> of the shorter side. The picture is sharp out to Size and fully blurred at <code>Size × 1.5</code>, with a smooth ramp between. The blur is made once per render on a coarse grid of cell means (cells about a third of the sigma) and read back bilinearly, with the variance that averaging adds taken off the sigma, so every render size blurs alike; inside the sharp core the blur is never read.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/sheep-0.jpg" width="700" height="375" alt="Three sheep grazing on a meadow." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/sheep-softfocus.jpg" width="700" height="375" alt="The middle sheep sharp, the two outer sheep and the meadow softly blurred." loading="lazy"><span class="label">soft_focus(0.5,0.5,0.3,0.5)</span></div>
+  <div><img src="img/effects/sheep-softfocus-1.jpg" width="700" height="375" alt="Only the middle lamb sharp in a smaller circle, everything else strongly blurred." loading="lazy"><span class="label">soft_focus(0.5,0.5,0.2,1)</span></div>
+</div><figcaption>Default, then a smaller circle at full Amount. The edge of the sharp circle is a ramp half as wide as its radius, so there is no visible ring.</figcaption></figure>
+
+<h3>Glow</h3>
+<p><code>glow(i,r)</code></p>
+<p>The highlights bloom. Each pixel is first weighted by a smoothstep of its luma from 0.5 to 1 (so only the brighter half of the tones feeds the glow), that highlight layer is blurred by a Gaussian of sigma Radius percent of the shorter side, then screened onto the picture by Intensity: <code>out = p + t(1 − p)</code> with <code>t = Intensity × glow</code>. A screen never darkens a pixel, and a picture darker than luma 0.5 everywhere is left exactly as it was. Intensity 0 to 1 (0.65); Radius 0.3 to 30 (3), on a logarithmic slider.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/mist-0.jpg" width="700" height="464" alt="A wide waterfall with white spray under a pale sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/mist-glow.jpg" width="700" height="464" alt="The spray and sky glowing a little, edges of the white water softened." loading="lazy"><span class="label">glow(0.65,3)</span></div>
+  <div><img src="img/effects/mist-glow-big.jpg" width="700" height="464" alt="A wide haze of light over the spray and the sky." loading="lazy"><span class="label">glow(1,10)</span></div>
+</div><figcaption>Bright water is where Glow shows: the dark rock and grass stay as they were, the spray and the sky bloom outward.</figcaption></figure>
+
+<h3>Filtered B&amp;W</h3>
+<p><code>filtered_bw(color)</code></p>
+<p>B&amp;W as seen through a colored filter on the lens. The Rec.601 weights are each multiplied by the filter's transmission of that channel and normalized to sum to 1, so a neutral gray stays the same gray. The default filter <code>#ff8000</code> (orange) gives weights of 0.50, 0.50 and 0 for red, green and blue (instead of 0.30, 0.59 and 0.11): blue skies go darker, reds and skin lighter. The blue filter <code>#0080ff</code> gives 0, 0.72 and 0.28 and does the opposite. A black filter transmits nothing and falls back to plain B&amp;W.</p>
+<figure><div class="row cols-4">
+  <div><img src="img/effects/light-0.jpg" width="700" height="467" alt="A white lighthouse with a red lantern room under a blue sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/light-bw.jpg" width="700" height="467" alt="Plain black and white." loading="lazy"><span class="label">bw()</span></div>
+  <div><img src="img/effects/light-fbw-orange.jpg" width="700" height="467" alt="Black and white with a slightly darker sky." loading="lazy"><span class="label">filtered_bw(#ff8000)</span></div>
+  <div><img src="img/effects/light-fbw-blue.jpg" width="700" height="467" alt="Black and white with a light sky and a nearly black lantern room." loading="lazy"><span class="label">filtered_bw(#0080ff)</span></div>
+</div><figcaption>Watch the red lantern room and the sky: an orange filter lightens the red and darkens the blue; a blue filter turns the red lantern almost black and the sky pale.</figcaption></figure>
+
+<h3>Focal B&amp;W</h3>
+<p><code>focal_bw(x,y,size,sharpness)</code></p>
+<p>Color inside a circle, the Rec.601 gray outside. Centre <code>x,y</code> (default 0.5, 0.5); Size 0 to 1 (0.3) as in Soft Focus; Sharpness 0 to 1 (0.5) sets the edge, which fades over <code>(1 − Sharpness) × Size</code> (one output pixel at Sharpness 1). It reads only its own pixel, so it is cheap and fuses with neighbouring pixel operations.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/fox2-0.jpg" width="700" height="467" alt="A fox's head peeking out of tall yellow-green grass." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/fox2-focalbw.jpg" width="700" height="467" alt="The fox and the grass around it in color inside a soft circle, the rest gray." loading="lazy"><span class="label">focal_bw(0.66,0.57,0.3,0.5)</span></div>
+  <div><img src="img/effects/fox2-focalbw-hard.jpg" width="700" height="467" alt="Only the fox's head in color inside a small hard-edged circle." loading="lazy"><span class="label">focal_bw(0.66,0.57,0.08,1)</span></div>
+</div><figcaption>The crosshair placed on the fox. With Sharpness 1 the edge is a single pixel wide.</figcaption></figure>
+
+<h3>Graduated Tint</h3>
+<p><code>graduated_tint(x,y,angle,feather,shade,color)</code></p>
+<p>A colored gradient, as a graduated filter puts on a sky. From the start point <code>x,y</code> along Angle (0 to 360, default 0, measured clockwise from pointing up, so 0 tints the top), the tint ramps in over Feather (0 to 1, default 0.25, a fraction of the shorter side). Ahead of the ramp the color is multiplied in: each channel's gain is <code>1 − depth · (1 − c)</code>, with <code>depth = 0.2 + 0.8 · Shade</code> (Shade 0 to 1, default 0.25). Where the darkest channel of a pixel rises above 0.8 the tint is held back, fully at white, so white clouds stay white. Pixels behind the start are left exactly as they were. Color default <code>#9cc8ff</code>; white as the color changes nothing.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/lake-0.jpg" width="700" height="464" alt="A fjord landscape under a flat, gray-white overcast sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/lake-gradtint.jpg" width="700" height="464" alt="The upper half with a gentle blue cast in the sky, the brightest clouds still white." loading="lazy"><span class="label">graduated_tint(0.5,0.5,0,0.25,0.25,#9cc8ff)</span></div>
+  <div><img src="img/effects/lake-gradtint-deep.jpg" width="700" height="464" alt="An orange band across the top of the sky with a short ramp, white clouds below it." loading="lazy"><span class="label">graduated_tint(0.5,0.35,0,0.1,1,#ffb070)</span></div>
+</div><figcaption>Default, and a deep orange with a short Feather started higher. In the second, the bright clouds under the start are untouched; inside the band, the brightest areas still take less color than the gray ones.</figcaption></figure>
+
+<h2 id="tab-more">More effects</h2>
+<p>The second tab: Infrared Film, Plastic Lens, HDR Look, Widescreen Film, Dream Glow, Invert Colors, Duo-Tone. Invert Colors applies in one click; Widescreen Film changes the picture's size.</p>
+<h3>Infrared Film</h3>
+<p><code>infrared(fade)</code></p>
+<p>A black-and-white channel mix of the encoded values with weights red 0.3, green 1.3, blue −0.6. They sum to 1, so a gray stays the same gray, but foliage (green above blue) comes out much lighter than its luma and a blue sky much darker: the look of infrared film. Fade 0 to 100, default 0.</p>
+<figure><div class="row">
+  <div><img src="img/effects/falls-0.jpg" width="700" height="468" alt="A tall waterfall between green hills under a blue sky with clouds." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/falls-infrared.jpg" width="700" height="468" alt="Black and white with pale, almost white grass and a dark sky." loading="lazy"><span class="label">infrared(0)</span></div>
+</div><figcaption>The green hills turn nearly white and the blue sky dark, while the white water and clouds keep their brightness.</figcaption></figure>
+
+<h3>Plastic Lens</h3>
+<p><code>plastic_lens(blur,grain,fade)</code></p>
+<p>The look of a cheap plastic camera, made of three parts that all follow the output picture (after the crop). Distance from the centre is measured on an ellipse through the corners, 0 at the centre and 1 in a corner, so it fits any shape. <strong>Soft edges:</strong> a Gaussian of sigma <code>Blur Edges / 100 × 0.015</code> of the shorter side, mixed in from distance 0.3 to fully at the corners. <strong>Vignette:</strong> unchanged out to 0.4, darkened by up to 40 % in the corners. <strong>Grain:</strong> monochrome noise of standard deviation <code>Grain / 100 × 0.15</code> on cells of 0.0012 of the shorter side, seeded by the entry. Blur Edges 0 to 100 (70), Grain 0 to 100 (30), Fade (0).</p>
+<figure><div class="row">
+  <div><img src="img/effects/horses-0.jpg" width="700" height="467" alt="Icelandic horses on a green meadow below a long hill." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/horses-plastic.jpg" width="700" height="467" alt="The same scene with soft dark corners, blurred edges and visible grain." loading="lazy"><span class="label">plastic_lens(70,30,0)</span></div>
+</div><figcaption>The centre stays sharp and bright; the corners go soft and dark, and the grain covers everything.</figcaption></figure>
+
+<h3>HDR Look</h3>
+<p><code>hdr(radius,strength,fade)</code></p>
+<p>Large-radius local contrast: <code>out = in + C · (L − blur(L))</code> on the luma <code>L</code>, the same amount added to every channel, so local contrast rises without a color shift. Strength <code>C</code> 1 to 7 (3); Radius 1.3 to 80 (20) in thousandths of the shorter side, the sigma of the wide blur. The finest detail is left out of the boost: a blur of 0.0015 of the shorter side stands in for the photo in that difference, so the boost lifts shapes rather than grain and pixel edges, alike at every render size. The detail is eased into the room left to black or white, <code>room · tanh(detail / room)</code>: small detail is added as it is, large detail approaches black or white without clipping, so a halo keeps its shape. Fade (0).</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/canyon-0.jpg" width="700" height="464" alt="A canyon with basalt walls, a waterfall's spray and green slopes under a blue sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/canyon-hdr.jpg" width="700" height="464" alt="The canyon walls with much stronger local contrast and texture." loading="lazy"><span class="label">hdr(20,3,0)</span></div>
+  <div><img src="img/effects/canyon-hdr-7.jpg" width="700" height="464" alt="An extreme version with near-white spray, dark shadows and deep sky." loading="lazy"><span class="label">hdr(80,7,0)</span></div>
+</div><figcaption>Default, and the extremes. Even at Strength 7 the bright spray rolls toward white rather than clipping in a flat block; the color of the grass is unchanged in hue.</figcaption></figure>
+
+<h3>Widescreen Film</h3>
+<p><code>widescreen(letterbox)</code></p>
+<p>A frame effect: it changes the picture's size. The picture is cropped about its centre to 1.7:1 (within a pixel), whatever its shape. Its color is then muted the way film stock is: saturation cut to 72 % around the luma, a gentle S-curve (a quarter of the way to a smoothstep), lifted blacks and softened whites (<code>0.03 + 0.93 · v</code>), and a split tone that shifts red up and blue down by <code>(l − 0.5) × 0.06</code>, so shadows go cool and highlights warm. A fine monochrome grain (standard deviation 0.03, cells 0.0012 of the shorter side) is seeded by the effect's name, so turning Letterbox on or off changes only the bars. Letterbox (<code>true</code> by default) paints black bars over the top and bottom 15 % of the crop, their inner edges anti-aliased.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/beach-0.jpg" width="700" height="468" alt="A black sand beach with surf at 3:2." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/beach-wide.jpg" width="700" height="412" alt="The beach cropped to a wide frame with black bars top and bottom and muted color." loading="lazy"><span class="label">widescreen(true)</span></div>
+  <div><img src="img/effects/beach-wide-nobars.jpg" width="700" height="412" alt="The same wide crop and muted color without bars." loading="lazy"><span class="label">widescreen(false)</span></div>
+</div><figcaption>The output is 1.7:1 in both cases (here 700 × 412). The bars cover the crop, they do not add to it, so with Letterbox the visible picture is only 70 % of the crop's height.</figcaption></figure>
+
+<h3>Dream Glow</h3>
+<p><code>dream_glow(bloom,brightness,fade)</code></p>
+<p>A blurred copy of the photo (Gaussian of sigma Bloom thousandths of the shorter side, 0 to 50, default 25) is blended over the photo in overlay mode, which deepens contrast and saturates; then a midtone lift <code>v + l · v · (1 − v)</code> with <code>l = Brightness / 100 × 0.8</code> (Brightness 0 to 100, default 50) brightens the middle while black and white stay put. Fade (0).</p>
+<figure><div class="row">
+  <div><img src="img/effects/flowers-0.jpg" width="700" height="525" alt="Yellow flowers on a stem in front of purple flower spikes and grass." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/flowers-dream.jpg" width="700" height="525" alt="The same scene brighter and more saturated with a soft glowing quality." loading="lazy"><span class="label">dream_glow(25,50,0)</span></div>
+</div><figcaption>The overlay of a blurred copy gives the soft, saturated look; the midtone lift keeps it from going dark.</figcaption></figure>
+
+<h3>Invert Colors</h3>
+<p><code>invert()</code></p>
+<p>Every channel becomes <code>1 − v</code> on the encoded values. Applied twice it is the identity. Its use is turning a scanned negative into a positive.</p>
+<figure><div class="row">
+  <div><img src="img/effects/ice-0.jpg" width="700" height="464" alt="Pale blue icebergs on a gray-green lagoon under an overcast sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/ice-invert.jpg" width="700" height="464" alt="The negative: rust-red icebergs, a pink lagoon and a dark sky." loading="lazy"><span class="label">invert()</span></div>
+</div><figcaption>One click, no parameters.</figcaption></figure>
+
+<h3>Duo-Tone</h3>
+<p><code>duotone(first,second,brightness,contrast,fade)</code></p>
+<p>The Rec.601 luma goes through two tone curves and is then mapped onto the straight line from the first color (at black) to the second (at white). <strong>Brightness</strong> −95 to 95 (0) is a power curve <code>l^(2^(−b/50))</code> with black and white fixed: +95 lifts the midtones, −95 sinks them. <strong>Contrast</strong> 0 to 100 (20) is an S-curve with fixed ends and fixed mid-gray: a cubic Hermite on each half whose slope is <code>1 − c/128</code> at the ends and <code>1 + c/128</code> in the middle. First color <code>#004488</code> (the shadows), second <code>#ffff00</code> (the highlights). Fade (0).</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/kirk-0.jpg" width="700" height="466" alt="A cone-shaped mountain above a waterfall under a gray sky." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/kirk-duotone.jpg" width="700" height="466" alt="The scene mapped from dark blue in the shadows to bright yellow in the highlights." loading="lazy"><span class="label">duotone(#004488,#ffff00,0,20,0)</span></div>
+  <div><img src="img/effects/kirk-duotone-2.jpg" width="700" height="466" alt="A soft brown-cream duotone with lifted midtones and more contrast." loading="lazy"><span class="label">duotone(#2a1a10,#f0e0c0,30,60,0)</span></div>
+</div><figcaption>The default pair, and a brown-to-cream pair with Brightness 30 and Contrast 60, close to an old toned print.</figcaption></figure>
+
+<h2 id="tab-even-more">Even more effects</h2>
+<p>The third tab: Boost, Soften, Vignette, Pixelate, Focal Zoom, Border, Drop Shadow, Museum Matte. Border, Drop Shadow and Museum Matte change the picture's size.</p>
+<h3>Boost</h3>
+<p><code>boost(strength)</code></p>
+<p>Stronger color and contrast in one control, Strength 0 to 100 (50). First Vibrance in linear light by <code>Strength / 100</code> (the same Vibrance as Saturation's positive half: dull colors gain most, reds and skin least), then each channel through the same S-curve as Duo-Tone's Contrast at <code>Strength / 2</code> (so Boost 100 is contrast 50). Strength 0 is the identity.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/river-0.jpg" width="700" height="406" alt="A long wooden bridge over a river with buses on it, trees and sky behind." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/river-boost.jpg" width="700" height="406" alt="Slightly richer blue water and sky, a little more contrast." loading="lazy"><span class="label">boost(50)</span></div>
+  <div><img src="img/effects/river-boost-100.jpg" width="700" height="406" alt="Clearly richer blues and greens and deeper contrast." loading="lazy"><span class="label">boost(100)</span></div>
+</div><figcaption>Boost is deliberately restrained: even at 100 the S-curve's end slopes are 0.61 and its middle slope 1.39.</figcaption></figure>
+
+<h3>Soften</h3>
+<p><code>soften(softness,fade;stroke;…)</code></p>
+<p>A soft glow blur, everywhere or only where you paint. The photo is blurred by a Gaussian of sigma <code>Softness / 100 × 0.03</code> of the shorter side; the blurred copy <code>b</code> is screened over the photo by <code>Softness / 100 × 0.5</code> (<code>g = b + (screen(p, b) − b) · glow</code>), so detail melts, shadows lift a little and whites stay white; then <code>out = p + (g − p) · k</code> with <code>k = (1 − Fade/100) × mask</code>. Softness 0 to 100 (50), Fade 0 to 100 (50: half of the effect shows by default).</p>
+<p>The strokes follow the two numbers, each after a <code>;</code>: <code>paint</code> or <code>erase</code>, the brush radius (0.001 to 0.25 of the shorter side), then the stroke's points in the stored frame. Without strokes the mask is 1 everywhere. With strokes it starts at 0: round dabs with a feather of 0.5 are laid a quarter of the radius apart along each stroke, a paint stroke adds <code>s · (1 − v)</code> and an erase stroke takes <code>v · s</code> away, in order. At most 1,000 strokes of at most 4,096 points; an entry that would cost more than 2<sup>28</sup> units of painting work is painted on a grid halved until it fits. With strokes, the blur is computed only over the box the paint covers.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/bee-0.jpg" width="700" height="525" alt="A bee on a purple flower spike with more spikes blurred behind." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/bee-soften.jpg" width="700" height="525" alt="The whole picture softer and slightly lighter." loading="lazy"><span class="label">soften(50,50)</span></div>
+  <div><img src="img/effects/bee-soften-mask.jpg" width="700" height="525" alt="Strong softening painted only down the left and right edges, the bee sharp." loading="lazy"><span class="label">soften(100,0;paint,0.12,…;paint,0.12,…)</span></div>
+</div><figcaption>Whole photo at the defaults, and Softness 100 with Fade 0 painted in two vertical strokes near the left and right edges: the centre is untouched because the mask there is 0.</figcaption></figure>
+
+<h3>Vignette</h3>
+<p><code>vignette(size,strength,color,fade)</code></p>
+<p>Edges darkened, or taken toward any color. The distance of each pixel from the output picture's centre (after the crop) is measured as a fraction of the half-diagonal; a smooth ramp goes from 0 at <code>1 − Size/100</code> to 1 in the corners. The pixel moves toward the color, <strong>in linear light</strong>, by that ramp times <code>Strength / 2</code>: at the default 1.4 the corners go 70 % of the way, at 2 all of it. Size 0 to 50 (35, percent of the half-diagonal), Strength 1 to 2 (1.4), color <code>#000000</code> (the panel can pick it from the photo), Fade (0). It is repeatable: a second Vignette compounds on the first. The untouched middle of each row is skipped without computing anything.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/rock-0.jpg" width="700" height="468" alt="A sea stack in calm water with stones in front and clouds above." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/rock-vignette.jpg" width="700" height="468" alt="The same photo with gently darkened corners." loading="lazy"><span class="label">vignette(35,1.4,#000000,0)</span></div>
+  <div><img src="img/effects/rock-vignette-white.jpg" width="700" height="468" alt="The photo fading to pure white at the corners." loading="lazy"><span class="label">vignette(50,2,#ffffff,0)</span></div>
+</div><figcaption>A black vignette at the defaults, and a white one at full Size and Strength, where the corners reach the color completely.</figcaption></figure>
+
+<h3>Pixelate</h3>
+<p><code>pixelate(size,mode,fade)</code></p>
+<p>A mosaic. Square cells of <code>Pixel Size / 1000</code> of the stored photo's shorter side (2 to 150, default 20), square to the output and anchored at the stored frame's top-left corner, so the cells sit on the same content in a thumbnail, a zoomed region and a Save, and stay put when you change the crop. Each cell's mean (exact integer sums of the 8-bit pixels, clipped at the picture's edges) is blended onto the picture with the chosen mode, <code>normal</code>, <code>multiply</code>, <code>screen</code>, <code>overlay</code> or <code>soft_light</code> (the W3C compositing formulas), then faded. Cells are at least one output pixel.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/shrine-0.jpg" width="700" height="464" alt="A shrine with orange buildings, lanterns and trees." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/shrine-pixelate.jpg" width="700" height="464" alt="The shrine as a mosaic of small square cells." loading="lazy"><span class="label">pixelate(20,normal,0)</span></div>
+  <div><img src="img/effects/shrine-pixelate-overlay.jpg" width="700" height="464" alt="The shrine with large cells overlaid, the original detail still visible but with blocky contrast." loading="lazy"><span class="label">pixelate(60,overlay,0)</span></div>
+</div><figcaption>Normal mode replaces the picture with the cells; Overlay keeps the detail and lays the large cells' tones over it.</figcaption></figure>
+
+<h3>Focal Zoom</h3>
+<p><code>focal_zoom(x,y,size,amount,hardness,fade)</code></p>
+<p>A radial zoom blur outside a sharp circle. Centre <code>x,y</code> in the stored frame (default 0.5, 0.5); Focal Size 0 to 1 (0.3) the circle's radius as a fraction of the shorter side; Zoom Amount 1 to 100 (50); Edge Hardness 0 to 100 (50); Fade (0). Outside the circle each pixel averages the picture along its ray toward the centre, back <code>Zoom Amount / 200</code> of its distance (so at 100, half the way), each sample weighted by one over its distance as evenly scaled taps would be. The blur comes in over <code>(1 − Hardness/100) × 0.5</code> of the shorter side beyond the circle. It is made once per render with running integer sums along rays at most a cell apart in four sectors around the centre, so a long box costs no more than a short one. Renders above 2<sup>21</sup> pixels (larger than 1920 × 1080) blur on a grid of 2 × 2-pixel cells read back bilinearly.</p>
+<figure><div class="row cols-3">
+  <div><img src="img/effects/torii-0.jpg" width="464" height="700" alt="A tunnel of orange torii gates with a stone path." loading="lazy"><span class="label">Original</span></div>
+  <div><img src="img/effects/torii-zoom.jpg" width="464" height="700" alt="The tunnel with the edges streaked toward the centre." loading="lazy"><span class="label">focal_zoom(0.5,0.5,0.3,50,50,0)</span></div>
+  <div><img src="img/effects/torii-zoom-100.jpg" width="464" height="700" alt="Strong streaks rushing toward a small sharp area down the path." loading="lazy"><span class="label">focal_zoom(0.5,0.62,0.15,100,80,0)</span></div>
+</div><figcaption>Default, and the maximum zoom with a small, harder circle placed further down the path.</figcaption></figure>
+
+<h3>Border</h3>
+<p><code>border(outer_color,outer,inner_color,inner,radius,caption)</code></p>
+<p>A frame effect. The canvas grows by the inner and then the outer band on every side, each thickness in thousandths of the shorter side of the picture it frames (0 to 100; defaults 20 outer in black, 5 inner in white), and by the caption height (0 to 200, default 0) below, in the outer color. The two bands together, and the caption, are rounded to whole pixels so the photo's pixels land on whole pixels and are copied unchanged; the line between the bands is anti-aliased. Corner radius (0 to 100, default 0) rounds the photo's opening with elliptic corners whose radii are that percentage of half the photo's width and height, so 100 makes an oval, anti-aliased by 4 × 4 samples along the curve.</p>
+<figure><div class="row">
+  <div><img src="img/effects/house-border.jpg" width="700" height="531" alt="A house photo with a thin white line and a black outer band around it." loading="lazy"><span class="label">border(#000000,20,#ffffff,5,0,0)</span></div>
+  <div><img src="img/effects/house-border-round.jpg" width="700" height="599" alt="The house in an opening with rounded corners, a cream inner band and a wide dark outer band with a deeper band below." loading="lazy"><span class="label">border(#2b2b2b,60,#e8e0d0,15,30,120)</span></div>
+</div><figcaption>The default (its black outer band sits on this page's dark background), and rounded corners with a 120 caption band below. Both pictures are larger than the photo: 700 px wide here, with the photo inside.</figcaption></figure>
+
+<h3>Drop Shadow</h3>
+<p><code>drop_shadow(color,distance,angle,blur,fade,background)</code></p>
+<p>A frame effect: the photo floats over a background. The canvas grows on every side by the shadow's Distance and Blur plus a gap of 25 thousandths, so the shadow never reaches the canvas's edge and every corner is background. The shadow is the photo's rectangle moved by Distance (0 to 30, default 15, thousandths of the shorter side) along Angle (0 to 360, default 90: to the right; clockwise from up) and blurred by a tent of half-width Blur (0 to 100, default 25). For a rectangle that blur separates into two closed-form profiles, one per column and one per row, instead of a blurred plane. Its opacity is <code>1 − Fade/100</code> (Fade default 30), blended over the background (default white) in the shadow color (default black).</p>
+<figure><div class="row">
+  <div><img src="img/effects/bunker-shadow.jpg" width="700" height="440" alt="A bunker on a beach floating on white with a soft shadow to the right." loading="lazy"><span class="label">drop_shadow(#000000,15,90,25,30,#ffffff)</span></div>
+  <div><img src="img/effects/bunker-shadow-2.jpg" width="700" height="464" alt="The photo on a beige background with a large, very soft shadow down and to the right." loading="lazy"><span class="label">drop_shadow(#000000,30,135,100,0,#d8d0c0)</span></div>
+</div><figcaption>Default, and the longest, softest shadow at full opacity falling down-right (135°) on beige.</figcaption></figure>
+
+<h3>Museum Matte</h3>
+<p><code>museum_matte(outer_color,outer,inner_color,inner)</code></p>
+<p>A frame effect: a double mat. The canvas grows by the inner and then the outer mat on every side (thicknesses 0 to 100 in thousandths of the shorter side; defaults outer 25 in <code>#1a0e03</code>, inner 40 in <code>#f0eae4</code>). The outer mat is flat. The inner mat carries an inner shadow cast by the outer mat's edge, as if lit from the top left: the opening moved 6 thousandths down and right (at 135°) and blurred over 12 thousandths, at 55 % opacity at its darkest, both limited to the inner mat's thickness. It is repeatable: a second matte frames the first.</p>
+<figure><div class="row">
+  <div><img src="img/effects/lh-matte.jpg" width="700" height="486" alt="A black-and-white lighthouse photo in a cream inner mat with a dark brown outer mat." loading="lazy"><span class="label">museum_matte(#1a0e03,25,#f0eae4,40)</span></div>
+  <div><img src="img/effects/lh-matte-2.jpg" width="700" height="507" alt="The same matted photo framed again by a second gray matte." loading="lazy"><span class="label">two museum_matte entries</span></div>
+</div><figcaption>The default, and the same entry followed by <code>museum_matte(#3a3a3a,60,#d0c8b8,20)</code>. Look at the top-left inside edge of each inner mat for its shadow.</figcaption></figure>
+
+<h2 id="curves">The tone curves</h2>
+<p>Three of the curves above are fixed functions, plotted here from the formulas in the code.</p>
+<figure class="wide"><img src="img/effects/curves.png" width="1800" height="600" alt="Three charts. Left: Sepia's red, green and blue outputs against luma, red above green above blue. Middle: the S-curve at contrast 20, 25, 50 and 128, all through the middle point, steeper in the middle for higher contrast. Right: Duo-Tone's brightness curves for -95, -50, 0, +50 and +95, bowing down for negative values and up for positive ones." loading="lazy"><figcaption>Left: Sepia's three channel curves, which keep red above green above blue for every gray. Middle: the S-curve shared by Duo-Tone's Contrast and Boost, with its ends and mid-gray fixed. Right: Duo-Tone's Brightness power curve.</figcaption></figure>
+
+<h2 id="frames">Effects that change the picture's size</h2>
+<p>Widescreen Film, Border, Drop Shadow and Museum Matte are <strong>frames</strong>, a third kind of operation in the renderer. Each puts the picture as it stands at its place among the effects on a canvas of its own size, in whole pixels, and paints around it; the effects after it work on the whole canvas. So a Vignette after a Border darkens the border's corners, and a Vignette before it darkens the photo inside the border.</p>
+<ul>
+<li>Nothing stored changes: an effect's crosshair stays in the stored frame. To place it, the point is mapped through the crop and straighten onto the photo, then through each frame before it to where the frame put the photo.</li>
+<li>A frame's own bands are relative to the shorter side of the picture it frames; other effects' sizes stay relative to the stored photo, so a frame does not change a Vignette's scale.</li>
+<li>A later crop or straighten still applies to the photo (geometry comes first) and the frames keep their bands around it. A rotation or flip turns the framed picture.</li>
+<li>A frame whose canvas would pass the render limits at the source's resolution is skipped and kept in the recipe.</li>
+</ul>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li><code>crates/edit/src/ops/detail.rs</code>: Sharpen, Film Grain, Glow.</li>
+<li><code>crates/edit/src/ops/colour.rs</code>: Sepia, B&amp;W, Warmify, Tint, Saturation, Filtered B&amp;W, and Vibrance.</li>
+<li><code>crates/edit/src/ops/focal.rs</code>: Soft Focus, Focal B&amp;W, Graduated Tint.</li>
+<li><code>crates/edit/src/ops/remap.rs</code>: Invert Colors, Infrared Film, Duo-Tone, Boost, and the S-curve.</li>
+<li><code>crates/edit/src/ops/looks.rs</code>: HDR Look, Dream Glow, Plastic Lens.</li>
+<li><code>crates/edit/src/ops/canvas.rs</code>: Widescreen Film, Border. <code>crates/edit/src/ops/mats.rs</code>: Drop Shadow, Museum Matte.</li>
+<li><code>crates/edit/src/ops/soften.rs</code>: Soften and its mask. <code>crates/edit/src/ops/stylize.rs</code>: Vignette, Pixelate, Focal Zoom.</li>
+<li><code>crates/edit/src/fx.rs</code> and <code>crates/edit/src/fx/</code>: blur, grid blur, noise, masks, brush, blend modes, luma and linear light.</li>
+<li><code>crates/edit/src/render.rs</code>: working precision, fusing, frames.</li>
+<li><code>docs/editing.md</code> §8 (8.1 to 8.5); <code>docs/data-model.md</code> §3.1 and §3.3.</li>
+</ul>

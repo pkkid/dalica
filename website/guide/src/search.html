@@ -1,0 +1,282 @@
+<h1>Search, color and duplicates</h1>
+<p class="lede">How the search box reads what you type, what it looks at, and how it answers a library of a hundred thousand photos between two keystrokes. Then the two searches that look at the pictures themselves: by color, read from a 24 to 26 byte sketch of each photo, and for duplicate files, proved byte for byte.</p>
+
+<h2 id="what-is-indexed">What search looks at</h2>
+<p>Search never opens a photo file. Everything it matches is already in the library index, and the search keeps its own copy of the part it needs: for every photo a small record of the words it can be found by, its flags for the filter buttons, its dates and its color summary. Folders, albums and people have records of their own, found through their photos.</p>
+<p>Each piece of text is cut into <strong>terms</strong>: split at whitespace and at every ASCII punctuation character (dot, underscore, dash, comma, parentheses, quotes and the rest), lowercased, and cut to at most 64 bytes. So <code>DSC_4476.jpg</code> gives the terms <code>dsc</code>, <code>4476</code> and <code>jpg</code>, and a caption that reads <code>(beach, at dusk)</code> gives <code>beach</code>, <code>at</code> and <code>dusk</code>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Where the words come from</th><th>Terms it adds</th><th>Found by</th></tr></thead>
+<tbody>
+<tr><td>File name</td><td><code>dsc</code>, <code>4476</code>, <code>jpg</code></td><td>plain words</td></tr>
+<tr><td>Caption</td><td>each word of it</td><td>plain words</td></tr>
+<tr><td>Tags</td><td>each word of each tag</td><td>plain words, <code>tag:</code></td></tr>
+<tr><td>Date (your date, else the file's)</td><td><code>2024</code>, <code>2024-07</code>, <code>2024-07-15</code> and the English month name, <code>july</code></td><td>plain words</td></tr>
+<tr><td>Pixel size as displayed</td><td><code>2400x1600</code></td><td>plain words</td></tr>
+<tr><td>Camera make and model</td><td>each word of both</td><td>plain words, <code>camera:</code></td></tr>
+<tr><td>The photo's folder</td><td>the folder's name, its description and its place</td><td>plain words</td></tr>
+<tr><td>The user albums it is in</td><td>each album's name</td><td>plain words</td></tr>
+<tr><td>The people whose faces are on it</td><td>names and nicknames</td><td>plain words, <code>person:</code></td></tr>
+<tr><td>Its color summary</td><td>one or more of seven colors</td><td><code>color:</code></td></tr>
+<tr><td>Unsaved edits</td><td>a flag</td><td><code>is:edited</code>, the Edited button</td></tr>
+</tbody></table></div>
+<p>A folder's name, description and place are terms of the folder, not copied onto each of its photos; the same goes for album names and people's names. Renaming a folder of 2,000 photos therefore changes one record in the search index, not 2,000.</p>
+<p>Two things are deliberately absent. The search does not look inside the file's own metadata beyond what the scan already put in the index (camera, dimensions, date), and it does not fold accents: <code>reykjavik</code> does not find <code>Reykjavík</code>, because lowercasing keeps the <code>í</code>.</p>
+
+<h2 id="grammar">How the box is read</h2>
+<p>The text you type is read in three steps: into <strong>words</strong>, each word into an optional <strong>operator</strong> and a value, and each value into <strong>tokens</strong>.</p>
+<ol class="steps-list">
+<li><strong>Words.</strong> The text is split at whitespace, control characters and the Unicode bidirectional formatting marks (so a pasted text cannot hide where a word starts). Every word must match: several words mean AND.</li>
+<li><strong>Not.</strong> A word that starts with <code>-</code> leaves out the photos it matches.</li>
+<li><strong>Operator.</strong> If the word contains a <code>:</code>, the part before the first one is compared, ignoring case, with the five operators Dalíca knows: <code>tag</code>, <code>camera</code>, <code>person</code>, <code>color</code> and <code>is</code>. Anything else, such as <code>foo:bar</code>, is not an error: the whole word is read as plain words, <code>foo</code> and <code>bar</code>. <code>color:</code> takes only <code>red</code>, <code>orange</code>, <code>yellow</code>, <code>green</code>, <code>blue</code>, <code>purple</code> or <code>bw</code>, and <code>is:</code> only <code>edited</code>; another value (<code>color:teal</code>) turns the word back into plain words too.</li>
+<li><strong>Tokens.</strong> The value is cut into terms exactly as the photo's text was. Each token must be the <strong>start</strong> of one of the photo's terms in the word's field: <code>fox</code> finds <code>foxes</code> and <code>goð</code> finds <code>Goðafoss</code>, but <code>foss</code> does not find <code>Goðafoss</code>, because it is not the start of the term.</li>
+<li><strong>Dates stay whole.</strong> A value shaped like a date, four digits then up to two more groups of up to two digits (<code>2026</code>, <code>2026-06</code>, <code>2026-06-04</code>, or the half-typed <code>2026-0</code>), is kept as one token instead of being split at its dashes. Otherwise <code>2026-06</code> would mean "2026 and 06" and match any file named <code>IMG_0612</code>.</li>
+</ol>
+<p>There is no phrase search. A double quote is punctuation, so <code>"Cape May"</code> is the two words <code>cape</code> and <code>may</code>, each matched anywhere on the photo. That has a side effect worth knowing: <code>may</code> is also the month name, so the search finds every photo taken in May as well as every photo with "May" in its caption, unless <code>cape</code> rules it out.</p>
+<figure class="wide">
+<svg viewBox="0 0 960 470" role="img" aria-label="Parse diagram. The query fox -tag:sunset color:orange &quot;Cape May&quot; 2025-0 is split into six words. fox matches any field by prefix. -tag:sunset matches tags only and is subtracted. color:orange is one set of photos. &quot;Cape and May&quot; lose their quotes and match any field; may also matches the month name. 2025-0 is a date spelling kept whole. The photos the filters, age and view let through are intersected with each word's set, and the negated word's set is subtracted, giving the matches in light-table order.">
+  <defs>
+    <marker id="se-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a89984" stroke="none"/></marker>
+    <marker id="se-arrow-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fe8019" stroke="none"/></marker>
+  </defs>
+  <g font-family="sans-serif" font-size="13" fill="#ebdbb2" stroke="none">
+    <rect x="130" y="16" width="700" height="44" rx="22" fill="#32302f" stroke="#504945"/>
+    <text x="480" y="44" text-anchor="middle" font-family="monospace" font-size="16">fox -tag:sunset color:orange "Cape May" 2025-0</text>
+    <g stroke="#a89984" stroke-width="1.4" fill="none" marker-end="url(#se-arrow)">
+      <path d="M300,60 L90,104"/><path d="M360,60 L245,104"/><path d="M470,60 L400,104"/>
+      <path d="M560,60 L555,104"/><path d="M620,60 L710,104"/><path d="M700,60 L865,104"/>
+    </g>
+    <g>
+      <rect x="15" y="108" width="150" height="132" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="170" y="108" width="150" height="132" rx="6" fill="#32302f" stroke="#fb4934"/>
+      <rect x="325" y="108" width="150" height="132" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="480" y="108" width="150" height="132" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="635" y="108" width="150" height="132" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="790" y="108" width="150" height="132" rx="6" fill="#32302f" stroke="#504945"/>
+    </g>
+    <g font-family="monospace" font-size="15" font-weight="bold" text-anchor="middle">
+      <text x="90" y="134">fox</text><text x="245" y="134">-tag:sunset</text><text x="400" y="134">color:orange</text>
+      <text x="555" y="134">"Cape</text><text x="710" y="134">May"</text><text x="865" y="134">2025-0</text>
+    </g>
+    <g text-anchor="middle" fill="#d5c4a1">
+      <text x="90" y="160">any field</text><text x="245" y="160">tags only, NOT</text><text x="400" y="160">color summary</text>
+      <text x="555" y="160">any field</text><text x="710" y="160">any field</text><text x="865" y="160">any field</text>
+    </g>
+    <g text-anchor="middle" font-family="monospace" fill="#fabd2f">
+      <text x="90" y="186">fox*</text><text x="245" y="186">sunset*</text><text x="400" y="186">orange</text>
+      <text x="555" y="186">cape*</text><text x="710" y="186">may*</text><text x="865" y="186">2025-0*</text>
+    </g>
+    <g text-anchor="middle" fill="#a89984" font-size="12">
+      <text x="90" y="212">finds fox, foxes</text><text x="245" y="212">its set is</text><text x="400" y="212">one ready-made</text>
+      <text x="555" y="212">the quote is</text><text x="710" y="212">also the month</text><text x="865" y="212">a date spelling,</text>
+      <text x="90" y="228">and foxglove</text><text x="245" y="228">subtracted</text><text x="400" y="228">set of photos</text>
+      <text x="555" y="228">punctuation</text><text x="710" y="228">name "may"</text><text x="865" y="228">kept whole</text>
+    </g>
+    <g stroke="#a89984" stroke-width="1.4" fill="none" marker-end="url(#se-arrow)">
+      <path d="M90,240 L330,318"/><path d="M400,240 L440,318"/><path d="M555,240 L520,318"/>
+      <path d="M710,240 L600,318"/><path d="M865,240 L640,318"/>
+    </g>
+    <path d="M245,240 L380,318" stroke="#fb4934" stroke-width="1.4" fill="none" stroke-dasharray="5 4"/>
+    <rect x="60" y="322" width="840" height="62" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="480" y="346" text-anchor="middle">photos the filter buttons, the age slider and the view let through</text>
+    <text x="480" y="370" text-anchor="middle" font-family="monospace" fill="#fabd2f">∩ fox* ∩ orange ∩ cape* ∩ may* ∩ 2025-0*  − sunset*</text>
+    <path d="M480,384 L480,416" stroke="#fe8019" stroke-width="1.6" fill="none" marker-end="url(#se-arrow-o)"/>
+    <text x="480" y="446" text-anchor="middle" font-weight="bold">the matches, already in light-table order</text>
+  </g>
+</svg>
+<figcaption>How one query is read. Each word becomes a set of photos: a prefix token stands for every term that starts with it (shown with <code>*</code>). The sets are intersected, the negated word's set (red) is subtracted, and what is left is the result. Note how <code>"Cape May"</code> becomes two independent words.</figcaption>
+</figure>
+
+<h3 id="edge-cases">Small rules that keep it predictable</h3>
+<ul>
+<li>An operator with nothing after it (<code>tag:</code> while you are still typing it) or a lone <code>-</code> narrows nothing, so the results do not flash empty as you type.</li>
+<li>Operators combine with Not: <code>-tag:sunset</code>, <code>-color:bw</code>, <code>-is:edited</code>.</li>
+<li><code>person:</code> matches names and nicknames by prefix, as plain words also do. It is the People pane's own filter, which works by person id, that keeps "Ana" from finding "Anabel".</li>
+<li>The reader is bounded: it reads at most 1 KiB of text, 32 words and 64 bytes of each token, and says the text was <code>truncated</code> when it left something out. A command that sends more than 16 KiB is refused. A longer word still matches on its first 64 bytes.</li>
+<li>When an operator cannot match for want of data, the result names it as <code>unavailable</code> instead of just showing nothing: <code>color</code> while no photo has a color summary yet, <code>person</code> while the library has no people, and the Faces button while no photo has a face.</li>
+<li>Hidden pictures, and pictures under 64 pixels on both sides, count only when View shows them, so the banner always counts what you can see.</li>
+<li>An automation client that was not given the people permission searches without people's names: <code>person:</code> matches nothing and plain words skip names and nicknames, while everything else matches as usual (see <a href="automation.html">Automation</a>).</li>
+</ul>
+
+<h2 id="matching">From words to photos</h2>
+<p>The obvious way to search is to walk every photo and test each word against it. Dalíca keeps that version, photo by photo, as the reference its real index is tested against. The real index works the other way round, so a query costs about the same however many photos fail it.</p>
+<dl class="terms">
+<dt>Slots</dt><dd>Every photo gets a slot number (reused after a photo is removed). A set of photos is a bit set over the slots: 100,000 photos fit in 12.5 KB, and intersecting two sets is a loop over 1,563 machine words.</dd>
+<dt>Sorted terms</dt><dd>Every term maps to the set of slots that hold it, and the terms are kept in sorted order. All the terms that start with <code>fox</code> sit next to each other in that order, so one range lookup finds them, and the union of their sets is the word's set. This is why search matches prefixes: a prefix is exactly what a sorted list answers in one step.</dd>
+<dt>Folders, albums, people</dt><dd>A word that matches a folder's name brings in that folder's photos; the same for an album's name and a person's name. The photo records themselves never hold those words.</dd>
+<dt>Colors</dt><dd>Each of the seven search colors keeps its own set of the photos whose summary holds it, so <code>color:green</code> is one set, already built.</dd>
+</dl>
+<p>The query then starts from the photos the filter buttons, the age slider and the view allow, intersects it with each word's set (the tokens of one word are intersected first), and subtracts the set of each <code>-word</code>. A lone <code>-word</code> is the slowest kind of query, because what is left is nearly the whole library.</p>
+<p>Results come out in the order the light table shows them: folders in the tree's order (flat or tree view, the folder sort and its direction), each folder's photos in its own sort. Each folder's sorted list is worked out once and kept until one of its photos changes, so a result never has to be sorted. The temporary album "Search results for ..." lists the matches in that order, and Save Search as Album keeps it.</p>
+<p>The autocomplete list reads only the last word you are typing (a leading <code>-</code> ignored). It offers tags, then folders, then albums, each kind ordered by how many visible photos it covers and then by name, at most 100 entries, never one that covers no visible photo. After <code>tag:</code> it offers only tags, after <code>color:</code> the seven colors with their counts, and after any other operator nothing.</p>
+
+<h2 id="filters">Filter buttons and the age slider</h2>
+<p>The five buttons next to the search box are plain flags tested before any word: <strong>Starred</strong>; <strong>Faces</strong> (a named or unnamed face; faces you chose to ignore do not count); <strong>Videos</strong>; <strong>Geotagged</strong> (the library's own geotag, else GPS in the file); and <strong>Edited</strong> (unsaved edits, the same set as <code>is:edited</code>). A photo saved into its file has no unsaved edits until you edit it again, so it is not "edited" here. They combine with each other and with the text.</p>
+<p>The age slider is one handle on a logarithmic scale. At the far left it shows everything; anywhere else the number of days is 7305<sup>(1 − position)</sup>, from 20 years (7,305 days) just right of the left end down to 1 day at the right end. The result is then snapped to the unit its label speaks in: days below a week, whole weeks below 30 days, whole months below a year, whole years after that. "Pictures up to 3 months old" therefore means exactly 91 days, not 86 or 97.</p>
+<figure>
+<img src="img/search/age-slider.png" width="1600" height="600" alt="Chart of the age slider: handle position from left to right against the age on a log scale, from 20 years down to 1 day. The orange snapped line steps in whole years, months, weeks and days around the straight gray logarithmic line; the middle of the slider is 91 days, 3 months." loading="lazy">
+<figcaption>The slider's scale, computed from its code. The gray line is the logarithmic scale; the orange steps are the ages the filter actually uses after snapping. Half the slider's travel covers the last three months, because recent photos are what you usually narrow to.</figcaption>
+</figure>
+<p>The age counts whole days back from now and reads each photo's <strong>sort date</strong>: your own date if you set one, else the date from the file's metadata, else the file's modification time. A photo with no date at all still has an age. The date words that plain words match (<code>2024-07</code>, <code>july</code>) come from the <strong>effective date</strong> instead, which leaves out the modification time: a photo whose only date is when the file was last touched has no date words. A photo dated in the future always passes the age filter.</p>
+
+<h2 id="as-you-type">Why it answers as you type</h2>
+<p>Results change on every keystroke, yet the window never waits for a search. Three things make that work.</p>
+<ol class="steps-list">
+<li><strong>A worker of its own.</strong> The first time something asks for a search, a thread starts with its own copy of the library and the index built from it. From then on every change the library makes (a new tag, a scanned folder, a star) is sent to it, and it updates its copy and the index for just the photos that change touched. The index is never rebuilt for a change. If its copy ever falls out of step with the library (after a rebuild, say), the worker is given a fresh copy.</li>
+<li><strong>A 120 ms pause.</strong> A query is sent 120 ms after the last change to the text, the buttons or the slider, so five quick keystrokes run one query, not five. While a search is showing, a change to the library sends it again 120 ms later, never more often, so a running scan refreshes your results instead of flooding the worker. The worker always runs only the newest query that is waiting.</li>
+<li><strong>Old answers are dropped.</strong> Every change to the query raises a generation number, and each answer carries the number of the query it answers. An answer that arrives after you typed more is thrown away rather than flashed on screen. The window's own thread only sends queries and shows answers; it never runs one.</li>
+</ol>
+<p>These are the measured times on a synthetic library of 100,000 photos in 1,000 folders (each photo with a three-word caption and one or two of 30 tags, plus 100 albums of 300 photos), in a release build held to two processor cores. The budgets are 1.5 times the first measurement, and no query may ever take more than 100 ms.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Step, 100,000 photos</th><th>Measured (median)</th><th>Budget</th></tr></thead>
+<tbody>
+<tr><td>Build the search index</td><td>417 ms</td><td>630 ms</td></tr>
+<tr><td>One word (13,441 matches)</td><td>1.12 ms</td><td>1.7 ms</td></tr>
+<tr><td>Three words with Starred on</td><td>0.38 ms</td><td>0.6 ms</td></tr>
+<tr><td>A lone <code>-word</code> (86,559 matches)</td><td>3.39 ms</td><td>5.1 ms</td></tr>
+<tr><td><code>color:green</code> (48,419 matches)</td><td>3.60 ms</td><td>5.4 ms</td></tr>
+<tr><td>From setting the query to the result applied, pause excluded</td><td>14.9 ms</td><td>22.3 ms</td></tr>
+<tr><td>The first search of a session (copies the library and builds the index)</td><td>757 ms</td><td>not budgeted</td></tr>
+</tbody></table></div>
+<p>The banner's time, "Showing 33 pictures in 4 folders (0.01 s)", is the worker's own time for the query.</p>
+
+<h2 id="color">Search by color</h2>
+<p><code>color:</code> finds photos by the colors they hold, and it never decodes a photo to do it. Every photo already has a <strong>color sketch</strong>: a blurred preview of at most 32 bytes that the light table draws while a thumbnail is loading. The color search reads that sketch.</p>
+
+<h3 id="sketch">The sketch it reads</h3>
+<p>The sketch is made on the thumbnail worker from the 128-pixel thumbnail, in the same job that makes the thumbnails (see <a href="scanning.html">Scanning</a>). The thumbnail is averaged down to at most 32 cells on its long side and split into a lightness channel L = (r + g + b) / 3 and two color differences, P = (r + g) / 2 − b and Q = r − g. Each channel keeps only the low-frequency corner of its cosine transform: lightness 6 frequencies along the long side and at least 4 along the short one, the two color channels 4 × 4 at every aspect. Each kept coefficient is stored as a 4-bit fraction of the channel's largest one. A square photo's sketch is 26 bytes, a long thin one's 24; the 56 test photos on this page all came out at 24 or 26.</p>
+<p>Because the colors keep 4 × 4 frequencies, a grid of 16 cells on the long side sees every color the sketch holds. The color search decodes the sketch to exactly that: 16 cells on the long side, and the short side in proportion (16 × 11 for a 3:2 landscape photo, 11 × 16 for a portrait, 16 × 12 for 4:3). That is at most 256 cells per photo.</p>
+
+<h3 id="classes">How a cell gets its color</h3>
+<p>Each cell is turned into hue, saturation and value (HSV) from its 8-bit sRGB color.</p>
+<ul>
+<li>A cell with saturation under <strong>0.2</strong> or value under <strong>0.2</strong> has no color. That covers grays, whites and black, faint tints, and deep shadow, where a hue is mostly noise.</li>
+<li>Every other cell adds its <strong>saturation</strong> to the weight of the color its hue falls in. A vivid cell counts fully, a pale one partly.</li>
+</ul>
+<figure>
+<svg viewBox="0 0 960 170" role="img" aria-label="The hue circle unrolled from 0 to 360 degrees, with the six search colors: red from 320 through 360 to 15 degrees, orange 15 to 45, yellow 45 to 70, green 70 to 165, blue 165 to 255, purple 255 to 320.">
+  <defs>
+    <linearGradient id="se-hue" x1="0" x2="1" y1="0" y2="0"><stop offset="0.0000" stop-color="#e62222"/><stop offset="0.0417" stop-color="#e65322"/><stop offset="0.0833" stop-color="#e68422"/><stop offset="0.1250" stop-color="#e6b522"/><stop offset="0.1667" stop-color="#e6e622"/><stop offset="0.2083" stop-color="#b5e622"/><stop offset="0.2500" stop-color="#84e622"/><stop offset="0.2917" stop-color="#53e622"/><stop offset="0.3333" stop-color="#22e622"/><stop offset="0.3750" stop-color="#22e653"/><stop offset="0.4167" stop-color="#22e684"/><stop offset="0.4583" stop-color="#22e6b5"/><stop offset="0.5000" stop-color="#22e6e6"/><stop offset="0.5417" stop-color="#22b5e6"/><stop offset="0.5833" stop-color="#2284e6"/><stop offset="0.6250" stop-color="#2253e6"/><stop offset="0.6667" stop-color="#2222e6"/><stop offset="0.7083" stop-color="#5322e6"/><stop offset="0.7500" stop-color="#8422e6"/><stop offset="0.7917" stop-color="#b522e6"/><stop offset="0.8333" stop-color="#e622e6"/><stop offset="0.8750" stop-color="#e622b5"/><stop offset="0.9167" stop-color="#e62284"/><stop offset="0.9583" stop-color="#e62253"/><stop offset="1.0000" stop-color="#e62222"/></linearGradient>
+  </defs>
+  <g font-family="sans-serif" font-size="13" fill="#ebdbb2" stroke="none">
+    <text x="40" y="20" fill="#d5c4a1">hue</text>
+    <rect x="40" y="28" width="720" height="18" fill="url(#se-hue)"/>
+    <g font-weight="bold" fill="#282828" text-anchor="middle">
+      <rect x="40" y="54" width="30" height="36" fill="#fb4934"/><text x="55" y="77" font-size="11">red</text>
+      <rect x="70" y="54" width="60" height="36" fill="#fe8019"/><text x="100" y="77">orange</text>
+      <rect x="130" y="54" width="50" height="36" fill="#fabd2f"/><text x="155" y="77">yellow</text>
+      <rect x="180" y="54" width="190" height="36" fill="#b8bb26"/><text x="275" y="77">green</text>
+      <rect x="370" y="54" width="180" height="36" fill="#83a598"/><text x="460" y="77">blue</text>
+      <rect x="550" y="54" width="130" height="36" fill="#d3869b"/><text x="615" y="77">purple</text>
+      <rect x="680" y="54" width="80" height="36" fill="#fb4934"/><text x="720" y="77">red</text>
+    </g>
+    <g stroke="#a89984"><path d="M40,90 v8 M70,90 v8 M130,90 v8 M180,90 v8 M370,90 v8 M550,90 v8 M680,90 v8 M760,90 v8"/></g>
+    <g text-anchor="middle" fill="#d5c4a1" font-size="12">
+      <text x="40" y="112">0°</text><text x="70" y="112">15</text><text x="130" y="112">45</text><text x="180" y="112">70</text>
+      <text x="370" y="112">165</text><text x="550" y="112">255</text><text x="680" y="112">320</text><text x="760" y="112">360</text>
+    </g>
+    <g fill="#a89984" font-size="12">
+      <text x="40" y="140">pink counts as red, brown as orange, cyan as blue, magenta as purple;</text>
+      <text x="40" y="158">each boundary belongs to the color that starts there.</text>
+    </g>
+    <rect x="782" y="28" width="168" height="62" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="866" y="49" text-anchor="middle">saturation &lt; 0.2</text>
+    <text x="866" y="65" text-anchor="middle">or value &lt; 0.2:</text>
+    <text x="866" y="81" text-anchor="middle" fill="#fabd2f">no color</text>
+  </g>
+</svg>
+<figcaption>The six hue bands, to scale. Red wraps around 0°, which is why a pink sky counts as red. Green is the widest band, and yellow-green grass (hues around 60°) lands in yellow, as the waterfall below shows.</figcaption>
+</figure>
+
+<h3 id="summary-rules">From cells to a summary</h3>
+<p>The weights of the six hues are then turned into the photo's <strong>color summary</strong>, the set of colors <code>color:</code> matches:</p>
+<ol class="steps-list">
+<li><strong>Black and white first.</strong> Add up all six weights. If the total is under <strong>4 %</strong> of the number of cells, the photo is <code>bw</code> and nothing else. A speck of color in a gray picture, or the color noise of a gray one, never makes it red.</li>
+<li><strong>Each color that has enough.</strong> Otherwise a color joins the summary when its weight is at least <strong>15 %</strong> of the total colored weight. A red barn under a blue sky is red and blue; a green field with one small red flower is green only.</li>
+<li><strong>The main color.</strong> The largest weight is the photo's main color (a tie goes to the first in the order red, orange, yellow, green, blue, purple). <code>bw</code> never shares a summary with a hue.</li>
+</ol>
+<p>The summary is stored in the library index as one byte: three bits for the main color (0 for none, 1 to 6 for red to purple, 7 for black and white) and one bit for each of the five other hues. Each search color keeps the set of photos that hold it, which is why <code>color:green</code> is as fast as one word.</p>
+<figure class="wide">
+<img src="img/search/color-summary.png" width="1600" height="1065" alt="Three photos analyzed. Garden: a bee on purple salvia, its sketch as a 16 by 12 grid, cells classed green on the left, purple in the middle and yellow on the right; shares green 39, yellow 33, purple 24, orange 3 percent; summary green, yellow, purple. Waterfall: an 11 by 16 grid, blue sky cells on top, dark cells with no color in the middle, yellow and green grass below; summary yellow, green, blue. Glacier lagoon: a 16 by 11 grid, almost every cell gray with no color, a few blue cells; colored weight 2.1 percent of the cells, so the summary is bw." loading="lazy">
+<figcaption>Three photos through the color search, computed with an exact Python copy of Dalíca's sketch and classifier. Left to right: the photo; its sketch decoded to 16 cells on the long side; each cell's class (dark: no color); each hue's share of the colored weight, with the 15 % bar. The garden photo holds three colors. The waterfall's grass is mostly yellow, not green, because its hue sits just under 70°. The glacier lagoon has clearly blue ice, but its colored weight is only 2.1 % of its cells, under the 4 % bar, so it is black and white. Across all 56 test photos the copy agrees with Dalíca's own <code>color:</code> results on 55; on the last one it measures a yellow share of 13 % against the 15 % bar, because it starts from a slightly different 128-pixel thumbnail.</figcaption>
+</figure>
+<figure>
+<img src="img/search/color-search.png" width="1400" height="650" alt="Dalíca showing the search color:purple: the banner reads Showing 5 pictures in 1 folder, and the five purple salvia photos from the Garden in June folder are listed, both in the Search results album and in their folder." loading="lazy">
+<figcaption>The same classifier at work in Dalíca: <code>color:purple</code> over the 56 test photos finds five of the six garden pictures. The sixth is mostly green: its purple share is 5 %, under the 15 % bar, so its summary is green only.</figcaption>
+</figure>
+
+<h3 id="color-follows-edits">Why the summary follows your edits</h3>
+<p>The summary is made from the sketch, on the thumbnail worker, in the same job that makes the sketch, and the two are stored together in one step. An edited photo's sketch is drawn from its edited thumbnail, so when you turn a photo black and white, it moves to <code>color:bw</code> as soon as its thumbnail is redrawn, and Undo moves it back. A rescan keeps them together the same way.</p>
+<p>The cost is small because the pixels were already reduced to a few dozen bytes: reading a summary from a stored sketch takes about 3.5 µs, beside about 66 µs for making the sketch itself. A library indexed before color summaries existed gains them in the background from the sketches it already has, without reading a photo: for 100,000 photos every summary was in place about 963 ms after the library began to open (median; the budget is 1,445 ms). Until the first ones land, <code>color</code> is reported as unavailable rather than matching nothing.</p>
+<div class="note"><p><b>Why a sketch and not the photo:</b> a sketch is already in memory for every photo, is identical on every platform (it is computed with basic arithmetic only, never the platform's math library), and is redrawn whenever the picture changes. Reading the photo instead would mean decoding every file, and a summary that could go stale after an edit.</p></div>
+
+<h2 id="duplicates">Duplicate detection</h2>
+<p>Dalíca's duplicates are <strong>identical files</strong>: the same bytes, whatever their names or folders. A copy you resized, re-saved or edited is a different file and is not a duplicate. The check runs in two places with the same three steps, each cheaper than the next and each ruling out most of what is left.</p>
+<ol class="steps-list">
+<li><strong>Size.</strong> Two files of different sizes cannot be identical. Photos are grouped by the size recorded in the index, without touching the disk, and only sizes held by two or more photos go on.</li>
+<li><strong>MD5 digest.</strong> Each remaining file's MD5 digest (kept as <code>md5:</code> and 32 hex digits) is taken from the index when the index holds one that still fits the file, meaning the same size and modification time. Otherwise the file is read and the new digest is kept in the index for next time. Files with the same size and digest form a bucket.</li>
+<li><strong>Byte for byte.</strong> Every bucket is confirmed by reading its files and comparing them in full. MD5 is fast but not collision-proof, so the digest only decides which files are worth comparing; a digest collision can never put two different files in one group.</li>
+</ol>
+
+<h3 id="find-duplicates">Across the library: Show Duplicate Files</h3>
+<p>Tools ▸ Experimental ▸ Show Duplicate Files (Ctrl+F6) runs the three steps over every photo in the library as a background job with progress and Cancel: a coordinator thread and up to 4 workers, each file read through Dalíca's file layer, at most 1 GiB per file. A file that cannot be read, is larger than that, or changes while it is being read is left out and counted as skipped. New digests go into the index as derived data, never as an undo step. Cancel stops the workers before their next file; the digests already made stay in the index.</p>
+<p>When the job ends, the light table shows one group per section, the group with the most bytes in total first, and the banner counts them: "12 duplicate groups (31 files)". If you started a different search while it ran, your search stays on screen. A group whose files this session already confirmed (the same photos at the same size and modification time) is not read again.</p>
+<figure class="wide">
+<svg viewBox="0 0 960 290" role="img" aria-label="Find Duplicates on the test library with three added copies. 59 photos; 4 share a size and become candidates; 4 digests are made; the copy with one changed bit gets a different digest, leaving one bucket of 3; 3 files are compared byte for byte; result 1 group of 3 files in 8.5 ms. A second run in the same session takes all 4 digests from the index, reads nothing, and finishes in 0.04 ms.">
+  <defs><marker id="se-dup" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fe8019" stroke="none"/></marker></defs>
+  <g font-family="sans-serif" font-size="13" fill="#ebdbb2" stroke="none">
+    <g>
+      <rect x="10" y="20" width="168" height="150" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="205" y="20" width="168" height="150" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="400" y="20" width="168" height="150" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="595" y="20" width="168" height="150" rx="6" fill="#32302f" stroke="#504945"/>
+      <rect x="790" y="20" width="160" height="150" rx="6" fill="#32302f" stroke="#fe8019"/>
+    </g>
+    <g stroke="#fe8019" stroke-width="1.6" fill="none" marker-end="url(#se-dup)">
+      <path d="M178,95 h24"/><path d="M373,95 h24"/><path d="M568,95 h24"/><path d="M763,95 h24"/>
+    </g>
+    <g font-weight="bold" text-anchor="middle">
+      <text x="94" y="44">Every photo</text><text x="289" y="44">Same size?</text><text x="484" y="44">MD5</text>
+      <text x="679" y="44">Same size + MD5</text><text x="870" y="44">Byte for byte</text>
+    </g>
+    <g text-anchor="middle" fill="#fabd2f" font-size="22" font-weight="bold">
+      <text x="94" y="84">59</text><text x="289" y="84">4</text><text x="484" y="84">4</text><text x="679" y="84">1 × 3</text><text x="870" y="84">1 group</text>
+    </g>
+    <g text-anchor="middle" fill="#d5c4a1" font-size="12">
+      <text x="94" y="108">photos in the</text><text x="94" y="124">test library</text>
+      <text x="289" y="108">candidates:</text><text x="289" y="124">sizes held by 2+,</text><text x="289" y="140">from the index alone</text>
+      <text x="484" y="108">digests made: index</text><text x="484" y="124">had none yet, so each</text><text x="484" y="140">file is read once</text>
+      <text x="679" y="108">one bucket of 3; the</text><text x="679" y="124">copy with one changed</text><text x="679" y="140">bit has its own digest</text>
+      <text x="870" y="108">3 files compared,</text><text x="870" y="124">3 identical,</text><text x="870" y="140">8.5 ms in all</text>
+    </g>
+    <rect x="10" y="196" width="940" height="76" rx="6" fill="none" stroke="#504945" stroke-dasharray="5 4"/>
+    <text x="30" y="222" font-weight="bold">The same search again, in the same session</text>
+    <text x="30" y="244" fill="#d5c4a1">4 candidates, 4 digests taken from the index, 0 files read for digests, 0 compared (the group was confirmed already): 0.04 ms.</text>
+    <text x="30" y="262" fill="#a89984" font-size="12">In a new session the digests still come from the index, but each bucket is compared byte for byte once more.</text>
+  </g>
+</svg>
+<figcaption>A real run. Three files were added to the 56 test photos: two exact copies of one Kyoto photo and a third copy with a single bit flipped in the middle. All four have the same size, so size alone cannot tell them apart; MD5 removes the altered copy, and the byte comparison proves the other three identical. The numbers are the job's own statistics.</figcaption>
+</figure>
+<figure>
+<img src="img/search/duplicates.png" width="1400" height="660" alt="Dalíca after Show Duplicate Files: the banner reads 1 duplicate group (3 files), the Duplicate Files section shows three identical red torii gate photos, and the folder sections Copies and Kyoto below show where each copy lives." loading="lazy">
+<figcaption>The same run in the window. The group shows side by side, and the folder sections below show where each copy lives; the copy with the flipped bit is not in the group.</figcaption>
+</figure>
+
+<h3 id="import-duplicates">While importing</h3>
+<p>The Import room uses the same idea while it lists a card or a folder, with one difference in order: each picture on the card is read once, start to end, and its MD5 digest is computed during that read, so the card's side costs no extra read. A picture is a duplicate when a library photo of the same size has the same digest and the same bytes, or when an earlier picture of the same listing does (the same photo twice on one card). The library's side starts from its photos grouped by recorded size; a library photo of a matching size without a usable digest is read once and its digest is kept in the index, so the next import and the next Show Duplicate Files do not read it again.</p>
+<p>The check always runs. "Exclude duplicates" (whose default is Options ▸ General ▸ "Detect duplicates while importing", on) only decides whether the duplicates it finds are copied. From a camera, where reading is slow, only the pictures that could be duplicates (the same size as a library photo or as another picture on the camera) are read for their digest, at most 64 MiB each. The <a href="import.html#duplicates">Import</a> chapter follows that path in detail.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li>crates/library/src/search/grammar.rs: words, operators, tokens, date spellings, the caps</li>
+<li>crates/library/src/search/extract.rs: what search reads of each photo, folder, album and person</li>
+<li>crates/library/src/search/index.rs: sorted terms, slot bit sets, prefix ranges, suggestions</li>
+<li>crates/library/src/search/matcher.rs: the filter buttons, the age, the photo-by-photo reference matcher</li>
+<li>crates/engine/src/search.rs and crates/engine/src/cmd/search.rs: the search worker, the 120 ms debounce, generations, <code>search.set</code> and <code>search.color</code></li>
+<li>crates/ui-kit/src/widgets/age_slider.rs: the slider's logarithmic scale and snapping</li>
+<li>crates/thumbs/src/sketch.rs: the color sketch, its byte layout and its 16-cell grid</li>
+<li>crates/core/src/color_summary.rs and crates/core/src/color.rs: the classifier, its thresholds and the summary byte</li>
+<li>crates/thumbs/src/ladder.rs and crates/engine/src/thumbs.rs: where the sketch and its summary are made</li>
+<li>crates/engine/src/duplicates.rs and crates/engine/src/cmd/duplicates.rs: Show Duplicate Files</li>
+<li>crates/engine/src/import/worker.rs and crates/scan/src/import.rs: duplicates while importing</li>
+<li>docs/organizing.md §8.1 to §8.3 and §3; docs/development.md (the search, color summary and color search measurements)</li>
+</ul>

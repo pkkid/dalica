@@ -1,0 +1,248 @@
+<h1>How Dalíca works</h1>
+<p class="lede">This guide explains what happens inside Dalíca that you cannot see from the window: which files it reads and writes, how it keeps your photos safe, and why it was built the way it was. This first page lays out the principles and the overall machine; every later chapter zooms in on one part of it.</p>
+
+<h2 id="principles">The principles, in technical terms</h2>
+
+<p>Dalíca is a folder-based photo organizer with simple editing. A handful of rules shape almost every decision in its code. Here is what each one means in practice.</p>
+
+<h3>Your folders are the library</h3>
+<p>There is no import step for photos that are already on your disk and no hidden copy of them. Dalíca shows the photos and videos in the folders you tell it to watch, and a move or rename inside Dalíca is a move or rename on disk. It never invents its own folder hierarchy and never moves a file on its own. The only time it copies photos is when you ask it to, from a memory card or another drive. On first run it offers your Pictures, Documents and Desktop folders; scanning the whole disk is not offered.</p>
+
+<h3>Originals are kept</h3>
+<p>An edit is a <strong>recipe</strong>: a short list of operations such as <code>autofix()</code> and <code>rotate(90)</code> stored as text. The thumbnails, the edit view and every export render that recipe on the fly. The photo's pixels change only when you explicitly Save, and Save first moves the untouched original into a hidden <code>.dalica-originals/</code> folder beside it, so Undo Save and Revert can always bring it back. Captions, tags, places and date changes are also written into the file's own metadata (on by default, and you can turn it off), but that rewrites only the metadata blocks and never touches pixels.</p>
+
+<h3>Your work lives in small readable files</h3>
+<p>Everything you decide about a photo (star, caption, tags, hidden, recipe with its undo history, albums, faces, place) is written to a JSON file named <code>.dalica.json</code> in the photo's own folder. Here is the one Dalíca wrote after a star, a caption, two tags, an Auto Fix and a quarter turn in a test folder:</p>
+<pre><code>{
+  <span class="s">"dalica"</span>: { <span class="s">"version"</span>: <span class="n">1</span> },
+  <span class="s">"photos"</span>: {
+    <span class="s">"DSC_4402.jpg"</span>: {
+      <span class="s">"caption"</span>: <span class="s">"Fushimi Inari, early morning"</span>,
+      <span class="s">"changed"</span>: <span class="s">"2026-11-07T03:33:13.650Z"</span>,
+      <span class="s">"star"</span>: <span class="k">true</span>,
+      <span class="s">"tags"</span>: [<span class="s">"kyoto"</span>, <span class="s">"temples"</span>]
+    },
+    <span class="s">"DSC_4408.jpg"</span>: {
+      <span class="s">"edits"</span>: [<span class="s">"autofix()"</span>, <span class="s">"rotate(90)"</span>],
+      <span class="s">"star"</span>: <span class="k">true</span>,
+      …
+    }
+  }
+}</code></pre>
+<p>The file is printed the same way every time (two-space indentation, keys sorted, Unix line endings), so it diffs cleanly and survives sync tools. Keys that Dalíca does not know, written by a newer version or by another tool, are kept exactly as they were. Because the sidecar travels with the folder, a folder you move or copy outside Dalíca keeps its stars and edits.</p>
+<p>The central <strong>library index</strong> is only a cache. It lets Dalíca open 100,000 photos without reading 100,000 files, but deleting it loses nothing except time: a rescan rebuilds it from the folders. The few files that are not rebuildable (the Folder Manager's list of folders and your preferences) are small JSON files in the library directory.</p>
+<pre><code>Pictures/Kyoto/
+  DSC_4402.jpg               <span class="c"># caption and tags also in its XMP and IPTC</span>
+  .dalica.json               <span class="c"># everything you did, per photo</span>
+  .dalica-originals/         <span class="c"># appears on the first Save</span>
+~/.local/share/dalica/library/
+  index.log  index.snap      <span class="c"># the index: a journal and a snapshot (rebuildable)</span>
+  folders.json settings.json <span class="c"># watched folders and preferences</span>
+  albums.json people.json    <span class="c"># album and people definitions (rebuildable from sidecars)</span>
+  lock                       <span class="c"># one Dalíca process per library</span>
+~/.cache/dalica/thumbs/      <span class="c"># thumbnail packs, one set per size</span></code></pre>
+<p>Those are the Linux locations; macOS uses <code>~/Library/Application Support/Dalica/Library</code> and Windows <code>%LOCALAPPDATA%\Dalica\Library</code>. The full layout is in <a href="library.html">Your library on disk</a>.</p>
+
+<h3>The UI never waits for the disk</h3>
+<p>The thread that draws the window never decodes an image, never touches the file system, never waits on a lock a worker holds and never blocks on a dialog. This is enforced, not hoped for: the <code>fs</code> crate marks that thread at startup, and in debug and test builds every file call made from it fails with <code>OnUiThread</code>, so a mistake breaks a test instead of causing a stutter for you. Answers the window needs while painting ("is this folder online?") come from caches that workers keep filled. Opening a library reads the index and shows it at once; scans, thumbnails and the verification pass all run in the background.</p>
+
+<h3>Private by default</h3>
+<p>Dalíca has no account and no telemetry. It makes no network request unless you ask for something that needs one: map tiles (off until you allow them) and face-model downloads. Face data (the numeric descriptors that let Dalíca group faces) stays in a cache file in the local library directory and is never written to sidecars, file metadata, logs or the network. Logs never contain captions, tags, people's names, face data or tokens.</p>
+
+<h3>Pure Rust, native on three systems</h3>
+<p>Dalíca is written entirely in Rust and draws its own interface with <code>egui</code> on <code>wgpu</code> (Metal on macOS, Vulkan on Linux, DirectX 12 on Windows). There are no C or C++ build dependencies in the product, no web view and no JavaScript; a build-time check (<code>cargo xtask deps</code>) audits the dependency list for native bindings. Every one of Dalíca's own crates starts with <code>#![forbid(unsafe_code)]</code> and denies <code>unwrap</code>, <code>expect</code> and <code>panic!</code> outside tests, so bad input becomes an error you can read instead of a crash. Some dependencies (the GPU stack, the trash, the image resampler, the video decoders) contain <code>unsafe</code> internally; Dalíca's code does not.</p>
+
+<div class="note"><p><b>Why these rules:</b> a photo collection outlives the program you organize it with. If your work lives in plain files next to the photos and the pixels stay untouched until you say so, you can switch tools, restore from a backup or open the folder on another computer and lose nothing.</p></div>
+
+<h2 id="big-picture">The big picture</h2>
+
+<p>Dalíca is a Cargo workspace of 18 small library crates and two programs: the desktop app <code>dalica</code> and the headless <code>dalica-cli</code>. Three ideas hold it together: the crates are stacked in layers, every action goes through one command registry, and all slow work happens on background workers that feed caches.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 1000 660" role="img" aria-label="Architecture of Dalíca: five entry points (menus and buttons, keyboard, dalica-cli run, the control channel, the MCP server) all call Session::execute in the command registry. Below, the crates in six layers from L5 down to L0 on the left, and on the right the owner thread, the background workers and the caches." xmlns="http://www.w3.org/2000/svg" font-family="Schibsted Grotesk, system-ui, sans-serif">
+  <defs>
+    <marker id="ix-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker>
+  </defs>
+  <text x="20" y="18" fill="#a89984" font-size="13">Five ways in, one function</text>
+  <g font-size="15" fill="#ebdbb2" text-anchor="middle">
+    <rect x="20" y="28" width="180" height="58" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="110" y="52">Menus and buttons</text><text x="110" y="72" font-size="12.5" fill="#d5c4a1">App::run</text>
+    <rect x="215" y="28" width="180" height="58" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="305" y="52">Keyboard</text><text x="305" y="72" font-size="12.5" fill="#d5c4a1">key + context → keymap</text>
+    <rect x="410" y="28" width="180" height="58" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="500" y="52">dalica-cli run</text><text x="500" y="72" font-size="12.5" fill="#d5c4a1">JSON-lines scripts</text>
+    <rect x="605" y="28" width="180" height="58" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="695" y="52">Control channel</text><text x="695" y="72" font-size="12.5" fill="#d5c4a1">127.0.0.1 + token</text>
+    <rect x="800" y="28" width="180" height="58" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="890" y="52">MCP server</text><text x="890" y="72" font-size="12.5" fill="#d5c4a1">dalica-cli mcp</text>
+  </g>
+  <g stroke="#a89984" stroke-width="1.5" fill="none" marker-end="url(#ix-arrow)">
+    <path d="M110,86 L110,118"/><path d="M305,86 L305,118"/><path d="M500,86 L500,118"/><path d="M695,86 L695,118"/><path d="M890,86 L890,118"/>
+  </g>
+  <rect x="20" y="122" width="960" height="66" rx="8" fill="#32302f" stroke="#fe8019" stroke-width="2"/>
+  <text x="500" y="150" text-anchor="middle" fill="#ebdbb2" font-size="19" font-family="IBM Plex Mono, ui-monospace, monospace">Session::execute(id, params)</text>
+  <text x="500" y="174" text-anchor="middle" fill="#d5c4a1" font-size="13">the command registry in engine: id, label, menu, keys, params, effect, history, enabled, run</text>
+
+  <text x="20" y="222" fill="#a89984" font-size="13">Crates in layers: each uses only the layers below it</text>
+  <g font-size="15" fill="#ebdbb2">
+    <rect x="20" y="232" width="580" height="60" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="40" y="268" fill="#fe8019" font-weight="600">L5</text><text x="90" y="256">ui · ui-kit · mcp</text><text x="90" y="278" font-size="12.5" fill="#d5c4a1">the window, widgets, headless driver, MCP tools</text>
+    <rect x="20" y="300" width="580" height="60" rx="8" fill="#32302f" stroke="#fe8019"/>
+    <text x="40" y="336" fill="#fe8019" font-weight="600">L4</text><text x="90" y="324">engine</text><text x="90" y="346" font-size="12.5" fill="#d5c4a1">Session, command registry, keymap, undo, jobs, settings</text>
+    <rect x="20" y="368" width="580" height="60" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="40" y="404" fill="#fe8019" font-weight="600">L3</text><text x="90" y="392">store · scan · create</text><text x="90" y="414" font-size="12.5" fill="#d5c4a1">index and sidecar writers; walks and watching; export, collage</text>
+    <rect x="20" y="436" width="580" height="60" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="40" y="472" fill="#fe8019" font-weight="600">L2</text><text x="90" y="460">library · thumbs</text><text x="90" y="482" font-size="12.5" fill="#d5c4a1">the pure in-memory model; the thumbnail job pool and caches</text>
+    <rect x="20" y="504" width="580" height="60" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="40" y="540" fill="#fe8019" font-weight="600">L1</text><text x="90" y="528">image · meta · sidecar · edit · scenes · fetch · faces</text><text x="90" y="550" font-size="12.5" fill="#d5c4a1">decoders, metadata, sidecar format, the recipe renderer, face models</text>
+    <rect x="20" y="572" width="580" height="60" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="40" y="608" fill="#fe8019" font-weight="600">L0</text><text x="90" y="596">core · fs</text><text x="90" y="618" font-size="12.5" fill="#d5c4a1">ids, geometry, names; every write to your disk goes through fs</text>
+  </g>
+
+  <text x="630" y="222" fill="#a89984" font-size="13">Threads</text>
+  <rect x="630" y="232" width="350" height="60" rx="8" fill="#32302f" stroke="#83a598"/>
+  <text x="648" y="256" fill="#ebdbb2" font-size="15">Owner thread (UI, or the CLI's main)</text>
+  <text x="648" y="278" fill="#d5c4a1" font-size="12.5">runs commands, applies results; no disk I/O</text>
+  <g stroke="#a89984" stroke-width="1.5" fill="none" marker-end="url(#ix-arrow)">
+    <path d="M760,292 L760,318"/><path d="M850,318 L850,294"/>
+  </g>
+  <text x="768" y="310" fill="#a89984" font-size="11.5">work</text><text x="858" y="310" fill="#a89984" font-size="11.5">ops, files</text>
+  <rect x="630" y="320" width="350" height="150" rx="8" fill="#32302f" stroke="#504945"/>
+  <g font-size="13" fill="#ebdbb2">
+    <text x="648" y="345"><tspan fill="#8ec07c">I/O worker</tspan>: index journal, sidecars, settings</text>
+    <text x="648" y="370"><tspan fill="#8ec07c">Scan threads</tspan>: walks, watcher, verification</text>
+    <text x="648" y="395"><tspan fill="#8ec07c">Thumbnail pool</tspan>: cores minus 1, from 2 to 8</text>
+    <text x="648" y="420"><tspan fill="#8ec07c">File jobs</tspan>: Save, Export, move, trash</text>
+    <text x="648" y="445"><tspan fill="#8ec07c">Metadata queue</tspan>: XMP, IPTC, EXIF merges</text>
+  </g>
+  <text x="630" y="498" fill="#a89984" font-size="13">Caches (all rebuildable)</text>
+  <rect x="630" y="508" width="350" height="124" rx="8" fill="#32302f" stroke="#504945"/>
+  <g font-size="13" fill="#ebdbb2">
+    <text x="648" y="533"><tspan fill="#fabd2f">index.log + index.snap</tspan>: the library index</text>
+    <text x="648" y="558"><tspan fill="#fabd2f">thumbs/</tspan>: packs for 128, 256, 512, 1024, screen</text>
+    <text x="648" y="583"><tspan fill="#fabd2f">color sketch</tspan>: a tiny preview of every photo</text>
+    <text x="648" y="612" fill="#d5c4a1">truth stays next to the photos: .dalica.json</text>
+  </g>
+</svg>
+<figcaption>The whole machine on one page. Every entry point at the top ends in the same function in the <code>engine</code> crate (outlined in orange); the crates are stacked so that each one only uses the layers below it; slow work happens on the workers at the right and lands in caches that can always be rebuilt from your folders.</figcaption>
+</figure>
+
+<h3>Crates in layers</h3>
+<p>Each crate has one job and lives in exactly one layer. A crate may depend only on crates in lower layers (with two listed exceptions: <code>edit</code> and <code>meta</code> may use <code>image</code>), and a checker (<code>cargo xtask layers</code>) refuses a build that breaks the rule. Two more rules matter for you:</p>
+<ul>
+  <li><strong>Only the top layer knows a window exists.</strong> Only <code>ui</code>, <code>ui-kit</code>, <code>mcp</code> and the two programs may use the GUI and GPU libraries. Everything below them runs the same in the window, in the command-line tool and in tests, which is why automation can do anything you can do.</li>
+  <li><strong>Only <code>fs</code> writes to disk.</strong> The checker searches every other crate for the standard library's write, rename, remove, copy and create calls. So the atomic-write routine, the read-before-write check, the trash and the crash-test fault points live in one place, and every other crate goes through them. <a href="safety.html">Never losing a photo</a> describes that crate.</li>
+</ul>
+<p>The <code>library</code> crate at the center is pure: no files, no threads. It holds the in-memory model (folders, photos, albums, people, tags, recipes, places), and the only way to change it is to apply an <code>Op</code>, which returns the inverse <code>Op</code> and bumps a revision number. Undo is simply applying the stored inverses. Everything the window derives from the library (tree rows, the light-table layout, counts, search results) is cached per revision, so drawing a frame costs the same at 100 photos and at 100,000.</p>
+
+<h3>The command registry: one seam</h3>
+<p>Every user action is a <strong>command</strong> with a stable id such as <code>photo.star.toggle</code> or <code>folder.rename</code>. Each command declares its label, its place in the menus, its default keys per context, a description of its parameters, its <strong>effect</strong> (a query, a library change, a write to photo folders, or something outside Dalíca) and its <strong>history</strong> (which undo stack it goes on). The menus, the keyboard, <code>dalica-cli</code>, the control channel and the MCP server all call the same <code>Session::execute(id, params)</code>. That function checks that the command is enabled, runs it inside a panic guard, records exactly one undo step, and returns JSON.</p>
+<p>The build this guide was written against lists 454 commands: 227 engine commands and 227 view-only commands (pane toggles, zoom, selection moves) that live in the UI crate. Because there is only one door, a test or a script that runs <code>photo.star.toggle</code> exercises exactly the code a click does. <a href="automation.html">Automation</a> shows the registry from the outside.</p>
+
+<h3>Background workers</h3>
+<p>The thread that owns the session (the UI thread in the app, the main thread in the CLI) hands every slow task to a worker and applies the result later, between frames:</p>
+<ul>
+  <li><strong>The I/O worker</strong> does every write the session makes: index journal appends, sidecar writes (debounced to at most one per folder per second), snapshots, and the library's own JSON files.</li>
+  <li><strong>Scan threads</strong> walk folders, follow file-system change events and run the periodic verification pass. Their results arrive as batches of <code>Op</code>s, applied a few hundred photos per frame so the light table fills in progressively.</li>
+  <li><strong>The thumbnail pool</strong> has one worker per CPU core minus one, clamped to between 2 and 8, with priorities: the edit view's photo first, then the hovered photo, the visible thumbnails, the filmstrip, effect previews, prefetch, and background generation last. Requests for the same slot are merged.</li>
+  <li><strong>File jobs</strong> are everything that writes photo files (Save, Save a Copy, Export) and every file operation (move, copy, rename, trash). They run through one runner with a cancel flag checked before each item, and a panic in one item fails only that item.</li>
+</ul>
+<p>When work finishes, the owner applies it as one undo step. <code>Session::flush()</code> waits until every pending write has landed; the CLI calls it before it exits, which is why a <code>dalica-cli run</code> script never leaves a half-written sidecar behind.</p>
+
+<figure>
+<svg viewBox="0 0 1000 290" role="img" aria-label="What one command sets off: the command produces ops, library.apply changes the model and returns inverse ops for the undo stack, and four writers follow on workers: the index journal, the debounced sidecar writer, the metadata queue and the thumbnails." xmlns="http://www.w3.org/2000/svg" font-family="Schibsted Grotesk, system-ui, sans-serif">
+  <defs>
+    <marker id="ix-arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker>
+  </defs>
+  <g font-size="15" fill="#ebdbb2" text-anchor="middle">
+    <rect x="20" y="40" width="150" height="56" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="95" y="64">a command</text><text x="95" y="84" font-size="12.5" fill="#d5c4a1">photo.caption.set</text>
+    <rect x="215" y="40" width="130" height="56" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="280" y="64">ops</text><text x="280" y="84" font-size="12.5" fill="#d5c4a1">setCaptions</text>
+    <rect x="390" y="40" width="200" height="56" rx="8" fill="#32302f" stroke="#fe8019"/>
+    <text x="490" y="64">library.apply</text><text x="490" y="84" font-size="12.5" fill="#d5c4a1">model changes, revision + 1</text>
+    <rect x="390" y="150" width="200" height="56" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="490" y="174">inverse ops</text><text x="490" y="194" font-size="12.5" fill="#d5c4a1">one undo step</text>
+  </g>
+  <g stroke="#a89984" stroke-width="1.5" fill="none" marker-end="url(#ix-arrow2)">
+    <path d="M170,68 L212,68"/><path d="M345,68 L387,68"/><path d="M490,96 L490,147"/>
+    <path d="M590,60 C620,60 620,30 648,30"/>
+    <path d="M590,68 C625,68 625,105 648,105"/>
+    <path d="M590,76 C630,76 630,180 648,180"/>
+    <path d="M590,84 C635,84 635,255 648,255"/>
+  </g>
+  <g font-size="14" fill="#ebdbb2">
+    <rect x="650" y="8" width="330" height="46" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="666" y="28"><tspan fill="#fabd2f">Index journal</tspan>: always</text><text x="666" y="46" font-size="12" fill="#d5c4a1">one checksummed line appended to index.log</text>
+    <rect x="650" y="82" width="330" height="46" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="666" y="102"><tspan fill="#8ec07c">Sidecar writer</tspan>: a folder's data changed</text><text x="666" y="120" font-size="12" fill="#d5c4a1">.dalica.json rewritten atomically, 1 s debounce</text>
+    <rect x="650" y="157" width="330" height="46" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="666" y="177"><tspan fill="#83a598">Metadata queue</tspan>: caption, tags, place, date</text><text x="666" y="195" font-size="12" fill="#d5c4a1">re-read, merge XMP and IPTC, verify, replace</text>
+    <rect x="650" y="232" width="330" height="46" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="666" y="252"><tspan fill="#d3869b">Thumbnails</tspan>: a recipe changed</text><text x="666" y="270" font-size="12" fill="#d5c4a1">re-rendered with the edits, cached by key</text>
+  </g>
+  <text x="20" y="250" fill="#a89984" font-size="13">The owner thread does the left half at once;</text>
+  <text x="20" y="268" fill="#a89984" font-size="13">workers do the right half, where it applies.</text>
+</svg>
+<figcaption>What a single command sets off. The model changes in memory at once and the undo step is recorded; the writers on the right follow on worker threads, each only when the change concerns it (a star reaches the file's metadata only when "Write stars as ratings" is on). If a write fails (a full disk, an unplugged drive), the change stays applied and queued, and the writer tries again.</figcaption>
+</figure>
+
+<h3>Caches</h3>
+<p>Dalíca keeps three kinds of cache, and none of them holds anything you cannot get back:</p>
+<dl class="terms">
+  <dt>The library index</dt>
+  <dd><code>index.log</code> (a journal: one line per change, each with a CRC-32 in front) and <code>index.snap</code> (a snapshot the journal is compacted into). It records each photo's path, size, modification time, dimensions, dates, an EXIF summary and what you said about it. A torn last line is discarded; a bad checksum stops the replay at that record.</dd>
+  <dt>Thumbnails</dt>
+  <dd>A size ladder in device pixels: 128 and 256 for every photo at scan time, 512, 1024 and a screen-size preview on demand. They are stored as JPEG at quality 90 in a few large append-only pack files per size (never one file per thumbnail), 2 GiB by default. Thumbnails always show your edits.</dd>
+  <dt>Color sketches</dt>
+  <dd>A blurred preview of every photo in about 25 bytes, kept in the index and in memory, so any cell of the light table can be drawn on any frame without a disk read while the real thumbnail loads. <a href="thumbnails.html">Thumbnails</a> explains the ladder and the sketches.</dd>
+</dl>
+
+<h2 id="chapters">A map of this guide</h2>
+
+<p>The chapters follow a photo's life in Dalíca, from the folder it sits in to the copies you share. Each can be read on its own.</p>
+
+<h3>The library</h3>
+<ul>
+  <li><a href="library.html">Your library on disk</a>: every file Dalíca writes, what is in it, and which ones you could delete without losing anything.</li>
+  <li><a href="scanning.html">Scanning and watching</a>: how folders are walked, how outside changes are noticed, and why change events are only hints.</li>
+  <li><a href="thumbnails.html">Thumbnails</a>: the size ladder, the color sketches and the pack files that keep a scrolling light table from ever going blank.</li>
+</ul>
+<h3>Editing</h3>
+<ul>
+  <li><a href="recipes.html">Edits are recipes</a>: the operation list, the order it renders in, the photo's own undo history, and what Save does to a file.</li>
+  <li><a href="auto-fixes.html">Auto Fix, Contrast and Color</a>: what the one-click fixes measure in your photo and the adjustments they compute from it.</li>
+  <li><a href="tuning.html">Tuning and the neutral picker</a>: the sliders' math, from fill light and highlights to color temperature.</li>
+  <li><a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>: normalized coordinates that work at any size, the straighten angle, and how a retouch is kept in the recipe.</li>
+  <li><a href="effects.html">The effects</a>: what each effect does to the pixels and which parameters it keeps.</li>
+  <li><a href="color.html">Color and file formats</a>: which formats Dalíca reads, how ICC profiles are honored, and what happens to 16-bit, gray and CMYK files.</li>
+</ul>
+<h3>Organizing</h3>
+<ul>
+  <li><a href="metadata.html">Metadata in your files</a>: how captions, tags, places and dates are written into XMP, IPTC and EXIF without disturbing anything else.</li>
+  <li><a href="search.html">Search, color and duplicates</a>: the search grammar, searching by color, and how duplicates are found by content.</li>
+  <li><a href="people.html">People</a>: local face detection and recognition, clustering, and where face data is kept.</li>
+  <li><a href="places.html">Places</a>: geotags, the map pane, and why map tiles stay off until you allow them.</li>
+  <li><a href="import.html">Import</a>: copying from cards and drives with verification, and the only permanent delete Dalíca ever performs.</li>
+</ul>
+<h3>Sharing</h3>
+<ul>
+  <li><a href="export.html">Export</a>: the output pipeline, quality and resizing, watermarks, metadata copies and removing your location.</li>
+  <li><a href="collage-slideshow.html">Collages and slideshows</a>: collage layouts and their saved recipes, and how a slideshow is sequenced.</li>
+  <li><a href="video.html">Video</a>: the containers and decoders built in, poster frames, trimming and exporting clips.</li>
+</ul>
+<h3>Under the hood</h3>
+<ul>
+  <li><a href="safety.html">Never losing a photo</a>: atomic writes, merging instead of replacing, the trash, damaged files and hostile input.</li>
+  <li><a href="performance.html">Big libraries</a>: what keeps 100,000 photos fast, from per-revision caches to memory budgets.</li>
+  <li><a href="automation.html">Automation</a>: the command registry from the outside, <code>dalica-cli</code>, the control channel and MCP for AI agents.</li>
+</ul>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li>docs/product.md (principles), docs/architecture.md §2 to §7 (crates, layers, commands, threads, image pipeline, automation), docs/data-model.md §1, §2 and §4 (where data lives, the library directory)</li>
+  <li>crates/engine/src/session.rs (<code>Session::execute</code>), crates/engine/src/registry.rs (<code>Effect</code>, <code>History</code>), crates/engine/src/cmd/ (one module per area)</li>
+  <li>crates/library (the pure model and its <code>Op</code>s), crates/store/src/writer.rs (the debounced sidecar writer), crates/store/src/journal.rs</li>
+  <li>crates/thumbs/src/pool.rs (the prioritized job pool), crates/thumbs/src/pack.rs (thumbnail packs)</li>
+  <li>crates/fs/src/guard.rs (the UI-thread guard), xtask/src/layers.rs (the layer checker)</li>
+</ul>

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thumbnails · Dalíca guide</title>
+<meta name="description" content="A light table cell in Dalíca is never blank, even when you drag the scroll bar through 100,000 photos at full speed. This chapter explains the three layers that make that possible, the 24-byte color sketch at the bottom of them, the packed disk cache, and how edited and rotated photos get their thumbnails.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html">Scanning and watching</a>
+    <a href="thumbnails.html" aria-current="page">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html">Edits are recipes</a>
+    <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Thumbnails</h1>
+<p class="lede">A light table cell in Dalíca is never blank, even when you drag the scroll bar through 100,000 photos at full speed. This chapter explains the three layers that make that possible, the 24-byte color sketch at the bottom of them, the packed disk cache, and how edited and rotated photos get their thumbnails.</p>
+
+<h2 id="three-layers">Three layers, each drawn until the next arrives</h2>
+<p>Making a thumbnail of a 24-megapixel JPEG takes close to a tenth of a second (87 ms in release, measured for the scan job). Dragging the scroll thumb at full speed can bring a whole new screen of cells into view every frame, and a frame at 60 Hz lasts under 17 milliseconds. No amount of speed closes that gap, so Dalíca does not try: every cell always has <em>something</em> to draw from memory, and better versions replace it as they arrive.</p>
+<dl class="terms">
+<dt>1. The color sketch</dt>
+<dd>A blurred preview of 24 to 26 bytes per photo, kept in the index and held in memory for every photo in the library. Any cell can be drawn from it on any frame without touching the disk.</dd>
+<dt>2. The size ladder</dt>
+<dd>Real thumbnails at 128, 256, 512 and 1,024 pixels on the long side, plus a screen-size preview for the edit view, in device pixels. The 128 and 256 sizes are made for every photo when it is scanned; the larger ones when something first asks for them.</dd>
+<dt>3. The full decode</dt>
+<dd>Only for sizes above the ladder, which in practice means zooming in the edit view.</dd>
+</dl>
+<figure>
+<div class="row cols-3">
+<div><img src="img/thumbnails/layer-sketch.jpg" width="512" height="340" alt="A smooth blur of sky blue at the top, a pink band across the middle and green at the bottom: the color sketch of a white church with a red roof." loading="lazy"><span class="label">Sketch, 24 bytes</span></div>
+<div><img src="img/thumbnails/layer-128.jpg" width="512" height="340" alt="The church at 128 pixels scaled up to 512: recognizable but soft." loading="lazy"><span class="label">128 entry, scaled up</span></div>
+<div><img src="img/thumbnails/layer-512.jpg" width="512" height="340" alt="The church at 512 pixels: sharp, with the roof's ridges and the window frames visible." loading="lazy"><span class="label">512 entry</span></div>
+</div>
+<figcaption>One cell of 512 device pixels over time, made with Dalíca's own thumbnail code from a photo of the guide's Iceland set. The sketch is there from the first frame; the 128 entry, scaled up, stands in while the 512 entry loads.</figcaption>
+</figure>
+<p>When a cell is drawn, it asks for the smallest ladder size that covers it. If that size is in memory, it is drawn. If not, the largest smaller size in memory is scaled up (blurry, then sharp a moment later), and the missing size is queued at the visible priority. If no ladder size is in memory at all, the sketch is drawn. Only a photo that was never scanned shows the plain gray placeholder. The engine answers these questions from memory and never waits; the release budget at every review is zero gray cells while the speed-control thumb drags through a scanned library at its top speed.</p>
+
+<h2 id="sketch">The color sketch</h2>
+<p>The sketch is in the style of ThumbHash, written from the public description of the idea, with a byte layout of Dalíca's own. It is made from the photo's 128 entry right after a scan decodes the photo.</p>
+<ol class="steps-list">
+<li><strong>Average down.</strong> The picture is averaged into at most 32 cells on its long side (weighted by alpha, in sRGB values).</li>
+<li><strong>Split into three channels.</strong> Lightness L = (r + g + b) / 3, and two color differences, P = (r + g) / 2 − b (yellow against blue) and Q = r − g (red against green).</li>
+<li><strong>Transform.</strong> Each channel goes through a cosine transform, and only its low-frequency corner is kept: a triangle of frequencies where cx / nx + cy / ny &lt; 1. Lightness keeps 6 frequencies along the long side and at least 4 along the short one. The two color channels keep 4 × 4 at every aspect, because sharp color edges, such as a horizon, need them most.</li>
+<li><strong>Quantize.</strong> Each channel stores its mean, its largest other coefficient (the scale, stored as the square root of scale over a cap, rounded up so every coefficient stays inside it), and every other coefficient as a 4-bit fraction of that scale.</li>
+</ol>
+<p>The number of coefficients follows from the aspect, so the length of a valid sketch is fixed by its first two bytes: 26 bytes for a square photo, 24 for a long thin one, never more than the 32-byte cap. Across the 56 photos of this guide's set, 47 sketches came out at 24 bytes and 9 at 26. Every step uses only addition, subtraction, multiplication, division, square roots and rounding, with a cosine of Dalíca's own instead of the platform's maths library, so the same pixels give the same bytes on every operating system. Run on the guide's photo of a <code>Kyoto</code> shrine, the tool that made these pictures produced exactly the sketch bytes that Dalíca itself had stored in that library's index.</p>
+
+<h3>The 24 bytes of one sketch</h3>
+<p>The church above has this sketch, as hex: <code>31413408c4a406cdce7c1bb1acf0b02ed20e0d032b0fd600</code>. Read with bits least significant first, it splits like this:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Bits</th><th>Field</th><th>Value in this sketch</th></tr></thead>
+<tbody>
+<tr><td>0 to 3</td><td>Format version</td><td>1</td></tr>
+<tr><td>4 to 12</td><td>Aspect code c, signed; width / height = 2<sup>c/32</sup></td><td>19, so 1.509 (the photo is 2400 × 1592, 1.508)</td></tr>
+<tr><td>13 to 20</td><td>Mean lightness, 8 bits</td><td>162 of 255, 0.635</td></tr>
+<tr><td>21 to 34</td><td>Mean P and Q, 7 bits each, 63 is zero</td><td>65 and 64: very slightly warm, very slightly red</td></tr>
+<tr><td>35 to 52</td><td>Scales of L, P and Q, 6 bits each</td><td>24, 18, 13</td></tr>
+<tr><td>53 to 112</td><td>Lightness coefficients, 4 bits each</td><td>15 (a 6 × 4 grid's triangle, without its mean)</td></tr>
+<tr><td>113 to 184</td><td>P, then Q coefficients</td><td>9 each (the 4 × 4 triangle)</td></tr>
+<tr><td>185 to 191</td><td>Zero padding to a whole byte</td><td>7 bits</td></tr>
+</tbody></table></div>
+<p>Decoding checks the version, the exact length, every code's range and that the padding is zero; anything else is refused as an error, never a crash. Decoding and drawing it at 32 pixels took about 5 µs in a test run for this guide, and encoding it from the 128 image about 25 µs.</p>
+<figure>
+<img src="img/thumbnails/sketch-pixels.png" width="640" height="420" alt="A grid of 32 by 21 square blocks of color: light blue top right, pink in the middle, dark green bottom left, beige bottom center." loading="lazy">
+<figcaption>The same sketch decoded at 32 × 21 pixels and enlarged without smoothing. This is all the information the sketch holds; the light table scales it up with filtering, which gives the soft blur of the first picture.</figcaption>
+</figure>
+
+<h3>What it costs, and what else it does</h3>
+<p>Measured at 100,000 photos, the sketches added 4.49 MB to the index journal and took the snapshot from 11.18 MB to 15.67 MB: about 45 bytes per photo stored, with its photo id and encoding. In memory, with its key, the sketch costs about 4.8 MB for 100,000 photos. That is cheap enough to hold every photo's sketch at all times, which is the point.</p>
+<p>The sketch also feeds color search. A photo's color summary (what <code>color:green</code> matches) is read from its sketch decoded as a grid of 16 cells on its long side, so it costs no file read and follows every redrawn sketch: a photo turned black and white moves to <code>color:bw</code>. Decoding a sketch and reading its summary takes about 3.2 µs.</p>
+<figure>
+<div class="row cols-1">
+<div><img src="img/thumbnails/table-sketches.png" width="1230" height="254" alt="Twenty light table cells of soft color blobs: a blue sky over a dark house, gray waterfalls, purple flowers, an orange gate." loading="lazy"><span class="label">Sketches only</span></div>
+<div><img src="img/thumbnails/table-thumbs.jpg" width="1230" height="254" alt="The same twenty cells as real thumbnails: a Victorian house, waterfalls, a church, lavender with a bee, a lighthouse, a fox, shrine gates, a puffin." loading="lazy"><span class="label">128 entries</span></div>
+</div>
+<figcaption>Twenty photos of the guide's set as the light table can draw them before any thumbnail is loaded (top), and once their 128 entries are in (bottom). Every sketch was made by Dalíca's scan job from the same 128 image shown below it.</figcaption>
+</figure>
+
+<h2 id="ladder">The size ladder</h2>
+<figure>
+<svg viewBox="0 0 680 250" role="img" aria-label="The ladder sizes drawn to scale by long side: 128 and 256, made for every photo at scan from one decode; 512, 1024 and the screen size, made on demand. Sizes above the ladder are a full decode.">
+  <g>
+    <rect x="20" y="186" width="24" height="16" fill="#fe8019"/>
+    <rect x="70" y="170" width="48" height="32" fill="#fe8019"/>
+    <rect x="144" y="138" width="96" height="64" fill="#83a598"/>
+    <rect x="266" y="74" width="192" height="128" fill="#83a598"/>
+    <rect x="484" y="20" width="180" height="182" fill="none" stroke="#83a598" stroke-width="2" stroke-dasharray="6 4"/>
+  </g>
+  <g font-size="14" fill="#ebdbb2" text-anchor="middle">
+    <text x="32" y="224">128</text>
+    <text x="94" y="224">256</text>
+    <text x="192" y="224">512</text>
+    <text x="362" y="224">1,024</text>
+    <text x="574" y="224">screen size</text>
+    <text x="574" y="110" fill="#d5c4a1">the display's</text>
+    <text x="574" y="128" fill="#d5c4a1">long side</text>
+  </g>
+  <g font-size="13">
+    <text x="20" y="244" fill="#fe8019">made at scan, for every photo</text>
+    <text x="266" y="244" fill="#83a598">made on demand</text>
+  </g>
+</svg>
+<figcaption>The ladder's rungs, to scale by long side (the screen size shown smaller than it is). 128 and 256 come from one decode at scan time; the rest when something first asks for them.</figcaption>
+</figure>
+<p>At scan time, one decode makes the 256 image, which is shrunk to 128, and the sketch is made from the 128. Photos then fill in over a few seconds instead of waiting on one decode per size. The 512, 1,024 and screen-size entries are made by a fetch job the first time a cell or the edit view asks for them: read from the disk cache when the entry is there, otherwise decoded from the photo (never enlarged) and stored. The screen-size preview's long side is the display's (2,560 when the display is not known yet, at most 7,680), and its cache key includes that size, so moving to another display never shows a preview made for the wrong one.</p>
+<p>Decoded thumbnails are held in a memory cache with a fixed budget of 192 MiB, least recently used first out, whatever the size of the library. Entries are JPEG at quality 90, chosen because it is fast to decode.</p>
+
+<h2 id="disk-cache">The packed disk cache</h2>
+<p>Thumbnails live in Dalíca's cache folder, <code>thumbs/</code> under <code>~/.cache/dalica</code> on Linux, <code>~/Library/Caches/Dalica</code> on macOS and <code>%LOCALAPPDATA%\Dalica\cache</code> on Windows. Instead of one file per thumbnail, each ladder size has one append-only pack file of entry bytes and one index of fixed-size records:</p>
+<figure>
+<svg viewBox="0 0 680 290" role="img" aria-label="The pack file is a 16-byte header with the magic DLCPACK and the size code, then entry bytes back to back. The index file is a 16-byte header with the magic DLCINDX, then 40-byte records: kind, three zero bytes, entry length, a 16-byte key, offset in the pack, CRC-32 of the entry and CRC-32 of the record.">
+  <text x="10" y="22" fill="#ebdbb2" font-size="15" font-family="monospace">128-00000001.pack</text>
+  <rect x="10" y="32" width="90" height="40" fill="#504945"/>
+  <text x="55" y="57" fill="#ebdbb2" font-size="13" text-anchor="middle">header 16</text>
+  <rect x="100" y="32" width="140" height="40" fill="#32302f" stroke="#fe8019"/>
+  <text x="170" y="57" fill="#ebdbb2" font-size="13" text-anchor="middle">JPEG entry</text>
+  <rect x="240" y="32" width="120" height="40" fill="#32302f" stroke="#fe8019"/>
+  <text x="300" y="57" fill="#ebdbb2" font-size="13" text-anchor="middle">JPEG entry</text>
+  <rect x="360" y="32" width="150" height="40" fill="#32302f" stroke="#fe8019"/>
+  <text x="435" y="57" fill="#ebdbb2" font-size="13" text-anchor="middle">JPEG entry</text>
+  <rect x="510" y="32" width="160" height="40" fill="#32302f" stroke="#504945" stroke-dasharray="4 4"/>
+  <text x="590" y="57" fill="#d5c4a1" font-size="13" text-anchor="middle">appended …</text>
+  <text x="10" y="112" fill="#ebdbb2" font-size="15" font-family="monospace">128-00000001.idx</text>
+  <rect x="10" y="122" width="90" height="40" fill="#504945"/>
+  <text x="55" y="147" fill="#ebdbb2" font-size="13" text-anchor="middle">header 16</text>
+  <rect x="100" y="122" width="130" height="40" fill="#32302f" stroke="#83a598"/>
+  <text x="165" y="147" fill="#ebdbb2" font-size="13" text-anchor="middle">record 40</text>
+  <rect x="230" y="122" width="130" height="40" fill="#32302f" stroke="#83a598"/>
+  <text x="295" y="147" fill="#ebdbb2" font-size="13" text-anchor="middle">record 40</text>
+  <rect x="360" y="122" width="130" height="40" fill="#32302f" stroke="#83a598"/>
+  <text x="425" y="147" fill="#ebdbb2" font-size="13" text-anchor="middle">record 40</text>
+  <path d="M165 162 L165 190" stroke="#83a598" stroke-width="1.5"/>
+  <g font-size="12" text-anchor="middle">
+    <rect x="10" y="192" width="50" height="44" fill="#32302f" stroke="#504945"/><text x="35" y="213" fill="#ebdbb2">kind</text><text x="35" y="229" fill="#d5c4a1">1</text>
+    <rect x="60" y="192" width="50" height="44" fill="#282828" stroke="#504945"/><text x="85" y="213" fill="#d5c4a1">zero</text><text x="85" y="229" fill="#d5c4a1">3</text>
+    <rect x="110" y="192" width="80" height="44" fill="#32302f" stroke="#504945"/><text x="150" y="213" fill="#ebdbb2">length</text><text x="150" y="229" fill="#d5c4a1">4</text>
+    <rect x="190" y="192" width="200" height="44" fill="#32302f" stroke="#fe8019"/><text x="290" y="213" fill="#ebdbb2">key</text><text x="290" y="229" fill="#d5c4a1">16</text>
+    <rect x="390" y="192" width="120" height="44" fill="#32302f" stroke="#504945"/><text x="450" y="213" fill="#ebdbb2">offset in pack</text><text x="450" y="229" fill="#d5c4a1">8</text>
+    <rect x="510" y="192" width="80" height="44" fill="#32302f" stroke="#504945"/><text x="550" y="213" fill="#ebdbb2">entry CRC</text><text x="550" y="229" fill="#d5c4a1">4</text>
+    <rect x="590" y="192" width="80" height="44" fill="#32302f" stroke="#504945"/><text x="630" y="213" fill="#ebdbb2">record CRC</text><text x="630" y="229" fill="#d5c4a1">4</text>
+  </g>
+  <text x="10" y="262" fill="#d5c4a1" font-size="13">Kind 1 adds an entry; kind 2 removes one (length, offset and entry CRC all zero).</text>
+  <text x="10" y="282" fill="#d5c4a1" font-size="13">Numbers are bytes. Every number is little-endian.</text>
+</svg>
+<figcaption>One generation of one ladder size: the pack holds the bytes, the index says where each entry is. Both start with an 8-byte magic, the size code and a CRC-32 of the header.</figcaption>
+</figure>
+
+<h3>A real index, record by record</h3>
+<p>This is the 128 index of a test library made for this guide: four photos scanned, then Auto Fix applied to one of them, then the library opened again. Keys are shortened to their first 8 hex digits.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Record</th><th>Kind</th><th>Key</th><th>Bytes</th><th>Offset</th><th>What happened</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>put</td><td><code>08db69a3</code></td><td>6,841</td><td>16</td><td rowspan="4">The scan's four 128 entries, each right after the last.</td></tr>
+<tr><td>2</td><td>put</td><td><code>e96dd780</code></td><td>6,115</td><td>6,857</td></tr>
+<tr><td>3</td><td>put</td><td><code>b393bd1f</code></td><td>6,709</td><td>12,972</td></tr>
+<tr><td>4</td><td>put</td><td><code>54dcc0d0</code></td><td>6,980</td><td>19,681</td></tr>
+<tr><td>5</td><td>remove</td><td><code>b393bd1f</code></td><td>0</td><td>0</td><td>Auto Fix changed photo 2's recipe: its old entry is dead.</td></tr>
+<tr><td>6</td><td>put</td><td><code>2dac04ea</code></td><td>6,722</td><td>26,661</td><td>The edited entry, under a new key, made in the next session.</td></tr>
+</tbody></table></div>
+<p>The dead entry's 6,709 bytes stay in the pack until a compaction. Nothing was rewritten; the cache only ever appends.</p>
+
+<h3>Keys</h3>
+<p>An entry's key is a 128-bit FNV-1a hash of the photo's path (with its length), its file size, its modification time in nanoseconds, a hash of the recipe it was drawn with, and the renderer version. FNV-1a is used because it gives the same value on every platform and compiler, unlike the standard library's hasher. The key is content-addressed: change any input and the old entry is simply never asked for again, so there is no cache invalidation to get wrong. A photo edited outside Dalíca gets a new size or time and therefore new thumbnails; a new version of the thumbnail renderer makes every old entry unreachable at once. The renderer version is per edit operation, so a new version of one effect remakes only the photos that use it.</p>
+
+<h3>Integrity, compaction and pruning</h3>
+<ul>
+<li><strong>Checksums.</strong> Each index record carries its own CRC-32, so a torn or damaged record costs only its own entry. Each entry's bytes carry a CRC-32 that is checked the first time a process reads it; a mismatch is a miss, and the thumbnail is made again.</li>
+<li><strong>No per-entry sync.</strong> Writes append the bytes and then the record, without syncing each entry. A crash loses at most the tail, which is just thumbnails to make again.</li>
+<li><strong>Compaction.</strong> Dead entries (replaced, removed, photos that left) are counted. Once they pass 25 % of a pack (and at least 1 MiB), a background job writes the size's next generation beside the current one, the pack first and then its index; a generation counts only once its index exists, and reads go on from the old one meanwhile. That is why the files are named <code>128-00000001.pack</code>: the number is the generation, as 8 hex digits.</li>
+<li><strong>Budget.</strong> The cache may use 2 GiB by default (the setting accepts 64 MiB to 1 TiB). Past it, a pruning job takes it down to 80 % of the budget, the largest sizes first (screen size, then 1,024, then 512) and the oldest entries of a size first. Entries of photos whose folder cannot be reached are stepped over, because they could not be made again until the drive returns.</li>
+<li><strong>Only its own files.</strong> The cache lists and deletes only files of its own naming shape, so pointing it at a folder with other files in it never deletes them. The folder is held with an operating-system lock; a second process gets a temporary cache of its own instead.</li>
+</ul>
+
+<h3>Why packs beat loose files</h3>
+<p>One file per thumbnail is the obvious design, and it was measured against the pack with 100,000 entries of about 6 KB each on an NVMe disk. Written, the pack took 0.94 s and the loose files 6.85 s. On disk the pack was 604 MB in 11 files and the loose files 799 MB in 100,000 (each small file wastes the rest of its last disk block). Read back, the pack was faster in every case:</p>
+<figure>
+<img src="img/thumbnails/pack-vs-loose.png" width="1600" height="700" alt="Bar chart of microseconds per read. Page cache warm: pack 0.74 in order and 1.06 shuffled, loose files 2.15 and 2.48. Page cache cold: pack 1.27 and 24.4, loose files 67.1 and 71.6." loading="lazy">
+<figcaption>Microseconds per read of 100,000 thumbnails, in order and shuffled, with the operating system's page cache warm for both stores and cold for both (measured 2026-10-12). Cold reads in order are where the pack wins most: 1.27 µs against 67.1, because one file's readahead brings in the next entries.</figcaption>
+</figure>
+<p>An earlier run had shown slow shuffled pack reads (4.7 µs against 2.5 for loose files). That turned out to be an artifact of the benchmark: it wrote the loose files last, so under memory pressure the pack's pages were evicted first. Dropping only the pack's pages while the loose files stayed cached reproduced it exactly; measured fairly, the pack is not slower.</p>
+
+<h2 id="fast-path">Embedded thumbnails and RAW previews</h2>
+<p>Most cameras put a small JPEG inside every photo's EXIF data, and RAW files carry one or more full JPEG previews. Dalíca uses them to show something real before its own thumbnail exists:</p>
+<ul>
+<li><strong>The embedded thumbnail.</strong> The scan's header read notes where the embedded thumbnail is. When a cell comes on screen and its photo has nothing in memory, a quick job running just above the visible priority decodes that embedded thumbnail and shows it at once, if it is big enough for the cell. The scan job's proper downscale replaces it when it lands. Up to 32 MiB of these are kept in memory while their photos' scans run. They are only used for photos without edits, since an embedded thumbnail knows nothing of your recipe.</li>
+<li><strong>RAW files.</strong> Dalíca shows a RAW file through its largest embedded preview, which is also what its thumbnails are made from.</li>
+<li><strong>Very large photos.</strong> The JPEG decoder Dalíca uses cannot decode at a reduced scale, so a JPEG is decoded in full and then resized, up to 64 megapixels. Past that, a photo is not decoded just for a thumbnail: the camera's own small copy is used if there is one, and otherwise the cell says why it cannot show the photo. A large TIFF (a stitched panorama, say) is decoded a strip or tile at a time and reduced as it goes, or uses a reduced-resolution page when the file has one that covers the size; a lossy WebP is reduced row by row at any size.</li>
+</ul>
+<p>Every thumbnail is decoded with the photo's EXIF orientation applied and converted to sRGB through its ICC profile, unless View &gt; Use Color Management is off. That option is part of the cache key, so the two kinds of entries never mix.</p>
+
+<h2 id="edited">Edited and rotated photos</h2>
+<p>Thumbnails always show your edits. An edited photo's entries and sketch are drawn by the same renderer the edit view uses, from a decode of the photo sized to fit; when the edits keep only part of the picture (a tight crop), the photo is decoded larger in proportion, at most 4,096 pixels on its long side, so the crop's thumbnail is as sharp as an unedited one. Measured on a 24-megapixel JPEG in release, a scan took the same time with Auto Fix as its recipe as without (about 87 ms).</p>
+<figure>
+<div class="row cols-3">
+<div><img src="img/thumbnails/edit-church.jpg" width="400" height="266" alt="The church in color." loading="lazy"><span class="label">No edits</span></div>
+<div><img src="img/thumbnails/edit-church-bw.jpg" width="400" height="266" alt="The church in black and white." loading="lazy"><span class="label">bw()</span></div>
+<div><img src="img/thumbnails/edit-church-crop.jpg" width="400" height="353" alt="A crop of the church's red roof and arched windows, sharp." loading="lazy"><span class="label">crop(0.3,0.2,0.75,0.8)</span></div>
+<div><img src="img/thumbnails/edit-church-sketch.jpg" width="400" height="262" alt="The color sketch of the unedited church." loading="lazy"><span class="label">its sketch, 24 bytes</span></div>
+<div><img src="img/thumbnails/edit-church-bw-sketch.jpg" width="400" height="262" alt="A gray blur: the sketch of the black and white version." loading="lazy"><span class="label">its sketch, 24 bytes</span></div>
+<div><img src="img/thumbnails/edit-church-crop-sketch.jpg" width="400" height="350" alt="A pink and white blur with a blue patch: the sketch of the crop." loading="lazy"><span class="label">its sketch, 26 bytes</span></div>
+</div>
+<figcaption>256 entries (top) and sketches (bottom) of one photo with three recipes, made by Dalíca's scan job. The black and white sketch stores both color means at the code for zero and every color coefficient as 7, the code for zero. The crop is nearly square, so its sketch keeps more lightness frequencies and is 26 bytes.</figcaption>
+</figure>
+<p>When a photo's recipe changes, by either undo history, a scan or the watcher, its old entries are made dead and new ones are queued at the visible priority: at once for up to 64 photos, and for the rest of a large batch edit in the background until a cell asks for them. Until the new entries land, the old images keep being drawn, so an edited photo never flashes blank.</p>
+<h3>Rotations are applied at draw time</h3>
+<p>Rotations and flips are left out of the thumbnail's pixels, and out of its key. The light table turns the picture as it paints the cell. So rotating a photo, or a hundred photos, never remakes a thumbnail: the entries of a photo whose recipe is only a quarter turn are byte for byte its unedited ones. Running the scan job on the church with the recipe <code>rotate(90)</code> gave a 128 entry with the same MD5 as the unedited one, and the same sketch. A recipe that holds a crop and a rotation is drawn with the crop only, then turned in the cell.</p>
+<div class="note"><p><b>Why:</b> rotating is the most common thing people do to a freshly imported folder, often to dozens of photos at once. Making it free keeps the light table instant and the cache free of near-duplicates.</p></div>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li>Specs: docs/architecture.md §5 (the job pool, renderer and memory) and §6 (the image pipeline: fast path, cache keys, never blank, disk cache); docs/data-model.md §4 (the cache folder); docs/development.md §8 (the never-blank budget).</li>
+<li>crates/thumbs/README.md, including the packed-against-loose measurements.</li>
+<li>crates/thumbs/src/sketch.rs: the sketch's encoder, decoder and bit layout.</li>
+<li>crates/thumbs/src/ladder.rs: sizes, choose, prefetch, the scan and fetch jobs, Edits and keys (RENDERER_VERSION, MAX_EDIT_SOURCE, DEFAULT_SCREEN, MAX_SCREEN).</li>
+<li>crates/thumbs/src/pack.rs, pack/format.rs, pack/one.rs: the pack and index files, keys, compaction. crates/thumbs/src/upkeep.rs: the budget and pruning.</li>
+<li>crates/engine/src/thumbs.rs: the session's thumbnails (MEMORY, QUICK_MEMORY, RECIPES_VISIBLE, the embedded-thumbnail job).</li>
+<li>crates/image/src/decode.rs: thumbnail decoding (THUMBNAIL_SOURCE_MAX_PIXELS) and crates/image/src/formats/raw/: RAW previews.</li>
+<li>docs/status.md, Metrics: the sketch's index growth and the pack measurements of 2026-10-11.</li>
+<li>The pictures were made by a small program linked against crates/thumbs that runs its scan and fetch jobs; it and the figure scripts are in the guide's tools folder.</li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="scanning.html"><span>Previous</span>Scanning and watching</a><a class="next" href="recipes.html"><span>Next</span>Edits are recipes</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#three-layers">Three layers, each drawn until the next arrives</a>
+    <a href="#sketch">The color sketch</a>
+    <a href="#ladder">The size ladder</a>
+    <a href="#disk-cache">The packed disk cache</a>
+    <a href="#fast-path">Embedded thumbnails and RAW previews</a>
+    <a href="#edited">Edited and rotated photos</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>

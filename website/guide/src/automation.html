@@ -1,0 +1,389 @@
+<h1>Automation</h1>
+<p class="lede">Everything you can do in Dalíca's window, a script or an AI agent can do too, through the same commands, with the same undo steps and the same safety rules. This chapter shows how that works, with real command lines and the replies they produced, and where automation is deliberately fenced in.</p>
+
+<h2 id="everything-is-a-command">Everything is a command</h2>
+
+<p>Every action in Dalíca is a <strong>command</strong> registered with a stable id. A command module in the <code>engine</code> crate (one file per area, such as <code>cmd/rotate.rs</code> or <code>cmd/delete.rs</code>) describes each command with a <code>CommandSpec</code>:</p>
+<dl class="terms">
+  <dt><code>id</code></dt><dd>the stable name, such as <code>photo.star.toggle</code>, <code>folder.rename</code> or <code>export.run</code>.</dd>
+  <dt><code>label</code>, <code>menu</code></dt><dd>the English label (also the key for translations) and its place in the menus, such as <code>Picture/Star / Unstar</code>. A menu item lights up when a command with its id is registered.</dd>
+  <dt><code>keys</code></dt><dd>default shortcuts, each with the context it works in (the library, the edit view and so on). Your own bindings are stored as overrides in <code>settings.json</code>.</dd>
+  <dt><code>params</code></dt><dd>a short description of the parameters, written for people and agents to read, such as <code>{"ids":[PhotoId], "on":bool}</code>. The real check is a typed structure per command: a wrong type, a missing field or an unknown photo id is an error, never a crash.</dd>
+  <dt><code>effect</code></dt><dd><code>query</code> (reads only), <code>library</code> (changes the library and through it the sidecars), <code>files</code> (writes to photo folders beyond the sidecars: Save, Export, move, delete) or <code>external</code> (reaches outside Dalíca: opening another program, a download, changing system settings).</dd>
+  <dt><code>history</code></dt><dd>which undo stack the command's step goes on: <code>library</code> (Edit ▸ Undo in the library), <code>photo</code> (the open photo's own edit history, saved in its sidecar), or <code>none</code> (queries and view changes).</dd>
+  <dt><code>enabled</code>, <code>run</code></dt><dd>two functions: one says whether the command can run now and, if not, why (the reason shown on the status line); the other does the work and returns JSON.</dd>
+</dl>
+
+<p>The registry is easy to look at. <code>dalica-cli commands</code> prints it as JSON; here is the first entry:</p>
+<pre><code>$ dalica-cli commands
+[
+  {
+    <span class="s">"effect"</span>: <span class="s">"library"</span>,
+    <span class="s">"history"</span>: <span class="s">"library"</span>,
+    <span class="s">"id"</span>: <span class="s">"photo.star.toggle"</span>,
+    <span class="s">"keys"</span>: [
+      { <span class="s">"context"</span>: <span class="s">"library"</span>, <span class="s">"key"</span>: <span class="s">"Ctrl+8"</span> },
+      { <span class="s">"context"</span>: <span class="s">"library"</span>, <span class="s">"key"</span>: <span class="s">"F4"</span> },
+      { <span class="s">"context"</span>: <span class="s">"editView"</span>, <span class="s">"key"</span>: <span class="s">"Ctrl+8"</span> },
+      { <span class="s">"context"</span>: <span class="s">"editView"</span>, <span class="s">"key"</span>: <span class="s">"Space"</span> }
+    ],
+    <span class="s">"label"</span>: <span class="s">"Star / Unstar"</span>,
+    <span class="s">"live"</span>: <span class="k">true</span>,
+    <span class="s">"menu"</span>: <span class="s">"Picture/Star / Unstar"</span>,
+    <span class="s">"params"</span>: <span class="s">"{\"ids\":[PhotoId]}: stars them all, or unstars them if all are starred"</span>,
+    <span class="s">"shortcut"</span>: <span class="s">"Ctrl+8"</span>,
+    <span class="s">"ui"</span>: <span class="k">false</span>
+  },
+  …</code></pre>
+<p>The build this chapter was written against lists 454 entries. 227 are engine commands: 83 queries, 111 library changes, 23 file writers and 10 with external effects; 69 of them go on the library undo stack and 10 on a photo's own history. The other 227 are view-only commands (<code>"ui": true</code>: pane toggles, zoom, selection moves, slideshow controls) that live in the UI crate but are listed in the same catalogue, so an agent sees one list.</p>
+
+<h3>One function behind every surface</h3>
+<p>The menus, the keyboard, <code>dalica-cli</code>, the control channel and the MCP server all end in <code>Session::execute(id, params)</code>. That function:</p>
+<ol class="steps-list">
+  <li>looks the id up (an unknown id is <code>unknown_command</code>);</li>
+  <li>refuses a <code>files</code> command in a read-only session;</li>
+  <li>asks the command's <code>enabled</code> function, and returns its reason if it says no ("Select some photos first.");</li>
+  <li>runs the command inside <code>catch_unwind</code>, so a bug that panics becomes an <code>internal</code> error and the app keeps running;</li>
+  <li>collects the inverse of every change the command made and records them as <strong>exactly one</strong> undo step on the history the spec names, labeled with the command's name ("Undo Set Caption");</li>
+  <li>returns the result as JSON.</li>
+</ol>
+<p>So a script that runs <code>photo.rotate.cw</code> goes through the same checks, makes the same sidecar write and leaves the same undo step as pressing <code>Ctrl+R</code>. This is also how Dalíca tests itself: one engine test runs every registered command with empty, out-of-range and wrong-type parameters and expects an error from each, and <code>panic_hunt</code> generates hostile parameters from each command's spec, so a new command is covered the day it is added.</p>
+
+<h2 id="dalica-cli">dalica-cli</h2>
+
+<p><code>dalica-cli</code> is the headless companion to the desktop app. It opens a library in its own process, with no window and no GPU:</p>
+<pre><code>$ dalica-cli
+usage: dalica-cli &lt;command&gt;
+
+commands:
+  commands                                   the command registry as JSON
+  run --library DIR [SCRIPT | -]             run a JSON-lines script ({"command": id, "params": {...}} per line;
+                                             stdin when no SCRIPT or `-`); one JSON result per line
+  run --library DIR --cmd ID [--params JSON] run one command
+  inspect --library DIR                      the library as JSON: folders, photos, stars, repairs
+  snapshot --library DIR -o OUT.png [--size 1400x900] [--scale 1] [--script STEPS.jsonl]
+                                             a headless screenshot of the app; …
+  mcp [--demo | --library DIR] [--compact] [FOLDERS…]
+                                             the MCP server on standard input and output over a headless
+                                             session (`mcp --help`); its --demo is deleted on exit
+  --version                                  print the version, with its commit and build date
+…
+exit codes: 0 success, 1 a command failed, 2 a bad argument or script line, 3 the library could not be
+opened (for example, another Dalica process has it open)</code></pre>
+<p>Every example below was run against a test library of its own, with <code>HOME</code> and the <code>XDG_*</code> folders pointed at a temporary directory, on copies of this guide's sample photos.</p>
+
+<h3>run: commands from a script</h3>
+<p>A script is one JSON object per line; blank lines and lines starting with <code>#</code> are skipped. Each line prints one result line. A command that starts background work (a scan, for example) finishes it before the next line runs, and every write is flushed before the program exits. First, a new library and a folder:</p>
+<pre><code>$ cat setup.jsonl
+{"command": "folders.add", "params": {"path": "/…/photos"}}
+{"command": "library.query", "params": {}}
+
+$ dalica-cli run --library lib setup.jsonl
+{"command":"folders.add","ok":true,"result":{"new":true,"path":"/…/photos","scanning":true}}
+{"command":"library.query","ok":true,"result":{"offset":0,"photos":[{"date":null,"durationMs":null,"folder":1,
+ "height":2079,"id":1,"kind":"still","name":"DSC_4141.jpg","star":false,"width":2400}, …],"total":5}}</code></pre>
+<p>Then some organizing and editing, with two deliberate mistakes at the end:</p>
+<pre><code>$ cat edit.jsonl
+<span class="c"># star two photos, caption one, tag them, then Auto Fix and a quarter turn</span>
+{"command": "photo.star.toggle", "params": {"ids": [3, 4]}}
+{"command": "photo.caption.set", "params": {"ids": [3], "caption": "Fushimi Inari, early morning"}}
+{"command": "photo.tags.add", "params": {"ids": [3, 4, 5], "tags": "kyoto, temples"}}
+{"command": "edit.apply", "params": {"ids": [4], "op": "autofix"}}
+{"command": "photo.rotate.cw", "params": {"ids": [4]}}
+{"command": "photo.star.toggle", "params": {"ids": [99]}}
+{"command": "photo.caption.set", "params": {"ids": [3]}}
+
+$ dalica-cli run --library lib edit.jsonl
+{"command":"photo.star.toggle","ok":true,"result":{"ids":[3,4],"on":true}}
+{"command":"photo.caption.set","ok":true,"result":{"caption":"Fushimi Inari, early morning","changed":1,"ids":[3]}}
+{"command":"photo.tags.add","ok":true,"result":{"changed":3,"ids":[3,4,5],"tags":["kyoto","temples"]}}
+{"command":"edit.apply","ok":true,"result":{"ids":[4],"label":"Auto Fix","operation":"autofix()","skipped":[]}}
+{"command":"photo.rotate.cw","ok":true,"result":{"ids":[4],"operation":"rotate(90)"}}
+{"code":"not_found","command":"photo.star.toggle","error":"no photo 99","ok":false}
+{"code":"bad_params","command":"photo.caption.set","error":"bad parameters: missing field `caption`","ok":false}
+<span class="c"># exit status 1</span></code></pre>
+<p>A failed line does not stop the script; the exit status is 1 when any line failed. When it finished, the Kyoto folder's <code>.dalica.json</code> held the stars, caption, tags and the recipe <code>["autofix()", "rotate(90)"]</code>, and the caption and tags were also in the photo's XMP and IPTC, with its modification time untouched.</p>
+<p>Undo is a command too. <code>edit.undo</code> without parameters walks the library stack; with <code>{"id": …}</code> it walks that photo's own edit history. A script can also be piped in on standard input with <code>-</code>:</p>
+<pre><code>$ printf '%s\n' \
+  '{"command": "photo.caption.set", "params": {"ids": [6, 7], "caption": "Ring road, day 3"}}' \
+  '{"command": "edit.undo"}' \
+  '{"command": "photo.caption.set", "params": {"ids": [6], "caption": 42}}' \
+  '{"command": "photo.rotate.cw", "params": {"ids": []}}' | dalica-cli run --library lib4 -
+{"command":"photo.caption.set","ok":true,"result":{"caption":"Ring road, day 3","changed":2,"ids":[6,7]}}
+{"command":"edit.undo","ok":true,"result":{"undone":"Set Caption"}}
+{"code":"bad_params","command":"photo.caption.set","error":"bad parameters: invalid type: integer `42`, expected a string","ok":false}
+{"code":"disabled","command":"photo.rotate.cw","error":"Select some photos first.","ok":false}</code></pre>
+<p>The undo stack lives in memory for the life of one process, so an undo has to be in the same script (or the same app session) as the step it takes back. A photo's edit history is different: it is stored in the sidecar (<code>"edits"</code> and <code>"redo"</code>) and survives restarts.</p>
+<p>Commands that ask a question in the window refuse until their parameters say <code>"confirm": true</code>, and the refusal carries the question's text:</p>
+<pre><code>$ dalica-cli run --library lib --cmd photo.save --params '{"ids":[4]}'
+{"code":"disabled","command":"photo.save","error":"Saving writes your edits into the photo's file. Dalica first keeps the original, unchanged, in a hidden .dalica-originals folder beside it, so Undo Save and Revert can always bring it back. Send \"confirm\": true to save (and \"dontAsk\": true to stop asking).","ok":false}</code></pre>
+<p>Confirming never weakens the safety rules: a confirmed delete still goes to the trash, and a confirmed Save still keeps the original.</p>
+
+<h3>inspect: the library as JSON</h3>
+<p><code>inspect</code> summarizes a library: folders, photo counts, starred photos, and any repairs, notices or scan warnings from opening it.</p>
+<pre><code>$ dalica-cli inspect --library lib
+{
+  "folders": [
+    { "id": 1, "path": "/…/photos/Cape May", "photos": 2, "starred": 0 },
+    { "id": 2, "path": "/…/photos/Kyoto", "photos": 3, "starred": 2 }
+  ],
+  "library": "/…/lib",
+  "notices": [],
+  "photos": 5,
+  "recovery": [],
+  "roots": [ "/…/photos" ],
+  "scanWarnings": [],
+  "starred": [
+    { "height": 2400, "id": 3, "path": "/…/photos/Kyoto/DSC_4402.jpg", "width": 1591 },
+    { "height": 1233, "id": 4, "path": "/…/photos/Kyoto/DSC_4408.jpg", "width": 2400 }
+  ]
+}</code></pre>
+<p>For one photo in depth, run the query command <code>photo.inspect</code>, which answers every field Dalíca knows: file facts, caption, tags, recipe with its redo list, dates, albums, place.</p>
+
+<h3>Throwaway libraries</h3>
+<p><code>--demo</code> in place of <code>--library DIR</code> opens a persistent library of generated photos in the temporary folder; <code>--demo-fresh</code> makes a new one and deletes it, with everything in it, when the command exits. Neither reads or changes your own library or settings, which makes them the right place to try a script:</p>
+<pre><code>$ dalica-cli run --demo-fresh --cmd library.query --params '{"limit":3}'
+{"command":"library.query","ok":true,"result":{"offset":0,"photos":[{"date":"2026-06-06T13:40:00",…,"id":1,
+ "name":"IMG_0041.jpg",…},…],"total":60}}</code></pre>
+<p>In the demo libraries, ids are deterministic (folders numbered in tree order, photos in light-table order), so a script can name them and get the same photo every time.</p>
+
+<div class="note warn"><p><b>run and snapshot act as you.</b> Like any program you start in a shell, <code>dalica-cli run</code> and <code>snapshot</code> are not checked against the automation roots described below, and <code>snapshot --library DIR</code> is not read-only: its script's commands change the library. Point experiments at a copy or a demo library, never at the only copy of your photos.</p></div>
+
+<h2 id="snapshots">Headless snapshots</h2>
+
+<p><code>dalica-cli snapshot</code> opens a library, drives the real interface through the headless driver, waits for it to settle and writes one PNG. There is no window, no GPU and no network connection: egui's output is rasterized on the CPU by Dalíca's own renderer, with the same tessellation, blending and clipping as the GPU path, and because the Inter font is bundled and rasterized by Dalíca, a snapshot looks the same on Linux, Windows and macOS. A script line is one of <code>{"click": widgetId}</code>, <code>{"key": "Ctrl+8"}</code>, <code>{"command": id, "params": {…}}</code> or <code>{"settle": true}</code>:</p>
+<pre><code>$ cat tour.jsonl
+<span class="c"># star two Iceland photos, Auto Fix a third, select two and look</span>
+{"command": "photo.star.set", "params": {"ids": [6, 8], "on": true}}
+{"command": "edit.apply", "params": {"ids": [7], "op": "autofix"}}
+{"click": "tree:folder:2"}
+{"command": "select.set", "params": {"ids": [9, 10]}}
+{"settle": true}
+
+$ dalica-cli snapshot --library lib4 --script tour.jsonl -o tour.png --size 1400x900
+{"frames":74,"height":900,"ms":201,"ok":true,"path":"/…/tour.png","scale":1.0,"width":1400}</code></pre>
+
+<figure class="wide"><img src="img/automation/snapshot-tour.jpg" width="1400" height="900" alt="Dalíca's library window rendered without a window: the Kyoto, Iceland ring road and Garden in June folders in the light table, two Iceland photos with star badges, one with an edit badge, two photos selected and shown in the tray at the bottom left, and the folder header offering Save and Discard for 1 edited photo." loading="lazy"><figcaption>The PNG that command wrote, 74 frames and 201 ms after it started. Look at the Iceland ring road row: the star badges on the second and fourth photos, the edit badge on the third (its Auto Fix is in the thumbnail), the two selected photos in the tray at the bottom left, and the header's "1 edited" with Save and Discard.</figcaption></figure>
+
+<p>The driver's frames advance a virtual clock (1/60 s per frame), so animations and settling do not depend on the speed of the machine. Each settle waits up to 18,000 frames for nothing visible to be pending. The first failing step (an unknown widget, a disabled command, a settle that times out) stops the script with its line number, writes no PNG and exits with status 1. <code>--size</code> is in pixels (each side 1 to 8,192) and <code>--scale</code> is pixels per point (0.5 to 4), so <code>--size 2800x1800 --scale 2</code> lays out the same 1400 × 900 window at double resolution. Widget ids such as <code>tree:folder:2</code>, <code>thumb:4</code> or <code>button:tray.hold</code> come from the widget registry, where every interactive widget registers its id and rectangle each frame.</p>
+
+<h2 id="control-channel">The control channel</h2>
+
+<p>The control channel lets a script drive a <strong>running</strong> Dalíca: run any command, read the library and the view state, click widgets by id, press keys, open menus, and take screenshots. It is off unless the app is started with <code>--control</code>. With <code>--headless</code> the app opens no window at all and answers only the control channel, which is how the examples here were made:</p>
+<pre><code>$ dalica --headless --control 19147 --library lib --automation-write-root /…/out
+dalica: headless, control on 127.0.0.1:19147, token file /…/run/dalica/control-19147.token</code></pre>
+
+<h3>Loopback and a token</h3>
+<p>The server listens on <code>127.0.0.1</code> only. There is no option to bind another address, and if the port is taken the app exits with status 2 instead of choosing another port ("cannot listen on 127.0.0.1:19150: the port is in use (another Dalica, or another program)"), so a script can never end up driving a different instance. While it ran:</p>
+<pre><code>$ ss -ltn | grep 19147
+LISTEN 0      128      127.0.0.1:19147      0.0.0.0:*
+
+$ stat -c '%a %n' "$XDG_RUNTIME_DIR"/dalica "$XDG_RUNTIME_DIR"/dalica/control-19147.token
+700 /…/run/dalica
+600 /…/run/dalica/control-19147.token</code></pre>
+<p>The token is 256 bits from the operating system's random source, written as 64 hexadecimal characters into a file only you can read (mode 0600 in a 0700 folder on Unix; on Windows the file takes the permissions of its folder in your user profile). By default the file is <code>$XDG_RUNTIME_DIR/dalica/control-&lt;port&gt;.token</code> on Linux (or a <code>run</code> folder in Dalíca's cache), made fresh for each launch and deleted when the app exits; <code>--control-token-file PATH</code> names another. There is deliberately no way to pass the token on the command line, where other users could see it in the process list. It is never logged and never appears in a reply.</p>
+
+<h3>The protocol</h3>
+<p>The protocol is newline-delimited JSON: one request object per line, one reply per line, in order. The first line on every connection must be <code>auth</code> with the token; the token is compared in constant time. A short Python client shows what the server does with a connection that skips it, and with an HTTP request such as a web page might send:</p>
+<pre><code>(no auth) → {"id": 1, "method": "library.inspect"}
+← {"code":"unauthorized","error":"the first request must be auth (control-protocol.md §2.2); closing the connection","id":1,"ok":false}
+
+(http) → POST / HTTP/1.1
+← {"code":"parse","error":"not a request: the line is not JSON; send one JSON object per line; closing the connection","id":null,"ok":false}
+
+→ {"id": "auth", "method": "auth", "params": {"token": "&lt;64 hex&gt;"}}
+← {"id":"auth","ok":true,"result":{"app":"dalica","pid":1214743,"protocol":1,"version":"1.1.0 (dev build)"}}</code></pre>
+<p>Any line that is not a JSON object with a string <code>method</code>, is longer than 1 MiB, or nests deeper than 64 levels gets one <code>parse</code> error and the connection is closed; nothing sent after it on that connection runs. That is what keeps a browser's cross-origin request to <code>127.0.0.1</code> from smuggling a command in its body: its first line is an HTTP request line, rejected before the body is read.</p>
+<p>After <code>auth</code>, the main methods are <code>engine.execute</code> (run a command), <code>engine.commands</code> (the registry), <code>batch</code> (up to 256 steps), <code>library.inspect</code>, <code>ui.state</code> and <code>ui.set</code>, <code>ui.inspect</code> (the view state plus regions, dialogs and performance counters), <code>ui.widgets</code>, <code>ui.clickWidget</code>, <code>ui.key</code>, <code>ui.type</code>, <code>ui.menu.invoke</code>, <code>ui.screenshot</code>, <code>ui.settle</code>, the <code>jobs.*</code> methods and <code>app.quit</code>. A few exchanges from the session:</p>
+<pre><code>→ {"id": 1, "method": "engine.execute", "params": {"command": "photo.star.toggle", "params": {"ids": [5]}}}
+← {"id":1,"ok":true,"result":{"ids":[5],"on":false}}
+
+→ {"id": 4, "method": "ui.screenshot", "params": {"path": "/…/out/ctl.png"}}
+← {"id":4,"ok":true,"result":{"headless":true,"height":900,"path":"/…/out/ctl.png","settled":true,"width":1400}}
+
+→ {"id": 9, "method": "engine.execute", "params": {"command": "photo.rotate.cw", "params": {"ids": ["three"]}}}
+← {"code":"bad_params","error":"bad parameters: invalid type: string \"three\", expected u64","id":9,"ok":false}</code></pre>
+<p>Requests run on the UI thread between frames, through the same code the mouse and keyboard drive, and obey the same rule: a handler never touches the disk or blocks; work goes to workers and the reply waits for it. Input methods (a click, a key) reply only after the input has been consumed by a frame and one more frame has been laid out, so the next request sees its effect. Long commands (scans, export, Save of many photos) run as jobs; by default the reply waits for the job, and a job still running 55 seconds into the 60-second reply deadline answers <code>{job, pending: true}</code> so it can be followed with <code>jobs.wait</code>. One <code>engine.execute</code> is exactly one undo step; a <code>batch</code> is not a transaction, each command step is its own step.</p>
+<p><code>ui.inspect</code> also reports the window's performance counters, read here after a few clicks (times rounded):</p>
+<pre><code>"perf": { "fps": 60.0, "frameMs": 0.77, "frameP95Ms": 1.76, "cellsVisited": 7, "sectionsVisited": 4,
+          "treeRowsVisited": 6, "thumbTextures": 7, "placeholderCells": 0, "sketchCells": 2, … }</code></pre>
+<p><code>dalica-cli</code> can also talk to a running app: <code>run --connect 127.0.0.1:PORT</code> reads the token from the default token file for that port and accepts script lines of either kind, <code>{"command", "params"}</code> or <code>{"method", "params"}</code>; <code>--keep-going</code> runs every line even after a failure:</p>
+<pre><code>$ dalica-cli run --connect 127.0.0.1:19149 --script connect.jsonl --keep-going
+{"command":"photo.star.toggle","ms":4,"ok":true,"result":{"ids":[11],"on":true}}
+{"method":"ui.clickWidget","ms":12,"ok":true,"result":{"rect":[0.0,222.0,240.0,24.0]}}
+{"method":"ui.screenshot","ms":138,"ok":true,"result":{"headless":true,"height":900,"path":"/…/out/connect.png","settled":true,"width":1400}}
+{"code":"external_denied","command":"photo.openExternal","error":"`photo.openExternal` never runs over automation: it starts another program, which only the person at the computer may do","ms":0,"ok":false}
+
+$ dalica-cli run --connect 127.0.0.1:19149 --cmd edit.undo
+{"command":"edit.undo","ms":1,"ok":true,"result":{"undone":"Star / Unstar"}}</code></pre>
+
+<figure>
+<svg viewBox="0 0 1000 560" role="img" aria-label="The checks a control request passes: a loopback TCP connection (at most 16), line framing (one JSON object per line, at most 1 MiB, depth 64; otherwise parse and closed), authentication (otherwise unauthorized and closed), dispatch on the UI thread (otherwise unknown_method), the automation policy (external_denied, path_denied, needs_confirm, people data withheld), Session::execute (disabled, bad_params, internal), and the reply line of at most 8 MiB." xmlns="http://www.w3.org/2000/svg" font-family="Schibsted Grotesk, system-ui, sans-serif">
+  <defs>
+    <marker id="au-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker>
+  </defs>
+  <g font-size="15" fill="#ebdbb2">
+    <rect x="20" y="16" width="520" height="54" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="38" y="39">TCP connection to 127.0.0.1:PORT</text><text x="38" y="59" font-size="12.5" fill="#d5c4a1">loopback only; at most 16 open, 30 s idle timeout</text>
+    <rect x="20" y="92" width="520" height="54" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="38" y="115">Line framing</text><text x="38" y="135" font-size="12.5" fill="#d5c4a1">a JSON object with a string method, at most 1 MiB, depth 64</text>
+    <rect x="20" y="168" width="520" height="54" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="38" y="191">First line: auth</text><text x="38" y="211" font-size="12.5" fill="#d5c4a1">64-hex token from the 0600 file, constant-time compare, within 10 s</text>
+    <rect x="20" y="244" width="520" height="54" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="38" y="267">Dispatch on the UI thread, between frames</text><text x="38" y="287" font-size="12.5" fill="#d5c4a1">the same App code the mouse and keyboard drive</text>
+    <rect x="20" y="320" width="520" height="70" rx="8" fill="#32302f" stroke="#fe8019"/>
+    <text x="38" y="343">Automation policy (engine's automation module)</text><text x="38" y="363" font-size="12.5" fill="#d5c4a1">never-automated commands, external effects, read and write</text><text x="38" y="380" font-size="12.5" fill="#d5c4a1">roots, confirm for destructive commands, people data</text>
+    <rect x="20" y="412" width="520" height="54" rx="8" fill="#32302f" stroke="#fe8019"/>
+    <text x="38" y="435" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="14.5">Session::execute(id, params)</text><text x="38" y="455" font-size="12.5" fill="#d5c4a1">enabled, typed params, panic guard, one undo step</text>
+    <rect x="20" y="488" width="520" height="54" rx="8" fill="#32302f" stroke="#b8bb26"/>
+    <text x="38" y="511">Reply line {"id", "ok": true, "result"}</text><text x="38" y="531" font-size="12.5" fill="#d5c4a1">at most 8 MiB; larger results are a limit error</text>
+  </g>
+  <g stroke="#a89984" stroke-width="1.5" fill="none" marker-end="url(#au-arrow)">
+    <path d="M280,70 L280,89"/><path d="M280,146 L280,165"/><path d="M280,222 L280,241"/><path d="M280,298 L280,317"/><path d="M280,390 L280,409"/><path d="M280,466 L280,485"/>
+  </g>
+  <g stroke="#fb4934" stroke-width="1.5" fill="none" marker-end="url(#au-arrow)" stroke-dasharray="4 3">
+    <path d="M540,43 L596,43"/><path d="M540,119 L596,119"/><path d="M540,195 L596,195"/>
+  </g>
+  <g stroke="#a89984" stroke-width="1.5" fill="none" marker-end="url(#au-arrow)" stroke-dasharray="4 3">
+    <path d="M540,271 L596,271"/><path d="M540,355 L596,355"/><path d="M540,439 L596,439"/>
+  </g>
+  <g font-size="13.5" fill="#ebdbb2">
+    <rect x="600" y="22" width="380" height="42" rx="6" fill="#fb493414" stroke="#fb4934"/>
+    <text x="614" y="48"><tspan font-family="IBM Plex Mono, ui-monospace, monospace" fill="#fb4934">limit</tspan>: one error line, closed</text>
+    <rect x="600" y="98" width="380" height="42" rx="6" fill="#fb493414" stroke="#fb4934"/>
+    <text x="614" y="124"><tspan font-family="IBM Plex Mono, ui-monospace, monospace" fill="#fb4934">parse</tspan>: one error line, closed</text>
+    <rect x="600" y="174" width="380" height="42" rx="6" fill="#fb493414" stroke="#fb4934"/>
+    <text x="614" y="200"><tspan font-family="IBM Plex Mono, ui-monospace, monospace" fill="#fb4934">unauthorized</tspan>: one error line, closed</text>
+    <rect x="600" y="250" width="380" height="42" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="614" y="276"><tspan font-family="IBM Plex Mono, ui-monospace, monospace" fill="#fabd2f">unknown_method</tspan>: stays open</text>
+    <rect x="600" y="320" width="380" height="70" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="614" y="344" font-family="IBM Plex Mono, ui-monospace, monospace" fill="#fabd2f" font-size="13">external_denied · path_denied</text>
+    <text x="614" y="364" font-family="IBM Plex Mono, ui-monospace, monospace" fill="#fabd2f" font-size="13">needs_confirm</text><text x="724" y="364">(with the prompt)</text>
+    <text x="614" y="382" fill="#d5c4a1" font-size="12.5">names and face boxes withheld, not refused</text>
+    <rect x="600" y="418" width="380" height="42" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="614" y="444" font-family="IBM Plex Mono, ui-monospace, monospace" fill="#fabd2f" font-size="13">disabled · bad_params · internal</text>
+  </g>
+  <text x="600" y="500" fill="#a89984" font-size="12.5">Red: the connection is closed.</text>
+  <text x="600" y="518" fill="#a89984" font-size="12.5">Gray: an error reply, and the connection stays open.</text>
+</svg>
+<figcaption>The path of one control request. The first three checks protect the channel itself and close the connection on failure; the last two protect your library and files and answer with an error code the client can act on. Every limit is checked before anything changes, so an over-limit request has no effect.</figcaption>
+</figure>
+
+<h2 id="what-automation-may-do">What automation may and may not do</h2>
+
+<p>A client that holds the token can do what you can do in the window, with one set of rules applied on top. They live in one module of the engine (<code>automation.rs</code>) that both the control channel and the MCP server call, and they apply to synthetic clicks and keys as much as to <code>engine.execute</code>, so a click on a button cannot reach what the command behind it may not.</p>
+
+<h3>Ids, not paths</h3>
+<p>Most commands address photos, folders, albums and people by library id. An id can only reach files already indexed under a watched folder, so those commands need no file-system permission at all. The commands that take a path (adding a folder, an export destination, Save As, an import destination, a screenshot or render file, a collage folder, a face model file) are checked against <strong>roots</strong> granted when the app or server was started:</p>
+<dl class="terms">
+  <dt>Read roots</dt>
+  <dd>Folders automation may add to the library or read from: <code>--automation-read-root DIR</code> (repeatable), plus, for MCP, the folders named on its command line and the client's own roots. Watched folders can always be read again. With no read root, adding a folder over automation is refused (except in the demo).</dd>
+  <dt>Write roots</dt>
+  <dd>Where automation may create files: <code>--automation-write-root DIR</code> (repeatable). With none given, the system's temporary folder and <code>&lt;cache&gt;/Dalica/automation/</code>.</dd>
+</dl>
+<p>A path must be absolute and at most 4,096 bytes; a <code>.</code> or <code>..</code> component is refused before anything is resolved, and on Windows so are device prefixes, streams and reserved names. Then the path is resolved through its links and compared with each resolved root component by component, so <code>/photos-evil</code> does not pass for <code>/photos</code> and a link cannot lead out of a root. Two more rules: nothing is ever written inside <code>.dalica-originals/</code>, and a screenshot or render is never written inside a watched folder, where it would turn into a library photo (an export or a Save As may be, since those join the library by design). New files never replace existing ones, except that a screenshot may replace a <code>.png</code>. From the session above:</p>
+<pre><code>→ {"id": 5, "method": "ui.screenshot", "params": {"path": "/…/photos/Kyoto/shot.png"}}
+← {"code":"path_denied","error":"/…/photos/Kyoto/shot.png is inside a watched folder: it would become a library photo","id":5,"ok":false}
+
+→ {"id": 7, "method": "engine.execute", "params": {"command": "folders.add", "params": {"path": "/etc"}}}
+← {"code":"path_denied","error":"/etc cannot be read by automation: no read root was given (--automation-read-root, a folder on the command line, or an MCP client root)","id":7,"ok":false}</code></pre>
+
+<h3>Destructive commands ask first</h3>
+<p>Every command that asks a question in the window refuses over automation until its parameters carry <code>"confirm": true</code>: deleting photos, folders and albums, Revert, removing all edits, the first Save, removing a folder from Dalíca, rebuilding the library. The refusal carries the dialog's text and buttons so an agent can show the question to its user:</p>
+<pre><code>→ {"id": 8, "method": "engine.execute", "params": {"command": "photo.delete", "params": {"ids": [1]}}}
+← {"code":"needs_confirm","error":"`photo.delete` asks first in the app; send \"confirm\": true in its params to go ahead (prompt holds the question)",
+   "id":8,"ok":false,"prompt":{"buttons":["Move to Trash","Cancel"],"dialog":"deletePhotos","text":"Move the selected pictures to the trash?","title":"Delete"}}</code></pre>
+<p>Automation has no way around the data rules either: delete goes to the trash, Save keeps the original, metadata writes merge. Native file pickers are never opened by automation: commands take their paths as parameters, and a picker requested by a synthetic click is replaced by an in-app stub answered with <code>ui.filePicker</code>.</p>
+
+<h3>Effects outside Dalíca</h3>
+<p>Ten engine commands have <code>external</code> effects. Without <code>--automation-allow-external</code>, automation is refused anything that uses the network (map tiles, place search, model downloads), changes your system settings (making Dalíca the default viewer) or chooses where the app may connect. Some effects are refused <strong>whatever was granted</strong>, because only the person at the computer should trigger them: Locate on Disk (for photos and folders), Open With, Open in External Editor, and deleting imported files from a card.</p>
+<pre><code>→ {"id": 6, "method": "engine.execute", "params": {"command": "photo.openWith", "params": {"ids": [3]}}}
+← {"code":"external_denied","error":"`photo.openWith` never runs over automation: it starts another program, which only the person at the computer may do","id":6,"ok":false}</code></pre>
+<p>While a control request is playing input into the window, the app also refuses these commands if a synthetic key or click reaches them.</p>
+
+<h3>People's names</h3>
+<p>Without <code>--automation-allow-people</code>, people's names, nicknames and face rectangles never reach automation. The commands still run (naming a face works, and its reply carries ids only), but replies that would carry names give <code>null</code> instead, and searches run with names left out of the match, so a search for a guessed name finds nothing and no reply can tell a guessed name from an unknown one. Filtering by a person's id still works, since ids are not names. Face descriptors are never returned, whatever was granted. The one accepted gap: a folder's own name is data you chose, so a folder named after a person still shows inside photo paths.</p>
+
+<h3>Errors an agent can act on</h3>
+<p>Every failure has a stable <code>code</code> and an English sentence. The full set: <code>parse</code>, <code>unauthorized</code>, <code>unknown_method</code>, <code>unknown_command</code>, <code>bad_params</code>, <code>disabled</code>, <code>needs_confirm</code>, <code>not_found</code>, <code>busy</code>, <code>path_denied</code>, <code>external_denied</code>, <code>unsupported</code>, <code>limit</code>, <code>timeout</code>, <code>unsaved</code>, <code>read_only</code> and <code>internal</code>. Two deserve a word. <code>unsaved</code> means the change was applied and is undoable but could not be written to disk yet (a full disk, a missing drive); the writer retries every few seconds, and nothing is lost unless the app quits first. <code>timeout</code> means the reply did not arrive in time but the work may still have happened, so a client should inspect before retrying.</p>
+
+<h2 id="mcp">MCP for AI agents</h2>
+
+<p><code>dalica-cli mcp</code> exposes Dalíca to AI agents through the Model Context Protocol: JSON-RPC 2.0, one message per line on standard input and output. The server is a thin layer over the same command registry, hand-written with no async runtime and no C dependencies. It runs in two modes:</p>
+<dl class="terms">
+  <dt>Headless (the default)</dt>
+  <dd><code>dalica-cli mcp [--demo | --library DIR] [FOLDERS…]</code> opens its own engine session with no window. Folders named on the command line are added as Scan Once and become read roots. Without a library, it works in a temporary one that is deleted on exit.</dd>
+  <dt>Connect</dt>
+  <dd><code>dalica-cli mcp --connect 127.0.0.1:PORT</code> drives a running <code>dalica --control PORT</code> through the control channel, reading its token file, and adds UI tools (screenshot, click, key, menu, settle). The app's own roots and permissions apply; the bridge cannot widen them.</dd>
+</dl>
+<p>Wiring it into a client is the usual stdio shape, a command and its arguments:</p>
+<pre><code>{
+  "mcpServers": {
+    "dalica": {
+      "command": "/path/to/dalica-cli",
+      "args": ["mcp", "--demo"]
+    }
+  }
+}</code></pre>
+
+<h3>Tools</h3>
+<p>In headless mode against a library, <code>tools/list</code> answered 246 tools: 19 helpers and one tool per engine command (<code>cmd_</code> plus the id with dots turned into underscores, so <code>photo.star.toggle</code> is <code>cmd_photo_star_toggle</code>). <code>--compact</code> lists only the helpers, for clients that struggle with long tool lists; <code>command_run</code> still reaches every command.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Helpers</th><th>What they do</th></tr></thead>
+<tbody>
+<tr><td><code>command_list</code>, <code>command_run</code>, <code>command_batch</code></td><td>the registry, one command, up to 256 commands (one undo step each)</td></tr>
+<tr><td><code>doc_inspect</code>, <code>query_photos</code>, <code>photo_info</code></td><td>the library, a search with filters, everything about one photo</td></tr>
+<tr><td><code>scan_folder</code>, <code>select_photos</code>, <code>set_metadata</code>, <code>create_album</code></td><td>organizing; <code>set_metadata</code> changes star, caption, tags, hidden, place and date in one undo step</td></tr>
+<tr><td><code>list_edit_ops</code>, <code>get_recipe</code>, <code>set_recipe</code>, <code>apply_edit</code></td><td>the recipe; <code>set_recipe</code> refuses to drop operations it cannot interpret unless told to</td></tr>
+<tr><td><code>render_preview</code>, <code>render_photo</code></td><td>an image of the photo with its edits, through the same renderer as thumbnails, Save and Export; changes nothing</td></tr>
+<tr><td><code>export</code>, <code>jobs_list</code>, <code>jobs_cancel</code></td><td>export as the Export dialog does; background jobs</td></tr>
+</tbody></table></div>
+<p>The tool annotations that tell a client whether to ask its user first are derived from the registry, not written by hand: a <code>query</code> command is read-only and idempotent; a command that asks first (its parameters name <code>confirm</code>) or has an external effect is destructive; <code>openWorldHint</code> is false everywhere, because no Dalíca tool reaches the network. A test runs every command without <code>confirm</code> and fails if one answering <code>needs_confirm</code> is not marked destructive. From the session:</p>
+<pre><code>query_photos          {"destructiveHint": false, "idempotentHint": true,  "openWorldHint": false, "readOnlyHint": true,  "title": "Query photos"}
+cmd_photo_star_toggle {"destructiveHint": false, "idempotentHint": false, "openWorldHint": false, "readOnlyHint": false, "title": "Star / Unstar"}
+cmd_photo_delete      {"destructiveHint": true,  "idempotentHint": false, "openWorldHint": false, "readOnlyHint": false, "title": "Delete from Disk…"}</code></pre>
+
+<h3>A session</h3>
+<p>The server introduces itself in its <code>initialize</code> reply with instructions for the model. An excerpt:</p>
+<pre><code>"Dalica is a folder-based photo organizer with simple, non-destructive editing. Photos, folders and jobs have integer
+ids; albums have short hex ids (a91c0e); … Photo commands run without `ids` act on the Photo Tray (the held photos plus
+the selection), as the bottom-bar buttons do. Commands that ask first in the app (delete, revert, remove a folder,
+rebuild) refuse until their params carry "confirm": true; deletes go to the OS trash. …"</code></pre>
+<p>Then a few calls, with the server started as <code>dalica-cli mcp --library lib --automation-write-root /…/out</code> (replies trimmed):</p>
+<pre><code>→ tools/call apply_edit {"ids": [5], "op": "autofix"}
+← {"entry": "autofix()", "photos": [{"changed": true, "id": 5, "recipe": "autofix()"}]}
+
+→ tools/call render_photo {"id": 5, "size": 320, "format": "jpeg", "path": "/…/out/render-5.jpg"}
+← content: [{"type": "image", "mimeType": "image/jpeg", "data": "/9j/4AAQSkZJ…"},
+            {"type": "text", "text": "{\"height\":212,\"id\":5,\"recipe\":[\"autofix()\"],\"width\":320,…}"}]
+
+→ tools/call export {"ids": [3, 4], "dir": "/…/out", "folder_name": "Kyoto picks", "size": 800}
+← {"done": 2, "failed": [], "files": [{"bytes": 164252, "height": 800, "id": 3, "path": "/…/out/Kyoto picks/DSC_4402.jpg",
+   "width": 530}, …], "folder": "/…/out/Kyoto picks", "skipped": [], "total": 2}
+
+→ tools/call scan_folder {"path": "/etc"}
+← isError: true {"code": "path_denied", "error": "/etc cannot be read by automation: no read root was given …"}
+
+→ tools/call cmd_photo_locate {"ids": [3]}
+← isError: true {"code": "external_denied", "error": "`photo.locate` never runs over automation: it opens the system's
+   file manager, which only the person at the computer may do"}</code></pre>
+<p>Failures of the operation come back as tool results with <code>isError: true</code> and the same codes as the control channel, so the model can read them and correct itself; protocol errors use JSON-RPC's standard codes. An escaped panic in a tool becomes an <code>internal</code> error and the server keeps serving. Long tools report progress when the request carries a progress token, and cancelling the request stops the job before its next photo; photos already done stay done, each written atomically. The server also offers live resources: <code>dalica://library</code>, <code>dalica://commands</code>, <code>dalica://selection</code>, <code>dalica://edit-ops</code> and <code>dalica://photo/{id}</code>.</p>
+
+<h3>Read-only sessions</h3>
+<p><code>dalica-cli mcp --read-only</code> opens the session so that nothing is written to your library: commands that write files answer <code>read_only</code>, and every other change (sidecars, the index, metadata, settings) stays in memory and is gone when the session closes. The refusal lives in the engine's session itself, so no tool can step around it:</p>
+<pre><code>→ tools/call cmd_photo_star_toggle {"ids": [1]}
+← {"ids": [1], "on": true}
+→ tools/call cmd_photo_save {"ids": [5], "confirm": true}
+← isError: true {"code": "read_only", "error": "Save writes files, and this session is read-only (--read-only)"}</code></pre>
+<p>Afterwards, the photo starred in that session was still unstarred in the library, and its folder had no sidecar. What a read-only session still touches: the library's lock file, the thumbnail cache, a damaged index set aside at open, and Dalíca's own stale temporary files.</p>
+
+<div class="note"><p><b>Before you connect an agent:</b> prefer stdio over the TCP channel, grant the narrowest roots, and use <code>--demo</code>, <code>--demo-fresh</code> or <code>--read-only</code> for an agent you do not fully trust. An MCP client may send what tools return (rendered photos, captions, paths) to a remote model; that is your choice when you connect it. Dalíca itself never makes a network request on behalf of a tool.</p></div>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li>crates/engine/src/registry.rs (<code>CommandSpec</code>, <code>Effect</code>, <code>History</code>), crates/engine/src/session.rs (<code>Session::execute</code>, <code>execute_group</code>), crates/engine/src/cmd/ (one module per area), crates/engine/src/automation.rs (roots, never-automated commands, people data)</li>
+  <li>apps/dalica-cli/src/main.rs, run.rs, inspect.rs, snapshot.rs, mcp.rs</li>
+  <li>apps/dalica/src/control/ (transport, token file, limits), crates/ui/src/control/ (method handlers), crates/ui/src/headless.rs and crates/ui-kit/src/raster.rs (the headless driver and CPU renderer)</li>
+  <li>crates/mcp (the MCP server and its tools)</li>
+  <li>docs/architecture.md §3 and §7, docs/control-protocol.md, docs/mcp.md, docs/security.md §6</li>
+</ul>

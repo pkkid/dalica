@@ -1,0 +1,223 @@
+<h1>Your library on disk</h1>
+<p class="lede">Dalíca keeps what you decide about your photos in small text files next to the photos themselves, and treats everything else it stores as a cache. This chapter shows those files byte by byte, explains how album order survives being spread over many folders, and lists what lives in the library directory and what you can safely delete.</p>
+
+<h2 id="folders-are-truth">Your folders are the library</h2>
+<p>Dalíca does not import photos into a database of its own. It shows the real files in the folders you told it to watch, and it never moves, copies or renames a file unless you ask for that (a move, a rename, an import from a card). A photo lives in exactly one folder; albums are lists of references to photos and never hold files.</p>
+<p>Everything you type or decide about a photo is written to a sidecar file in the photo's own folder: stars, captions, tags, hidden flags, the edit recipe with its undo and redo lists, album membership and order, the folder's sort, face rectangles and who they are, places and date corrections. Captions, tags, places and date changes are also written into the photo's own metadata (XMP, IPTC and EXIF) so other programs see them, unless you turn that off. The library index in the library directory holds a copy of all of it, plus facts Dalíca can always work out again by reading the files.</p>
+<p>That split decides what happens when something goes wrong. If the index is lost, a rescan reads the sidecars and the photos and rebuilds it. If a folder is moved to another disk, its sidecar travels with it. If you open the same folders in a second copy of Dalíca on another computer, the second copy sees the same stars and edits.</p>
+
+<figure>
+<svg viewBox="0 0 680 446" role="img" aria-label="Three places on disk. Your photo folders hold the photos, .dalica.json, .dalica-originals and the metadata inside the photos: the source of truth. The library directory holds the index, albums.json, people.json, the faces cache, folders.json, settings.json, pending-writes.json and the lock; a rescan rebuilds the index from the folders. The cache directory holds the thumbnail packs and their indexes and is safe to delete; thumbnails are made again from the photos.">
+  <rect x="10" y="10" width="660" height="156" rx="8" fill="#32302f" stroke="#fe8019" stroke-width="2"/>
+  <text x="28" y="42" fill="#ebdbb2" font-size="18" font-weight="bold">Your photo folders</text>
+  <text x="28" y="66" fill="#fe8019" font-size="15">the source of truth</text>
+  <text x="250" y="42" fill="#ebdbb2" font-size="15" font-family="monospace">.dalica.json</text>
+  <text x="250" y="62" fill="#d5c4a1" font-size="14">stars, captions, tags, edits, albums, faces, places</text>
+  <text x="250" y="90" fill="#ebdbb2" font-size="15" font-family="monospace">.dalica-originals/</text>
+  <text x="250" y="110" fill="#d5c4a1" font-size="14">the untouched originals of saved photos</text>
+  <text x="250" y="138" fill="#ebdbb2" font-size="15">XMP and IPTC inside the photos:</text><text x="250" y="154" fill="#d5c4a1" font-size="14">captions, tags, places, dates</text>
+  <rect x="10" y="182" width="660" height="150" rx="8" fill="#32302f" stroke="#504945" stroke-width="1.5"/>
+  <text x="28" y="212" fill="#ebdbb2" font-size="18" font-weight="bold">Library directory</text>
+  <text x="28" y="236" fill="#d5c4a1" font-size="15">a cache, plus settings</text>
+  <text x="28" y="316" fill="#fe8019" font-size="14">rebuilt from the folders</text>
+  <text x="250" y="212" fill="#ebdbb2" font-size="15" font-family="monospace">index.log  index.snap</text>
+  <text x="250" y="238" fill="#ebdbb2" font-size="15" font-family="monospace">albums.json  people.json</text>
+  <text x="250" y="264" fill="#ebdbb2" font-size="15" font-family="monospace">faces-&lt;model&gt;.cache</text>
+  <text x="250" y="290" fill="#ebdbb2" font-size="15" font-family="monospace">folders.json  settings.json</text>
+  <text x="250" y="316" fill="#ebdbb2" font-size="15" font-family="monospace">pending-writes.json  lock …</text>
+  <rect x="10" y="352" width="660" height="84" rx="8" fill="#32302f" stroke="#504945" stroke-width="1.5"/>
+  <text x="28" y="384" fill="#ebdbb2" font-size="18" font-weight="bold">Cache directory</text>
+  <text x="28" y="412" fill="#83a598" font-size="14">delete it at any time</text>
+  <text x="250" y="384" fill="#ebdbb2" font-size="15" font-family="monospace">thumbs/128-00000001.pack, .idx</text>
+  <text x="250" y="412" fill="#d5c4a1" font-size="14">one pair per size; made again from the photos</text>
+</svg>
+<figcaption>The three places Dalíca keeps data. Only the left one is the truth: the library directory can be rebuilt from it, and the thumbnail cache can be thrown away.</figcaption>
+</figure>
+
+<h2 id="index">The index is a cache</h2>
+<p>The library index is what lets Dalíca open a library of 100,000 photos in a fraction of a second without reading 100,000 files. It is two files in the library directory:</p>
+<dl class="terms">
+<dt><code>index.log</code></dt>
+<dd>A journal: one line per change, written and synced to disk as each change happens. Each line is an 8-digit hex CRC-32, a space and one JSON record. The first line is a header saying the format version and how many changes the snapshot already holds.</dd>
+<dt><code>index.snap</code></dt>
+<dd>A snapshot of the whole model in one checksummed record. Dalíca takes one in the background once the journal holds 10,000 changes or 64 MiB, writes it atomically and starts a fresh journal. Opening the library loads the snapshot and replays the journal after it.</dd>
+</dl>
+<p>Here are the first lines of a real journal, from a library made for this guide with four photos in a folder called <code>Kyoto</code> (paths shortened, long lines wrapped):</p>
+<pre><code><span class="n">b5ee4f91</span> {"journal":1,"base":0}
+<span class="n">3161de5e</span> {"op":"addFolder","folder":{"id":1,"path":"…/Pictures/Kyoto"}}
+<span class="n">5d9eb4dd</span> {"op":"addPhotos","photos":[{"id":1,"folder":1,"name":"DSC_4402.jpg","size":1218094,
+           "mtime":1794022317761,"width":1591,"height":2400,"date":null,"star":false}, …]}
+<span class="n">8d4b931f</span> {"op":"setFirstIndexed","indexed":[[1,1794022317767], …]}
+<span class="n">1e05d4b9</span> {"op":"batch","ops":[{"op":"setSketches","sketches":[[3,"0V4qWoWqjAhn3fCGKpNMzc/m7PL8bK4A"], …]},
+           {"op":"setColours","colours":[[3,9],[4,2],[2,2],[1,21]]}]}</code></pre>
+<p>Reading stops cleanly at the first line that is torn (no newline), fails its checksum or does not parse: everything before it is kept, nothing after it is trusted. A failed append (a full disk, say) is cut back to the last whole record before the error is reported, so one bad write never costs the changes after it. A damaged snapshot is set aside and the journal used when it still holds every change; if neither can be trusted, the index is kept aside as <code>.corrupt-&lt;time&gt;</code> and the library is rebuilt from the folders.</p>
+
+<h3>What only the index knows</h3>
+<p>A few things live only in the index, and every one of them can be worked out again from the files: each photo's file size, modification time and pixel size, its color sketch and color summary (the blurred preview and the colors <code>color:</code> searches use), its search facts (camera, video, geotagged), content digests, the time this library first indexed it, and the hashes of the metadata Dalíca last synced with the file. After a rebuild these are read again or start empty.</p>
+
+<h3>Deleting the index, tried</h3>
+<p>To check the claim that the index is disposable, the guide's test library was given stars, captions, tags, two edits and a three-photo album, and then <code>index.log</code> was deleted. Opening the library again showed an empty library (a missing index is a new one; only a damaged one triggers a rebuild on its own). Running <code>library.rebuild</code> (Help &gt; Troubleshooting &gt; Rebuild library in the app) walked the folder and brought back all four photos with their stars, captions, tags and recipes, the album with its members in their order, and the Recently Updated list.</p>
+<div class="note"><p><b>What a lost index costs:</b> time, and a little history. Recently Updated keeps the changes made in Dalíca, because their times are stored in the sidecar (<code>"changed"</code>), but a photo that only changed on disk counted as updated by comparing its file time with its first-indexed time, which is index-only. After a rebuild those photos drop out of the list. Face embeddings are cached by the index's photo ids, with each file's size and time, so a photo whose id changed in the rebuild is searched for faces again in the background; the face rectangles and names themselves are in the sidecars and do not change.</p></div>
+
+<h2 id="sidecar">The folder sidecar <code>.dalica.json</code></h2>
+<p>Each folder that holds something you decided gets one hidden file, <code>.dalica.json</code>. A folder you never touched has none: the file is created on the first change. This is the real sidecar Dalíca wrote for the test folder after these commands: stars on two photos, two captions, the tags <code>kyoto</code>, <code>shrine</code> and <code>fox</code>, Auto Fix on one photo, a crop and a quarter turn on another, an album of three photos, and one photo dragged to a new place in the album. Two keys were then added by hand to stand in for another program (<code>x-colorLabel</code> and <code>otherTool</code>), and one more change was made in Dalíca:</p>
+<pre><code>{
+  <span class="k">"albums"</span>: {
+    <span class="k">"ad9627dfe4c5e"</span>: { <span class="k">"name"</span>: <span class="s">"Best of Kyoto"</span> }
+  },
+  <span class="k">"dalica"</span>: { <span class="k">"version"</span>: <span class="n">1</span> },
+  <span class="k">"otherTool"</span>: { <span class="k">"lastSync"</span>: <span class="s">"2026-11-01"</span> },
+  <span class="k">"photos"</span>: {
+    <span class="k">"DSC_4402.jpg"</span>: {
+      <span class="k">"albums"</span>: { <span class="k">"ad9627dfe4c5e"</span>: <span class="s">"a0"</span> },
+      <span class="k">"caption"</span>: <span class="s">"The tower gate at Fushimi Inari"</span>,
+      <span class="k">"changed"</span>: <span class="s">"2026-11-07T03:32:08.735Z"</span>,
+      <span class="k">"star"</span>: <span class="n">true</span>,
+      <span class="k">"tags"</span>: [ <span class="s">"kyoto"</span>, <span class="s">"shrine"</span> ],
+      <span class="k">"x-colorLabel"</span>: <span class="s">"red"</span>
+    },
+    <span class="k">"DSC_4408.jpg"</span>: {
+      <span class="k">"albums"</span>: { <span class="k">"ad9627dfe4c5e"</span>: <span class="s">"bU0"</span> },
+      <span class="k">"changed"</span>: <span class="s">"2026-11-07T03:32:24.322Z"</span>,
+      <span class="k">"edits"</span>: [ <span class="s">"autofix()"</span> ]
+    },
+    <span class="k">"DSC_4476.jpg"</span>: {
+      <span class="k">"changed"</span>: <span class="s">"2026-11-07T03:32:08.735Z"</span>,
+      <span class="k">"edits"</span>: [ <span class="s">"crop(0.1,0.05,0.9,0.75)"</span>, <span class="s">"rotate(90)"</span> ],
+      <span class="k">"star"</span>: <span class="n">true</span>,
+      <span class="k">"tags"</span>: [ <span class="s">"kyoto"</span>, <span class="s">"shrine"</span> ]
+    },
+    <span class="k">"DSC_4536.jpg"</span>: {
+      <span class="k">"albums"</span>: { <span class="k">"ad9627dfe4c5e"</span>: <span class="s">"bz0"</span> },
+      <span class="k">"caption"</span>: <span class="s">"A fox guarding the path"</span>,
+      <span class="k">"changed"</span>: <span class="s">"2026-11-07T03:32:24.372Z"</span>,
+      <span class="k">"star"</span>: <span class="n">true</span>,
+      <span class="k">"tags"</span>: [ <span class="s">"kyoto"</span>, <span class="s">"shrine"</span>, <span class="s">"fox"</span> ]
+    }
+  }
+}</code></pre>
+<p>The file on disk has one value per line with two-space indentation; short objects are folded onto one line here to save room. Reading it from the top:</p>
+<dl class="terms">
+<dt><code>"albums"</code> at the top</dt>
+<dd>The name of every album with a member in this folder, keyed by album id (<code>a</code> followed by hex digits). It is there so an album can be recovered by name even if <code>albums.json</code> in the library directory is lost.</dd>
+<dt><code>"dalica"</code></dt>
+<dd>Dalíca's own bookkeeping: the format version, and <code>"missing"</code> when a photo's file disappeared while its entry still holds data (see the Scanning chapter).</dd>
+<dt><code>"photos"</code></dt>
+<dd>One entry per photo that has data, keyed by file name. Using the name as a JSON object key means JSON's own string escaping round-trips any name, including ones with quotes, brackets, semicolons or non-ASCII characters. A photo with nothing to say (no star, no caption, no edit) has no entry at all.</dd>
+<dt><code>"star"</code>, <code>"caption"</code>, <code>"tags"</code></dt>
+<dd>As you set them. An empty value (<code>false</code>, <code>""</code>, <code>[]</code>) is written as no key at all.</dd>
+<dt><code>"edits"</code></dt>
+<dd>The recipe: the edit history in the order you applied it, one operation per string, in the same text the recipe API uses. <code>DSC_4476.jpg</code> was cropped and then turned a quarter; rotations are ordinary entries. A <code>"redo"</code> list appears when you undo an edit in the edit view, which is why that undo history survives a restart. Pixels never change until you Save.</dd>
+<dt><code>"albums"</code> inside a photo</dt>
+<dd>Album id to <em>position key</em>: the photo's place in that album (next section).</dd>
+<dt><code>"changed"</code></dt>
+<dd>When Dalíca last changed what it says about this photo, in UTC with milliseconds. Recently Updated reads it. The second command batch (the album move and a new star) touched only the two photos it changed: their times moved on, the others kept theirs.</dd>
+<dt><code>"otherTool"</code>, <code>"x-colorLabel"</code></dt>
+<dd>The keys added by hand. Dalíca does not know them, and the next write kept both, at their places in the sorted order.</dd>
+</dl>
+<p>Other keys appear when you use the features behind them: <code>"hidden"</code>, <code>"date"</code> (a corrected date taken), <code>"faces"</code> with normalized rectangles and person ids, <code>"geo"</code> (a <code>[latitude, longitude]</code> pair with six decimals, or <code>null</code> when you removed a location so the file's GPS is ignored), <code>"savedAs"</code>, a <code>"folder"</code> object for the folder's description, date, place, sort and custom order, and a top-level <code>"people"</code> object naming everyone with a face in the folder.</p>
+
+<h3>How it is written</h3>
+<ol class="steps-list">
+<li><strong>Debounced.</strong> A change marks the folder dirty. The writer writes each folder at most once per second, so a burst of stars becomes one write, and a crash loses at most the last second of changes in one folder, never the file.</li>
+<li><strong>Merged.</strong> The writer reads the file on disk again, changes only the keys whose value differs from what the file says, and leaves every other key and value exactly as it found it. A file that already says what the model says keeps its bytes, even if it is spelled differently (a tag list in another order, an EXIF-style date).</li>
+<li><strong>Printed deterministically.</strong> UTF-8, LF line endings, two-space indentation, and the keys of every object sorted by their UTF-8 bytes at every level, so photos sort by file name and two writes of the same content give the same bytes. Diffs stay minimal if you keep your photos under version control.</li>
+<li><strong>Replaced atomically.</strong> The new content goes to a temporary file, is synced to disk, and is renamed over the old one, after checking that the file is still the one just read. A crash leaves either the old file or the new one, never a torn mix. Leftover temporaries (<code>.dalica-tmp-*</code>) are cleaned up by the next scan of that folder.</li>
+</ol>
+
+<h3>Other programs' data, and damaged files</h3>
+<p>Unknown objects and keys are preserved verbatim on every rewrite. A known key with a value of the wrong type (a caption that is a number) is not used, is reported once, and stays in the file until you set that field yourself. An edit operation Dalíca does not know is just another string: it keeps its place in the recipe and the operations after it still apply. Text past Dalíca's limits (16 KiB for a caption) is shown cut and kept whole in the file.</p>
+<p>A sidecar that cannot be read at all is renamed to <code>.dalica.json.corrupt-&lt;timestamp&gt;</code> and kept. The folder shows a banner and nothing is written into it (no sidecar, no metadata write-back into its photos) until you choose Reset folder data or put a good file back. The list of such folders is kept in <code>damaged-folders.json</code>, so a restart or a rebuilt index does not quietly start writing there before you decide.</p>
+
+<h3>Why plain JSON</h3>
+<ul>
+<li><strong>It travels with the folder.</strong> Copy a folder to a backup disk, a new computer or a shared drive, and its stars and edits go with it. No export step, no database to keep in sync.</li>
+<li><strong>Anyone can read it.</strong> A text editor, a script or another program can read and even edit it. Dalíca's job is to keep whatever it finds there.</li>
+<li><strong>It is small.</strong> Only photos with data get an entry, and empty values are never written.</li>
+<li><strong>It outlives the program.</strong> If Dalíca disappeared tomorrow, your captions and album orders would still be sitting in a format any language can parse.</li>
+</ul>
+
+<h3>The photo files themselves</h3>
+<p>With the default options, captions, tags, places and date changes are also written into each photo's XMP and IPTC. In the test folder, the three photos that got a caption or tags grew by 2.7 to 2.9 KB each, and kept their modification times (Dalíca leaves the time alone unless you turn on "Update file modification time on metadata changes"). The photo with only Auto Fix kept its exact size: edits never touch a file until you Save. Metadata writes rewrite only the metadata segments of a JPEG and keep every other byte, pixels included. When the sidecar and the file disagree, the sidecar wins and the file is rewritten at the next metadata write, except when another program changed the file's value since Dalíca last synced it, while Dalíca's stayed the same, in which case that change is imported.</p>
+
+<h2 id="album-order">Album order: position keys</h2>
+<p>An album's order spans many folders, and each member's place is stored in that member's own sidecar. If places were stored as numbers (1, 2, 3), dragging one photo to the front of a 300-photo album would renumber 299 others and rewrite the sidecar of every folder they live in. Dalíca stores a <em>position key</em> instead: a short string of digits and ASCII letters that sorts in album order by plain byte comparison, chosen so that a key always exists between any two different keys. Moving a photo gives it a new key between its new neighbors' keys, and only its own sidecar entry changes.</p>
+<p>A key is a sequence of integers written in base 62 (<code>0</code> to <code>9</code>, <code>A</code> to <code>Z</code>, <code>a</code> to <code>z</code>, in byte order). Each integer starts with a head letter that says how many digits follow: <code>a</code> one digit, <code>b</code> two, and so on up to <code>z</code>; uppercase heads are for negative values. So <code>a0</code> is zero, the first key of an empty album, and longer integers always sort after shorter ones of the same sign.</p>
+<figure>
+<svg viewBox="0 0 680 330" role="img" aria-label="Before the move the album holds DSC_4402 with key a0, DSC_4536 with key bz0 and DSC_4408 with key c0z0. DSC_4408 is dragged between the other two and gets the key bU0, halfway between a0 and bz0; only its own entry is rewritten.">
+  <text x="20" y="24" fill="#d5c4a1" font-size="15">Before: added in order, each key 62 × 62 = 3,844 past the last</text>
+  <g font-size="15">
+    <rect x="20" y="38" width="200" height="66" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="34" y="64" fill="#ebdbb2" font-family="monospace">DSC_4402.jpg</text>
+    <text x="34" y="90" fill="#fe8019" font-family="monospace">a0</text><text x="74" y="90" fill="#d5c4a1">= 0</text>
+    <rect x="240" y="38" width="200" height="66" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="254" y="64" fill="#ebdbb2" font-family="monospace">DSC_4536.jpg</text>
+    <text x="254" y="90" fill="#fe8019" font-family="monospace">bz0</text><text x="296" y="90" fill="#d5c4a1">= 3,844</text>
+    <rect x="460" y="38" width="200" height="66" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="474" y="64" fill="#ebdbb2" font-family="monospace">DSC_4408.jpg</text>
+    <text x="474" y="90" fill="#fe8019" font-family="monospace">c0z0</text><text x="526" y="90" fill="#d5c4a1">= 7,688</text>
+  </g>
+  <path d="M560 106 C 560 160, 340 150, 340 196" fill="none" stroke="#fe8019" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <polygon points="334,192 340,204 346,192" fill="#fe8019"/>
+  <text x="470" y="160" fill="#d5c4a1" font-size="14">dragged here</text>
+  <text x="20" y="196" fill="#d5c4a1" font-size="15">After: the midpoint key</text>
+  <g font-size="15">
+    <rect x="20" y="208" width="200" height="66" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="34" y="234" fill="#ebdbb2" font-family="monospace">DSC_4402.jpg</text>
+    <text x="34" y="260" fill="#fe8019" font-family="monospace">a0</text><text x="74" y="260" fill="#d5c4a1">unchanged</text>
+    <rect x="240" y="208" width="200" height="66" rx="6" fill="#32302f" stroke="#fe8019" stroke-width="2"/>
+    <text x="254" y="234" fill="#ebdbb2" font-family="monospace">DSC_4408.jpg</text>
+    <text x="254" y="260" fill="#fe8019" font-family="monospace">bU0</text><text x="296" y="260" fill="#d5c4a1">= 1,922, rewritten</text>
+    <rect x="460" y="208" width="200" height="66" rx="6" fill="#32302f" stroke="#504945"/>
+    <text x="474" y="234" fill="#ebdbb2" font-family="monospace">DSC_4536.jpg</text>
+    <text x="474" y="260" fill="#fe8019" font-family="monospace">bz0</text><text x="516" y="260" fill="#d5c4a1">unchanged</text>
+  </g>
+  <text x="20" y="310" fill="#d5c4a1" font-size="14">Byte order: a0 &lt; bU0 &lt; bz0, because the digit U (30) sorts before z (61).</text>
+</svg>
+<figcaption>The real keys from the test album. <code>b</code> means two digits follow; <code>z0</code> is 61 × 62 + 0, and the <code>b</code> range starts at 62, so <code>bz0</code> is 3,844. The midpoint of 0 and 3,844 is 1,922, which is <code>bU0</code>.</figcaption>
+</figure>
+<p>Simply halving the gap on every insert would add a digit every six inserts at the same spot. Instead, adding at the end or the start steps the first integer by a fixed 3,844, which leaves room for about twelve midpoint inserts on each side before a key needs another level. Measured on 10,000 inserts at one spot, the longest key was 6 bytes when appending, 6 when prepending, 8 when always inserting at the second place and 9 when always inserting right after the previous insert. Only repeated drops into the middle of the newest pair grow keys steadily, and even that took 2,379 inserts before a key passed the 512-byte limit. When a key would pass it, Dalíca rewrites the album's keys the way Sort Album By does.</p>
+<p>Rebuilding an album means collecting every member from every folder sidecar and sorting by key; equal keys (possible after merging two libraries) sort by folder path, then file name. <code>albums.json</code> in the library directory keeps a copy of each album's order as <code>[path, key]</code> pairs, used only for the photos of a folder whose sidecar cannot be read.</p>
+
+<h2 id="library-folder">The library directory</h2>
+<p>The library directory is, in this order: the folder named by <code>$DALICA_HOME</code>; in portable mode (a file named <code>portable</code> beside the program) <code>data/library</code> next to it; otherwise <code>~/.local/share/dalica/library</code> on Linux (<code>$XDG_DATA_HOME/dalica/library</code>), <code>~/Library/Application Support/Dalica/Library</code> on macOS and <code>%LOCALAPPDATA%\Dalica\Library</code> on Windows. <code>--library DIR</code> opens another one. After the rebuild above, the test library held only <code>albums.json</code> (514 bytes), <code>folders.json</code> (144), <code>index.log</code> (2,323), <code>lock</code> (empty) and <code>settings.json</code> (85); the other files appear when the features behind them are used.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>What it holds</th><th>If you delete it</th></tr></thead>
+<tbody>
+<tr><td><code>index.log</code>, <code>index.snap</code></td><td>The library index (above).</td><td>Rebuild library brings everything back from the folders.</td></tr>
+<tr><td><code>folders.json</code></td><td>The Folder Manager's settings: each folder that sets Scan Always, Scan Once or Remove, its face-finding flag, and whether a Scan Once folder's first scan finished.</td><td>Dalíca forgets which folders to watch. Add them again and their data comes back from their sidecars.</td></tr>
+<tr><td><code>albums.json</code></td><td>Album definitions (name, description, date, place, cover) and a copy of each order.</td><td>Albums come back from the sidecars under their names, with their members in order; descriptions, places and covers are lost.</td></tr>
+<tr><td><code>people.json</code></td><td>Every person (name, nickname, thumbnail face) and the name suggestions you rejected.</td><td>People come back from the names mirrored in each folder's sidecar; thumbnails and rejected suggestions start empty.</td></tr>
+<tr><td><code>faces-&lt;model&gt;.cache</code></td><td>Face embeddings and landmarks for one recognizer, and which photos it searched.</td><td>Faces are found again in the background. Face rectangles and names live in the sidecars and are not affected.</td></tr>
+<tr><td><code>settings.json</code></td><td>Your preferences and keyboard shortcuts.</td><td>Defaults are used.</td></tr>
+<tr><td><code>pending-writes.json</code></td><td>Folders whose sidecar write waits for an offline drive.</td><td>The journal still holds the edits; the list is found again when the drive is checked.</td></tr>
+<tr><td><code>damaged-folders.json</code></td><td>Folders whose sidecar was damaged and set aside.</td><td>Only the warning is lost; the damage is found again at the next write.</td></tr>
+<tr><td><code>file-ops.json</code></td><td>Moves, copies, renames and deletes in progress, item by item.</td><td>Do not delete it while Dalíca runs. It exists so an operation stopped by a crash can be finished or rolled back at the next start, and is empty again after that.</td></tr>
+<tr><td><code>lock</code></td><td>The library lock (next section).</td><td>Harmless when Dalíca is closed; Dalíca never deletes it itself.</td></tr>
+</tbody></table></div>
+<p>Every one of these JSON files follows the sidecar's rules: unknown keys are kept, writes are atomic and happen only when the bytes change, and a damaged file is set aside as <code>.corrupt-&lt;time&gt;</code> rather than overwritten.</p>
+<p>Thumbnails are not in the library directory at all. They live in Dalíca's cache folder (<code>~/.cache/dalica/thumbs</code> on Linux, <code>~/Library/Caches/Dalica/thumbs</code> on macOS, <code>%LOCALAPPDATA%\Dalica\cache\thumbs</code> on Windows), which you can delete at any time; Help &gt; Stats for Nerds shows its size and has a Clear Thumbnail Cache button. The Thumbnails chapter describes its format.</p>
+
+<h2 id="one-dalica">One Dalíca per library</h2>
+<p>Two processes writing the same index and the same sidecars would undo each other's changes, so a library is opened by one process at a time. Opening a library takes an exclusive operating-system lock on the file <code>lock</code> in its directory. The lock belongs to the process, so the system releases it however the process ends, a crash included; there is never a stale lock to clean up, and the file itself is never deleted (deleting it would race with the next launch). The library directory is meant to be on a local disk, because file locks on network shares are not reliable.</p>
+<p>A second process that finds the lock taken gives up at once instead of waiting. Tried on the test library while a headless Dalíca held it, <code>dalica-cli</code> answered "the library at … is open in another Dalica process" and exited with code 3. The thumbnail cache has a lock of its own (<code>thumbs/lock</code>); a process that cannot take it uses a temporary cache for that session and says so.</p>
+<h3>A second launch hands its files over</h3>
+<p>Double-clicking a photo in your file manager while Dalíca is already running should show that photo, not fail on the lock. For your own library (the platform's default one: not <code>--library</code>, <code>DALICA_HOME</code>, a demo or a portable copy), the first Dalíca also takes a lock on <code>instance.lock</code>, listens on 127.0.0.1 only, and writes its port, process id and a fresh 256-bit random token to <code>instance.json</code>, readable only by you.</p>
+<ol class="steps-list">
+<li>A later launch finds <code>instance.lock</code> taken and sends its file paths with the token in one request: at most 64 absolute paths of at most 4 KiB each, on one line, within 5 seconds. Anything else is refused whole and nothing opens. At most 8 such launches are served at once.</li>
+<li>The running Dalíca brings its window forward and opens its photo viewer on the first file, then answers <code>ok</code>. It answers only once its window has taken the paths.</li>
+<li>The later launch exits when it hears <code>ok</code>. If it hears anything else (the first one is still opening, hung or quitting) it keeps trying, and after 10 seconds starts on its own. A file is never acknowledged and then dropped.</li>
+</ol>
+<p>When the photo viewer opens on a library another Dalíca holds (another user's, say), it opens on an empty, read-only library of its own in a temporary folder: the photo is shown with its edits from its sidecar, and changes are disabled with "Dalica is already open".</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li>Specs: docs/data-model.md §1 to §4, §9 and §10; docs/architecture.md §4; docs/organizing.md §0; docs/viewing.md §3.4 (one Dalíca per user); docs/security.md §6 (the hand-off channel).</li>
+<li>crates/sidecar/src/fields.rs and albums.rs: reading and writing the sidecar's keys.</li>
+<li>crates/store/src/journal.rs, snapshot.rs, lib.rs: the index journal and snapshot (SNAPSHOT_OPS, SNAPSHOT_BYTES).</li>
+<li>crates/store/src/mapping.rs, writer.rs, rebuild.rs, albums.rs, people.rs, stale.rs: the model to sidecar mapping, the debounced writer, the rebuild.</li>
+<li>crates/core/src/poskey.rs: position keys.</li>
+<li>crates/fs/src/lock.rs: the library lock.</li>
+<li>apps/dalica/src/paths.rs and apps/dalica/src/instance.rs: where the library lives, and the hand-off between launches.</li>
+<li>The example files were made with dalica-cli on copies of four photos from the guide's Kyoto set; the commands are in the guide's tools folder.</li>
+</ul>

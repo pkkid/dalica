@@ -1,0 +1,217 @@
+<h1>Video</h1>
+<p class="lede">How Dalíca reads, decodes and plays your clips without any system codec: which containers and codecs it takes and why HEVC is left out of standard downloads, how a clip's poster frame is picked, how HDR is brought down to an ordinary screen, and what trimming, Save Frame as Picture and Export Clip actually do to the file.</p>
+
+<h2 id="formats">Containers and codecs</h2>
+<p>A video is recognized by its <strong>content</strong>, never by its extension. Dalíca reads four containers:</p>
+<dl class="terms">
+  <dt>MP4, M4V and QuickTime (MOV)</dt>
+  <dd>ISO base media files whose <code>ftyp</code> box names a movie brand (<code>isom</code>, <code>iso2</code> to <code>iso9</code>, <code>mp41</code>, <code>mp42</code>, <code>avc1</code>, the <code>3gp</code> brands, <code>M4V </code>, <code>qt  </code> and others). A file whose brands name a still image (HEIC, AVIF, a camera's raw) or a sound-only file (<code>M4A </code>) is not a video. Older QuickTime movies without an <code>ftyp</code> box are recognized by their first box (<code>moov</code>, <code>mdat</code>, <code>wide</code>, <code>pnot</code>).</dd>
+  <dt>Matroska (MKV)</dt>
+  <dd>Recognized by its EBML DocType <code>matroska</code>. WebM is not listed.</dd>
+</dl>
+<p>When a folder is scanned, each video is <strong>probed</strong> without decoding a single frame: only the <code>ftyp</code> and <code>moov</code> boxes are read (the media data is skipped), or a Matroska file's head. The probe gives the duration to the millisecond, the stored frame size, the rotation in clockwise quarter turns (from the track matrix), the creation date, the video and sound codecs, the frame rate, whether there is sound, and the location when the file holds one. The light table cell gets the shape of the clip as shown, so a phone clip filmed upright is taller than wide.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Stream</th><th>Decoder</th><th>Standard download</th></tr></thead>
+<tbody>
+<tr><td>H.264 (<code>avc1</code>, <code>avc3</code>, Matroska <code>V_MPEG4/ISO/AVC</code>)</td><td><code>altc264</code> 0.1.1</td><td>yes, in every build</td></tr>
+<tr><td>HEVC / H.265 (<code>hvc1</code>, <code>hev1</code>, <code>V_MPEGH/ISO/HEVC</code>)</td><td><code>rusty_h265</code> 0.6.2, vendored with threads added</td><td>no: only in builds made with the <code>hevc</code> feature</td></tr>
+<tr><td>AAC sound (<code>mp4a</code>, Matroska <code>A_AAC</code>)</td><td><code>rusty_aac</code> 1.1.1</td><td>yes</td></tr>
+<tr><td>Anything else (ProRes, AV1, VP9, AC-3 sound, ...)</td><td>none</td><td>listed, not played</td></tr>
+</tbody></table></div>
+<p>Whether a clip plays is decided from the facts the scan read, never by opening the file. A clip of a codec Dalíca does not decode keeps a video tile with the reason, "This video can't be played (ProRes)", and still takes part in everything that works on the container rather than the pictures: it can be trimmed, copied with Export Clip, and exported as a full video. A clip whose pictures play but whose sound does not plays muted and says so: "This clip plays without sound (AC-3 sound can't be played)". A stream the decoder itself refuses (4:2:2 or 4:4:4 chroma, for example, or HEVC range extensions) also keeps its tile, and the reason then names the profile.</p>
+
+<h3 id="hevc">Why HEVC is not in standard downloads</h3>
+<p>Most phones record HEVC by default, so this is the limitation you are most likely to meet. The decoder exists and works: it decoded all 147 streams of the ITU HEVC conformance suite and every phone clip it was measured on exactly. It is left out of the release builds because <strong>decoding HEVC needs a patent licence in some countries</strong>, and Dalíca is free software that anyone may redistribute. The same decision keeps HEIC photos (whose pictures are HEVC too) out of release builds.</p>
+<p>In a standard download, every path that would decode an HEVC clip (the player, thumbnails, the slideshow, Export's first frame, the collage) answers "This video can't be played (HEVC support isn't included in this build)" and never touches the stream. If you build Dalíca yourself and the licensing situation where you live allows it, <code>cargo build -p dalica --features hevc</code> turns all of those paths on, and HEVC clips then behave exactly like H.264 ones.</p>
+
+<h2 id="pure-rust">Decoding in pure Rust</h2>
+<p>Dalíca links no C codec library and asks the operating system for no codec. Every byte of a video, from the container's boxes to the decoded pixels, is handled by Rust code inside the program. That has three practical effects: a clip plays the same on Linux, Windows and macOS; a build needs no system packages; and a hostile file meets code that was chosen and tested for exactly that.</p>
+<p>A decoder was only accepted after a measured trial on real phone files. To pass, one crate had to:</p>
+<ol class="steps-list">
+  <li>decode every real phone file of its kind with frames identical to a reference decoder (H.264 and HEVC decoding is exact by their standards);</li>
+  <li>decode 1080p at least in real time on one core;</li>
+  <li>pass the project's dependency audit with no licence exception and no C build;</li>
+  <li>never panic or hang on damaged input.</li>
+</ol>
+<p>Some of the passing decoders use <code>unsafe</code> code internally for speed (the H.264 decoder in 257 places). That was accepted behind a fuzzing gate of Dalíca's own: fuzz targets reach the H.264, HEVC and AAC decoders through Dalíca's entry points and run at every milestone review. Around them, the demuxer treats every length as hostile: frames are at most 8,192 pixels on a side and 8,192 &#215; 4,352 in all, a sample at most 32 MiB, a track at most 2<sup>21</sup> samples, and the pictures a decoder may hold (its largest reference buffer of 16, the picture being decoded and those waiting to be shown) must fit the memory limit before decoding starts. A decoder that panics anyway is caught, and a new one is made for the next request.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 900 190" role="img" aria-label="Frame pipeline: the container's sample tables give coded samples, the H.264 or HEVC decoder gives YUV planes, the color stage converts with the stream's matrix and range and tone maps HDR, the scaler averages to the size asked, the container's rotation turns it upright, giving 8-bit sRGB.">
+  <defs><marker id="vd-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker></defs>
+  <g font-family="Inter, sans-serif" font-size="13" fill="#ebdbb2">
+    <rect x="5" y="30" width="140" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="75" y="58" text-anchor="middle">Container</text>
+    <text x="75" y="78" text-anchor="middle" font-size="11" fill="#a89984">MP4 sample tables,</text>
+    <text x="75" y="93" text-anchor="middle" font-size="11" fill="#a89984">Matroska clusters</text>
+    <rect x="165" y="30" width="140" height="80" rx="8" fill="#32302f" stroke="#83a598"/>
+    <text x="235" y="58" text-anchor="middle">Decoder</text>
+    <text x="235" y="78" text-anchor="middle" font-size="11" fill="#a89984">H.264 or HEVC,</text>
+    <text x="235" y="93" text-anchor="middle" font-size="11" fill="#a89984">one sample at a time</text>
+    <rect x="325" y="30" width="150" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="400" y="58" text-anchor="middle">Y&#8242;CbCr planes</text>
+    <text x="400" y="78" text-anchor="middle" font-size="11" fill="#a89984">8 to 16 bits, any</text>
+    <text x="400" y="93" text-anchor="middle" font-size="11" fill="#a89984">chroma subsampling</text>
+    <rect x="495" y="30" width="150" height="80" rx="8" fill="#32302f" stroke="#fe8019"/>
+    <text x="570" y="58" text-anchor="middle">Color + scale</text>
+    <text x="570" y="78" text-anchor="middle" font-size="11" fill="#a89984">matrix, range; HDR tone</text>
+    <text x="570" y="93" text-anchor="middle" font-size="11" fill="#a89984">mapped; block average</text>
+    <rect x="665" y="30" width="110" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="720" y="58" text-anchor="middle">Upright</text>
+    <text x="720" y="78" text-anchor="middle" font-size="11" fill="#a89984">container's</text>
+    <text x="720" y="93" text-anchor="middle" font-size="11" fill="#a89984">rotation</text>
+    <rect x="795" y="30" width="100" height="80" rx="8" fill="#32302f" stroke="#b8bb26"/>
+    <text x="845" y="64" text-anchor="middle">8-bit</text>
+    <text x="845" y="84" text-anchor="middle">sRGB frame</text>
+    <path d="M145,70 L161,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#vd-a)"/>
+    <path d="M305,70 L321,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#vd-a)"/>
+    <path d="M475,70 L491,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#vd-a)"/>
+    <path d="M645,70 L661,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#vd-a)"/>
+    <path d="M775,70 L791,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#vd-a)"/>
+    <text x="450" y="150" text-anchor="middle" font-size="12" fill="#a89984">The file is read one sample at a time and never held whole; scaling happens during the color conversion,</text>
+    <text x="450" y="168" text-anchor="middle" font-size="12" fill="#a89984">so a 256-pixel poster costs a 256-pixel conversion, not a full-size one.</text>
+  </g>
+</svg>
+<figcaption>Every frame Dalíca shows, from the player to a thumbnail, comes out of this one path, upright and in 8-bit sRGB.</figcaption>
+</figure>
+
+<h3 id="frames-seeking">Frames and seeking</h3>
+<p>Frames are numbered in display order. The frame "at a time" is the last one shown at or before that time. Reaching it means decoding from the sync sample (key frame) at or before it, once more from the one before that when the stream's leading pictures need it. Stepping forward continues the decode; stepping back decodes again from the sync sample, but the last four frames returned are kept, so a step back after a step forward costs nothing.</p>
+<p>The color conversion follows what the stream signals: the BT.601, BT.709 or BT.2020 matrix (or none, for GBR), limited or full range, any chroma subsampling, 8 to 16 bits a sample. A stream that leaves its matrix unspecified gets BT.709 when it is 720 lines or taller and BT.601 below. Scaling happens in the same pass: each output pixel averages the block of source pixels it covers.</p>
+
+<h2 id="poster">How the poster frame is chosen</h2>
+<p>A clip's thumbnails at every size, its preview in the edit view, its picture in a collage and its "first frame" in an export are all the same frame: its <strong>poster frame</strong>. The rule is: <em>the first frame whose mean luma reaches 0.06 within the first 10 seconds; if there is none, the very first frame.</em></p>
+<figure class="wide">
+<svg viewBox="0 0 900 230" role="img" aria-label="Poster frame rule, schematic: frames from the start of a clip shown as boxes of increasing brightness; the first frames are below the 0.06 luma line; the first frame at or above it inside the 10 second window is the poster. If none reaches it before 10 seconds, the first frame is used.">
+  <g font-family="Inter, sans-serif" font-size="12" fill="#ebdbb2">
+    <line x1="60" y1="150" x2="880" y2="150" stroke="#504945"/>
+    <line x1="60" y1="40" x2="60" y2="150" stroke="#504945"/>
+    <text x="52" y="44" text-anchor="end" fill="#a89984">0.3</text>
+    <text x="52" y="154" text-anchor="end" fill="#a89984">0</text>
+    <text x="30" y="100" text-anchor="middle" fill="#a89984" transform="rotate(-90 30 100)">mean luma</text>
+    <line x1="60" y1="128.0" x2="880" y2="128.0" stroke="#fb4934" stroke-dasharray="5 4"/>
+    <text x="876" y="122.0" text-anchor="end" fill="#fb4934">0.06</text>
+    <rect x="70" y="146.3" width="34" height="3.7" fill="#504945"/>
+    <rect x="112" y="142.7" width="34" height="7.3" fill="#504945"/>
+    <rect x="154" y="139.0" width="34" height="11.0" fill="#504945"/>
+    <rect x="196" y="133.5" width="34" height="16.5" fill="#504945"/>
+    <rect x="238" y="124.3" width="34" height="25.7" fill="#fe8019"/>
+    <rect x="280" y="95.0" width="34" height="55.0" fill="#665c54"/>
+    <rect x="322" y="69.3" width="34" height="80.7" fill="#665c54"/>
+    <rect x="364" y="51.0" width="34" height="99.0" fill="#665c54"/>
+    <rect x="406" y="43.7" width="34" height="106.3" fill="#665c54"/>
+    <text x="255" y="116.3" text-anchor="middle" fill="#fe8019">poster</text>
+    <text x="70" y="172" fill="#a89984">dark frames (a fade from black, a hand over the lens)</text>
+    <line x1="760" y1="40" x2="760" y2="150" stroke="#83a598" stroke-dasharray="5 4"/>
+    <text x="764" y="56" fill="#83a598">10 s</text>
+    <text x="60" y="200" fill="#a89984">0 s</text>
+    <text x="470" y="200" text-anchor="middle" fill="#a89984">Search stops at the first lit frame, or at 10 s; with no lit frame by then, the first frame is the poster.</text>
+  </g>
+</svg>
+<figcaption>A schematic of the rule (not a measured clip): the bars are frames in order, their height the mean luma (the axis runs to 0.3 so the threshold is visible). The search reads frames from the first key frame until one reaches the red line.</figcaption>
+</figure>
+<p>The point is to skip the black frames many clips start with: a fade-in from black, a phone pulled out of a pocket, a camera with the lens cap still on. A threshold of 0.06 is barely above black, so a genuinely dark scene (a night sky, a candlelit room) still has frames that pass, and the poster is very close to the start; only near-black frames are skipped. The 10 second limit bounds the work: a clip that stays black is not decoded to its end just to make a thumbnail.</p>
+<p>The <strong>mean luma</strong> is measured on the decoded luma plane, sampled on a grid of about 64 &#215; 64 points (every <code>width/64</code>-th pixel of every <code>height/64</code>-th row), and normalized to the stream's own black and white levels: for an 8-bit limited-range stream, code 16 is 0 and code 235 is 1, so the limited-range black that most video uses really counts as black. For 10-bit streams the levels scale with the depth.</p>
+<p>For thumbnails, the poster is decoded once, at 256 pixels on the long side (the scan's size, which also makes the 128 pixel thumbnail), on a thumbnail worker with no decoder threads of its own, since the pool's workers are already the parallelism. Each frame read on the way is scaled to that size before it is kept. A clip whose codec this build does not decode is never opened for a thumbnail: its cell keeps the video tile.</p>
+
+<h2 id="hdr">HDR and 10-bit video on an ordinary screen</h2>
+<p>Recent phones record HDR video: 10-bit samples, wide BT.2020 primaries, and a transfer function (PQ or HLG) that encodes light far brighter than an ordinary screen's white. Shown as if it were ordinary video it looks washed out and gray. Dalíca recognizes HDR from the stream's color description (transfer PQ or HLG, or BT.2020 primaries) and converts it on the way to sRGB:</p>
+<ol class="steps-list">
+  <li><strong>To light.</strong> The signal is turned into linear light through a 4,096-entry table. PQ (SMPTE ST 2084) gives absolute light in cd/m&#178;, which is divided by 203, the reference white of SDR content (ITU-R BT.2408). HLG gives scene light, then BT.2100's system gamma for a 1,000 cd/m&#178; display (gamma 1.2) is applied, again relative to 203.</li>
+  <li><strong>To sRGB's colors.</strong> BT.2020 primaries are converted to BT.709 (sRGB's) with the standard 3 &#215; 3 matrix; colors that fall outside are clipped at zero.</li>
+  <li><strong>Tone curve.</strong> The extended Reinhard operator, applied on each pixel's <em>largest</em> channel and the same factor to all three, so hues keep their ratios instead of drifting toward white. Its white point is the assumed peak, 1,000 cd/m&#178; (HLG's nominal peak, and what phones master PQ for): light at 1,000 cd/m&#178; becomes exactly sRGB white, and anything brighter clips.</li>
+  <li><strong>Encode</strong> as 8-bit sRGB.</li>
+</ol>
+<figure>
+<img src="img/video/tone-curve.png" width="1800" height="720" alt="Left: 8-bit sRGB output against HDR light in cd/m2. The dashed line without a tone curve reaches 255 at 203 and stays there; Dalíca's curve rises smoothly and reaches 255 at 1000. Right: the PQ signal from 0 to 1 against light on a log scale from 0.01 to 10000 cd/m2." loading="lazy">
+<figcaption>Left: what an HDR pixel's light becomes, from the formulas in Dalíca's converter. Without a curve everything above 203 cd/m&#178; would clip to white; with it, 203 cd/m&#178; lands at code 191, 400 at 220 and 1,000 at 255, so highlights keep their detail. Right: the PQ curve that gives the light in the first place.</figcaption>
+</figure>
+<p>The trade-off is that HDR clips look a little darker than the same scene filmed in SDR, because reference white sits at about 75 % of the sRGB range instead of at the top, leaving room for the highlights. That is the price of keeping clouds and lamps from turning into flat white. This conversion is also the most expensive part of HDR playback: about 45 ms for a 1080p frame on one core, and like the decoder it runs on the player's decoding threads.</p>
+<p>A wide-gamut stream that is not HDR (BT.2020 primaries with an ordinary transfer) takes the same path without the tone curve: linearized with BT.1886's gamma 2.4, converted to BT.709 primaries, and encoded.</p>
+
+<h2 id="player">The player</h2>
+<p>A video opens in the edit view with a player under it. The window's thread never decodes: frames are decoded ahead on a worker of the player's own, at most 8 frames ahead and at most 1,920 pixels on the long side. The frame on screen is always the last one that is due.</p>
+<p><strong>The sound's clock drives playback.</strong> Play opens the sound output at the clip's format and keeps half a second of its sound queued ahead of what has been heard. The position is where play started plus what the output says has been heard, so the pictures follow the sound and wait for it if it stalls. A clip without sound queues silence, so its clock runs the same way; with no sound output on the system at all, the session's own clock is used.</p>
+<p>When decoding cannot keep up, every decoded frame is still shown as it comes, so the picture moves at the rate the decoder manages, but a decoder more than 0.1 s behind skips ahead to a key frame (one already due, or one that will be due by the time it is decoded; once it is a full second behind, the next one). The picture catches up with the sound at each key frame, and the sound is never held back for it. The goal for a 1080p 30 fps clip is a decoded, converted frame within 16 ms at the 95th percentile, so a 60 Hz window shows every frame; on the development machine, with 8 decoding threads, an iPhone H.264 1080p30 clip measured 11.1 ms.</p>
+
+<h3 id="trim">Trimming</h3>
+<p>A trim is a recipe entry, <code>trim(start,end)</code>, in whole milliseconds from the clip's start, the start before the end: <code>trim(500,1500)</code> plays from 0.5 s to 1.5 s. Nothing in the video file changes, exactly as with a photo's edits. Set Start and Set End set one end at the current position and keep the other (the clip's start or end when there was no trim yet), replacing the trim entry in place: one step of the video's own history ("Undo Trim"). A start at or after the end is refused. If a recipe somehow holds several trims, the last readable one counts.</p>
+<p>Play starts at the trim's start when the position is outside it and stops, paused, at its end. The slideshow plays only the trimmed part too. The trim and the rotation are the only edits a video has; there is no color editing of video.</p>
+
+<h2 id="save-frame">Save Frame as Picture</h2>
+<p>Save Frame as Picture writes the frame on screen as a new photo:</p>
+<ul>
+  <li>at the clip's <strong>full size</strong> (not the player's 1,920 px preview), upright, with the video's own rotations and flips from its recipe;</li>
+  <li>through the one output pipeline (the frame is held losslessly in memory, then encoded), as a <strong>JPEG at quality 92</strong> with an EXIF thumbnail;</li>
+  <li>into <code>Pictures/Dalica/Video Frames</code>, made when missing and marked as the Video Frames project so it shows under Projects;</li>
+  <li>named <code>&lt;clip&gt; &lt;hh-mm-ss&gt;.jpg</code> after the frame's time (made safe for every system), with <code>-001</code> and so on when the name is taken, never replacing a file;</li>
+  <li>with its <strong>date taken</strong> set to the clip's date plus the frame's time, so a frame from 1 minute 20 seconds into a clip sorts 80 seconds after the clip's start.</li>
+</ul>
+<p>It runs as an export job. A clip Dalíca cannot play has no frame to save, so the command is refused with the reason.</p>
+
+<h2 id="export-clip">Export Clip</h2>
+<p>Export Clip makes a new file holding only the trimmed part, in the same container. It <strong>never re-encodes</strong>: the coded pictures and sound are copied as they are, so there is no quality loss and it works on any clip whose container Dalíca reads, whether or not it can decode the codec.</p>
+<p>The catch is that a decoder can only start at a key frame. So the copy starts at the last key frame at or before the trim's start, and ends with the last frame shown before the trim's end. The real cut is reported, for example "Exported IMG_0042 trimmed.mov (0:00.4 to 0:01.5)", and the new file's edit list starts the presentation at the cut.</p>
+<figure class="wide">
+<svg viewBox="0 0 900 200" role="img" aria-label="Export Clip cut: a row of frames with key frames marked K every eight frames. The trim starts between key frames; the copy starts at the key frame before the trim's start and ends at the last frame before the trim's end.">
+  <g font-family="Inter, sans-serif" font-size="12" fill="#ebdbb2">
+    <g stroke="#504945">
+      <rect x="20" y="70" width="26" height="40" fill="#fe8019"/><rect x="48" y="70" width="26" height="40" fill="#32302f"/><rect x="76" y="70" width="26" height="40" fill="#32302f"/><rect x="104" y="70" width="26" height="40" fill="#32302f"/>
+      <rect x="132" y="70" width="26" height="40" fill="#32302f"/><rect x="160" y="70" width="26" height="40" fill="#32302f"/><rect x="188" y="70" width="26" height="40" fill="#32302f"/><rect x="216" y="70" width="26" height="40" fill="#32302f"/>
+      <rect x="244" y="70" width="26" height="40" fill="#fe8019"/><rect x="272" y="70" width="26" height="40" fill="#83a598"/><rect x="300" y="70" width="26" height="40" fill="#83a598"/><rect x="328" y="70" width="26" height="40" fill="#83a598"/>
+      <rect x="356" y="70" width="26" height="40" fill="#83a598"/><rect x="384" y="70" width="26" height="40" fill="#83a598"/><rect x="412" y="70" width="26" height="40" fill="#83a598"/><rect x="440" y="70" width="26" height="40" fill="#83a598"/>
+      <rect x="468" y="70" width="26" height="40" fill="#fe8019"/><rect x="496" y="70" width="26" height="40" fill="#83a598"/><rect x="524" y="70" width="26" height="40" fill="#83a598"/><rect x="552" y="70" width="26" height="40" fill="#83a598"/>
+      <rect x="580" y="70" width="26" height="40" fill="#83a598"/><rect x="608" y="70" width="26" height="40" fill="#83a598"/><rect x="636" y="70" width="26" height="40" fill="#83a598"/><rect x="664" y="70" width="26" height="40" fill="#32302f"/>
+      <rect x="692" y="70" width="26" height="40" fill="#fe8019"/><rect x="720" y="70" width="26" height="40" fill="#32302f"/><rect x="748" y="70" width="26" height="40" fill="#32302f"/><rect x="776" y="70" width="26" height="40" fill="#32302f"/>
+      <rect x="804" y="70" width="26" height="40" fill="#32302f"/><rect x="832" y="70" width="26" height="40" fill="#32302f"/><rect x="860" y="70" width="26" height="40" fill="#32302f"/>
+    </g>
+    <text x="33" y="95" text-anchor="middle" fill="#1d2021">K</text><text x="257" y="95" text-anchor="middle" fill="#1d2021">K</text><text x="481" y="95" text-anchor="middle" fill="#1d2021">K</text><text x="705" y="95" text-anchor="middle" fill="#1d2021">K</text>
+    <line x1="342" y1="40" x2="342" y2="125" stroke="#fabd2f" stroke-width="2"/>
+    <text x="342" y="34" text-anchor="middle" fill="#fabd2f">trim start</text>
+    <line x1="664" y1="40" x2="664" y2="125" stroke="#fabd2f" stroke-width="2"/>
+    <text x="664" y="34" text-anchor="middle" fill="#fabd2f">trim end</text>
+    <path d="M244,140 L244,150 L664,150 L664,140" fill="none" stroke="#83a598" stroke-width="2"/>
+    <text x="454" y="170" text-anchor="middle" fill="#83a598">copied: from the key frame at or before the start, to the last frame before the end</text>
+    <text x="20" y="190" fill="#a89984">K = key frame (sync sample). The copy starts up to one group of pictures early; nothing is decoded or re-encoded.</text>
+  </g>
+</svg>
+<figcaption>Why an exported clip can start a little before the trim: cutting at the trim's exact frame would need that frame decoded and re-encoded, losing quality. Copying from the previous key frame keeps every coded picture bit for bit.</figcaption>
+</figure>
+<p>How the copy is built depends on the container:</p>
+<ul>
+  <li><strong>MP4, M4V and QuickTime:</strong> the movie box is read (at most 64 MiB) and each track's sample tables are expanded (time to sample, composition offsets, sync samples, sample to chunk, sizes, chunk offsets, edit lists). The new file is the source's <code>ftyp</code>, a movie box with each track's own boxes copied (headers, handler, sample descriptions, track references, user data and metadata, including the movie's place and date), new sample tables, an edit list that starts at the cut, and the samples in one <code>mdat</code>. Tables Dalíca does not rewrite (sample dependency and sample group tables, among others) are left out rather than copied wrong. A fragmented movie is refused.</li>
+  <li><strong>Matroska:</strong> the EBML header and the segment's Info (with a new Duration), Tracks and Tags are copied, then the clusters holding the cut's blocks, with new cluster timestamps and each block's relative time moved to match. The seek head, cues and chapters, whose times would be wrong, are left out.</li>
+</ul>
+<p>The sound and any other tracks keep what plays between the cut's start and end. The copy goes beside the clip as <code>&lt;clip&gt; trimmed.&lt;ext&gt;</code> unless you choose a place, and never replaces a file. It is built in memory and written whole, so a clip larger than 1 GB once trimmed is refused, as is a damaged file.</p>
+
+<h2 id="sound">Sound output on each system</h2>
+<p>Sound output is pure Rust too, one backend per system, each on threads of its own, never the window's thread:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>System</th><th>Output</th></tr></thead>
+<tbody>
+<tr><td>Linux</td><td>A PulseAudio-protocol client written for Dalíca, talking to the sound server's Unix socket; both PulseAudio and PipeWire's PulseAudio-compatible server answer it. It plays to the default output (and follows it when you change it), as 32-bit float samples (more than two channels mixed down to stereo), with a short buffer target of 150 ms. Every 20 ms it asks the server how much has really been played; that answer is the clock the player follows.</td></tr>
+<tr><td>Windows</td><td>WASAPI, through the <code>cpal</code> crate's host, on the default output device at its own format; Dalíca's samples are resampled and mapped to it.</td></tr>
+<tr><td>macOS</td><td>CoreAudio, through <code>cpal</code> the same way.</td></tr>
+</tbody></table></div>
+<p>On Windows and macOS the system's audio APIs need <code>unsafe</code> calls; using <code>cpal</code>'s hosts keeps those calls out of Dalíca's own code. On Linux <code>cpal</code> is not used, because it would link the system's C sound library.</p>
+<ul>
+  <li><strong>Failures:</strong> when the output fails (a headset unplugged, the sound server restarted), the backend opens the default output again, up to 3 times, 300 ms apart, before the stream gives up and reports the failure.</li>
+  <li><strong>No output:</strong> whether the system has any sound output is checked once at start. With none, the sound settings are grayed out with "No sound output on this system", and the player keeps time by the session's clock instead.</li>
+  <li><strong>Limits:</strong> streams open at 8,000 to 192,000 Hz with 1 to 8 channels; at most 10 seconds of sound is ever queued ahead.</li>
+  <li><strong>AAC</strong> is decoded to interleaved 32-bit floats, with the encoder's priming samples at the start cut off so sound and pictures line up.</li>
+</ul>
+<p>The headless tools (the command line, MCP, tests) use a silent output that keeps time by a clock and plays nothing, so automation never makes a sound.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li><code>crates/image/src/formats/video.rs</code>: recognition, probing, playability and its reasons</li>
+  <li><code>crates/image/src/formats/video/frames.rs</code>, <code>frames/h264.rs</code>, <code>frames/hevc.rs</code>, <code>frames/track.rs</code>, <code>frames/mkv.rs</code>: decoding, seeking, the poster rule (<code>POSTER_LUMA</code>, <code>POSTER_WINDOW_MS</code>), memory caps</li>
+  <li><code>crates/image/src/formats/video/frames/yuv.rs</code>: matrices, ranges, mean luma, HDR linearization and tone mapping</li>
+  <li><code>crates/image/src/formats/video/sound.rs</code>: AAC sound</li>
+  <li><code>crates/scan/src/video.rs</code>: video facts on scan; <code>crates/thumbs/src/video.rs</code>: poster thumbnails</li>
+  <li><code>crates/engine/src/video.rs</code>: the player, its clock, trims, Save Frame and Export Clip jobs</li>
+  <li><code>crates/create/src/video.rs</code>: the trimmed copy (MP4 and Matroska) and the frame picture</li>
+  <li><code>crates/engine/src/sound.rs</code>, <code>apps/dalica/src/sound.rs</code>, <code>apps/dalica/src/sound/pulse.rs</code>, <code>apps/dalica/src/sound/device.rs</code>: sound output</li>
+  <li>Specs: <code>docs/formats.md</code> (Video row and §3), <code>docs/video-decoders.md</code>, <code>docs/editing.md</code> §11, <code>docs/creating.md</code> §4, <code>docs/viewing.md</code> §1.5.1</li>
+  <li>The chart in this chapter: <code>docs-tools/video/tone.py</code></li>
+</ul>

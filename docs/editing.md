@@ -258,8 +258,8 @@ empty corners show. Arrow keys nudge 0.1°. Esc = Cancel.
 ### 6.3 Auto Fix, Auto Contrast, Auto Color
 
 One click, no panel, one undo step each:
-- **Auto Fix** (Ctrl+Shift+E): auto contrast + auto colour + a little fill light, computed from the
-  current (cropped) image.
+- **Auto Fix** (Ctrl+Shift+E): auto colour, then auto contrast measured on the balanced picture,
+  then a little fill light, computed from the current (cropped) image (`analysis::settle`).
 - **Auto Contrast**: sets black/white points and midtones (per-channel-linked levels).
 - **Auto Color**: removes colour casts (grey-world / white-patch balance with clamping).
 Each result depends on the current image, so cropping first changes the outcome (as users expect).
@@ -286,7 +286,10 @@ nothing). The press still records a step in the photo's history; the step render
   1.35, the gamma within 0.8 to 1.25. A photo one of those limits held back (a very flat picture, a
   cast too strong for the gains, midtones out of the gamma's reach) moves again on the next press,
   again within the limits: pressing again is how to ask for more on such a photo. Every other
-  photo settles on the first press.
+  photo settles on the first press, with one exception the 8-bit result allows: when the first
+  press leaves the median luma just past an edge of the band once rounded to 8 bits (0.601 on one
+  test photo), each further Auto Contrast press applies a gamma of about 1.008 and moves the
+  midtones by about one level. Auto Fix settles on the same photo.
 
 Measured on procedural scenes (300 × 200, `crates/edit/tests/auto.rs`): before, a second press
 moved Auto Contrast by 2.5 to 3.9 of 255 on average, Auto Fix by 1.5 to 5.6 (up to 14 per pixel)

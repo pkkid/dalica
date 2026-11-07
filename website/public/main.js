@@ -1,251 +1,215 @@
-/* dalica.pkarma.com: the download button picks the visitor's system, the hex field behind the page, and the
-   small interactions (count-up numbers, gentle reveals, click to enlarge). No third-party code. */
-/* Hex field: a flat-top hex grid drawn faintly where a soft mask allows (a wide glow at the top of
-   the page, patches beside sections), dots that walk the grid's edges leaving short trails, and
-   the odd cell that warms up and fades. Viewport-sized canvas, page coordinates, one rAF loop. */
+/* Dalíca website mockup: reveals, the tour's filmstrip viewer, feature tabs,
+   the download button that names the visitor's system, and click to enlarge.
+   No third-party code. */
 (function () {
-  var cvs = document.getElementById("hexfield"), ctx = cvs.getContext("2d");
-  var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var S = 30, SQ3 = Math.sqrt(3), HW = 1.5 * S, HH = SQ3 * S;
-  var ORANGE = "254,128,25", CREAM = "235,219,178";
-  var W = 0, H = 0, regions = [], walkers = [], glows = [], mouse = { x: -1e4, y: -1e4 }, last = 0, nextGlow = 0;
-  var DIRS = [[0, 120, 240], [60, 180, 300]].map(function (set) {
-    return set.map(function (a) { var r = a * Math.PI / 180; return [Math.cos(r) * S, Math.sin(r) * S]; });
+  var doc = document.documentElement;
+  doc.classList.add("js");
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+
+  // Headline words arrive one after another, quickly.
+  $$("h1 .w").forEach(function (w, i) { w.style.setProperty("--n", i); });
+
+  // Reveals.
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
+  $$(".rv, .tree").forEach(function (el) { io.observe(el); });
+
+  // Header: a hairline once the page moves; the nav marks the section in view.
+  var top = $(".top");
+  var navLinks = $$('.top nav a[href^="#"]').filter(function (a) { return a.getAttribute("href").length > 1 && $(a.getAttribute("href")); });
+  function onScroll() {
+    top.classList.toggle("stuck", scrollY > 8);
+    var cur = null;
+    navLinks.forEach(function (a) {
+      var r = $(a.getAttribute("href")).getBoundingClientRect();
+      if (r.top < innerHeight * 0.4 && r.bottom > innerHeight * 0.4) cur = a;
+    });
+    navLinks.forEach(function (a) { a.classList.toggle("current", a === cur); if (a === cur) a.setAttribute("aria-current", "true"); else a.removeAttribute("aria-current"); });
+  }
+
+  // Download: name the visitor's system and lift its card. Phones and tablets get a note instead.
+  var ua = navigator.userAgent;
+  var mobile = /Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var os = mobile ? null : /Mac/.test(ua) ? "mac" : /Win/.test(ua) ? "win" : "linux";
+  var main = $("#dl-main"), card = os && $('.os[data-os="' + os + '"]');
+  if (main && card) {
+    card.classList.add("mine");
+    main.href = card.querySelector(".button").href;
+    main.querySelector("span").textContent = "Download for " + { linux: "Linux", win: "Windows", mac: "macOS" }[os];
+  } else if (main && !os) {
+    main.querySelector("span").textContent = "Download for your computer";
+    $("#phone-note").hidden = false;
+  }
+
+  // Lightbox: fitted first; a click on the picture shows it at actual size, to pan around.
+  var lb = $("#lightbox"), lbImg = lb.querySelector("img"), lbClose = lb.querySelector(".lb-close"), lbSize = lb.querySelector(".lb-size"), opener = null;
+  function setActual(on) { lb.classList.toggle("actual", on); lbSize.textContent = on ? "Fit to window" : "Actual size"; lbSize.setAttribute("aria-pressed", String(on)); }
+  function openLightbox(src, alt, from) {
+    opener = from || document.activeElement;
+    lbImg.src = src; lbImg.alt = alt || ""; setActual(false); lb.hidden = false;
+    document.body.style.overflow = "hidden"; lbClose.focus();
+  }
+  function closeLightbox() {
+    if (lb.hidden) return;
+    lb.hidden = true; document.body.style.overflow = "";
+    if (opener && opener.focus) opener.focus({ preventScroll: true });
+  }
+  // In actual size, dragging the picture pans it; a click without a drag switches back to fit.
+  var drag = null, dragged = false;
+  lbImg.addEventListener("pointerdown", function (e) {
+    if (!lb.classList.contains("actual") || e.pointerType === "touch") return;
+    drag = { x: e.clientX, y: e.clientY, sl: lb.scrollLeft, st: lb.scrollTop }; dragged = false;
+    lbImg.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  lbImg.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) { dragged = true; lb.classList.add("dragging"); }
+    lb.scrollLeft = drag.sl - dx; lb.scrollTop = drag.st - dy;
+  });
+  function endDrag() { drag = null; lb.classList.remove("dragging"); }
+  lbImg.addEventListener("pointerup", endDrag); lbImg.addEventListener("pointercancel", endDrag);
+  lb.addEventListener("click", function (e) {
+    if (e.target === lbImg && dragged) { dragged = false; return; }
+    if (e.target === lbImg || e.target === lbSize) { setActual(!lb.classList.contains("actual")); return; }
+    if (e.target.closest(".lb-bar") && e.target !== lbClose && !e.target.closest(".lb-close")) return;
+    closeLightbox();
+  });
+  lb.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeLightbox();
+    if (e.key === "Tab") { e.preventDefault(); (document.activeElement === lbClose ? lbSize : lbClose).focus(); }
+  });
+  $$("[data-zoom]").forEach(function (b) {
+    b.addEventListener("click", function () { var im = b.querySelector("img"); openLightbox(im.src, im.alt, b); });
+  });
+  // On a phone the guide's chapter list starts folded, so the chapter itself comes first.
+  var fold = $(".docs-nav-fold");
+  if (fold && matchMedia("(max-width: 899px)").matches) fold.open = false;
+  // In the guide, "On this page" marks the section being read.
+  var tocLinks = $$(".docs-toc a");
+  if (tocLinks.length) {
+    var heads = tocLinks.map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); });
+    var spy = function () {
+      var cur = 0;
+      heads.forEach(function (h, i) { if (h && h.getBoundingClientRect().top < innerHeight * 0.3) cur = i; });
+      tocLinks.forEach(function (a, i) { a.classList.toggle("on", i === cur); });
+    };
+    addEventListener("scroll", spy, { passive: true }); spy();
+  }
+  // In the guide, every figure's picture opens in the lightbox too.
+  $$(".doc figure img").forEach(function (im) {
+    im.tabIndex = 0; im.setAttribute("role", "button"); im.classList.add("zoomable");
+    function go() { openLightbox(im.currentSrc || im.src, im.alt, im); }
+    im.addEventListener("click", go);
+    im.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
   });
 
-  function measure() {
-    var docW = document.documentElement.clientWidth;
-    regions = [{ x: docW / 2, y: 40, rx: Math.max(560, docW * 0.66), ry: 660, k: 1 }];
-    document.querySelectorAll("[data-hex]").forEach(function (el) {
-      var r = el.getBoundingClientRect(), left = el.dataset.hex === "left";
-      regions.push({ x: left ? r.left + 40 : r.right - 40, y: r.top + scrollY + Math.min(r.height, 420) * 0.35, rx: 560, ry: 380, k: 1 });
-    });
-  }
-  function mask(x, y) {
-    var m = 0;
-    for (var i = 0; i < regions.length; i++) {
-      var g = regions[i], dx = (x - g.x) / g.rx, dy = (y - g.y) / g.ry, d = dx * dx + dy * dy;
-      if (d < 1) { var v = 1 - d; v = g.k * v * v; if (v > m) m = v; }
-    }
-    return m;
-  }
-  function cursor(x, y) {
-    var dx = x - mouse.x, dy = y - mouse.y, d = Math.sqrt(dx * dx + dy * dy);
-    return d < 170 ? Math.pow(1 - d / 170, 2) : 0;
-  }
-  function resize() {
-    var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    W = innerWidth; H = innerHeight;
-    cvs.width = Math.round(W * dpr); cvs.height = Math.round(H * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    measure();
-  }
-  function hexCenter(q, r) { return [HW * q, HH * (r + q / 2)]; }
-  function spawn(w) {
-    // pick a region, a point inside it, snap to a hex and start on its right-hand corner
-    for (var tries = 0; tries < 30; tries++) {
-      var g = regions[Math.random() < 0.35 ? 0 : 1 + Math.floor(Math.random() * Math.max(1, regions.length - 1))] || regions[0];
-      var a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 0.8;
-      var px = g.x + Math.cos(a) * g.rx * rr, py = g.y + Math.sin(a) * g.ry * rr;
-      var q = Math.round(px / HW), r = Math.round(py / HH - q / 2), c = hexCenter(q, r);
-      var vx = c[0] + S, vy = c[1];
-      if (mask(vx, vy) > 0.12) {
-        w.x = w.fx = vx; w.y = w.fy = vy; w.type = 0; w.t = 1; w.back = -1; w.trail = [];
-        w.speed = 1.4 + Math.random() * 1.6; w.color = Math.random() < 0.72 ? ORANGE : CREAM; w.life = 0;
-        return;
-      }
-    }
-  }
-  function step(w) {
-    // choose the next edge: never straight back if there is another way, prefer brighter ground
-    var dirs = DIRS[w.type], best = [], total = 0;
-    for (var i = 0; i < 3; i++) {
-      if (i === w.back) continue;
-      var nx = w.x + dirs[i][0], ny = w.y + dirs[i][1], m = mask(nx, ny);
-      if (m < 0.04) continue;
-      best.push([i, nx, ny, m]); total += m;
-    }
-    if (!best.length) { spawn(w); return; }
-    var pick = Math.random() * total, k = 0;
-    while (k < best.length - 1 && pick > best[k][3]) { pick -= best[k][3]; k++; }
-    var b = best[k];
-    w.trail.push([w.x, w.y]); if (w.trail.length > 3) w.trail.shift();
-    w.fx = w.x; w.fy = w.y; w.x = b[1]; w.y = b[2]; w.t = 0;
-    // the way back, as an index into the other set: A[i] reverses to B[(i+1)%3], B[i] to A[(i+2)%3]
-    w.back = w.type === 0 ? (b[0] + 1) % 3 : (b[0] + 2) % 3; w.type = 1 - w.type;
-  }
-  function init() {
-    walkers = [];
-    var n = Math.round(Math.min(56, Math.max(24, W / 28)));
-    for (var i = 0; i < n; i++) { var w = {}; spawn(w); walkers.push(w); }
-  }
-  function drawGrid(y0, y1) {
-    var buckets = [];
-    var q0 = Math.floor(-S / HW) - 1, q1 = Math.ceil((W + S) / HW) + 1;
-    for (var q = q0; q <= q1; q++) {
-      var r0 = Math.floor(y0 / HH - q / 2) - 1, r1 = Math.ceil(y1 / HH - q / 2) + 1;
-      for (var r = r0; r <= r1; r++) {
-        var c = hexCenter(q, r), m = mask(c[0], c[1]) + cursor(c[0], c[1]) * 0.9;
-        if (m < 0.03) continue;
-        var bi = Math.min(9, Math.floor(m * 10)), b = buckets[bi] || (buckets[bi] = []);
-        b.push(c);
-      }
-    }
-    ctx.lineWidth = 1;
-    for (var i = 0; i < buckets.length; i++) {
-      if (!buckets[i]) continue;
-      ctx.strokeStyle = "rgba(" + CREAM + "," + (0.012 + i * 0.0085).toFixed(4) + ")";
-      ctx.beginPath();
-      buckets[i].forEach(function (c) {
-        var x = c[0], y = c[1];
-        ctx.moveTo(x - S, y); ctx.lineTo(x - S / 2, y - HH / 2); ctx.lineTo(x + S / 2, y - HH / 2); ctx.lineTo(x + S, y);
+  // The tour: one large screenshot over a filmstrip of the six steps. Click a frame, use the
+  // arrows (or the arrow keys on the strip), or press Play to step through like a slideshow.
+  // Without script the steps stay a plain list.
+  (function tour() {
+    var list = $("#steps"), viewer = $("#viewer"); if (!list || !viewer) return;
+    var items = $$(".step", list), n = items.length;
+    var stage = $("#stage"), strip = $("#strip"), cap = $("#viewer-caption"), play = $("#v-play");
+    var imgs = [], tabs = [], cur = -1, timer = null, DWELL = 5200;
+    items.forEach(function (li, i) {
+      var src = li.querySelector("img"), title = li.querySelector("h3").textContent;
+      var im = new Image(); im.src = src.getAttribute("src"); im.alt = src.alt; im.width = 1800; im.height = 1170;
+      im.decoding = "async"; if (i > 0) im.loading = "lazy";
+      $("#stage-in").appendChild(im); imgs.push(im);
+      var b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "tab");
+      b.id = "tour-tab-" + i; b.setAttribute("aria-controls", "viewer-caption");
+      b.setAttribute("aria-label", "Step " + (i + 1) + ": " + title); b.title = title;
+      b.innerHTML = '<img src="img/thumbs/' + li.dataset.thumb + '.jpg" alt="" width="360" height="234"><span class="bar"></span>';
+      b.addEventListener("click", function () { stop(); show(i); });
+      b.addEventListener("keydown", function (e) {
+        var j = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : null;
+        if (j === null) return;
+        e.preventDefault(); stop(); show((j + n) % n); tabs[cur].focus();
       });
-      ctx.stroke();
-    }
-  }
-  function drawGlows(now, y0, y1) {
-    glows = glows.filter(function (g) { return now - g.t0 < g.dur; });
-    glows.forEach(function (g) {
-      if (g.y < y0 - S || g.y > y1 + S) return;
-      var p = (now - g.t0) / g.dur, a = Math.sin(Math.PI * p) * g.a;
-      ctx.fillStyle = "rgba(" + ORANGE + "," + a.toFixed(4) + ")";
-      ctx.beginPath();
-      for (var k = 0; k < 6; k++) { var an = k * Math.PI / 3; ctx.lineTo(g.x + Math.cos(an) * (S - 1.5), g.y + Math.sin(an) * (S - 1.5)); }
-      ctx.closePath(); ctx.fill();
+      strip.appendChild(b); tabs.push(b);
     });
-  }
-  function addGlow(now) {
-    for (var tries = 0; tries < 12; tries++) {
-      var x = Math.random() * W, y = scrollY + Math.random() * H, m = mask(x, y);
-      if (m < 0.25) continue;
-      var q = Math.round(x / HW), r = Math.round(y / HH - q / 2), c = hexCenter(q, r);
-      glows.push({ x: c[0], y: c[1], t0: now, dur: 2600 + Math.random() * 2400, a: 0.05 + 0.07 * m });
-      return;
+    function resetBars() {
+      tabs.forEach(function (t) { var bar = t.querySelector(".bar"); bar.style.transition = "none"; bar.style.transform = "scaleX(0)"; });
     }
-  }
-  function drawWalkers(y0, y1) {
-    walkers.forEach(function (w) {
-      var t = w.t, x = w.fx + (w.x - w.fx) * t, y = w.fy + (w.y - w.fy) * t;
-      if (y < y0 - 2 * S || y > y1 + 2 * S) return;
-      var m = Math.min(1, mask(x, y) * 1.3 + 0.15);
-      var pts = w.trail.concat([[w.fx, w.fy], [x, y]]);
-      ctx.lineCap = "round";
-      for (var i = 1; i < pts.length; i++) {
-        var f = i / (pts.length - 1);
-        ctx.strokeStyle = "rgba(" + w.color + "," + (0.5 * f * f * m).toFixed(3) + ")";
-        ctx.lineWidth = 1.6;
-        ctx.beginPath(); ctx.moveTo(pts[i - 1][0], pts[i - 1][1]); ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke();
-      }
-      ctx.fillStyle = "rgba(" + w.color + "," + (0.16 * m).toFixed(3) + ")";
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "rgba(" + w.color + "," + (0.95 * m).toFixed(3) + ")";
-      ctx.beginPath(); ctx.arc(x, y, 2.1, 0, Math.PI * 2); ctx.fill();
-    });
-  }
-  function frame(now) {
-    var dt = Math.min(0.05, (now - (last || now)) / 1000); last = now;
-    var y0 = scrollY, y1 = scrollY + H;
-    if (!reduce) {
-      walkers.forEach(function (w) { w.t += dt * w.speed; if (w.t >= 1) step(w); });
-      if (now > nextGlow) { addGlow(now); nextGlow = now + 450 + Math.random() * 700; }
+    function runBar() {
+      resetBars();
+      var bar = tabs[cur].querySelector(".bar"); void bar.offsetWidth;
+      bar.style.transition = "transform " + DWELL + "ms linear"; bar.style.transform = "scaleX(1)";
     }
-    ctx.clearRect(0, 0, W, H);
-    ctx.save(); ctx.translate(0, -y0);
-    drawGrid(y0, y1); drawGlows(now, y0, y1); drawWalkers(y0, y1);
-    ctx.restore();
-    if (!reduce) requestAnimationFrame(frame);
-  }
-  resize(); init();
-  addEventListener("resize", function () { resize(); init(); if (reduce) frame(performance.now()); });
-  addEventListener("load", function () { measure(); });
-  addEventListener("pointermove", function (e) { mouse.x = e.clientX; mouse.y = e.clientY + scrollY; });
-  addEventListener("pointerleave", function () { mouse.x = mouse.y = -1e4; });
-  if (reduce) { walkers.forEach(function (w) { w.t = 0.5; }); addEventListener("scroll", function () { frame(performance.now()); }, { passive: true }); }
-  requestAnimationFrame(frame);
-})();
-
-// The release on offer. Bump these two at each release (website/README.md → Releasing): the
-// version, and the file sizes in bytes, which the jq one-liner there prints from GitHub.
-var RELEASE = {
-  version: "1.1.0",
-  sizes: {"SHA256SUMS.txt":2012,"dalica-cli-{v}-macos-universal.zip":35657013,"dalica-{v}-linux-aarch64.AppImage":41445896,"dalica-{v}-linux-aarch64.AppImage.zsync":141907,"dalica-{v}-linux-aarch64.cdx.json":395176,"dalica-{v}-linux-aarch64.deb":45874696,"dalica-{v}-linux-aarch64.flatpak":28968440,"dalica-{v}-linux-aarch64.rpm":45457818,"dalica-{v}-linux-aarch64.tar.gz":44106028,"dalica-{v}-linux-x86_64.AppImage":45066744,"dalica-{v}-linux-x86_64.AppImage.zsync":154281,"dalica-{v}-linux-x86_64.cdx.json":395807,"dalica-{v}-linux-x86_64.deb":48972586,"dalica-{v}-linux-x86_64.flatpak":32704304,"dalica-{v}-linux-x86_64.rpm":48671164,"dalica-{v}-linux-x86_64.tar.gz":48006147,"dalica-{v}-macos-universal.cdx.json":325062,"dalica-{v}-macos-universal.dmg":44283821,"dalica-{v}-windows-x64-portable.zip":47111903,"dalica-{v}-windows-x64.cdx.json":311712,"dalica-{v}-windows-x64.msi":37605376}-macos-universal.zip":92715605,"dalica-{v}-linux-aarch64.AppImage":89741832,"dalica-{v}-linux-aarch64.AppImage.zsync":306981,"dalica-{v}-linux-aarch64.cdx.json":384712,"dalica-{v}-linux-aarch64.deb":96057180,"dalica-{v}-linux-aarch64.flatpak":68277568,"dalica-{v}-linux-aarch64.rpm":95349652,"dalica-{v}-linux-aarch64.tar.gz":93975093,"dalica-{v}-linux-x86_64.AppImage":93256184,"dalica-{v}-linux-x86_64.AppImage.zsync":318991,"dalica-{v}-linux-x86_64.cdx.json":385395,"dalica-{v}-linux-x86_64.deb":98970722,"dalica-{v}-linux-x86_64.flatpak":71897368,"dalica-{v}-linux-x86_64.rpm":98387425,"dalica-{v}-linux-x86_64.tar.gz":97695476,"dalica-{v}-macos-universal.cdx.json":314418,"dalica-{v}-macos-universal.dmg":100592249,"dalica-{v}-windows-x64-portable.zip":97004756,"dalica-{v}-windows-x64.cdx.json":301324,"dalica-{v}-windows-x64.msi":81707008}
-};
-
-// Download links: every [data-file] names its file with {v} for the version. Without this script
-// the links fall back to the latest release's page on GitHub, which lists the same files.
-(function () {
-  var v = RELEASE.version, tag = "v" + v, base = "https://github.com/pkkid/dalica/releases/download/" + tag + "/";
-  document.querySelectorAll("[data-v]").forEach(function (el) {
-    el.textContent = el.dataset.v === "short" ? " " + v.split(".").slice(0, 2).join(".") : v;
-  });
-  var notes = document.getElementById("dl-notes"); if (notes) notes.href = "https://github.com/pkkid/dalica/releases/tag/" + tag;
-  function fill(a) {
-    var key = a.dataset.file, file = key.replace("{v}", v), bytes = RELEASE.sizes[key];
-    a.href = base + file;
-    a.title = file;
-    var name = a.querySelector(".fname"); if (name) name.textContent = file;
-    var size = a.querySelector(".size"); if (size && bytes) size.textContent = (bytes / 1e6).toFixed(1) + " MB";
-  }
-  document.querySelectorAll("[data-file]").forEach(fill);
-
-  // The hero button names the visitor's system; its card is lifted a little.
-  var ua = navigator.userAgent, os = /Mac/.test(ua) ? "mac" : /Win/.test(ua) ? "win" : "linux";
-  var arm = os === "linux" && /aarch64|arm64/i.test(ua);
-  var names = { linux: ["Linux", "AppImage · " + (arm ? "ARM64" : "x86_64")], win: ["Windows", "Installer · x64"], mac: ["macOS", "Disk image · Universal"] };
-  document.getElementById("dl-main").firstChild.nodeValue = "Download for " + names[os][0];
-  document.getElementById("dl-sub").textContent = names[os][1] + " · " + v;
-  var card = document.querySelector('.os[data-os="' + os + '"]'); if (card) card.classList.add("mine");
-  if (arm && card) {
-    // ARM64 Linux: the AppImage on offer is the aarch64 one, and its list starts open.
-    var get = card.querySelector(".get"), det = card.querySelector("details.arm");
-    if (get) { get.dataset.file = "dalica-{v}-linux-aarch64.AppImage"; fill(get); }
-    if (det) det.open = true;
-  }
-})();
-(function () {
-  var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  // Gentle reveal: anything below the fold starts a little low and rises into place.
-  var risers = [].slice.call(document.querySelectorAll(".rise, .shot, .os, .feat, .releases li"));
-  if (!reduce && "IntersectionObserver" in window) {
-    risers.forEach(function (el) { if (el.getBoundingClientRect().top > innerHeight) { el.classList.add("rise", "low"); } });
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.remove("low"); io.unobserve(e.target); } });
-    }, { rootMargin: "0px 0px -8% 0px" });
-    risers.forEach(function (el) { io.observe(el); });
-  }
-
-  // Numbers count up once when they first come into view; the final value is in the HTML.
-  function fmt(v, el) {
-    var dec = +(el.dataset.dec || 0), t = v.toFixed(dec);
-    return el.dataset.sep ? Number(t).toLocaleString("en-US") : t;
-  }
-  if (!reduce && "IntersectionObserver" in window) {
-    var co = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        co.unobserve(e.target);
-        var el = e.target, to = +el.dataset.to, t0 = performance.now(), dur = 1400;
-        (function tick(now) {
-          var p = Math.min(1, (now - t0) / dur), k = 1 - Math.pow(1 - p, 3);
-          el.textContent = fmt(to * k, el);
-          if (p < 1) requestAnimationFrame(tick);
-        })(t0);
+    function show(i) {
+      if (i === cur) return;
+      var dir = cur < 0 ? 0 : (i > cur ? 1 : -1);
+      imgs.forEach(function (im, k) {
+        if (k === i) { im.style.setProperty("--from", dir); void im.offsetWidth; im.classList.add("on"); im.style.setProperty("--from", 0); }
+        else im.classList.toggle("on", false);
       });
-    }, { threshold: .6 });
-    document.querySelectorAll(".count").forEach(function (el) { co.observe(el); });
-  }
+      tabs.forEach(function (t, k) { var on = k === i; t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1; });
+      var fig = items[i].querySelector("figcaption");
+      cap.innerHTML = '<p class="counter">Step ' + (i + 1) + " of " + n + "</p>" + fig.innerHTML;
+      cap.setAttribute("aria-labelledby", tabs[i].id);
+      cap.classList.toggle("enter", false); void cap.offsetWidth; cap.classList.add("enter");
+      stage.setAttribute("aria-label", "Enlarge: " + imgs[i].alt);
+      cur = i;
+      if (timer) runBar();
+    }
+    function tick() { show((cur + 1) % n); }
+    function start() {
+      if (timer) return;
+      timer = setInterval(tick, DWELL);
+      play.setAttribute("aria-pressed", "true"); play.querySelector("span").textContent = "Pause"; runBar();
+    }
+    function stop() {
+      if (!timer) return;
+      clearInterval(timer); timer = null;
+      play.setAttribute("aria-pressed", "false"); play.querySelector("span").textContent = "Play"; resetBars();
+    }
+    play.addEventListener("click", function () { if (timer) stop(); else start(); });
+    $("#v-prev").addEventListener("click", function () { stop(); show((cur - 1 + n) % n); });
+    $("#v-next").addEventListener("click", function () { stop(); show((cur + 1) % n); });
+    stage.addEventListener("click", function () { stop(); openLightbox(imgs[cur].src, imgs[cur].alt, stage); });
+    // Leaving the section, or the page, pauses a playing tour.
+    new IntersectionObserver(function (es) { if (!es[0].isIntersecting) stop(); }, { threshold: 0.15 }).observe(viewer);
+    document.addEventListener("visibilitychange", function () { if (document.hidden) stop(); });
+    viewer.hidden = false;
+    show(0);
+  })();
 
-  // Click a screenshot to see it full size.
-  var lb = document.getElementById("lightbox"), lbImg = lb.querySelector("img"), last = null;
-  function close() { lb.hidden = true; lbImg.removeAttribute("src"); if (last) last.focus(); }
-  document.querySelectorAll(".frame img").forEach(function (img) {
-    img.tabIndex = 0;
-    img.setAttribute("role", "button");
-    function open() { last = img; lbImg.src = img.currentSrc || img.src; lbImg.alt = img.alt; lb.hidden = false; document.getElementById("lb-close").focus(); }
-    img.addEventListener("click", open);
-    img.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
-  });
-  lb.addEventListener("click", close);
-  addEventListener("keydown", function (e) { if (e.key === "Escape" && !lb.hidden) close(); });
+  // Feature tabs, with an ink pill that glides to the chosen tab.
+  (function tabs() {
+    var wrap = $("#tabs"); if (!wrap) return;
+    var tabs = $$('[role="tab"]', wrap), ink = $("#tab-ink");
+    function current() { return tabs.filter(function (t) { return t.getAttribute("aria-selected") === "true"; })[0] || tabs[0]; }
+    function place(t) {
+      ink.style.width = t.offsetWidth + "px";
+      ink.style.transform = "translate(" + t.offsetLeft + "px, " + (t.offsetTop - 6) + "px)";
+      ink.style.height = t.offsetHeight + "px";
+      ink.style.setProperty("--ink-c", getComputedStyle(t).getPropertyValue("--c"));
+    }
+    function select(t, focus) {
+      tabs.forEach(function (o) {
+        var sel = o === t; o.setAttribute("aria-selected", String(sel)); o.tabIndex = sel ? 0 : -1;
+        var p = document.getElementById(o.getAttribute("aria-controls"));
+        if (sel) { p.hidden = false; p.classList.remove("enter"); void p.offsetWidth; p.classList.add("enter"); } else p.hidden = true;
+      });
+      place(t); if (focus) t.focus();
+    }
+    tabs.forEach(function (t, i) {
+      t.addEventListener("click", function () { select(t); });
+      t.addEventListener("keydown", function (e) {
+        var j = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : null;
+        if (j === null) return; e.preventDefault(); select(tabs[(j + tabs.length) % tabs.length], true);
+      });
+    });
+    requestAnimationFrame(function () { place(current()); });
+    addEventListener("resize", function () { place(current()); });
+    if (document.fonts) document.fonts.ready.then(function () { place(current()); });
+  })();
+
+  addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
 })();

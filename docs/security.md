@@ -310,7 +310,7 @@ rather than relying on defaults.
 
 | Input | Crate | Limits | Lands |
 |---|---|---|---|
-| Raster decode (all formats) | `image` | edge ≤ 65,535 px; ≤ 2³⁰ pixels; decoded allocation charged to the memory budget (RAM/4, 256 MiB–1.5 GiB): a file whose full decode does not fit is decoded at reduced scale (JPEG DCT scaling, embedded preview) or shown as a "too large" placeholder | **Implemented** (M1, M5.1): `Limits::check_size` before any decoder runs (`decode.rs`), every pixel buffer reserved fallibly through one `Budget` per decode (`limits.rs`), each format module's working buffers charged to it first, third-party decoders inside `catch_unwind` ("Damaged file"); JPEG DCT scaling not yet (past 64 MP a thumbnail comes from the embedded one, except a TIFF's, which is reduced a strip or tile at a time, and a lossy WebP's, decoded scaled) |
+| Raster decode (all formats) | `image` | edge ≤ 65,535 px; ≤ 2³⁰ pixels; decoded allocation charged to a fixed 1.5 GiB per decode (`Limits::max_alloc`, not scaled by RAM): a file whose full decode does not fit is reduced as it decodes (a TIFF strip by strip, a lossy WebP scaled), uses its embedded thumbnail, or is shown as a "too large" placeholder | **Implemented** (M1, M5.1): `Limits::check_size` before any decoder runs (`decode.rs`), every pixel buffer reserved fallibly through one `Budget` per decode (`limits.rs`), each format module's working buffers charged to it first, third-party decoders inside `catch_unwind` ("Damaged file"); `zune-jpeg` has no DCT scaling, so a JPEG is decoded in full (past 64 MP a thumbnail comes from the embedded one, except a TIFF's, which is reduced a strip or tile at a time, and a lossy WebP's, decoded scaled) |
 | TIFF strips and tiles | `image` | our own IFD walk first (the IFD limits below); ≤ 2²² strips or tiles, both offset lists inside the file; the decoded size, the raw size and the `tiff` decoder's own memory (64 B per chunk, the largest compressed chunk, a decoded copy for JPEG strips) charged to the budget before `tiff` reads a byte. Large pages (`formats.md` §5.1) keep the same limits: the reduced thumbnail decode checks the edge and pixel limits from the IFD and charges one strip or tile, the reduced sums and the decoder's memory before reading; the banded full decode charges the 8-bit output, one chunk and each band; a strip or tile count that does not match the page's size is damaged | **Implemented** (M5.6; `formats/tiff.rs`; the large-page paths M16.37) |
 | WebP, GIF, BMP | `image` | our own RIFF chunk walk, GIF block walk to the first image descriptor and BMP header read first; a frame's bitstream checked against its canvas before `image-webp` allocates; the decoders' working buffers (3–9 bytes per pixel) charged to the budget | **Implemented** (M5.7; `formats/{webp,gif,bmp}.rs`) |
 | JPEG XL | `image` | header read from a growing prefix with a 64 MiB allowance; the decode's remaining budget lent to `jxl-oxide`'s allocation tracker, samples carved from what it has not used; no thread pool. An embedded ICC profile's declared sizes are read first (with the decoder's own header and entropy-code parsers): a profile over the ICC limit (16 MiB), or an encoded stream over it plus the decoder's 64 KiB slack, is "too large" before the decoder reserves either (it reserves them outside its tracker); a smaller one is charged to the header's allowance and to the decode's budget (the stream and two copies of the profile) | **Implemented** (M5.8, M6.41; `formats/jxl.rs`) |
@@ -792,11 +792,13 @@ never tunnel or proxy it to another host. **Planned (M2).**
 
 - The token is 256 bits from the OS random source, written as 64 hexadecimal characters.
 - `dalica --control <port>` reads the token from `--control-token-file <path>`
-  (`DALICA_CONTROL_TOKEN_FILE`), default `<data>/Dalica/control/<port>.token`. If the file does
-  not exist, Dalica creates it with a fresh token: on Unix mode `0600` inside a `0700` directory;
-  on Windows with an ACL that grants only the current user. An existing file is reused only if it
-  is a regular file (not a link) owned by the current user and, on Unix, not readable or writable by
-  group or others; otherwise the control channel does not start and says why.
+  (`DALICA_CONTROL_TOKEN_FILE`); without one, a fresh token for this launch goes to the default
+  file `<run>/control-<port>.token` (`control-protocol.md` §2.1), removed on exit. A missing file is
+  created with a fresh token: on Unix mode `0600`, its folder made `0700` when missing; on Windows
+  the file gets its folder's permissions (no ACL of its own yet). An existing file is reused only if
+  it is a regular file (not a link) and, on Unix, not readable or writable by group or others;
+  otherwise the control channel does not start and says why. Who owns the file is not checked yet
+  (§6.8).
 - There is no option to pass the token on the command line, where other users can see process
   arguments.
 - Clients (`dalica-cli mcp --connect`, `dalica-cli run --connect`) read the same default file for

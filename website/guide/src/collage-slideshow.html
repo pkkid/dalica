@@ -1,0 +1,230 @@
+<h1>Collages and slideshows</h1>
+<p class="lede">How the six collage styles decide where every picture goes, why the same seed always gives the same collage, what the recipe saved beside a collage holds, and how a slideshow times, draws and sounds each change from one photo to the next.</p>
+
+<h2 id="collage-document">A collage is a small document</h2>
+<p>Everything a collage is made of fits in a plain data document: the style, the settings (picture border, grid spacing, shadows, captions), the page format and orientation, two 64-bit numbers called the <strong>seed</strong> and the <strong>shuffle</strong>, the list of clips (photo ids in order, each on the page or not, at most 1,000), the background, the Frame Mosaic's center picture, and whatever you changed by hand: the moves, turns and sizes of pile pictures, the layer of a picture you brought to the top or sent to the bottom, and the swaps of mosaic and grid slots.</p>
+<p>A <strong>layout</strong> is a pure function of that document and the pictures' aspect ratios. It answers, for every picture, a placement normalized to the page: its center, its size, its angle, its place in the stack and the part of the picture shown in its box. The canvas in the Collage room, the final render, the room's thumbnail and an MCP reply all call that one function, so they always agree, at any size.</p>
+<div class="note"><p><b>Why normalized placements:</b> the canvas on your screen might be 900 pixels wide and the finished collage 3,000. Describing every placement as a fraction of the page means the layout is computed once and drawn at any size with nothing shifting between preview and result.</p></div>
+<p>The defaults are Picture Pile on a black background, a 16:9 (HD video) page in landscape, no border, a grid spacing of 1 % of the page's short side, shadows on and captions off. The style and settings you last used are remembered for the next collage.</p>
+
+<h2 id="seed">The seed, Scramble and Shuffle</h2>
+<p>Every random choice a layout makes (which cell a pile picture lands near, how far it is turned, where a mosaic is cut) comes from a small seeded generator written for Dalíca: SplitMix64, in integer arithmetic only. The same seed gives the same numbers on every system and in every build, so a collage reopened next year, or on another computer, lays out exactly as it did. Each purpose of a layout draws from its own stream of the seed (one for cells, one for sizes, one for turns, one for offsets), so adding a draw for one purpose never moves another's numbers.</p>
+<p>The angles go through the same care: the pile's sine and cosine are short Taylor series computed in the code, not the system's math library, because two libraries can disagree in the last bit, and that would be enough to move a picture by a pixel on one machine.</p>
+<dl class="terms">
+  <dt>Scramble Collage</dt>
+  <dd>Draws a new seed from the current one (from a stream of its own, and never the current seed again) and drops your moves and swaps. Which picture is in which slot stays; where the slots are changes.</dd>
+  <dt>Shuffle Pictures</dt>
+  <dd>Keeps the slots and deals the pictures to them again: the pictures on the page are put in a new order by a Fisher-Yates shuffle driven by the shuffle number (0 means clip order). A new shuffle is drawn until the order really changes, whenever two or more pictures are on the page. Swaps are dropped (they named slots of the old order), while a pile's moves stay with their pictures.</dd>
+</dl>
+<p>Both are deterministic too: the same document always scrambles and shuffles the same way.</p>
+
+<h2 id="styles">How each style lays pictures out</h2>
+
+<h3 id="pile">Picture Pile</h3>
+<p>The pile looks random, but it is built on a grid so that it covers the page evenly for any number of pictures:</p>
+<ol class="steps-list">
+  <li>The page is cut into one <strong>cell</strong> per picture, using the same choice of columns and rows as the Grid style (below). A last row with fewer pictures shares the page's width among them.</li>
+  <li>The seed <strong>deals the cells</strong> to the pictures, so the first picture is not always top left.</li>
+  <li>Each picture gets an <strong>area</strong> of twice the page's area divided by the number of pictures, varied by up to &#177;10 %. Twice is what makes neighbors overlap and the pile cover the page with no gaps.</li>
+  <li>It is <strong>turned</strong> by up to &#177;15&#176;, and its center <strong>strays</strong> from its cell's center by up to a quarter of the cell either way.</li>
+  <li>Finally it is <strong>kept on the page</strong>: a picture too large for the page (with its border, turned) is shrunk, and one near an edge is pushed back in.</li>
+</ol>
+<figure>
+<img src="img/collage-slideshow/diagram-pile.png" width="1600" height="980" alt="A 16:9 page divided by dashed lines into 3 by 3 cells, the last row of two wider cells. Orange dots mark cell centers, with arrows to the centers of eight turned rectangles, the pictures, numbered 1 to 8." loading="lazy">
+<figcaption>The pile of the collage below, from Dalíca's own placements: 8 pictures on 3 &#215; 3 cells (the last row has two wider ones). Each arrow runs from a picture's cell center to where it landed; the long arrows (4, 5, 6) are tall pictures pushed back inside the page. The cells were recomputed from the seed with a port of Dalíca's generator, which reproduces every placement to within 0.0002 of the page.</figcaption>
+</figure>
+<figure><div class="row">
+  <div><img src="img/collage-slideshow/collage-pile.jpg" width="1400" height="788" alt="Picture Pile of eight Iceland photos with white borders and shadows on black, seed 2a." loading="lazy"><span class="label">seed 2a</span></div>
+  <div><img src="img/collage-slideshow/collage-pile-seed-b.jpg" width="1400" height="788" alt="The same eight photos as a pile with seed b7: different positions and angles." loading="lazy"><span class="label">seed b7</span></div>
+</div><figcaption>Two real renders of the same eight photos with white borders, differing only in the seed. Everything else in the document is identical.</figcaption></figure>
+<p>Your own moves apply over the layout and only in this style: each picture's center, its scale (0.05 to 20 times the layout's size) and its angle (folded into &#177;180&#176;). Bring to Top and Send to Bottom set a layer above or below 0, which works in every style.</p>
+
+<h3 id="mosaic">Mosaic</h3>
+<p>The Mosaic fills the page with no holes, giving each picture a block close to its own shape. It is a <strong>guillotine partition</strong>: a binary tree of straight cuts, each one putting its two halves side by side or one above the other.</p>
+<p>The key idea is that a set of pictures laid out by a tree has a <em>natural</em> ratio. Side by side, the halves' width-to-height ratios add; stacked, their inverses add. Fitting a tree into a rectangle places every cut by those natural ratios, and that turns every block away from its picture's ratio by one common factor: the rectangle's ratio divided by the tree's. So the search is for a tree whose natural ratio is the page's.</p>
+<figure>
+<svg viewBox="0 0 760 210" role="img" aria-label="Natural ratios: two pictures of ratio 1.5 and 0.7 side by side make 2.2; stacked they make 1 divided by (1/1.5 plus 1/0.7), about 0.48.">
+  <g font-family="Inter, sans-serif" font-size="13" fill="#ebdbb2">
+    <rect x="20" y="40" width="150" height="100" fill="#32302f" stroke="#83a598" stroke-width="1.5"/>
+    <rect x="170" y="40" width="70" height="100" fill="#32302f" stroke="#fe8019" stroke-width="1.5"/>
+    <text x="95" y="95" text-anchor="middle">1.5</text><text x="205" y="95" text-anchor="middle">0.7</text>
+    <text x="130" y="170" text-anchor="middle">side by side: 1.5 + 0.7 = 2.2</text>
+    <rect x="430" y="25" width="70" height="46.7" fill="#32302f" stroke="#83a598" stroke-width="1.5"/>
+    <rect x="430" y="71.7" width="70" height="100" fill="#32302f" stroke="#fe8019" stroke-width="1.5"/>
+    <text x="465" y="53" text-anchor="middle">1.5</text><text x="465" y="126" text-anchor="middle">0.7</text>
+    <text x="635" y="95" text-anchor="middle">stacked: 1 / (1/1.5 + 1/0.7)</text>
+    <text x="640" y="115" text-anchor="middle">&#8776; 0.48</text>
+  </g>
+</svg>
+<figcaption>How a cut combines two pictures' ratios (width over height). A tree of cuts therefore has one ratio of its own, computed bottom up, and the layout looks for a tree whose ratio matches the page.</figcaption>
+</figure>
+<ol class="steps-list">
+  <li><strong>Grow</strong> a tree from the top: cut the set of pictures across its longer side, at a seeded split point in the middle third of the set (so the tree stays shallow), each half aiming at the share of the area its number of pictures would get with equal areas.</li>
+  <li><strong>Turn</strong> cuts: try every cut the other way (side by side instead of stacked, or back) and keep it when that lowers the cost. The cost counts the tree's miss of the page's ratio eight times as heavily as how far any single cut pushes its pictures' areas from equal shares. Every cut gets four such passes.</li>
+  <li><strong>Keep the cheapest</strong> of four seeded trees.</li>
+</ol>
+<p>The grid spacing becomes a gap between the blocks and around the page's edge: the tree tiles the page inset by half a gap, and each block gives up half a gap on every side. When there are so many pictures that the gap would be more than half the smallest block's side, it is narrowed to that.</p>
+<figure>
+<img src="img/collage-slideshow/diagram-mosaic.png" width="1800" height="580" alt="Two mosaics of the same eight pictures. Each block is labeled with its number and its ratio: landscape blocks about 1.58, portrait blocks 0.62 to 0.73. The right one, after Shuffle, has a different partition." loading="lazy">
+<figcaption>The blocks of the two real mosaics below, labeled with their width-to-height ratio. The landscape pictures are 1.50 and their blocks 1.58 to 1.59; the portraits are 0.60 to 0.70 and their blocks 0.62 to 0.73: all turned by the same factor of about 1.05, so each picture loses only a sliver (2 to 3 % of its height) to fill its block.</figcaption>
+</figure>
+<figure><div class="row">
+  <div><img src="img/collage-slideshow/collage-mosaic.jpg" width="1400" height="788" alt="Mosaic of eight Iceland photos tiling a 16:9 page with thin dark gaps." loading="lazy"><span class="label">Mosaic</span></div>
+  <div><img src="img/collage-slideshow/collage-mosaic-shuffled.jpg" width="1400" height="788" alt="The same photos as a mosaic after Shuffle Pictures, a different partition." loading="lazy"><span class="label">after Shuffle Pictures</span></div>
+</div><figcaption>The partition is made for the pictures' ratios in slot order, so Shuffle Pictures (a new order) makes a new partition. A swap, by contrast, exchanges two pictures' blocks and moves no other: the partition is made for the order before the swaps.</figcaption></figure>
+
+<h3 id="frame-mosaic">Frame Mosaic</h3>
+<p>The Frame Mosaic puts one picture (the first, unless you set another as Frame Center) in a large central block, and lays the others out as mosaics in the bands around it. Seen with the page's long side across: one other picture gets a band at one end; two get a band at each end; three add a band above the center; four or more add one below it too. The pictures go to the bands in slot order, each band getting as many as its share of the bands' area (at least one), and each band is partitioned the way the Mosaic is.</p>
+<p>The center block spans between 0.55 and 0.75 of each of the page's sides (from 0.4 once the bands hold eight or more pictures, their blocks then being small). With up to 24 band pictures, a few sizes in that range are tried and the one whose blocks come nearest their pictures' ratios wins; past that, the center spans about 0.6 each way, turned toward its picture's ratio. Either way it is always the largest block.</p>
+<figure>
+<img src="img/collage-slideshow/diagram-frame.png" width="1280" height="780" alt="Frame Mosaic blocks for ten pictures: a wide center block, a left band with pictures 4, 5 and 6, a right band with 7 and 8, a top band with 2 and 3 and a bottom band with 9 and 10." loading="lazy">
+<figcaption>The blocks of the real Frame Mosaic below. With nine band pictures, the center may shrink to 0.4 of the page's height; the size that suited the bands best here is wide, so the center picture shows its middle 60 %.</figcaption>
+</figure>
+<figure>
+<img src="img/collage-slideshow/collage-frame-mosaic.jpg" width="1400" height="788" alt="Frame Mosaic: a red-roofed church in a wide center block, surrounded by nine Iceland photos." loading="lazy">
+<figcaption>Frame Mosaic of ten photos, rendered by Dalíca.</figcaption>
+</figure>
+
+<h3 id="grid">Grid</h3>
+<p>The Grid uses equal cells in rows and columns, each picture filling its cell (cropped to it, centered), with the grid spacing between the cells and around the edge. A last row that is not full is centered. The interesting part is the choice of columns and rows. For each possible number of columns, Dalíca computes two shares and multiplies them:</p>
+<ul>
+  <li><strong>How much of each picture shows:</strong> the cell's shape compared with the pictures' typical shape (their median ratio; sorting rather than logarithms, so every system picks the same). A cell of exactly the pictures' shape shows all of each picture; any other shape crops.</li>
+  <li><strong>How many cells are used:</strong> 8 pictures in a 3 &#215; 3 grid use 8 of 9 cells.</li>
+</ul>
+<p>The arrangement with the highest product wins, fewer columns on a tie. The spacing is capped so the gaps leave the cells at least half of the page.</p>
+<figure>
+<img src="img/collage-slideshow/diagram-grid-score.png" width="1600" height="640" alt="Bar chart for 8 pictures on a 16:9 page: for each arrangement from 1 by 8 to 8 by 1, the share shown, the share of cells used and their product. 3 by 3 has the highest product, 0.75." loading="lazy">
+<figcaption>The Grid's choice for the eight pictures below. 4 &#215; 2 uses every cell but its cells are too tall for 3:2 pictures (only 59 % of each would show); 3 &#215; 3 leaves one cell empty but shows 84 %, and wins.</figcaption>
+</figure>
+<figure><div class="row">
+  <div><img src="img/collage-slideshow/collage-grid.jpg" width="1400" height="788" alt="Grid of eight Iceland photos, 3 by 3 with the last row of two centered, on white." loading="lazy"><span class="label">Grid, spacing 1.5 %</span></div>
+  <div><img src="img/collage-slideshow/collage-contact-sheet.jpg" width="1400" height="788" alt="Contact sheet of ten photos with instant borders and file names under each, on white." loading="lazy"><span class="label">Contact Sheet</span></div>
+</div><figcaption>Two real renders: the Grid (its last row centered) and the Contact Sheet of ten photos. Note how the Contact Sheet shows every picture whole, portrait or landscape.</figcaption></figure>
+
+<h3 id="contact-sheet">Contact Sheet</h3>
+<p>The Contact Sheet is a grid inside a margin of 3 % of the page's short side, with 1.5 % between cells (it has its own spacing; the Grid spacing setting does not apply). Unlike the Grid, each cell holds one <em>whole</em> picture, with its border when one is chosen, above a line for its file name. Columns and rows are chosen the Grid's way, for cells whose picture part is near the pictures' typical shape. The file name is drawn at a line height of 8 % of the picture's long side, dark on a light page and light on a dark one.</p>
+
+<h3 id="multiple-exposure">Multiple Exposure</h3>
+<p>Every picture covers the whole page, cropped to the page's shape and centered, unturned. The render then blends them all with <strong>equal weights</strong>, so with two pictures each contributes half of every pixel. The style has no background (nothing of the page shows) and no shadows, and the seed changes nothing.</p>
+<figure>
+<img src="img/collage-slideshow/collage-multiple-exposure.jpg" width="1400" height="788" alt="Two photos blended into one: a black-sand beach with surf and a gray glacier crevasse." loading="lazy">
+<figcaption>Multiple Exposure of a beach and a glacier crevasse, rendered by Dalíca: each picture is half of every pixel.</figcaption>
+</figure>
+
+<h2 id="render">Drawing the page</h2>
+<p>The finished collage is drawn bottom to top:</p>
+<ol class="steps-list">
+  <li><strong>The background:</strong> the solid color, or a clip covering the page (centered, cropped to the page's shape).</li>
+  <li><strong>Each picture in stacking order.</strong> The picture is rendered through the one output pipeline with its edits, at the size its place needs, one at a time, so memory never holds more than the page and one picture. The part the placement names is stretched over the picture's box and turned with bilinear sampling and an anti-aliased edge.</li>
+  <li>Before it, its <strong>shadow</strong> (every style but Multiple Exposure): the closed form of the Drop Shadow effect at its defaults: a distance of 1.5 % and a blur of 2.5 % of the picture's short side, 30 % fade, falling down and to the right. It is computed along the turned picture's own axes, so a turned picture's shadow turns with it.</li>
+  <li>Around it, its <strong>border</strong> (Pile and Contact Sheet): white, 3 % of the picture's short side all round; or instant, 5 % with a 20 % bottom, in a slightly warm white.</li>
+  <li>After it, its <strong>caption</strong> (Pile with Show captions on): in the instant border's bottom in dark text, otherwise across the bottom of the picture in the watermark's white Inter.</li>
+</ol>
+<p>The page is 3,000 pixels on its long side (or the display's own size for Current Display) and is written as a JPEG at quality 92 with 4:4:4 chroma and an sRGB profile, dated the moment it was made. A video whose codec this build decodes can be a clip like any photo: its poster frame is used for the layout's ratio and drawn at the size its place needs. A clip that cannot be decoded is left out with a notice.</p>
+<figure>
+<img src="img/collage-slideshow/collage-pile-instant.jpg" width="1400" height="788" alt="A pile of five photos with instant-style borders, wide at the bottom, on a dark gray page." loading="lazy">
+<figcaption>Instant borders: 5 % of each picture's short side, with a 20 % bottom, where a caption would go.</figcaption>
+</figure>
+
+<h3 id="page-formats">Page formats</h3>
+<p>The page formats are the Crop tool's list: the locale's print sizes (in a US English locale 4 &#215; 6, 5 &#215; 7, 8 &#215; 10 and 8.5 &#215; 11 Letter), Square, 4:3, 16:10, 16:9 and 5:3, any custom ratios you made (shared with the Crop tool, so deleting one in either place deletes it from both), and Current Display. A ratio has no orientation of its own: the landscape or portrait toggle decides which side is long. Current Display records the display's size in pixels at the moment it was chosen, so a collage reopened on another screen still lays out the same. Formats whose long side is more than 1,000 times the short side are not offered.</p>
+
+<h2 id="recipe">The recipe saved beside the collage</h2>
+<p>Create Collage writes two files into <code>Pictures/Dalica/Collages</code> (or the folder you name, or the folder of the collage you reopened): the JPEG, named after the date it was made (<code>Collage 2026-11-07.jpg</code>, then <code>-001</code> and so on; it never replaces a file), and a <strong>recipe</strong> with the same stem and the extension <code>.dalica-collage</code>. The recipe is the document itself, as JSON. Here is the one written for the mosaic above (the clip list and the path shortened):</p>
+<pre><code>{
+  <span class="s">"background"</span>: { <span class="s">"colour"</span>: <span class="s">"#3c3836"</span>, <span class="s">"picture"</span>: <span class="k">null</span> },
+  <span class="s">"clips"</span>: [
+    { <span class="s">"id"</span>: <span class="n">1</span>, <span class="s">"onPage"</span>: <span class="k">true</span>, <span class="s">"path"</span>: <span class="s">"/home/me/Pictures/Iceland/DSC_0884.jpg"</span> },
+    <span class="c">&#8230; one entry per clip &#8230;</span>
+  ],
+  <span class="s">"dalica"</span>: { <span class="s">"version"</span>: <span class="n">1</span> },
+  <span class="s">"draft"</span>: <span class="k">false</span>,
+  <span class="s">"frameCentre"</span>: <span class="k">null</span>,
+  <span class="s">"moves"</span>: [],
+  <span class="s">"output"</span>: { <span class="s">"height"</span>: <span class="n">1688</span>, <span class="s">"width"</span>: <span class="n">3000</span> },
+  <span class="s">"page"</span>: { <span class="s">"format"</span>: { <span class="s">"ratio"</span>: { <span class="s">"height"</span>: <span class="n">9.0</span>, <span class="s">"name"</span>: <span class="s">"16:9 (HD video)"</span>, <span class="s">"width"</span>: <span class="n">16.0</span> } },
+            <span class="s">"orientation"</span>: <span class="s">"landscape"</span> },
+  <span class="s">"seed"</span>: <span class="s">"000000000000002a"</span>,
+  <span class="s">"settings"</span>: { <span class="s">"border"</span>: <span class="s">"instant"</span>, <span class="s">"captions"</span>: <span class="k">false</span>, <span class="s">"shadows"</span>: <span class="k">true</span>, <span class="s">"spacing"</span>: <span class="n">0.01</span> },
+  <span class="s">"shuffle"</span>: <span class="s">"0000000000000000"</span>,
+  <span class="s">"style"</span>: <span class="s">"mosaic"</span>,
+  <span class="s">"swaps"</span>: []
+}</code></pre>
+<ul>
+  <li>The seed and shuffle are written as <strong>16 hex digits</strong>, not numbers, because many JSON readers hold numbers as doubles, which keep only 53 bits; a 64-bit seed would silently change.</li>
+  <li>It is printed like a sidecar (keys sorted, two-space indent, LF line ends, a final newline), so reading and writing a document gives the same bytes. Keys Dalíca does not know are kept and printed back.</li>
+  <li>It is read under limits (1 MiB, nesting depth 32, 1,000 clips, paths up to 32 KiB, every number finite and in range). A recipe past any of them, of another shape or of a newer version is refused without a crash.</li>
+  <li><strong>Reopening</strong> (Edit Collage on the collage's photo) matches each clip first by its id, then by its path, but only among photos the library has already indexed. A path in a recipe is never opened directly, so a recipe someone sends you cannot make Dalíca read files outside your library. Clips that are not found are left out and reported. Creating again from a reopened collage writes a new collage beside it.</li>
+</ul>
+<p>A draft (Save Draft, or Close's Save Draft) is the same pair of files with <code>"draft": true</code>. The Collage room has its own undo history; none of its changes is a library undo step.</p>
+
+<h2 id="slideshow">Slideshows</h2>
+<p>A slideshow plays a section (a folder in its display order, an album in its order, the search results) or the tray, starting at the selected photo. The show itself is a small state machine in <code>dalica-create</code> (Playing, Paused, Zoomed, Ended) driven by the session's clock; where each photo is drawn during a change is answered by pure geometry functions, and the window only paints what they say.</p>
+
+<h3 id="timing">Timing</h3>
+<p>The display time (1 to 60 seconds, 3 by default) counts from the moment a photo's change <em>begins</em>. With 3 seconds and Dissolve, a photo fades in over 0.8 s and is then alone for 2.2 s. Every transition but Cut lasts 0.8 s; Cut takes no time.</p>
+<figure>
+<img src="img/collage-slideshow/timing.png" width="1600" height="520" alt="Opacity over time of three photos: photo 1 at full until 3 s, then crossing over to photo 2 by 3.8 s along S-shaped curves; photo 2 alone until 6 s, then fading to photo 3 by 6.8 s." loading="lazy">
+<figcaption>A 3 s display time with Dissolve. The S-shaped curves are the easing every transition uses (smoothstep: slow in, slow out).</figcaption>
+</figure>
+<ul>
+  <li><strong>Pausing</strong> freezes the display time (and Pan and Zoom's motion); a change already under way still finishes.</li>
+  <li><strong>A new display time</strong> counts the time the photo has already been shown; if that is already past the new value, the show moves on by one photo, never skipping any.</li>
+  <li><strong>Zooming in</strong> pauses the show; moving to another photo ends the zoom.</li>
+  <li><strong>Never waiting on the disk:</strong> the photo shown and the next one are kept as previews at the display's size, and the two after that are prepared as soon as a photo is shown. So the next photo has the whole display time of the current one to be ready, and decoding as slow as half the display time still never delays a change.</li>
+</ul>
+<p>Each photo is fitted to the show's area, centered on black, and never enlarged beyond twice its pixel size (in real pixels, so a high-density screen does not count double). Resizing the window or switching to full screen refits the photo at once.</p>
+
+<h3 id="transitions">The seven transitions</h3>
+<p>Every frame of a change is painted the same way: the screen black, then the outgoing photo's layer, then the incoming one's. Each layer paints black over its own clip area and then its photo, both at the layer's opacity. That is what makes Dissolve a true cross-fade: where the two photos have different shapes, the letterbox of one fades too, instead of the old photo showing through the new one's bars.</p>
+<dl class="terms">
+  <dt>Cut</dt><dd>The outgoing photo until the change, then the incoming one. No time.</dd>
+  <dt>Dissolve (default)</dt><dd>The incoming photo fades in over the outgoing one, its opacity following the eased progress.</dd>
+  <dt>Wipe</dt><dd>The incoming photo is uncovered from the left edge to the right: its clip is the screen from 0 to the eased progress times the width, the outgoing photo's clip the rest.</dd>
+  <dt>Circle</dt><dd>The incoming photo shows through a circle growing from the screen's center, its radius the eased progress times half the screen's diagonal, so it reaches the corners exactly at the end.</dd>
+  <dt>Push</dt><dd>The incoming photo comes in from the right and pushes the outgoing one out to the left by the same distance; each is clipped to its own side, so the two never overlap.</dd>
+  <dt>Rectangle</dt><dd>The incoming photo shows through a rectangle of the screen's shape growing from the center.</dd>
+  <dt>Pan and Zoom</dt><dd>A dissolve between photos that are moving: see below.</dd>
+</dl>
+<figure class="wide">
+<img src="img/collage-slideshow/transitions.jpg" width="1732" height="1162" alt="A grid of frames: six rows (Cut, Dissolve, Wipe, Circle, Push, Rectangle) by five columns (progress 0, 0.25, 0.5, 0.75, 1), changing from a landscape photo of icebergs to a portrait photo of a red shrine gate." loading="lazy">
+<figcaption>Six transitions from a landscape photo to a portrait one, at five points of the change. These frames are drawn from Dalíca's transition geometry (ported from <code>transition.rs</code>, eased progress included), not captured from the screen. Note the black around the portrait photo inside the Circle and Rectangle: each layer paints black over its clip before its photo.</figcaption>
+</figure>
+
+<h3 id="pan-zoom">Pan and Zoom</h3>
+<p>Under Pan and Zoom every photo slowly grows about a <strong>focus point</strong> over its whole display time, and photos change with a 0.8 s dissolve. The growth is 5 % plus (the photo's place in the show modulo 6) percent, so neighboring photos move differently, from 5 % to 10 %, and the same show always moves the same way. The growth is eased and the photo is clipped to its fitted frame, so it never spills into the black around it.</p>
+<p>The focus point is the center of the photo's largest <em>named</em> face (by its area on the picture as shown), else its largest unnamed face, else the photo's center. Ignored faces and faces cropped away do not count, and a face is mapped through the photo's crop, straighten and rotation. The effect is a slow push in toward the person in the picture.</p>
+<figure>
+<img src="img/collage-slideshow/pan-zoom.png" width="1800" height="680" alt="Left: a fitted frame with a focus point, and two dashed rectangles grown about it to 1.05 and 1.10. Right: six S-shaped curves of scale over a 3 second display time, ending at 1.05 to 1.10." loading="lazy">
+<figcaption>Left: the rectangle a photo is drawn in grows about the focus point, while the fitted frame stays its clip. Right: the six growth amounts, by the photo's place in the show.</figcaption>
+</figure>
+
+<h3 id="captions">Captions</h3>
+<p>With captions on, the photo's caption is drawn centered near the bottom in 22 pt Inter on a black plate at 160/255 opacity (14 &#215; 8 pt of padding, corner radius 8), at most 70 % of the screen's width and wrapping to at most 2 lines. The plate's bottom sits 8 % of the screen's height above the edge, and never lower than the control bar's top plus 8 pt, so the bar never covers it.</p>
+
+<h3 id="music">Music</h3>
+<p>With "Play music during slideshows" on, music starts with the show: every MP3, Ogg Vorbis, FLAC and WAV file of the music folder, in name order (ignoring case), looping. The files are listed and decoded on a worker thread of the music player's own and queued 250 ms ahead of what has been heard. A file that does not play is skipped (the reason goes to the log); if no file of the folder plays, the music ends with "No music file in the folder can be played".</p>
+<ul>
+  <li><strong>Which folder:</strong> a show of exactly one folder (its whole list, in its display order) plays that folder's own music folder, set in Folder Properties and stored in the folder's <code>.dalica.json</code> as <code>"folder": {"music": "&#8230;"}</code>. Every other show (an album, search results, the tray, photos of several folders), and a folder without its own music, plays the music folder of Options &#8594; Slideshow. An album holding exactly one folder's photos in that folder's order counts as that folder's show.</li>
+  <li><strong>Fallback:</strong> a folder's music folder that plays nothing (gone, unreadable, no music in it) gives way to the Options one, with a notice naming the folder.</li>
+  <li><strong>Pauses</strong> while the show is paused and while a video's sound plays (one sound at a time), remembering what was queued but not heard yet so it picks up where it left off.</li>
+  <li><strong>Ends</strong> with a 1 s fade-out when the show ends, at its last photo without Loop or on Exit.</li>
+</ul>
+
+<h3 id="videos-in-slideshows">Videos in slideshows</h3>
+<p>A video plays to its end (its trim respected) before the show moves on, whatever the display time. The show holds it from the moment it is shown: its poster frame stands in its place until the first decoded frame arrives, frames are decoded on a worker of their own at most 1,920 pixels on the long side, and the next change starts as soon as the clip ends. Pausing the show pauses the clip.</p>
+<p>It plays muted unless "Play video sound" is on. With it on, a clip whose sound Dalíca decodes (AAC) plays it at the video volume, pausing the music meanwhile; a clip whose sound it cannot decode plays muted and says why. A video Dalíca cannot play at all shows its tile for the display time, like a photo.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li><code>crates/create/src/collage/doc.rs</code>: the document, assignment, Scramble and Shuffle</li>
+  <li><code>crates/create/src/collage/seed.rs</code>: the SplitMix64 generator</li>
+  <li><code>crates/create/src/collage/layout.rs</code> and <code>layout/pile.rs</code>, <code>mosaic.rs</code>, <code>frame.rs</code>, <code>grid.rs</code>, <code>sheet.rs</code>, <code>exposure.rs</code>: the six layouts</li>
+  <li><code>crates/create/src/collage/render.rs</code>, <code>render/paint.rs</code>: drawing, shadows, borders, captions, the blend</li>
+  <li><code>crates/create/src/collage/page.rs</code>, <code>recipe.rs</code>: page formats and the <code>.dalica-collage</code> recipe</li>
+  <li><code>crates/engine/src/collage.rs</code>, <code>collage_output.rs</code>, <code>cmd/collage.rs</code>: the Collage room's commands, videos as clips</li>
+  <li><code>crates/create/src/slideshow.rs</code>, <code>slideshow/transition.rs</code>, <code>slideshow/geometry.rs</code>, <code>slideshow/faces.rs</code>: the show, the transitions, fitting, captions, the focus face</li>
+  <li><code>crates/engine/src/cmd/slideshow.rs</code>, <code>crates/engine/src/sound.rs</code>: what plays, previews made ahead, videos and music</li>
+  <li>Specs: <code>docs/creating.md</code> §3 and §3.1, <code>docs/viewing.md</code> §1, <code>docs/organizing.md</code> §10</li>
+  <li>The pictures in this chapter: <code>docs-tools/collage-slideshow/run_collages.py</code>, <code>layout_diagrams.py</code>, <code>pile_check.py</code>, <code>transitions.py</code></li>
+</ul>

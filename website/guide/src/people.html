@@ -1,0 +1,435 @@
+<h1>People</h1>
+<p class="lede">How Dalíca finds faces, turns each one into a list of numbers, groups the faces you have not named and suggests names for them, all on your own computer. Knowing the machinery tells you what the confidence sliders really change, why a suggestion appears or not, and exactly which files hold your face data.</p>
+
+<h2 id="principles">Five rules behind the design</h2>
+<p>Face recognition touches the most personal data in a photo library, so the feature is built around a few rules that the code enforces rather than merely promises:</p>
+<ol>
+  <li><strong>Nothing leaves the machine.</strong> Detection, recognition, grouping and suggestions run on your CPU. No photo, face crop, embedding, name or count is sent anywhere. The only network request the feature ever makes is a model download you started and agreed to.</li>
+  <li><strong>Nothing is bundled.</strong> No model weights ship with Dalíca, its source repository or its release packages. A build check rejects <code>.onnx</code> and other weight files in the repository.</li>
+  <li><strong>Nothing is named for you.</strong> A suggestion is only a label until you confirm it. The thresholds are tuned so that leaving a face unnamed is preferred over naming it wrongly.</li>
+  <li><strong>Pure Rust, and a model file is hostile input.</strong> The neural network interpreter is Dalíca's own Rust code, with no C, no assembly and no <code>unsafe</code>. A model file is checked against hard limits before it runs, like any other file Dalíca reads.</li>
+  <li><strong>Faces are your data; embeddings are a cache.</strong> Which rectangle is which person lives in the folder sidecars next to your photos. The numbers the recognizer computes are derived data that can be thrown away and rebuilt.</li>
+</ol>
+
+<h2 id="pipeline">The face pipeline</h2>
+<p>Every photo goes through the same chain: find the faces, line each one up the way the recognizer expects, and turn it into a vector of numbers. Everything after that (grouping, suggestions, Find More) is arithmetic on those vectors.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 1000 380" role="img" aria-label="The face pipeline: upright decode, letterbox to 640 pixels, YuNet detector, score and overlap filtering, faces with five landmarks, alignment to a 112 pixel template, recognizer, unit vector, cache file and 8-bit memory index, then grouping and suggestions." font-family="sans-serif">
+  <defs>
+    <marker id="ppl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fe8019" stroke="none"/></marker>
+  </defs>
+  <g fill="#32302f" stroke="#504945" stroke-width="1.5">
+    <rect x="10" y="20" width="170" height="84" rx="8"/>
+    <rect x="212" y="20" width="170" height="84" rx="8"/>
+    <rect x="414" y="20" width="170" height="84" rx="8"/>
+    <rect x="616" y="20" width="170" height="84" rx="8"/>
+    <rect x="818" y="20" width="170" height="84" rx="8"/>
+    <rect x="10" y="150" width="170" height="84" rx="8"/>
+    <rect x="212" y="150" width="170" height="84" rx="8"/>
+    <rect x="414" y="150" width="170" height="84" rx="8"/>
+    <rect x="616" y="150" width="170" height="84" rx="8"/>
+    <rect x="818" y="150" width="170" height="84" rx="8"/>
+    <rect x="616" y="280" width="170" height="84" rx="8"/>
+    <rect x="818" y="280" width="170" height="84" rx="8"/>
+  </g>
+  <g fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#ppl-arr)">
+    <line x1="180" y1="62" x2="210" y2="62"/>
+    <line x1="382" y1="62" x2="412" y2="62"/>
+    <line x1="584" y1="62" x2="614" y2="62"/>
+    <line x1="786" y1="62" x2="816" y2="62"/>
+    <path d="M903,104 L903,127 L95,127 L95,148"/>
+    <line x1="180" y1="192" x2="210" y2="192"/>
+    <line x1="382" y1="192" x2="412" y2="192"/>
+    <line x1="584" y1="192" x2="614" y2="192"/>
+    <line x1="786" y1="192" x2="816" y2="192"/>
+    <path d="M903,234 L903,278"/>
+    <path d="M870,234 L870,257 L701,257 L701,278"/>
+  </g>
+  <g fill="#ebdbb2" font-size="14" font-weight="bold" text-anchor="middle">
+    <text x="95" y="46" stroke="none">Upright decode</text>
+    <text x="297" y="46" stroke="none">Letterbox</text>
+    <text x="499" y="46" stroke="none">YuNet detector</text>
+    <text x="701" y="46" stroke="none">Keep the best</text>
+    <text x="903" y="46" stroke="none">Faces</text>
+    <text x="95" y="176" stroke="none">Align</text>
+    <text x="297" y="176" stroke="none">Recognizer</text>
+    <text x="499" y="176" stroke="none">Unit vector</text>
+    <text x="701" y="176" stroke="none">Cache file</text>
+    <text x="903" y="176" stroke="none">Memory index</text>
+    <text x="701" y="306" stroke="none">Grouping</text>
+    <text x="903" y="306" stroke="none">Suggestions</text>
+  </g>
+  <g fill="#d5c4a1" font-size="12" text-anchor="middle">
+    <text x="95" y="68" stroke="none">long side ≤ 2048 px</text>
+    <text x="95" y="86" stroke="none">RAW: embedded preview</text>
+    <text x="297" y="68" stroke="none">into 640 × 640</text>
+    <text x="297" y="86" stroke="none">BGR, black padding</text>
+    <text x="499" y="68" stroke="none">grids of 80², 40², 20²</text>
+    <text x="499" y="86" stroke="none">cells (strides 8, 16, 32)</text>
+    <text x="701" y="68" stroke="none">score √(cls·obj) ≥ 0.6</text>
+    <text x="701" y="86" stroke="none">overlap (IoU) ≤ 0.3</text>
+    <text x="903" y="68" stroke="none">box + 5 landmarks</text>
+    <text x="903" y="86" stroke="none">at most 256 per photo</text>
+    <text x="95" y="198" stroke="none">least-squares similarity</text>
+    <text x="95" y="216" stroke="none">onto a 112 × 112 template</text>
+    <text x="297" y="198" stroke="none">SFace: 128 numbers</text>
+    <text x="297" y="216" stroke="none">AuraFace: 512 numbers</text>
+    <text x="499" y="198" stroke="none">length 1 (float64 norm)</text>
+    <text x="499" y="216" stroke="none">cosine = dot product</text>
+    <text x="701" y="198" stroke="none">faces-&lt;model id&gt;.cache</text>
+    <text x="701" y="216" stroke="none">float32, on disk</text>
+    <text x="903" y="198" stroke="none">8 bits per number</text>
+    <text x="903" y="216" stroke="none">one scale per vector</text>
+    <text x="701" y="328" stroke="none">unnamed faces into</text>
+    <text x="701" y="346" stroke="none">clusters</text>
+    <text x="903" y="328" stroke="none">unnamed faces against</text>
+    <text x="903" y="346" stroke="none">your named people</text>
+  </g>
+</svg>
+<figcaption>From photo file to suggestion. The top row finds faces; the middle row turns each face into a unit vector and stores it twice (exact on disk, compact in memory); the bottom row is pure arithmetic on those vectors.</figcaption>
+</figure>
+
+<h3 id="decode">The picture the detector sees</h3>
+<p>Each photo is decoded upright (its EXIF orientation applied) and <strong>unedited</strong>, at the smallest size whose long side covers 2048 pixels. A RAW file is read through its embedded preview, a JPEG uses the decoder's DCT scaling so the full image is never expanded, and a video is read through the poster frame its thumbnail shows. Because detection always looks at the uncropped original, your crops and edits never change which faces exist, and the rectangles stay valid however you turn the photo later: they are stored in the upright frame, before Dalíca's own rotations and flips.</p>
+
+<h3 id="detection">Detection with YuNet</h3>
+<p>The detector is <strong>YuNet</strong> (version 2023mar), a small network of about 232 KB. Its input is a 640 × 640 square, so the 2048 px picture is <em>letterboxed</em> into it: scaled with its aspect ratio kept into the top left corner (exact area averaging when shrinking), the rest filled with black, the channels in BGR order with raw 0 to 255 values, as the model's manifest says.</p>
+<p>The network looks at the square through three grids, with cells of 8, 16 and 32 pixels: 80 × 80, 40 × 40 and 20 × 20 cells, 8,400 in all. For every cell it gives a class score, an objectness, a box (a center offset and the logarithm of the width and height, in cells) and ten numbers for five landmarks. Dalíca's decoder then:</p>
+<ol class="steps-list">
+  <li>Computes each cell's score as <code>√(cls · obj)</code> and keeps the cells scoring at least <strong>0.6</strong>.</li>
+  <li>Keeps at most the 4,000 best candidates, so a noisy or hostile model cannot make the next step slow.</li>
+  <li>Runs non-maximum suppression: from the best down, a box overlapping an already kept one by more than <strong>0.3</strong> intersection over union is dropped. Ties keep the grid order, so the same photo always gives the same faces.</li>
+  <li>Maps every box back to the photo as fractions of its width and height, clips it to the photo, and stops at <strong>256 faces</strong> per photo, best first.</li>
+</ol>
+<p>Each face comes out as a rectangle plus five landmarks: the two eyes, the nose tip and the two mouth corners. Landmarks may sit slightly outside the photo (a face cut by the edge); boxes never do. Since the detector works on a 640 px square, it finds faces down to about 10 px at that size, so very small faces in a large group photo can be missed.</p>
+<p>The detector also runs on photos that already have faces you need embedded (drawn by hand or read from a file's metadata), but only to <em>lend</em> its landmarks: a stored face takes the landmarks of the detection it overlaps most, if that overlap is at least 0.3. A detection that overlaps an existing face (named, unnamed or ignored) by 0.3 or more is that face, never a second one.</p>
+
+<h3 id="alignment">Alignment to a template</h3>
+<p>Recognizers are trained on faces cut out in one standard pose, so each face is turned and scaled until its five landmarks sit as close as possible to five fixed points of a 112 × 112 template (the left eye near (38.3, 51.7), the right eye near (73.5, 51.5), the nose tip near (56.0, 71.7), the mouth corners near (41.5, 92.4) and (70.7, 92.2)). The transform is a <strong>similarity</strong>: rotation, uniform scale and shift, no stretching and no mirroring. Dalíca finds it by least squares in closed form, treating points as complex numbers (<code>a = Σ conj(p′)·q′ / Σ |p′|²</code> on centered points), in float64 so landmarks far from the origin lose no precision. A transform whose scale falls outside 0.01 to 100 is refused.</p>
+
+<figure>
+<img src="img/people/alignment.png" width="1600" height="840" alt="Left: five colored landmark dots of a tilted face on a photo grid, inside an orange square rotated about 19 degrees. Right: a 112 by 112 square with five cross-shaped template points and the same five dots landing within about a pixel of them." loading="lazy">
+<figcaption>The alignment computed with Dalíca's own formula on five example landmarks (no real face). The orange square on the left is the part of the photo the crop samples: turned 19.1° and 2.58 photo pixels per crop pixel. On the right, the landmarks land within 1.3 px (RMS) of the template, because real faces never match it exactly and least squares spreads the miss.</figcaption>
+</figure>
+
+<p>The crop is filled by sampling the photo under each output pixel bilinearly, with up to 4 × 4 sub-samples per pixel when the face is being shrunk, so a large face does not alias. A face with no landmarks at all (a hand-drawn box on a photo where the detector finds nothing there) is cut as a plain square around its box, 1.5 times its larger side.</p>
+
+<h3 id="embedding">Embedding</h3>
+<p>The recognizer turns the 112 × 112 crop into one vector: 128 numbers for SFace, 512 for AuraFace. The input is prepared exactly as the model's manifest specifies: SFace reads RGB with raw 0 to 255 values, AuraFace reads RGB normalized as <code>(x − 127.5) / 127.5</code>. Dalíca checks that every output number is finite and not all zero, then divides the vector by its length (computed in float64, so large but finite outputs cannot overflow). After that, every vector has length 1, and the similarity of two faces is simply their dot product, the <strong>cosine similarity</strong>: 1 for identical directions, near 0 for unrelated faces.</p>
+
+<h3 id="interpreter">The interpreter and its limits</h3>
+<p>Both models run on a small pure-Rust ONNX interpreter. It supports only the operators these models use (convolutions including depthwise groups, batch normalization, PRelu, Relu, Sigmoid, Add, Sub, Mul, Flatten, Gemm, MaxPool, whole-number nearest Resize, Transpose, constant-shape Reshape, GlobalAveragePool, Identity, and Dropout as identity). Anything else (other operators, custom domains, training graphs, external or sparse weights, non-float32 tensors, opsets outside 10 to 17) fails to load with a message naming it. Convolutions use a bounded im2col and a single-threaded float32 matrix multiply; the interpreter never starts threads of its own.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Limit</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Model file</td><td>512 MiB</td></tr>
+<tr><td>All weights together</td><td>64 Mi elements (256 MiB as float32)</td></tr>
+<tr><td>Any one tensor</td><td>64 Mi elements</td></tr>
+<tr><td>Live tensors plus convolution scratch at any step</td><td>512 MiB, checked before anything is allocated</td></tr>
+<tr><td>Nodes, weight tensors</td><td>20,000 each</td></tr>
+<tr><td>Tensor rank</td><td>8</td></tr>
+<tr><td>Graph outputs</td><td>64</td></tr>
+<tr><td>Protobuf fields read from one file</td><td>5,000,000</td></tr>
+<tr><td>Every weight and computed value</td><td>must be finite (an overflow is an error, not a NaN)</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="models">Models: consent, pinning and licenses</h2>
+<p>Dalíca knows three models by their SHA-256 and offers to download them. They are the only models on the built-in list, chosen because their weights' licenses let the project point to them:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Model</th><th>Role</th><th>Size</th><th>Weights license</th><th>Commercial use</th><th>Trained on</th><th>Pinned at</th></tr></thead>
+<tbody>
+<tr><td>YuNet 2023mar</td><td>detector</td><td>232,589 bytes</td><td>MIT</td><td>yes</td><td>WIDER FACE (its terms are a separate question)</td><td>github.com, opencv_zoo commit <code>25f423d</code></td></tr>
+<tr><td>SFace 2021dec (the default)</td><td>recognizer, 128 numbers</td><td>38,696,353 bytes</td><td>Apache-2.0, as labeled by the model zoo</td><td>unknown</td><td>undocumented</td><td>github.com, opencv_zoo commit <code>25f423d</code></td></tr>
+<tr><td>AuraFace v1</td><td>recognizer, 512 numbers</td><td>260,694,151 bytes</td><td>Apache-2.0</td><td>yes</td><td>undisclosed ("a commercial dataset")</td><td>huggingface.co, commit <code>af6d057</code></td></tr>
+</tbody>
+</table></div>
+<p>SFace is offered first because it is much smaller and faster. AuraFace is about seven times slower per face on a CPU. The "commercial use" column describes only the weights' license, never the training data, and the download dialog says so. A model whose weights are for non-commercial or research use is never offered, hosted or linked, even if it were added to the list by mistake: the download code refuses any entry marked non-commercial.</p>
+
+<h3 id="download">What a download does</h3>
+<ol class="steps-list">
+  <li><strong>Consent first.</strong> The dialog shows each file's license, commercial use, training data, size and the site it comes from. Download stays disabled until you tick "I have read these terms and accept them for my own use". In code, a download needs a consent object that can only be made from that acknowledgement, for exactly one pinned file; without it nothing is read, requested or written. Over automation, the <code>acknowledged</code> parameter must be <code>true</code>, and agents are told never to set it on their own.</li>
+  <li><strong>A pinned address.</strong> The file is fetched over HTTPS from the model's own repository at an address pinned to a commit, so the bytes behind it cannot change. The transport is pure Rust (<code>rustls</code> with a RustCrypto provider and Mozilla's root certificates compiled in). The request carries only <code>User-Agent: Dalica/&lt;version&gt;</code>, <code>Accept</code>, <code>Accept-Encoding</code> and, when resuming, <code>Range</code>: no cookie, token, account or personal header. Redirects may only lead to https addresses. A proxy from Options, Network is used through <code>CONNECT</code>, so it sees the host, not the file.</li>
+  <li><strong>Resumable.</strong> Bytes go to <code>&lt;models&gt;/.downloads/&lt;id&gt;.onnx.part</code>. A cut or cancelled download keeps its part file, and the next attempt asks for the rest (up to 16 attempts per download).</li>
+  <li><strong>Verified.</strong> The finished file must have exactly the recorded size and SHA-256, or it is deleted.</li>
+  <li><strong>Self-tested.</strong> The model is loaded within the limits above and run on fixed synthetic pictures. A recognizer must give its stated number of finite values at unit length, the same vector for the same picture and different vectors for a noise picture and a gradient picture. A detector must run twice on a photo-like test picture with the same faces both times, every box inside the picture. A model that fails is deleted.</li>
+  <li><strong>Installed, manifest last.</strong> Only then is the file moved to <code>&lt;models&gt;/&lt;id&gt;/model.onnx</code> and its manifest <code>face-model.json</code> written. A model without a manifest is never used, so a crash midway leaves nothing half-installed. When the scan loads a model, a file whose SHA-256 differs from its manifest's is refused.</li>
+</ol>
+<p>The models folder is <code>&lt;config&gt;/models</code> (on Linux <code>~/.config/dalica/models</code>, on macOS <code>~/Library/Application Support/Dalica/models</code>, on Windows <code>%APPDATA%\Dalica\models</code>), or the folder named by <code>$DALICA_FACE_MODELS</code>. It is shared by the app, the CLI and the MCP server, and downloads are refused while it sits inside a watched photo folder.</p>
+
+<h3 id="own-model">Bringing your own model</h3>
+<p><strong>Add a model file…</strong> (or dropping an <code>.onnx</code> on the window) installs a local file after the same license dialog. The file is read once, at most 512 MiB, and identified by its SHA-256: first against the three known models, then against your own <code>catalog.json</code> in the models folder (entries with an id, name, role, https URL, SHA-256, size, license notice, provenance, output size and thresholds). A file Dalíca does not know is accepted only if it looks like a recognizer: one float picture input of shape [batch, 3, height, width] and one vector output of 8 to 4,096 numbers. Dalíca then states its assumptions in plain words (112 × 112 aligned RGB faces, <code>(x − 127.5) / 127.5</code>, one vector per face) and starts it at a match threshold of 0.40. An unknown file with several outputs looks like a detector, and is refused: only a detector known by its hash can be added. Models that are not built in, or whose license does not plainly allow commercial use, are shown with their notice in the caution color.</p>
+
+<h3 id="switching">Switching models</h3>
+<p>The newest installed recognizer is the one in use; <strong>Use</strong> picks another. Vectors from two models mean nothing to each other, so each recognizer has its own cache file, and switching resets the in-memory index and loads the other model's cache. Switching back therefore does not start over, and results of two models are never mixed. Face rectangles and names do not depend on the model at all.</p>
+
+<h2 id="scan">The background scan</h2>
+<p>With <strong>Find faces in my photos</strong> on and a recognizer installed, a cancellable <code>faces</code> job runs at the lowest priority in its own worker pool. The order is chosen to make suggestions useful early: photos that already have named faces first (they become references), then the newest folders, newest photos first. A photo without faces is searched by the detector once; the cache remembers that it was searched, which is why a face you removed does not come back on the next scan. A photo that could not be read is not tried again until its file changes or Dalíca restarts. Folders with "Find faces in this folder" off, hidden folders, folders on offline volumes and videos this build cannot play are skipped without opening their files.</p>
+<p>The scan's pace follows what you are doing, so it never competes with your work:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>What the window reports</th><th>Photos in progress at once</th></tr></thead>
+<tbody>
+<tr><td>Dragging, typing or scrolling within the last second</td><td>none started (a photo already in progress finishes)</td></tr>
+<tr><td>Any input or pointer movement within the last three seconds</td><td>1</td></tr>
+<tr><td>Idle for three seconds</td><td>half the cores</td></tr>
+<tr><td>Window minimized, or idle on the People view</td><td>four fifths of the cores</td></tr>
+<tr><td>Always</td><td>at most 4 (192 MiB budgeted per photo, 768 MiB in all)</td></tr>
+</tbody>
+</table></div>
+<p>Photos in progress are never interrupted. On one thread of the project's reference workstation, a network of YuNet's shape took about 41 ms on a 640 px picture. Measured on the same interpreter, the real models take about 34 to 36 ms per face for SFace and about 233 to 252 ms for AuraFace.</p>
+<p>Found rectangles are written to the folder sidecar as Unnamed faces, without an undo step (like a scan's imports). <strong>Find Faces Again</strong> takes the found faces (unnamed and ignored) off the selected photos as one undo step, keeps the named ones, and searches the photos again first.</p>
+
+<h2 id="confidence">Confidence sliders and thresholds</h2>
+<p>Options, People has two sliders, <strong>Suggestion confidence</strong> and <strong>Grouping confidence</strong>, from 50 to 95 in steps of 5, both starting at 85. The slider value is not a probability: it selects a cosine similarity threshold from a calibration table that belongs to the model in use. The built-in tables were measured on a set of 45 public-domain portraits of 10 people:</p>
+<ul>
+  <li>at <strong>85</strong>, the model's recommended match threshold (SFace 0.55, which in a measurement on 755 named faces gave 97.5 % right suggestions for 88 % of them; AuraFace 0.40, 96.6 % right for 56 %);</li>
+  <li>at <strong>50</strong>, the first 0.01 step above the highest similarity between two <em>different</em> people in the set (SFace 0.330, AuraFace 0.303);</li>
+  <li>at <strong>95</strong>, the median similarity of two portraits of the <em>same</em> person (SFace 0.678, AuraFace 0.630);</li>
+  <li>even steps in between.</li>
+</ul>
+<figure>
+<img src="img/people/calibration.png" width="1600" height="880" alt="Line chart of the cosine threshold against the confidence slider from 50 to 95. The SFace line rises from 0.34 to 0.55 at 85 and 0.68 at 95; the AuraFace line from 0.31 to 0.40 at 85 and 0.63 at 95. Dashed lines at 80 percent of each show the Find More bar." loading="lazy">
+<figcaption>The two built-in calibration tables, exactly as they are in the code. Note the bend at 85: below it the steps are small, above it each step climbs toward the typical same-person similarity. The dashed lines are the Find More bar, 80 % of the suggestion threshold.</figcaption>
+</figure>
+<p>A model without a table (your own) uses <code>matchCosine + (value − 85) × 0.01</code>, kept within −1 to 1. The tables are checked when loaded: a value that is not a cosine, or a table that falls as the confidence rises, is refused, so a higher slider value always means fewer, more certain matches.</p>
+
+<h2 id="grouping">Grouping unnamed faces</h2>
+<p>The Unnamed view shows your unnamed faces in clusters of similar faces, so one name can label many faces at once. The clustering is Dalíca's own incremental algorithm on the unit vectors:</p>
+<ol class="steps-list">
+  <li>Faces are added one at a time, in photo order, so the same faces give the same clusters after a restart.</li>
+  <li>A new face is compared with every cluster's <strong>centroid</strong> (the sum of its faces' vectors, scaled to length 1). It joins the most similar cluster if that similarity is at or above the Grouping threshold (ties go to the older cluster); otherwise it starts a cluster of its own.</li>
+  <li>A merge pass then looks at every cluster that changed: if its most similar other cluster meets the threshold, the younger one is merged into the older, and the pass repeats until nothing changes.</li>
+  <li>Clusters are listed largest first; within a cluster, the faces most similar to its centroid come first.</li>
+</ol>
+<figure class="wide">
+<svg viewBox="0 0 1000 270" role="img" aria-label="Grouping in three steps: a new face is compared with each cluster centroid; it joins the most similar cluster when the similarity meets the threshold, otherwise it starts its own; a merge pass joins clusters whose centroids meet the threshold." font-family="sans-serif">
+  <g fill="#32302f" stroke="#504945" stroke-width="1.5">
+    <rect x="10" y="10" width="310" height="250" rx="8"/>
+    <rect x="345" y="10" width="310" height="250" rx="8"/>
+    <rect x="680" y="10" width="310" height="250" rx="8"/>
+  </g>
+  <g fill="#ebdbb2" font-size="14" font-weight="bold">
+    <text x="26" y="36" stroke="none">1. Compare with each centroid</text>
+    <text x="361" y="36" stroke="none">2. Join, or start a cluster</text>
+    <text x="696" y="36" stroke="none">3. Merge pass</text>
+  </g>
+  <g fill="none" stroke-width="1.5" stroke-dasharray="4 4">
+    <circle cx="100" cy="130" r="50" stroke="#83a598"/>
+    <circle cx="240" cy="150" r="42" stroke="#b8bb26"/>
+    <circle cx="440" cy="130" r="52" stroke="#83a598"/>
+    <circle cx="580" cy="150" r="42" stroke="#b8bb26"/>
+    <circle cx="790" cy="130" r="44" stroke="#83a598"/>
+    <circle cx="860" cy="135" r="40" stroke="#d3869b"/>
+    <ellipse cx="825" cy="132" rx="100" ry="58" stroke="#fe8019"/>
+  </g>
+  <g fill="#83a598"><circle cx="80" cy="115" r="5"/><circle cx="110" cy="105" r="5"/><circle cx="95" cy="150" r="5"/><circle cx="125" cy="140" r="5"/>
+    <circle cx="420" cy="115" r="5"/><circle cx="450" cy="105" r="5"/><circle cx="435" cy="150" r="5"/><circle cx="465" cy="140" r="5"/>
+    <circle cx="770" cy="115" r="5"/><circle cx="800" cy="108" r="5"/><circle cx="780" cy="148" r="5"/></g>
+  <g fill="#b8bb26"><circle cx="225" cy="140" r="5"/><circle cx="255" cy="165" r="5"/><circle cx="245" cy="135" r="5"/>
+    <circle cx="565" cy="140" r="5"/><circle cx="595" cy="165" r="5"/><circle cx="585" cy="135" r="5"/></g>
+  <g fill="#d3869b"><circle cx="855" cy="120" r="5"/><circle cx="875" cy="150" r="5"/><circle cx="850" cy="150" r="5"/></g>
+  <circle cx="165" cy="85" r="6" fill="#fabd2f"/>
+  <circle cx="478" cy="108" r="6" fill="#fabd2f"/>
+  <g fill="none" stroke="#fabd2f" stroke-width="1.5">
+    <line x1="165" y1="85" x2="104" y2="128"/>
+    <line x1="165" y1="85" x2="238" y2="148"/>
+  </g>
+  <g stroke="#ebdbb2" stroke-width="2">
+    <path d="M96,130 h8 M100,126 v8"/><path d="M236,150 h8 M240,146 v8"/>
+    <path d="M440,128 h8 M444,124 v8"/><path d="M576,150 h8 M580,146 v8"/>
+    <path d="M821,132 h8 M825,128 v8"/>
+  </g>
+  <g fill="#d5c4a1" font-size="12">
+    <text x="112" y="96" stroke="none">0.62</text>
+    <text x="205" y="106" stroke="none">0.31</text>
+    <text x="26" y="214" stroke="none">The yellow face against each cluster's</text>
+    <text x="26" y="232" stroke="none">centroid (+). Example numbers for</text>
+    <text x="26" y="250" stroke="none">SFace at the default 85: threshold 0.55.</text>
+    <text x="361" y="214" stroke="none">0.62 ≥ 0.55: it joins the blue cluster, and</text>
+    <text x="361" y="232" stroke="none">the centroid moves toward it. Below 0.55</text>
+    <text x="361" y="250" stroke="none">everywhere, it would start a cluster alone.</text>
+    <text x="696" y="214" stroke="none">Changed clusters whose centroids meet the</text>
+    <text x="696" y="232" stroke="none">threshold merge, the younger into the older.</text>
+    <text x="696" y="250" stroke="none">Then: largest cluster first.</text>
+  </g>
+</svg>
+<figcaption>How a face finds its cluster. The similarities drawn are an illustration, not measurements; the threshold is SFace's real value at the default Grouping confidence.</figcaption>
+</figure>
+<p>The groups are rebuilt from scratch on a worker whenever the unnamed faces, their vectors or the Grouping confidence change, and at most every two seconds while the scan is still adding faces. They are never stored: they are recomputed from the cache, which is why grouping is not user data. Naming a cluster names every face in it as one undo step.</p>
+<div class="note"><p><b>Why centroids:</b> comparing a new face with every face of every cluster would cost more as the library grows and would let one odd photo pull in faces that look nothing like the rest. A centroid summarizes a cluster in one vector, so each new face costs one comparison per cluster.</p></div>
+
+<h2 id="suggestions">Name suggestions</h2>
+<p>With <strong>Suggest names</strong> on, an unnamed face gets a "Name?" when it clearly resembles one of the people you have already named. The decision has two bars, and both must pass:</p>
+<figure class="wide">
+<svg viewBox="0 0 1000 230" role="img" aria-label="Suggestion decision: an unnamed face is scored against each person by the best cosine over at most 64 of their named faces; the best person must reach the suggestion threshold and lead the second-best by at least 0.05, otherwise there is no suggestion." font-family="sans-serif">
+  <defs>
+    <marker id="ppl-arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fe8019" stroke="none"/></marker>
+  </defs>
+  <g fill="#32302f" stroke="#504945" stroke-width="1.5">
+    <rect x="10" y="20" width="170" height="84" rx="8"/>
+    <rect x="212" y="20" width="170" height="84" rx="8"/>
+    <rect x="414" y="20" width="170" height="84" rx="8"/>
+    <rect x="616" y="20" width="170" height="84" rx="8"/>
+    <rect x="818" y="20" width="170" height="84" rx="8" stroke="#fe8019"/>
+    <rect x="414" y="160" width="372" height="50" rx="8"/>
+  </g>
+  <g fill="none" stroke="#fe8019" stroke-width="2" marker-end="url(#ppl-arr2)">
+    <line x1="180" y1="62" x2="210" y2="62"/>
+    <line x1="382" y1="62" x2="412" y2="62"/>
+    <line x1="584" y1="62" x2="614" y2="62"/>
+    <line x1="786" y1="62" x2="816" y2="62"/>
+  </g>
+  <g fill="none" stroke="#504945" stroke-width="2" marker-end="url(#ppl-arr2)">
+    <line x1="499" y1="104" x2="499" y2="158"/>
+    <line x1="701" y1="104" x2="701" y2="158"/>
+  </g>
+  <g fill="#ebdbb2" font-size="14" font-weight="bold" text-anchor="middle">
+    <text x="95" y="46" stroke="none">Unnamed face</text>
+    <text x="297" y="46" stroke="none">Score each person</text>
+    <text x="499" y="46" stroke="none">Best ≥ threshold?</text>
+    <text x="701" y="46" stroke="none">Lead ≥ 0.05?</text>
+    <text x="903" y="46" stroke="none">"Name?"</text>
+    <text x="600" y="191" stroke="none">No suggestion: the face stays Unnamed</text>
+  </g>
+  <g fill="#d5c4a1" font-size="12" text-anchor="middle">
+    <text x="95" y="68" stroke="none">not confirmed,</text>
+    <text x="95" y="86" stroke="none">its 8-bit vector</text>
+    <text x="297" y="68" stroke="none">best cosine over ≤ 64</text>
+    <text x="297" y="86" stroke="none">of their named faces</text>
+    <text x="499" y="68" stroke="none">SFace at 85: 0.55</text>
+    <text x="499" y="86" stroke="none">AuraFace at 85: 0.40</text>
+    <text x="701" y="68" stroke="none">over the second-best</text>
+    <text x="701" y="86" stroke="none">person (cosine)</text>
+    <text x="903" y="68" stroke="none">until you Confirm</text>
+    <text x="903" y="86" stroke="none">or Reject it</text>
+    <text x="514" y="138" text-anchor="start" stroke="none">no</text>
+    <text x="716" y="138" text-anchor="start" stroke="none">no</text>
+    <text x="297" y="130" stroke="none">rejected pairs are skipped</text>
+  </g>
+</svg>
+<figcaption>The two bars of a suggestion. The margin keeps Dalíca quiet when a face looks about equally like two people, such as siblings.</figcaption>
+</figure>
+<h3 id="references">Who a face is compared with</h3>
+<p>A person's score for a face is their <strong>single best match</strong> among their reference faces. References are your confirmed faces that have a vector from the model in use, but at most <strong>64 per person</strong>, so a person in thousands of photos stays cheap. The 64 are chosen from that person's 256 most recent faces (unknown dates count as oldest): first the most recent face, then, again and again, the remaining face <em>least</em> like any already chosen. This "farthest point" choice favors variety (other angles, lighting, ages) over 64 near-identical shots from one afternoon.</p>
+<h3 id="eight-bit">Eight bits, with an exact fallback</h3>
+<p>In memory, each vector is stored with one byte per number and one scale per vector (the largest magnitude divided by 127), a quarter of the float32 size, so 100,000 faces fit the memory budget. Dalíca computes, alongside each 8-bit similarity, a strict bound on how far the exact value could be from it. When a decision falls within that bound of a bar (the best score near the threshold, or the lead near the 0.05 margin), the people within reach are scored again with the float32 vectors from the cache, so rounding never flips a decision.</p>
+<h3 id="confirm-reject">What Confirm and Reject do</h3>
+<ul>
+  <li><strong>Confirm</strong> (or Confirm All for a person) names the face after the suggested person, as one undo step. The face becomes a reference at the next ask, so every confirmation adds evidence for that person, and especially useful evidence when it is a new angle: the farthest-point choice above is likely to pick it.</li>
+  <li><strong>Reject</strong> records the pair "this face is not this person" in <code>people.json</code> under <code>"rejected"</code> (photo path, rectangle, person id; up to 100,000 pairs, the oldest dropped first). That person is never suggested for that face again, though another person still may be. Rejecting is not an undo step. A pair follows its photo when you rename or move it in Dalíca.</li>
+  <li>A confirmed face is never suggested again. Deleting a person returns their faces to Unnamed, and merging two people makes one person's references the other's.</li>
+</ul>
+<p>Suggestions are not computed per frame. They are worked out when something asks for them and kept until something they depend on changes: the library (a face named, moved or removed, a person merged), the face index (new vectors, another model), the rejected pairs, the Suggest names switch or the Suggestion confidence. A face the scan has just embedded gets its "Name?" at the next ask. The rejected pairs are read from <code>people.json</code> once, on a helper thread, before the first suggestion; until they are read, nothing is suggested rather than suggesting a pair you already rejected.</p>
+
+<h3 id="find-more">Find More: the 80 % bar</h3>
+<p><strong>Find More</strong> on a person lists unnamed faces that scored too low for a "Name?" but might still be them, for you to review one by one. A face is listed when its best match against the person's references is <strong>above 80 % of the Suggestion threshold</strong> (in code, <code>threshold − 0.2 × |threshold|</code>): with SFace at 85 that is above 0.44 instead of 0.55, with AuraFace above 0.32 instead of 0.40. The list is sorted most similar first, leaves out confirmed faces and pairs you rejected, ignores the margin, and works even while Suggest names is off, because you asked for it explicitly.</p>
+<div class="note"><p><b>Why a lower bar is safe here:</b> a "Name?" can appear on any face in the library unprompted, so it must be right almost always. Find More answers a direct question about one person, and every result is shown for you to judge, so trading precision for recall is what you want.</p></div>
+
+<h3 id="evaluate">Evaluate on your photos</h3>
+<p><code>faces.evaluate</code> (Evaluate Suggestions) measures how the sliders would behave on <em>your</em> named faces. It hides each named face in turn, asks who it looks like from the others, and reports per confidence step how many suggestions would be made and how many would be right. Shots taken within 5 seconds of the hidden face are left out of its comparison, because a burst of the same moment would make every answer look easy. The result lets you choose a slider value from evidence instead of guessing.</p>
+
+<h2 id="storage">Where face data lives</h2>
+<figure class="wide">
+<svg viewBox="0 0 1000 300" role="img" aria-label="Four places hold face data: the folder sidecar next to your photos, the library folder, the models folder in the configuration folder, and, only when you opt in, the photo files themselves. None of it goes to the network or the logs." font-family="sans-serif">
+  <g fill="#32302f" stroke="#504945" stroke-width="1.5">
+    <rect x="10" y="10" width="232" height="220" rx="8"/>
+    <rect x="258" y="10" width="232" height="220" rx="8"/>
+    <rect x="506" y="10" width="232" height="220" rx="8"/>
+    <rect x="754" y="10" width="236" height="220" rx="8"/>
+    <rect x="10" y="246" width="980" height="44" rx="8" stroke="#fb4934"/>
+  </g>
+  <g fill="#ebdbb2" font-size="14" font-weight="bold">
+    <text x="24" y="36" stroke="none">Each photo folder</text>
+    <text x="272" y="36" stroke="none">Library folder</text>
+    <text x="520" y="36" stroke="none">Models folder</text>
+    <text x="768" y="36" stroke="none">The photo file itself</text>
+    <text x="500" y="274" text-anchor="middle" stroke="none">Never: the network, logs, crash reports, other libraries</text>
+  </g>
+  <g fill="#fe8019" font-size="12" font-family="monospace">
+    <text x="24" y="58" stroke="none">.dalica.json</text>
+    <text x="272" y="58" stroke="none">people.json</text>
+    <text x="272" y="124" stroke="none">faces-&lt;model id&gt;.cache</text>
+    <text x="272" y="186" stroke="none">index.log, index.snap</text>
+    <text x="520" y="58" stroke="none">&lt;id&gt;/model.onnx</text>
+    <text x="520" y="78" stroke="none">&lt;id&gt;/face-model.json</text>
+    <text x="520" y="124" stroke="none">catalog.json</text>
+    <text x="520" y="170" stroke="none">.downloads/&lt;id&gt;.onnx.part</text>
+    <text x="768" y="58" stroke="none">XMP mwg-rs:Regions</text>
+  </g>
+  <g fill="#d5c4a1" font-size="12">
+    <text x="24" y="78" stroke="none">"faces": rectangle and person</text>
+    <text x="24" y="96" stroke="none">id per face, "ignored" for an</text>
+    <text x="24" y="114" stroke="none">ignored face, no person key</text>
+    <text x="24" y="132" stroke="none">for an unnamed one</text>
+    <text x="24" y="156" stroke="none">"people": names of the people</text>
+    <text x="24" y="174" stroke="none">with a face in this folder</text>
+    <text x="24" y="204" stroke="none">your data: travels with photos</text>
+    <text x="272" y="78" stroke="none">every person, their thumbnail</text>
+    <text x="272" y="96" stroke="none">face, the rejected pairs</text>
+    <text x="272" y="144" stroke="none">vectors (float32), landmarks,</text>
+    <text x="272" y="162" stroke="none">which photos were searched</text>
+    <text x="272" y="206" stroke="none">the index: rebuildable</text>
+    <text x="520" y="100" stroke="none">the models you installed</text>
+    <text x="520" y="144" stroke="none">your own model list</text>
+    <text x="520" y="190" stroke="none">an unfinished download</text>
+    <text x="768" y="78" stroke="none">named faces only, and only</text>
+    <text x="768" y="96" stroke="none">with Store people names in</text>
+    <text x="768" y="114" stroke="none">photos (off by default) or</text>
+    <text x="768" y="132" stroke="none">Write People Names to</text>
+    <text x="768" y="150" stroke="none">Photos…</text>
+    <text x="768" y="180" stroke="none">unnamed and ignored faces</text>
+    <text x="768" y="198" stroke="none">are never written</text>
+  </g>
+</svg>
+<figcaption>The four places face data can be. The left column is what you said (user data); the vectors in the library folder are a cache that can be rebuilt by scanning again.</figcaption>
+</figure>
+
+<p>A face in a folder's <code>.dalica.json</code> looks like this (the rectangle is <code>[x0, y0, x1, y1]</code> as fractions of the upright photo, at most six decimals):</p>
+<pre><code><span class="s">"faces"</span>: [
+  { <span class="s">"rect"</span>: [<span class="n">0.41</span>, <span class="n">0.22</span>, <span class="n">0.52</span>, <span class="n">0.38</span>], <span class="s">"person"</span>: <span class="s">"p7f3a2c"</span> },
+  { <span class="s">"rect"</span>: [<span class="n">0.70</span>, <span class="n">0.30</span>, <span class="n">0.78</span>, <span class="n">0.44</span>], <span class="s">"person"</span>: <span class="s">"ignored"</span> }
+]
+...
+<span class="s">"people"</span>: { <span class="s">"p7f3a2c"</span>: { <span class="s">"name"</span>: <span class="s">"Ana Costa"</span> } }</code></pre>
+<p>Because each folder carries the names of the people in it, the people come back from the folders if the library index or even <code>people.json</code> is lost; only the thumbnails and the rejected pairs would start empty.</p>
+
+<h3 id="cache-file">The embeddings cache</h3>
+<p><code>faces-&lt;model id&gt;.cache</code> is a binary file of Dalíca's own in the library folder, one per recognizer. Its header holds the magic <code>DLFC</code>, a version, the model's id and SHA-256 and the vector length; a file whose header names another model or length, or that is damaged, is never read and is started again, empty. Records are appended, each framed by its length and a CRC-32: a face (photo id, file size, modification time, rectangle, a landmarks flag, ten landmark numbers, then the vector as float32), "this photo was searched", or "forget this photo". That is 106 bytes plus 4 per number, so about 618 bytes per face for SFace and 2,154 for AuraFace. Every record names the file's size and modification time, so a photo changed on disk reads as never searched and is scanned again. A crash while appending costs only the torn last record, which is cut off before the next append.</p>
+<p>Because embeddings live only here and in memory, they never travel with your photos, never reach a sidecar or a file's metadata, and nothing about one library is used in another.</p>
+
+<h2 id="privacy">Privacy and what each removal deletes</h2>
+<ul>
+  <li>No network access except the model download you consented to; no telemetry and no cloud fallback.</li>
+  <li>Logs, crash reports and notifications never contain names, rectangles, embeddings or suggestions. Logs say counts and photo ids ("embedded 120 faces"), never whose.</li>
+  <li>Command replies about suggestions carry face ids, person ids, scores and counts, never a name or a rectangle. Over the control channel and MCP, names, nicknames and face rectangles are withheld unless the client was started with <code>--automation-allow-people</code>.</li>
+  <li>Names go into photo files only when you turn on <strong>Store people names in photos</strong> or run <strong>Write People Names to Photos…</strong>, and then only named faces, as standard MWG face regions that other applications read. Export follows the same option and never adds regions the source does not have.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead><tr><th>Action</th><th>What goes</th><th>What stays</th></tr></thead>
+<tbody>
+<tr><td><strong>Remove Faces</strong> (Folder Manager, after turning "Find faces in this folder" off)</td><td>The faces the scan found (unnamed and ignored) on every photo in those folders and their subfolders, as one undo step</td><td>Named faces. The photos stay marked as searched, so the faces do not come back.</td></tr>
+<tr><td><strong>Find Faces Again</strong></td><td>The found faces (unnamed and ignored) on the selected photos, as one undo step; the photos are then searched again first</td><td>Named faces</td></tr>
+<tr><td><strong>Find faces in my photos</strong> turned off</td><td>The scan stops. Dalíca offers to delete the cache files of every model as well</td><td>Rectangles and names, which are your data</td></tr>
+<tr><td><strong>Remove</strong> a model</td><td>Its <code>model.onnx</code> and <code>face-model.json</code>, any partial download of it, and its cache file in the library; a Use choice of it is forgotten</td><td>Rectangles and names</td></tr>
+<tr><td><strong>Delete Person</strong>, <strong>Remove from Person</strong></td><td>The person (or one face's link to them)</td><td>The faces, back in Unnamed</td></tr>
+<tr><td><strong>Ignore</strong></td><td>The face leaves Unnamed and suggestions</td><td>An <code>"ignored"</code> entry in the sidecar, so the face is never found again</td></tr>
+<tr><td>Deleting a photo</td><td>Its faces</td><td>Everything else</td></tr>
+</tbody>
+</table></div>
+<div class="note warn"><p><b>Remember the sidecars:</b> rectangles and person ids in <code>.dalica.json</code>, and names when you opted in to writing them, travel with your folders by design. Anyone you give a folder to can read which faces are tagged as whom, just as they can read your captions.</p></div>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li>Specs: docs/faces.md (all sections), docs/organizing.md §2 and §6, docs/data-model.md §2 to §4 (faces, people.json, faces-&lt;model id&gt;.cache), docs/xmp-interop.md §6, docs/security.md §4.2, §5.10 and §8.2</li>
+  <li>crates/faces/src/detect.rs, detect/decode.rs, detect/letterbox.rs (YuNet decoding, thresholds, suppression)</li>
+  <li>crates/faces/src/align.rs (template, similarity fit, warp, box crop), embed.rs (unit vectors)</li>
+  <li>crates/faces/src/onnx.rs, graph.rs, net.rs, net/, runtime.rs, limits.rs (the interpreter and its limits)</li>
+  <li>crates/faces/src/known.rs, manifest.rs, catalog.rs, hash.rs, selftest.rs (models, pins, self-test)</li>
+  <li>crates/faces/src/calibration.rs, cluster.rs, matching.rs, evaluate.rs (thresholds, grouping, suggestions, Find More)</li>
+  <li>crates/fetch/src/lib.rs, transport.rs, http/ (consented, pinned downloads)</li>
+  <li>crates/engine/src/faces_scan.rs, faces_index.rs, face_models.rs, suggestions.rs</li>
+  <li>crates/engine/src/cmd/face_scan.rs, face_models.rs, faces.rs, suggest.rs, people.rs, face_regions.rs</li>
+  <li>crates/store/src/faces_cache.rs, people.rs</li>
+  <li>Figure scripts: docs-tools/people/calibration.py, docs-tools/people/alignment.py</li>
+</ul>

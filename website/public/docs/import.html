@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import · Dalíca guide</title>
+<meta name="description" content="What happens between plugging in a card and seeing the new folder in your library: how sources are found, how the listing reads every file once, how duplicates are recognized, and how each copy is written and checked before the card is ever touched.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html">Scanning and watching</a>
+    <a href="thumbnails.html">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html">Edits are recipes</a>
+    <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html" aria-current="page">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Import</h1>
+<p class="lede">What happens between plugging in a card and seeing the new folder in your library: how sources are found, how the listing reads every file once, how duplicates are recognized, and how each copy is written and checked before the card is ever touched.</p>
+
+<h2 id="overview">The two halves of an import</h2>
+<p>An import is two separate pieces of work that run on different threads and never block the window:</p>
+<ol class="steps-list">
+  <li><strong>The listing.</strong> As soon as a source is opened, a worker thread walks it, reads every picture from start to end, and hands out thumbnails, capture times and a digest for each one. While it runs, the import tab fills in, picture by picture. Nothing is written anywhere during this phase.</li>
+  <li><strong>The copy.</strong> When you press Import, a file job on one thread copies the pictures you kept, verifies each copy byte for byte, and enters each one into the library as it lands. Only after the job is finished, and only if you ask, are the originals removed from the card.</li>
+</ol>
+<p>The split matters because a card is hostile input: it may hold a damaged file system, a picture that claims to be 4 GB, a folder loop, or a name with invisible characters in it. The listing reads it as an untrusted tree with fixed limits, and the copy trusts nothing the listing did not measure itself.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 900 230" role="img" aria-label="Import flow: a source is listed by a worker, each picture is read once for its digest, capture time and thumbnail, checked for duplicates, then the import job copies, verifies and enters each file, and finally the card may be cleaned.">
+  <defs><marker id="imp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker></defs>
+  <g font-family="Inter, sans-serif" font-size="14" fill="#ebdbb2">
+    <rect x="10" y="20" width="150" height="70" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="85" y="48" text-anchor="middle">Source</text>
+    <text x="85" y="70" text-anchor="middle" font-size="12" fill="#a89984">card, drive, camera</text>
+    <rect x="200" y="20" width="200" height="70" rx="8" fill="#32302f" stroke="#83a598"/>
+    <text x="300" y="44" text-anchor="middle">Listing worker</text>
+    <text x="300" y="64" text-anchor="middle" font-size="12" fill="#a89984">walk, read each file once:</text>
+    <text x="300" y="80" text-anchor="middle" font-size="12" fill="#a89984">MD5, capture time, thumbnail</text>
+    <rect x="440" y="20" width="180" height="70" rx="8" fill="#32302f" stroke="#83a598"/>
+    <text x="530" y="48" text-anchor="middle">Duplicate check</text>
+    <text x="530" y="70" text-anchor="middle" font-size="12" fill="#a89984">size, MD5, then bytes</text>
+    <rect x="660" y="20" width="230" height="70" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="775" y="48" text-anchor="middle">Import tab</text>
+    <text x="775" y="70" text-anchor="middle" font-size="12" fill="#a89984">groups, exclude, star, rotate</text>
+    <path d="M160,55 L196,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#imp-a)"/>
+    <path d="M400,55 L436,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#imp-a)"/>
+    <path d="M620,55 L656,55" stroke="#a89984" stroke-width="1.5" marker-end="url(#imp-a)"/>
+    <path d="M775,90 L775,128" stroke="#a89984" stroke-width="1.5" marker-end="url(#imp-a)"/>
+    <rect x="560" y="132" width="330" height="80" rx="8" fill="#32302f" stroke="#fe8019"/>
+    <text x="725" y="156" text-anchor="middle">Import job (one thread)</text>
+    <text x="725" y="176" text-anchor="middle" font-size="12" fill="#a89984">temporary file, fsync, original time,</text>
+    <text x="725" y="192" text-anchor="middle" font-size="12" fill="#a89984">byte-for-byte check, rename that never replaces</text>
+    <rect x="300" y="132" width="220" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="410" y="160" text-anchor="middle">Library</text>
+    <text x="410" y="180" text-anchor="middle" font-size="12" fill="#a89984">each copy entered as it lands;</text>
+    <text x="410" y="196" text-anchor="middle" font-size="12" fill="#a89984">folder watched; one undo step</text>
+    <rect x="10" y="132" width="250" height="80" rx="8" fill="#32302f" stroke="#fb4934"/>
+    <text x="135" y="160" text-anchor="middle">Remove from card</text>
+    <text x="135" y="180" text-anchor="middle" font-size="12" fill="#a89984">only if asked and confirmed;</text>
+    <text x="135" y="196" text-anchor="middle" font-size="12" fill="#a89984">only verified, unchanged files</text>
+    <path d="M560,172 L524,172" stroke="#a89984" stroke-width="1.5" marker-end="url(#imp-a)"/>
+    <path d="M300,172 L264,172" stroke="#a89984" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#imp-a)"/>
+  </g>
+</svg>
+<figcaption>The listing (top row) only reads. The import job (bottom row) writes, and removal from the card is a separate, confirmed step that only acts on copies the job verified.</figcaption>
+</figure>
+
+<h2 id="sources">How cards, drives and cameras are found</h2>
+<p>The "Import from" list is built from three kinds of source, and asking for it never touches the disk. A background listing runs at most every 2 seconds; the list you see is the last result it cached, and a change in it (a card inserted or pulled) repaints the list. That is why a card you plug in while the import tab is open appears on its own within a couple of seconds.</p>
+<dl class="terms">
+  <dt>Card</dt>
+  <dd>A mounted volume that holds a <code>DCIM</code> folder, the layout every camera writes. Dalíca imports from that folder, not from the volume's root, so the camera's own housekeeping files are never listed. The common spellings <code>DCIM</code> and <code>dcim</code> are checked directly; on Linux and macOS, where names are case sensitive, up to 4,096 entries of the root are also scanned for other spellings. A link named <code>DCIM</code> is not followed.</dd>
+  <dt>Drive</dt>
+  <dd>Any other removable volume. It imports from its root. The startup disk and network shares are never offered as drives.</dd>
+  <dt>Camera or phone</dt>
+  <dd>A device with a PTP or MTP interface, spoken to directly over USB by a reader written for Dalíca from the public PTP and MTP specifications. Each storage on the device (two card slots, say) can be opened on its own.</dd>
+</dl>
+<p>Where the volumes come from depends on the system: on Linux, the mount table in <code>/proc/self/mounts</code> (volumes under <code>/media</code>, <code>/run/media</code> and <code>/mnt</code>); on macOS, the entries of <code>/Volumes</code>; on Windows, the drive letters C to Z. A drive letter is shown as "Removable drive (E:)", any other volume by its own name ("EOS_DIGITAL").</p>
+
+<h3 id="cameras-per-system">Cameras over a cable</h3>
+<p>Reaching a camera directly over USB only works on Linux. Dalíca never takes a device away from the program or driver that already holds it, and on the other systems something always does:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>System</th><th>What Dalíca can reach</th></tr></thead>
+<tbody>
+<tr><td>Linux</td><td>A camera or phone no other program has claimed, over USB. If the desktop's own MTP service already holds it (gvfs on GNOME, kio on KDE grab the device as soon as it is plugged in), the camera is listed as held, and that service's mount point is offered as a drive instead, read like any folder.</td></tr>
+<tr><td>Windows</td><td>The system's portable-device driver holds every camera and phone. They are listed with the system's reason and are not opened. A camera that also shows up as a card or a drive letter imports as that card or drive.</td></tr>
+<tr><td>macOS</td><td>No USB path is built; the system's image-capture service claims cameras as they connect. A camera that mounts as a volume imports as a card or drive.</td></tr>
+</tbody></table></div>
+<p>A camera takes one PTP session at a time. The listing, the copy and the removal share that one session, opened from a worker on first use and dropped when nothing needs it. Every transfer has a 5 second timeout and every transaction 60 seconds, so a camera that goes silent is noticed instead of hanging the import.</p>
+
+<h2 id="listing">The listing</h2>
+<p>The listing walks the source through Dalíca's file-system layer with fixed bounds: at most 32 folder levels deep, links followed with loop detection, and at most 100,000 files. FIFOs, sockets and device nodes are never opened (opening one can block forever). Anything left out is reported as a warning in the status line rather than silently skipped.</p>
+<p>Each regular file is then read once, from start to end, in 64 KiB chunks:</p>
+<ol class="steps-list">
+  <li>The first bytes are <strong>sniffed</strong>: a file is recognized by its content, not its name, and skipped unless it is a picture (or video) type that Options &#8594; File Types has turned on.</li>
+  <li>As the chunks go by, the <strong>MD5 digest</strong> of every byte is computed, and the <strong>size</strong> is counted from the bytes actually read. The size the card reports is never used, so a file system that lies cannot make Dalíca allocate gigabytes.</li>
+  <li>The first 256 MiB are kept in memory for the header and the thumbnail; the digest keeps going past that. A file that runs past 16 GiB is reported and not listed.</li>
+  <li>The <strong>capture time</strong> is read from the picture's metadata (see below), and a <strong>thumbnail</strong> of at most 256 pixels on its long side is made, from the embedded EXIF thumbnail when it decodes, otherwise from a scaled decode of the picture, turned upright by its orientation.</li>
+</ol>
+<p>Pictures are handed to the window in batches of 16, or every 200 ms when a batch has not filled, so the tray fills steadily even on a slow card. The listing checks its cancel flag between files: picking another source drops the old listing after the file it is reading.</p>
+<p>For a camera the order is reversed, because reading bytes over USB is slow. The listing first asks the camera for every object's description and its own thumbnail, so the tray fills before a single picture's bytes are read. Only objects that need it are then read in full (at most 64 MiB each): those the duplicate check must compare, and those the camera has no thumbnail for.</p>
+
+<h3 id="capture-time">Where the capture time comes from</h3>
+<p>For JPEG, PNG, WebP and TIFF files the date comes from the metadata reader, which resolves EXIF, XMP and IPTC into one "date taken". For raw files it is the EXIF <code>DateTimeOriginal</code> of the header. When the file records no date at all, the file's modification time is used, read as UTC. Each candidate remembers which of the two it got (<code>timeSource</code> is <code>metadata</code> or <code>file</code>). For a camera, the date is the one the camera gives the object, else its modification date. A file whose time cannot make a date at all is left out with a warning.</p>
+<div class="note"><p><b>Why the file time is read as UTC:</b> it is the one choice that gives the same answer on every computer. A modification time is an instant, and turning it into a wall-clock date depends on the time zone of the machine doing the import; reading it as UTC means a card imported on a laptop set to another zone still gets the same folder names.</p></div>
+
+<h3 id="groups">Groups: a new one after a two-hour gap</h3>
+<p>The tray groups pictures by capture time. The rule is simple and is applied once the listing ends: sort the pictures by time (ties keep their listing order), then walk through them and start a new group whenever a picture is <strong>more than 2 hours</strong> after the one before it. Exactly 2 hours stays in the same group.</p>
+<p>The gap is always measured to the previous picture, never to the start of the group. A group can therefore span far more than two hours, as long as you never stop shooting for longer than that. A day of sightseeing with a photo every hour stays one group; a long lunch break splits it.</p>
+<figure>
+<img src="img/import/timeline.png" width="1600" height="1040" alt="Top: a week-long timeline of 31 pictures shown as dots, with colored bars marking 18 groups. Bottom: July 16 from noon, four pictures at 12:27, 15:02, 17:05 and 19:04 with the gaps between them labeled 2 h 35 and 2 h 03 (new group) and 1 h 59 (same group)." loading="lazy">
+<figcaption>The groups Dalíca's own listing gave for the 31 pictures in the Iceland ring road folder (these files carry no date in their metadata, so the file times were used). In the lower panel, a gap of 2 h 03 starts a new group and a gap of 1 h 59 does not.</figcaption>
+</figure>
+<p>The sample card in this guide (12 pictures in <code>DCIM/100DALIC</code>, taken between 17:34 and 19:01) lists as a single group: its longest gap is 53 minutes.</p>
+
+<h2 id="duplicates">Duplicate exclusion</h2>
+<p>With "Exclude duplicates" on (it starts from Options &#8594; General &#8594; "Detect duplicates while importing", on by default), a picture that is already in your library, or that appears twice on the same card, is shown dimmed and is not copied. A duplicate here means <strong>the same bytes</strong>, not a similar-looking picture, and it is decided in three steps, each cheaper than the next would be:</p>
+<figure>
+<svg viewBox="0 0 860 200" role="img" aria-label="Duplicate check: candidates are compared by size first, then by MD5 digest, then byte for byte; only a file that passes all three is a duplicate.">
+  <defs><marker id="dup-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker></defs>
+  <g font-family="Inter, sans-serif" font-size="14" fill="#ebdbb2">
+    <rect x="10" y="40" width="190" height="90" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="105" y="70" text-anchor="middle">1. Same size?</text>
+    <text x="105" y="92" text-anchor="middle" font-size="12" fill="#a89984">library photos grouped</text>
+    <text x="105" y="108" text-anchor="middle" font-size="12" fill="#a89984">by recorded size</text>
+    <rect x="240" y="40" width="190" height="90" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="335" y="70" text-anchor="middle">2. Same MD5?</text>
+    <text x="335" y="92" text-anchor="middle" font-size="12" fill="#a89984">from the index, or read</text>
+    <text x="335" y="108" text-anchor="middle" font-size="12" fill="#a89984">now and kept there</text>
+    <rect x="470" y="40" width="190" height="90" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="565" y="70" text-anchor="middle">3. Same bytes?</text>
+    <text x="565" y="92" text-anchor="middle" font-size="12" fill="#a89984">both files compared</text>
+    <text x="565" y="108" text-anchor="middle" font-size="12" fill="#a89984">64 KiB at a time</text>
+    <rect x="700" y="40" width="150" height="90" rx="8" fill="#32302f" stroke="#fb4934"/>
+    <text x="775" y="80" text-anchor="middle">Duplicate</text>
+    <text x="775" y="102" text-anchor="middle" font-size="12" fill="#a89984">not copied</text>
+    <path d="M200,85 L236,85" stroke="#a89984" stroke-width="1.5" marker-end="url(#dup-a)"/>
+    <path d="M430,85 L466,85" stroke="#a89984" stroke-width="1.5" marker-end="url(#dup-a)"/>
+    <path d="M660,85 L696,85" stroke="#a89984" stroke-width="1.5" marker-end="url(#dup-a)"/>
+    <text x="105" y="160" text-anchor="middle" font-size="12" fill="#b8bb26">no: new picture</text>
+    <text x="335" y="160" text-anchor="middle" font-size="12" fill="#b8bb26">no: new picture</text>
+    <text x="565" y="160" text-anchor="middle" font-size="12" fill="#b8bb26">no: new picture</text>
+    <path d="M105,130 L105,145" stroke="#b8bb26" stroke-width="1.5"/>
+    <path d="M335,130 L335,145" stroke="#b8bb26" stroke-width="1.5"/>
+    <path d="M565,130 L565,145" stroke="#b8bb26" stroke-width="1.5"/>
+    <text x="430" y="25" text-anchor="middle" font-size="12" fill="#a89984">library photos first, then earlier pictures of the same listing</text>
+  </g>
+</svg>
+<figcaption>Size rules out almost everything for free, the MD5 digest (already computed while the file was read for its thumbnail) rules out the rest, and the full byte comparison means a digest collision can never make a picture disappear from your import.</figcaption>
+</figure>
+<ol class="steps-list">
+  <li><strong>Size.</strong> When the source is opened, the library's photos are grouped by their recorded size, from the index alone. A candidate whose size matches no library photo cannot be a duplicate of one.</li>
+  <li><strong>MD5.</strong> For library photos of the same size, the digest comes from the index when the index holds one that still fits the file (same size and modification time). A photo without one is read now (at most 1 GiB) and its digest is handed back to be kept in the index, the same way Find Duplicates keeps them, so the next import does not read it again.</li>
+  <li><strong>Bytes.</strong> When size and digest match, both files are opened and compared in full, 64 KiB at a time. Only an exact match is a duplicate.</li>
+</ol>
+<p>The same three steps are then applied against the earlier pictures of the same listing, so two copies of one file on a card (a camera that wrote a picture to both slots, for example) import once. In the sample run for this guide, two of the card's 12 files had been copied into the library before; the listing marked exactly those two as duplicates of library photos, and the import copied the other 10.</p>
+
+<h2 id="copy">The copy</h2>
+<p>Pressing Import plans the work on the window's thread from the listing alone, without touching the disk: which candidates to copy (the ones given, or all of them, minus excluded ones and, with Exclude duplicates on, the duplicates) and which folder each goes to. A destination inside the source being imported is refused, and so is an import while the source is still being listed. Then a single file job copies one file at a time.</p>
+<p>Each file goes through the same steps, in this order:</p>
+<figure class="wide">
+<svg viewBox="0 0 900 170" role="img" aria-label="Copy steps: check the source is unchanged, write a hidden temporary file, fsync it, give it the original modification time, compare it byte for byte with the source, then rename it to its final name without replacing any file.">
+  <defs><marker id="cp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker></defs>
+  <g font-family="Inter, sans-serif" font-size="13" fill="#ebdbb2">
+    <rect x="5" y="30" width="130" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="70" y="58" text-anchor="middle">Check source</text>
+    <text x="70" y="78" text-anchor="middle" font-size="11" fill="#a89984">size as listed;</text>
+    <text x="70" y="93" text-anchor="middle" font-size="11" fill="#a89984">still there</text>
+    <rect x="155" y="30" width="150" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="230" y="58" text-anchor="middle">Temporary file</text>
+    <text x="230" y="78" text-anchor="middle" font-size="11" fill="#a89984">.DSC_3003.JPG.</text>
+    <text x="230" y="93" text-anchor="middle" font-size="11" fill="#a89984">dalica-tmp-&lt;16 hex&gt;</text>
+    <rect x="325" y="30" width="130" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="390" y="58" text-anchor="middle">Durable</text>
+    <text x="390" y="78" text-anchor="middle" font-size="11" fill="#a89984">original time;</text>
+    <text x="390" y="93" text-anchor="middle" font-size="11" fill="#a89984">fsync</text>
+    <rect x="475" y="30" width="140" height="80" rx="8" fill="#32302f" stroke="#83a598"/>
+    <text x="545" y="58" text-anchor="middle">Verify</text>
+    <text x="545" y="78" text-anchor="middle" font-size="11" fill="#a89984">copy vs source,</text>
+    <text x="545" y="93" text-anchor="middle" font-size="11" fill="#a89984">byte for byte</text>
+    <rect x="635" y="30" width="140" height="80" rx="8" fill="#32302f" stroke="#504945"/>
+    <text x="705" y="58" text-anchor="middle">Rename</text>
+    <text x="705" y="78" text-anchor="middle" font-size="11" fill="#a89984">never replaces;</text>
+    <text x="705" y="93" text-anchor="middle" font-size="11" fill="#a89984">taken: -001, -002</text>
+    <rect x="795" y="30" width="100" height="80" rx="8" fill="#32302f" stroke="#b8bb26"/>
+    <text x="845" y="64" text-anchor="middle">Library</text>
+    <text x="845" y="84" text-anchor="middle" font-size="11" fill="#a89984">entered</text>
+    <path d="M135,70 L151,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#cp-a)"/>
+    <path d="M305,70 L321,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#cp-a)"/>
+    <path d="M455,70 L471,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#cp-a)"/>
+    <path d="M615,70 L631,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#cp-a)"/>
+    <path d="M775,70 L791,70" stroke="#a89984" stroke-width="1.5" marker-end="url(#cp-a)"/>
+    <text x="450" y="145" text-anchor="middle" font-size="12" fill="#fb4934">Any failure before the rename removes the temporary file; the source is never changed.</text>
+  </g>
+</svg>
+<figcaption>Until the final rename, the copy exists only under a hidden temporary name, so an interrupted import can never leave a half-written picture under a real name.</figcaption>
+</figure>
+<ol class="steps-list">
+  <li><strong>Check the source.</strong> The file must still exist and still have the size the listing read. A file that changed since it was listed is not copied and is reported.</li>
+  <li><strong>Write a temporary file</strong> in the destination folder, with a hidden name of the shape <code>.&lt;name&gt;.dalica-tmp-&lt;16 hex digits&gt;</code>, in 1 MiB chunks. Exactly as many bytes as the source's size must arrive; more or fewer mean the source changed while it was read.</li>
+  <li><strong>Make it durable:</strong> the source's modification time (and permissions on Linux and macOS) are put on the copy, then it is flushed to the disk with <code>fsync</code>.</li>
+  <li><strong>Verify:</strong> the copy is read back and compared with the source, byte for byte. A mismatch removes the temporary file and reports the picture as failed.</li>
+  <li><strong>Name it</strong> with a rename that never replaces an existing file. If the name is taken, the next candidate is tried: <code>DSC_3003.JPG</code>, then <code>DSC_3003-001.JPG</code>, <code>DSC_3003-002.JPG</code>, up to <code>-99999</code>. The folder itself is then synced, and the named file is checked once more to be the one that was verified.</li>
+  <li><strong>Enter it into the library</strong> on the window's thread: its folder, the photo with the facts read back from the copy, the star and rotation you chose in the import tab, and the digest from the listing.</li>
+</ol>
+<p>Keeping the original modification time is what lets a later import of the same card recognize the files, and it is also the date a picture without metadata will sort by. The import also keeps the file's name exactly as the card spelled it.</p>
+<p>A camera's copy works the same way with one difference: the bytes arrive over USB in chunks into a private staging folder inside the destination (<code>.dalica-camera-&#8230;</code>, which scans skip). After the file is committed there and given the camera's date as its time, it is read back and checked against the MD5 digest of what the camera sent, and only then moved to its name.</p>
+
+<h3 id="folder-naming">Folder naming</h3>
+<p>The destination is "Import to" (by default your Pictures folder) plus one folder chosen by "Folder name":</p>
+<dl class="terms">
+  <dt>Text you type</dt>
+  <dd>Passed through the one name sanitizer Dalíca uses for every folder and file it names: path separators, the characters Windows forbids (<code>\ / : * ? " &lt; &gt; |</code>), control and bidirectional characters are removed; leading dots, dashes and spaces and trailing dots and spaces are stripped (no hidden folder, nothing that reads as a command option); the name is cut to the longest a file system allows; and a Windows device name such as <code>CON</code> gets a leading <code>_</code>. A name that is empty to begin with is refused.</dd>
+  <dt>Date taken (YYYY-MM-DD)</dt>
+  <dd>One folder per capture date, from each picture's own capture time (the file time, as UTC, when it has no date). A card spanning three days makes three folders.</dd>
+  <dt>Today's date</dt>
+  <dd>The session clock's date, in UTC like every date Dalíca derives from a clock.</dd>
+</dl>
+<p>A folder that does not exist is created exclusively (if another program creates it at the same moment, Dalíca imports into it rather than failing). A folder that already exists is simply imported into, with the <code>-001</code> rule keeping both files when names collide. This is what happened when the sample card was imported a second time into its existing <code>2024-07-20</code> folder with Exclude duplicates turned off:</p>
+<pre><code>2024-07-20/
+  DSC_3003.JPG        <span class="c">first import</span>
+  DSC_3003-001.JPG    <span class="c">second import, same name taken</span>
+  DSC_3010.JPG
+  DSC_3010-001.JPG
+  &#8230;
+  DSC_3021.JPG        <span class="c">skipped as a duplicate the first time, so its name was free</span>
+  DSC_3027.JPG</code></pre>
+<p>When the destination is not already inside a watched folder, it is added as a watched folder (Scan Always). The library holds every copy, with its size and time, before any rescan looks at the folder, and rescans wait while a file job runs, so the folder watcher never imports Dalíca's own copies a second time.</p>
+
+<h3 id="undo">Undo Import</h3>
+<p>All the files one import copied form one library undo step, "Import". Undo sends each copy that is still unchanged to the trash and takes its photo out of the library; a copy you have since edited stays, with the reason. The folders an import made stay on disk, empty. Redo copies each file from the source again, under the name it got the first time, as long as the source is unchanged.</p>
+
+<h2 id="remove-from-card">Removing the originals from the card</h2>
+<p>"Delete copied files from the card" is the one place in Dalíca that may delete a file permanently, so it is fenced in:</p>
+<ul>
+  <li>It only runs after the copy job has finished, and only after you answer "Remove the imported files from the card? This cannot be undone." The question has no default button: pressing Enter removes nothing. Automation (the control channel and MCP) can never run it.</li>
+  <li>It only touches files this import copied <em>and verified</em>. Duplicates and excluded files are never touched.</li>
+  <li>Each file is removed only while it still has the identity (file object, size, modification time) it had when it was copied, <em>and</em> its copy still has the identity the copy step verified. A file that changed on the card, or whose copy has since changed or gone, stays on the card.</li>
+  <li>Paths are checked against the folder that was listed: a path that leaves it, contains <code>..</code>, or goes through a link is refused.</li>
+  <li>The file goes to the volume's trash when it has one. Most cards have none; there it is deleted. A trash error is never turned into a delete; only the trash's own answer that the volume has no trash is.</li>
+</ul>
+<p>For a camera, removal is a PTP DeleteObject for each object, sent only while the camera still reports the size and dates the object had when it was listed. Once any file has left the card, Undo Import is disabled with "The originals were removed from the card.", because redo would have nothing to copy from.</p>
+
+<h2 id="failures">When a copy fails or the card is pulled out</h2>
+<p>A failure is always per file, and it never damages what was already copied:</p>
+<ul>
+  <li><strong>One file fails</strong> (unreadable sector, changed since listing, verification mismatch, no free name): its temporary file is removed, the failure is recorded with its reason, and the job goes on to the next file.</li>
+  <li><strong>Cancel</strong> stops after the file being copied. What was copied stays, is in the library, and forms the undo step.</li>
+  <li><strong>The card is pulled out.</strong> The file being written fails before it gets a name, so no partial picture is left behind, and each remaining file fails with its reason (usually that it "is no longer on the source"). Everything copied before stays.</li>
+  <li><strong>A camera is unplugged or goes silent</strong> past its timeout: the import stops after the file it failed on (there is no point trying the rest), and the status says so: "Import stopped: 11 of 40 pictures copied. The camera was disconnected."</li>
+</ul>
+<p>An import that was cancelled or had failures does not close the import tab. It stays open on its result ("Import cancelled: 2 of 4 pictures copied"), listing each failed file with its reason (the first five, then "and n more"), and the question about removing files from the card is not asked at all.</p>
+<div class="note warn"><p><b>Crash safety:</b> if Dalíca or the computer stops in the middle of a copy, the only trace is a hidden temporary file in the destination folder. The card still holds every original, because nothing is removed from it until the whole import has finished and you have confirmed.</p></div>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li><code>crates/scan/src/devices.rs</code>: cards, drives, MTP mounts, the camera list and its 2 s cache</li>
+  <li><code>crates/scan/src/volumes.rs</code>: mounted volumes per system</li>
+  <li><code>crates/scan/src/import.rs</code>: the bounded listing, MD5 while reading, capture time, thumbnails, <code>groups</code> and <code>GROUP_GAP</code></li>
+  <li><code>crates/scan/src/ptp.rs</code>, <code>crates/scan/src/ptp/</code> and <code>crates/scan/README.md</code>: the PTP/MTP reader and what each system lets it reach</li>
+  <li><code>crates/engine/src/import.rs</code>, <code>crates/engine/src/import/worker.rs</code>: the listing session and the duplicate check</li>
+  <li><code>crates/engine/src/import_run.rs</code>: planning, the import job, entering photos, undo, removal from the card</li>
+  <li><code>crates/engine/src/camera.rs</code>: camera sessions, staged copies, DeleteObject</li>
+  <li><code>crates/fs/src/transfer.rs</code> (<code>import_copy</code>), <code>crates/fs/src/remove.rs</code> (<code>remove_copied</code>), <code>crates/core/src/names.rs</code> (sanitizing, <code>-001</code> numbering)</li>
+  <li>Specs: <code>docs/organizing.md</code> §3, <code>docs/security.md</code> §5.7 and §5.9, <code>docs/data-model.md</code></li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="places.html"><span>Previous</span>Places</a><a class="next" href="export.html"><span>Next</span>Export</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#overview">The two halves of an import</a>
+    <a href="#sources">How cards, drives and cameras are found</a>
+    <a href="#listing">The listing</a>
+    <a href="#duplicates">Duplicate exclusion</a>
+    <a href="#copy">The copy</a>
+    <a href="#remove-from-card">Removing the originals from the card</a>
+    <a href="#failures">When a copy fails or the card is pulled out</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>

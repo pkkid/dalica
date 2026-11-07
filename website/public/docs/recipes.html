@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edits are recipes · Dalíca guide</title>
+<meta name="description" content="Dalíca never edits your pixels while you work. Every crop, fix and effect is a line of text in a list, and the picture you see is that list played back over the untouched original. This chapter explains the list: its syntax, the order it renders in, why it looks the same at every size, how it survives rotations, how undo walks it, and what happens on disk when you finally press Save.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html">Scanning and watching</a>
+    <a href="thumbnails.html">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html" aria-current="page">Edits are recipes</a>
+    <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Edits are recipes</h1>
+<p class="lede">Dalíca never edits your pixels while you work. Every crop, fix and effect is a line of text in a list, and the picture you see is that list played back over the untouched original. This chapter explains the list: its syntax, the order it renders in, why it looks the same at every size, how it survives rotations, how undo walks it, and what happens on disk when you finally press Save.</p>
+
+<h2 id="the-recipe">The recipe</h2>
+<p>A photo's edits are stored as an ordered list of operation strings, in the order you applied them. Dalíca calls this list the <strong>recipe</strong>. It lives in the folder's sidecar file <code>.dalica.json</code>, under the photo's name, as two JSON arrays: <code>"edits"</code> (what is applied) and <code>"redo"</code> (what Undo took back and Redo can put back).</p>
+<pre><code>"IMG_0001.jpg": {
+  "edits": [<span class="s">"rotate(90)"</span>, <span class="s">"crop(0.08,0.10,0.92,0.86)"</span>, <span class="s">"straighten(1.5)"</span>,
+            <span class="s">"autofix()"</span>, <span class="s">"tuning(0.25,0,0,0,none)"</span>, <span class="s">"sepia()"</span>],
+  "redo":  [<span class="s">"glow(0.4,3)"</span>]
+}</code></pre>
+<p>Your original file is not touched by any of this. Thumbnails, the edit view and Export all read the original and replay the recipe. Only Save (at the end of this chapter) ever writes edited pixels into a file, and even then the original is kept.</p>
+<div class="note"><p><b>Why:</b> a list of instructions is small, can be undone step by step at any later time, can be copied to other photos (Paste All Edits, Batch Edit), and never compounds JPEG losses, because every render starts again from the original pixels.</p></div>
+
+<h3>The text syntax</h3>
+<p>Each entry is one string of the form <code>name(params)</code>. The name is a lowercase ASCII letter followed by lowercase letters, digits and <code>_</code>. The parameters are separated by commas and may not contain a parenthesis or a control character. The same text is used everywhere: in the sidecar, in the recipe API that agents and the command line use (where a whole recipe is written as one string with the entries joined by <code>|</code>), and in the History pane.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Entry</th><th>Parameters</th></tr></thead>
+<tbody>
+<tr><td><code>rotate(90)</code>, <code>rotate(180)</code>, <code>rotate(270)</code></td><td>a clockwise quarter, half or three-quarter turn; nothing else is a rotation</td></tr>
+<tr><td><code>flip_h()</code>, <code>flip_v()</code></td><td>mirror left to right, top to bottom</td></tr>
+<tr><td><code>crop(x0,y0,x1,y1)</code></td><td>a normalized rectangle, corners in order, each value 0 to 1</td></tr>
+<tr><td><code>straighten(deg)</code></td><td>-10 to +10 degrees, clockwise positive</td></tr>
+<tr><td><code>autofix()</code>, <code>autocontrast()</code>, <code>autocolor()</code></td><td>none: they measure the picture when rendered</td></tr>
+<tr><td><code>tuning(fill,highlights,shadows,temp,neutral)</code></td><td>0 to 1, 0 to 0.5, 0 to 0.5, -1 to 1, and <code>#rrggbb</code> or <code>none</code></td></tr>
+<tr><td><code>retouch(…)</code>, <code>soften(…)</code></td><td>strokes: points and a radius per stroke, separated by <code>;</code></td></tr>
+<tr><td>27 effects, such as <code>vignette(35,1.4,#000000,0)</code></td><td>the controls of the effect's panel, in panel order</td></tr>
+</tbody></table></div>
+<p>Numbers are written as the shortest decimal text that reads back to the same value (<code>0.6</code>, <code>20</code>). A number outside its range is brought to the nearest end when it is read, so <code>straighten(25)</code> renders as 10 degrees. Colors are <code>#rrggbb</code> in sRGB, read in either case and written in lowercase. Checkboxes are <code>true</code> or <code>false</code>, and choices are their words (<code>normal</code>, <code>soft_light</code>).</p>
+<p>Parsing never fails and never changes the text. Dalíca only treats an entry as a typed operation when its text is exactly what Dalíca itself would print; anything else is kept character for character. <code>rotate(090)</code> is not rewritten to <code>rotate(90)</code>: it is kept as written and skipped, because changing your text behind your back is a kind of data loss too. A recipe may hold at most 10 000 entries, the cap the sidecar reader enforces.</p>
+
+<h3>How rotations and flips merge</h3>
+<p>Rotations and flips are ordinary entries, but appending one follows two rules. A rotation right after a rotation merges into it: <code>rotate(90)</code> then another <code>rotate(90)</code> becomes <code>rotate(180)</code>, and a net whole turn removes the entry altogether. A flip right after the same flip cancels it. Only the last entry is ever merged, so a rotation, then a crop, then another rotation keeps both rotations. This keeps a photo you spun around four times from carrying four entries, while never reaching back past an edit that came in between.</p>
+
+<h2 id="pipeline">The order it renders in</h2>
+<p>The recipe records the order you worked in, but rendering does not follow it blindly. Rendering applies a fixed <strong>pipeline order</strong>: geometry first, then everything else in the order applied. That is what lets you crop after an effect, or straighten after a crop, and get the same picture either way.</p>
+<figure class="wide">
+<svg viewBox="0 0 760 350" role="img" aria-label="The render pipeline, top to bottom: the decoded original; turned upright by its EXIF orientation; the last straighten and the last crop with the scaling, as one resample; every other operation in recipe order; the recipe's rotations and flips, pixel-exact; the output">
+<defs><marker id="rc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker></defs>
+<g font-size="15" fill="#ebdbb2">
+<rect x="20" y="14" width="250" height="40" rx="6" fill="#32302f" stroke="#504945"/><text x="145" y="39" text-anchor="middle">original file, decoded</text>
+<rect x="20" y="78" width="250" height="40" rx="6" fill="#32302f" stroke="#504945"/><text x="145" y="103" text-anchor="middle">EXIF orientation</text>
+<rect x="20" y="142" width="250" height="40" rx="6" fill="#32302f" stroke="#fe8019"/><text x="145" y="167" text-anchor="middle">straighten + crop + scale</text>
+<rect x="20" y="206" width="250" height="40" rx="6" fill="#32302f" stroke="#8ec07c"/><text x="145" y="231" text-anchor="middle">every other operation</text>
+<rect x="20" y="270" width="250" height="40" rx="6" fill="#32302f" stroke="#83a598"/><text x="145" y="295" text-anchor="middle">rotations and flips</text>
+<line x1="145" y1="54" x2="145" y2="76" stroke="#a89984" stroke-width="1.5" marker-end="url(#rc-arrow)"/>
+<line x1="145" y1="118" x2="145" y2="140" stroke="#a89984" stroke-width="1.5" marker-end="url(#rc-arrow)"/>
+<line x1="145" y1="182" x2="145" y2="204" stroke="#a89984" stroke-width="1.5" marker-end="url(#rc-arrow)"/>
+<line x1="145" y1="246" x2="145" y2="268" stroke="#a89984" stroke-width="1.5" marker-end="url(#rc-arrow)"/>
+<line x1="145" y1="310" x2="145" y2="332" stroke="#a89984" stroke-width="1.5" marker-end="url(#rc-arrow)"/>
+<text x="160" y="345" font-size="13" fill="#a89984">the picture you see</text>
+<g font-size="13" fill="#a89984">
+<text x="295" y="39">sRGB pixels, never changed by editing</text>
+<text x="295" y="103">the photo turned upright: the stored frame</text>
+<text x="295" y="160">the last straighten and the last crop, wherever</text>
+<text x="295" y="177">they stand, in a single resample to the target size</text>
+<text x="295" y="224">fixes, Tuning, effects, in the order you applied them;</text>
+<text x="295" y="241">a fix that measures gets its own 256-pixel picture</text>
+<text x="295" y="288">wherever they stand: added up to one of eight</text>
+<text x="295" y="305">orientations, moving whole pixels, never resampling</text>
+</g></g></svg>
+<figcaption>The render pipeline. Geometry happens in one resample near the start; rotations and flips happen at the very end, because they only move whole pixels.</figcaption>
+</figure>
+<ol class="steps-list">
+<li>The decoded original is turned upright by its EXIF orientation.</li>
+<li>The <strong>last</strong> <code>straighten</code> and the <strong>last</strong> <code>crop</code>, wherever they stand in the list, are applied together with the scaling to the target size, in a single resample. Only the last crop counts, which is why re-opening Crop replaces the earlier rectangle instead of cropping a crop.</li>
+<li>Every other operation Dalíca knows runs in the order you applied it. Operations that only read their own pixel run fused in bands of 32 rows and are rounded to 8 bits once per run, not once per operation. An operation that reads neighbors (a blur, a glow) or measures the picture (the one-click fixes) starts a new run.</li>
+<li>The rotations and flips, added up to one of the eight possible orientations, are applied last. They move whole pixels without resampling, so their position in the list does not matter.</li>
+</ol>
+<p>Resampling averages on the sRGB-encoded values. When an output pixel covers two or more source pixels, the source is first reduced by the whole part of that footprint with a box filter, then each output pixel averages up to 4 by 4 bilinear taps. Operations run on 32-bit floating point values from 0 to 1.</p>
+
+<h2 id="every-size">One recipe, every size</h2>
+<p>The same recipe draws a 128-pixel thumbnail, a full-screen preview, a zoomed region in the edit view and a 24-megapixel Save. For all of them to show the same picture, nothing in a recipe is measured in pixels:</p>
+<ul>
+<li><strong>Positions are normalized.</strong> A crop corner, a retouch spot or the center of Focal B&amp;W is a fraction of the picture's width and height, from <code>(0,0)</code> at the top-left to <code>(1,1)</code> at the bottom-right.</li>
+<li><strong>Sizes are relative to the shorter side.</strong> Focal B&amp;W's size 0.28 is a radius of 28 % of the shorter side. Glow's radius is in percent of it; HDR Look's radius, Pixelate's pixel size and Border's thicknesses are in thousandths of it. Vignette's size is in percent of the half-diagonal. A brush stroke's radius is a fraction of the shorter side too.</li>
+<li><strong>Measurements are made at one size.</strong> The fixes that look at the picture (Auto Fix, Auto Contrast, Auto Color) do not measure the picture they are drawing. They measure their own copy of it, rendered so its longer side is 256 pixels, whatever the output size. A thumbnail and a full-size Save therefore compute the very same black point and color gains. (The chapter <a href="auto-fixes.html">Auto Fix, Contrast and Color</a> shows the measurement in detail.)</li>
+</ul>
+<figure><div class="row cols-3">
+<div><img src="img/recipes/sizes-128.png" width="512" height="412" alt="The church photo edited, rendered 128 pixels wide and enlarged four times so its pixels show" loading="lazy"><span class="label">128 px (enlarged 4×)</span></div>
+<div><img src="img/recipes/sizes-480.jpg" width="480" height="386" alt="The same edited church photo at 480 pixels wide" loading="lazy"><span class="label">480 px</span></div>
+<div><img src="img/recipes/sizes-1400.jpg" width="1400" height="1124" alt="The same edited church photo at 1400 pixels wide" loading="lazy"><span class="label">1400 px</span></div>
+</div><figcaption>One recipe, <code>straighten(3)|crop(0.1,0.04,0.86,0.96)|autofix()|focal_bw(0.46,0.5,0.28,0.5)|vignette(35,1.4,#000000,0)</code>, rendered by Dalíca at three sizes. The tilt, the crop edges, the edge of the color circle around the church and the vignette's falloff land on the same part of the picture each time. Rendered with Dalíca's export pipeline, which renders at full resolution and then reduces; thumbnails and the edit view render at their own size directly, and the edit crate's tests check that such a small render matches a large one box-reduced to the same size.</figcaption>
+</figure>
+<div class="note"><p><b>What this means for you:</b> the thumbnail you judge an edit by is not an approximation. A vignette that looks right in the grid looks right in a full-size Save, because both were drawn from the same fractions and the same measurements.</p></div>
+
+<h2 id="coordinate-frame">The coordinate frame</h2>
+<p>Normalized coordinates raise a question: normalized to which picture? If you crop, then rotate the photo a quarter turn, the "top-left" of the picture has moved. Dalíca answers it once, for everything: every stored rectangle and point is measured on the photo <strong>after its EXIF orientation and before Dalíca's own rotations and flips</strong>. This is the <strong>stored frame</strong>. What you see is the <strong>displayed frame</strong>: the stored frame turned by the recipe's rotations and flips.</p>
+<p>The crop rectangle, retouch source and target points, the centers of Soft Focus, Focal B&amp;W, Graduated Tint and Focal Zoom, and the face rectangles are all in the stored frame. Coordinates are converted only to draw them on screen and to read your clicks and drags back.</p>
+<figure class="wide">
+<svg viewBox="0 0 760 300" role="img" aria-label="A point P at 0.31, 0.30 in the stored frame is shown at 0.70, 0.31 when the photo is rotated 90 degrees clockwise, and at 0.69, 0.30 when it is mirrored; the stored value never changes">
+<g font-size="14" fill="#ebdbb2">
+<text x="110" y="22" text-anchor="middle" fill="#fe8019" font-size="15">stored frame</text>
+<rect x="10" y="36" width="200" height="140" fill="#32302f" stroke="#fe8019"/>
+<rect x="34" y="39" width="160" height="134" fill="none" stroke="#a89984" stroke-dasharray="4 3"/>
+<circle cx="72" cy="78" r="6" fill="#fabd2f"/><text x="82" y="74">P (0.31, 0.30)</text>
+<text x="14" y="194" font-size="12" fill="#a89984">(0,0) top-left</text><text x="210" y="194" font-size="12" fill="#a89984" text-anchor="end">(1,1)</text>
+<text x="380" y="22" text-anchor="middle" fill="#83a598" font-size="15">shown with rotate(90)</text>
+<rect x="310" y="36" width="140" height="200" fill="#32302f" stroke="#83a598"/>
+<circle cx="408" cy="98" r="6" fill="#fabd2f"/>
+<text x="380" y="136" text-anchor="middle">(1 − y, x)</text><text x="380" y="156" text-anchor="middle">= (0.70, 0.31)</text>
+<text x="650" y="22" text-anchor="middle" fill="#8ec07c" font-size="15">shown with flip_h()</text>
+<rect x="550" y="36" width="200" height="140" fill="#32302f" stroke="#8ec07c"/>
+<circle cx="688" cy="78" r="6" fill="#fabd2f"/>
+<text x="650" y="120" text-anchor="middle">(1 − x, y)</text><text x="650" y="140" text-anchor="middle">= (0.69, 0.30)</text>
+<text x="380" y="268" text-anchor="middle" font-size="13" fill="#a89984">the sidecar keeps crop(0.12,0.02,0.92,0.98) and focal_bw(0.31,0.3,…) in all three cases;</text>
+<text x="380" y="286" text-anchor="middle" font-size="13" fill="#a89984">a rotation or flip is one more entry, and the stored numbers never change</text>
+</g></svg>
+<figcaption>One stored point, three ways of showing it. The conversion is done only for drawing and for reading clicks; the recipe keeps the stored value.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Recipe turns the picture by</th><th>A stored point (x, y) is shown at</th></tr></thead>
+<tbody>
+<tr><td>nothing</td><td>(x, y)</td></tr>
+<tr><td><code>rotate(90)</code></td><td>(1 − y, x)</td></tr>
+<tr><td><code>rotate(180)</code></td><td>(1 − x, 1 − y)</td></tr>
+<tr><td><code>rotate(270)</code></td><td>(y, 1 − x)</td></tr>
+<tr><td><code>flip_h()</code></td><td>(1 − x, y)</td></tr>
+<tr><td><code>flip_v()</code></td><td>(x, 1 − y)</td></tr>
+</tbody></table></div>
+<p>All rotations and flips in a recipe add up to one of eight orientations, and the mapping uses only swaps and <code>1 − v</code>. Converting a point to the screen and back gives the stored value back exactly for values such as <code>k / 2ⁿ</code>, and otherwise to within one rounding of <code>1 − v</code> (about 1.1 × 10⁻¹⁶). Lengths relative to the shorter side are the same in both frames. An angle measured in the stored frame, such as the straighten angle, turns the other way on screen when the recipe mirrors the photo.</p>
+<figure><div class="row cols-4">
+<div><img src="img/recipes/frame-0.jpg" width="480" height="382" alt="The church cropped, with only the tower in color" loading="lazy"><span class="label">crop + Focal B&amp;W</span></div>
+<div><img src="img/recipes/frame-r90.jpg" width="382" height="480" alt="The same edit turned a quarter turn clockwise; the tower is still the part in color" loading="lazy"><span class="label">… then rotate(90)</span></div>
+<div><img src="img/recipes/frame-fh.jpg" width="480" height="382" alt="The same edit mirrored; the tower is still the part in color" loading="lazy"><span class="label">… then flip_h()</span></div>
+<div><img src="img/recipes/frame-r90fh.jpg" width="382" height="480" alt="Rotated first, then cropped, then mirrored; the tower is still the part in color" loading="lazy"><span class="label">rotate(90) first, flip_h() last</span></div>
+</div><figcaption>Dalíca's renders of <code>crop(0.12,0.02,0.92,0.98)|focal_bw(0.31,0.3,0.2,0.5)</code> with rotations and flips added before or after. The crop and the color circle follow the tower in every case, because both are stored in the frame that rotations never touch. The second and the fourth differ only by the mirror: where the rotation stands in the list makes no difference.</figcaption>
+</figure>
+<div class="note"><p><b>Why this frame:</b> because rotations and flips are separate entries that never rewrite a coordinate, adding or undoing a rotation is always a one-entry change that never rewrites a crop, a retouch stroke, an effect's center or a face rectangle, and an unknown operation from a newer Dalíca keeps its coordinates right without having to be understood. Faces are detected on the upright decode, which is the stored frame, so face rectangles also stay valid however you turn the photo later.</p></div>
+<p>The renderer works the same way: it straightens and crops in the stored frame, then applies the rotations and flips, which gives the same picture as turning first and cropping with the converted rectangle. When Save writes rotations into the pixels, the stored frame becomes the displayed one, so Save maps the face rectangles it keeps into the new frame with the same functions, and Undo Save maps them back.</p>
+
+<h2 id="history">History and undo</h2>
+<p>Dalíca has two undo histories, and which one Ctrl+Z walks depends on where you are.</p>
+<dl class="terms">
+<dt>The library undo stack</dt>
+<dd>In the library view, Undo and Redo walk the library's own stack: stars, captions, tags, hiding, moves, renames, album changes, rotations made from the library, Batch Edit and Paste All Edits. It lives in memory for the session and holds at most 1 000 steps.</dd>
+<dt>The photo's own history</dt>
+<dd>In the edit view, the same keys walk the open photo's history instead. It is stored in the folder sidecar as the <code>"edits"</code> and <code>"redo"</code> lists, so it survives quitting Dalíca. Everything you do in the edit view, rotations and flips included, goes here and not onto the library stack.</dd>
+</dl>
+<p>The menu label always names the step it will undo ("Undo Star", "Undo Crop"), which is how you can tell which history is active.</p>
+<figure>
+<svg viewBox="0 0 760 262" role="img" aria-label="Undo moves the last entry of the edits list onto the end of the redo list; Redo moves it back; a new edit clears the redo list">
+<g font-size="15" fill="#ebdbb2">
+<text x="10" y="24" fill="#ebdbb2">a photo with three edits</text>
+<text x="10" y="57" font-size="13" fill="#a89984">edits</text>
+<rect x="70" y="36" width="120" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="130.0" y="57" text-anchor="middle" font-family="monospace" font-size="14">crop(…)</text>
+<rect x="200" y="36" width="120" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="260.0" y="57" text-anchor="middle" font-family="monospace" font-size="14">autofix()</text>
+<rect x="330" y="36" width="120" height="32" rx="4" fill="#32302f" stroke="#fe8019"/><text x="390.0" y="57" text-anchor="middle" font-family="monospace" font-size="14">sepia()</text>
+<text x="480" y="57" font-size="13" fill="#a89984">redo</text>
+<text x="530" y="57" font-size="13" fill="#7c6f64">(empty)</text>
+<text x="10" y="114" fill="#fe8019">after Undo Sepia</text>
+<text x="10" y="147" font-size="13" fill="#a89984">edits</text>
+<rect x="70" y="126" width="120" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="130.0" y="147" text-anchor="middle" font-family="monospace" font-size="14">crop(…)</text>
+<rect x="200" y="126" width="120" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="260.0" y="147" text-anchor="middle" font-family="monospace" font-size="14">autofix()</text>
+<text x="480" y="147" font-size="13" fill="#a89984">redo</text>
+<rect x="530" y="126" width="120" height="32" rx="4" fill="#32302f" stroke="#fe8019"/><text x="590.0" y="147" text-anchor="middle" font-family="monospace" font-size="14">sepia()</text>
+<path d="M390 70 C 420 100, 560 90, 590 124" fill="none" stroke="#fe8019" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="10" y="204" fill="#8ec07c">a new edit instead of Redo</text>
+<text x="10" y="237" font-size="13" fill="#a89984">edits</text>
+<rect x="70" y="216" width="120" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="130.0" y="237" text-anchor="middle" font-family="monospace" font-size="14">crop(…)</text>
+<rect x="200" y="216" width="120" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="260.0" y="237" text-anchor="middle" font-family="monospace" font-size="14">autofix()</text>
+<rect x="330" y="216" width="120" height="32" rx="4" fill="#32302f" stroke="#8ec07c"/><text x="390.0" y="237" text-anchor="middle" font-family="monospace" font-size="14">bw()</text>
+<text x="480" y="237" font-size="13" fill="#a89984">redo</text>
+<text x="530" y="237" font-size="13" fill="#7c6f64">(cleared)</text>
+</g></svg>
+<figcaption>The photo's history is two lists in the sidecar. Undo moves the last entry onto the end of <code>"redo"</code>, Redo moves it back, and a new edit clears the redo list. Because both lists are on disk, a photo you edited last month can still be undone step by step.</figcaption>
+</figure>
+<h3>Steps that are not one entry</h3>
+<ul>
+<li><strong>Merged steps.</strong> A second rotation that turned <code>rotate(90)</code> into <code>rotate(180)</code>, or a flip that cancelled the flip before it, undoes to the entry's earlier value, and Redo merges it again. The session remembers, per photo, how each step changed the end of the recipe. If that memory no longer matches (the recipe was changed by a library step, another program, or a restart), the step undoes as the plain last entry, so after a restart <code>rotate(180)</code> undoes in one step.</li>
+<li><strong>Coalesced sessions.</strong> Changes that share a session key and each replace the entry the previous one left are one step. A Tuning tab session is the main case: sixty slider movements are one "Undo Tuning".</li>
+<li><strong>Whole recipes.</strong> Paste All Edits, and agents setting a recipe directly, replace a photo's recipe as one step: one Undo gives the whole earlier recipe back. That memory lasts for the session; after a restart the step undoes as its last entry.</li>
+<li><strong>Crop is re-openable.</strong> Crop is the one exception to a strictly linear history: you can open it again at any time, see the whole photo with the current rectangle, and change it. Since only the last crop renders, the new rectangle replaces the old one without undoing the edits made after it.</li>
+<li><strong>Undo All Edits</strong> empties each unsaved recipe and its redo list as one undoable step (a library step in the library, a step of the photo's history in the edit view). A saved photo keeps its saved pixels; Undo Save is the way back to its original.</li>
+</ul>
+
+<h3>Tuning: in place or appended</h3>
+<p>The Tuning tab (Fill Light, Highlights, Shadows, Color Temperature, Neutral Color Picker) is a single entry, <code>tuning(fill,highlights,shadows,temp,neutral)</code>, and its sliders always show the photo's last Tuning entry, wherever it sits in the list. When you move a slider, Dalíca has to decide whether to change that entry or add a new one. The rule depends on what comes after it:</p>
+<figure class="wide">
+<svg viewBox="0 0 760 330" role="img" aria-label="If only rotations and flips follow the last tuning entry, a Tuning session changes it in place. If anything else follows, the session appends a new tuning entry that starts from the defaults.">
+<g font-size="15" fill="#ebdbb2">
+<text x="10" y="22" fill="#8ec07c">Only rotations and flips after it: changed in place</text>
+<text x="10" y="61" font-size="13" fill="#a89984">before</text>
+<rect x="70" y="40" width="110" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="125.0" y="61" text-anchor="middle" font-family="monospace" font-size="14">autofix()</text><rect x="190" y="40" width="220" height="32" rx="4" fill="#32302f" stroke="#8ec07c"/><text x="300.0" y="61" text-anchor="middle" font-family="monospace" font-size="14">tuning(0.2,0,0,0,none)</text><rect x="420" y="40" width="110" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="475.0" y="61" text-anchor="middle" font-family="monospace" font-size="14">rotate(90)</text>
+<text x="10" y="105" font-size="13" fill="#a89984">after</text>
+<rect x="70" y="84" width="110" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="125.0" y="105" text-anchor="middle" font-family="monospace" font-size="14">autofix()</text><rect x="190" y="84" width="220" height="32" rx="4" fill="#32302f" stroke="#8ec07c"/><text x="300.0" y="105" text-anchor="middle" font-family="monospace" font-size="14">tuning(0.2,0,0,0.3,none)</text><rect x="420" y="84" width="110" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="475.0" y="105" text-anchor="middle" font-family="monospace" font-size="14">rotate(90)</text>
+<text x="10" y="172" fill="#fe8019">Anything else after it: a new entry is appended</text>
+<text x="10" y="211" font-size="13" fill="#a89984">before</text>
+<rect x="70" y="190" width="220" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="180.0" y="211" text-anchor="middle" font-family="monospace" font-size="14">tuning(0.2,0,0,0,none)</text><rect x="300" y="190" width="110" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="355.0" y="211" text-anchor="middle" font-family="monospace" font-size="14">retouch(…)</text>
+<text x="10" y="255" font-size="13" fill="#a89984">after</text>
+<rect x="70" y="234" width="220" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="180.0" y="255" text-anchor="middle" font-family="monospace" font-size="14">tuning(0.2,0,0,0,none)</text><rect x="300" y="234" width="110" height="32" rx="4" fill="#32302f" stroke="#504945"/><text x="355.0" y="255" text-anchor="middle" font-family="monospace" font-size="14">retouch(…)</text><rect x="420" y="234" width="210" height="32" rx="4" fill="#32302f" stroke="#fe8019"/><text x="525.0" y="255" text-anchor="middle" font-family="monospace" font-size="14">tuning(0,0,0,0.3,none)</text>
+<text x="525" y="292" text-anchor="middle" font-size="13" fill="#a89984">starts from the defaults and holds</text><text x="525" y="309" text-anchor="middle" font-size="13" fill="#a89984">only what this session moved</text>
+</g></svg>
+<figcaption>Moving the Color Temperature slider to 0.3 in two situations. Rotations and flips move pixels without reading their values, so the Tuning before them can change safely. A retouch was made on the tuned pixels, so the earlier Tuning stays as it was and a new entry goes on top.</figcaption>
+</figure>
+<ul>
+<li><strong>Only rotations and flips after the last Tuning:</strong> the session updates that entry in place and keeps the rotations after it. One Undo puts the earlier values back where they were.</li>
+<li><strong>Anything else after it</strong> (Retouch, Crop, Straighten, a fix, an effect, or an entry Dalíca does not know): those edits were made on the tuned pixels, so the session appends a new <code>tuning</code> entry instead. It starts from the defaults and holds only the controls you moved in this session, so the earlier Tuning is not applied twice. From then on the sliders show the new entry.</li>
+<li><strong>No Tuning yet:</strong> the session appends one.</li>
+</ul>
+<p>Slider values are stored to three decimals, so the recipe text stays short and free of floating-point noise.</p>
+
+<h2 id="unknown">Operations Dalíca cannot read</h2>
+<p>A recipe can contain entries this copy of Dalíca does not understand: an operation from a newer version, a parameter out of range such as <code>rotate(45)</code>, a damaged line, or an edit converted from the classic folder-based organizer that has no equivalent (kept as <code>legacy:name(…)</code>). All of them follow the same rule: <strong>kept verbatim, in place, and skipped by rendering</strong>. They never stop the entries after them from rendering, and they are written back to the sidecar exactly as they were read.</p>
+<p>The same applies to a known operation whose parameters its module refuses: a <code>NaN</code>, a missing or extra field, a color that is not <code>#rrggbb</code>, a word that is not one of the choices. The entry stays, labeled, and is skipped.</p>
+<p>Two places refuse to go further rather than lose such an entry:</p>
+<ul>
+<li><strong>Save</strong> refuses a recipe that holds an operation Dalíca cannot render, and names it. Baking pixels would silently drop that operation, and the original would no longer carry it either.</li>
+<li><strong>Setting a whole recipe</strong> (Paste All Edits, or an agent's <code>edit.recipe.set</code>) checks every photo and entry before any photo changes. An unreadable entry may stay only where the photo already holds it. Adding a new one is refused ("is not an operation Dalíca applies"), and leaving out one the photo holds is refused by name unless the caller explicitly asks to drop unknown entries.</li>
+</ul>
+
+<h2 id="save">Save, Undo Save, Revert, Save a Copy</h2>
+<p>Save is the only command in Dalíca that changes a photo's pixels, and it is built so that the original is recoverable at every instant, even if the power fails halfway through.</p>
+<h3>Which files are saved in place</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Your file</th><th>What Save writes</th><th>The original</th></tr></thead>
+<tbody>
+<tr><td>JPEG</td><td>the edited JPEG under the same name, quality matched to the original's estimated quality (90 if it cannot be estimated)</td><td>moved byte for byte into <code>.dalica-originals/</code></td></tr>
+<tr><td>PNG without transparency</td><td>the edited PNG under the same name</td><td>moved into <code>.dalica-originals/</code></td></tr>
+<tr><td>Everything else: PNG with transparency, TIFF, WebP, GIF, BMP, HEIF, JPEG XL, PSD, raw files</td><td>a new JPEG beside it, <code>name.jpg</code>, or the first free <code>name-001.jpg</code>, <code>-002</code>, …</td><td>untouched, still the photo you edit</td></tr>
+</tbody></table></div>
+<p>Saving beside never replaces a file. The new JPEG is a new, unedited photo in the library; the source records it as its <code>savedAs</code>, and Undo Save and Revert do not apply to it. A JPEG whose recipe only rotates and flips is saved <strong>losslessly</strong>: the file is turned in its compressed coefficients with its own quantization tables, so nothing is re-encoded. When that is not possible (a partial block on an edge that would move, progressive or arithmetic-coded files, data after the end of the image), the pixels stay byte for byte and only the orientation tag changes.</p>
+<figure class="wide">
+<svg viewBox="0 0 760 330" role="img" aria-label="A folder before and after Save. Before: IMG_0041.jpg and scan.tif with their edits in .dalica.json. After: IMG_0041.jpg holds the edited pixels and its original is in .dalica-originals with a record of the recipe; scan.tif is untouched and scan.jpg is a new photo beside it.">
+<g font-size="14" fill="#ebdbb2">
+<text x="10" y="20" font-size="15" fill="#a89984">before Save</text><rect x="0" y="32" width="350" height="290" rx="6" fill="#32302f" stroke="#504945"/>
+<text x="20" y="62" font-family="monospace">Trip/</text>
+<text x="44" y="94" font-family="monospace">IMG_0041.jpg</text>
+<text x="200" y="94" font-size="13" fill="#a89984">original pixels</text>
+<text x="44" y="124" font-family="monospace">scan.tif</text>
+<text x="200" y="124" font-size="13" fill="#a89984">original pixels</text>
+<text x="44" y="154" font-family="monospace">.dalica.json</text>
+<text x="64" y="180" font-family="monospace" font-size="12" fill="#a89984">IMG_0041.jpg: crop, autofix</text><text x="64" y="200" font-family="monospace" font-size="12" fill="#a89984">scan.tif: autofix</text>
+<text x="20" y="300" font-size="13" fill="#a89984">both photos carry the edited badge</text>
+<text x="380" y="180" text-anchor="middle" font-size="24" fill="#a89984">→</text>
+<text x="420" y="20" font-size="15" fill="#a89984">after Save</text><rect x="410" y="32" width="350" height="290" rx="6" fill="#32302f" stroke="#504945"/>
+<text x="430" y="62" font-family="monospace" fill="#ebdbb2">Trip/</text>
+<text x="454" y="94" font-family="monospace" fill="#fe8019">IMG_0041.jpg</text>
+<text x="610" y="94" font-size="13" fill="#fe8019">edited pixels</text>
+<text x="454" y="124" font-family="monospace" fill="#ebdbb2">scan.tif</text>
+<text x="610" y="124" font-size="13" fill="#a89984">untouched, edits kept</text>
+<text x="454" y="154" font-family="monospace" fill="#8ec07c">scan.jpg</text>
+<text x="610" y="154" font-size="13" fill="#8ec07c">a new photo</text>
+<text x="454" y="184" font-family="monospace" fill="#ebdbb2">.dalica.json</text>
+<text x="610" y="184" font-size="13" fill="#a89984">IMG_0041 edits cleared</text>
+<text x="454" y="224" font-family="monospace" fill="#83a598">.dalica-originals/</text>
+<text x="478" y="254" font-family="monospace" fill="#83a598">IMG_0041.jpg</text>
+<text x="615" y="254" font-size="13" fill="#83a598">the original</text>
+<text x="478" y="284" font-family="monospace" fill="#83a598">.dalica.json</text>
+<text x="615" y="284" font-size="13" fill="#83a598">recipe, size, digest</text>
+</g></svg>
+<figcaption>A folder before and after Save. The JPEG is replaced and its original kept in the hidden <code>.dalica-originals/</code> folder, with a record of the recipe it was saved with. The TIFF cannot be written in place, so it gets a JPEG beside it and stays exactly as it was.</figcaption>
+</figure>
+<h3>The originals record</h3>
+<p>Next to the kept originals, <code>.dalica-originals/.dalica.json</code> holds one entry per kept original, keyed by file name: the whole <code>recipe</code> the saved file holds, the original's <code>size</code> in bytes, its <code>mtime</code> in milliseconds, its pixel <code>width</code> and <code>height</code>, an MD5 <code>digest</code> of its bytes, the <code>time</code> of the Save, and a <code>state</code> that is <code>pending</code> or <code>done</code>. The first original is always the one kept: a second Save renders from the kept original with the recorded recipe followed by the new edits, so JPEG losses never compound however often you save.</p>
+<h3>The write order</h3>
+<p>The record's entry is a journal. It is written before anything moves and marked done last, so at every moment the original's bytes are either at the photo's name or in <code>.dalica-originals/</code> with an entry naming them. Save runs on a worker thread, and every disk step goes through Dalíca's file-system layer, which writes atomically (a temporary file, flushed to disk, then renamed into place) and verifies what it wrote.</p>
+<ol class="steps-list">
+<li><strong>Refuse</strong> a recipe holding an operation Dalíca cannot render (an unknown or <code>legacy:</code> entry, or parameters a module refuses). Nothing is lost by refusing.</li>
+<li><strong>Read</strong> the photo whole. A read-only file, or one whose size or modification time is not what the library last saw (another program changed it), is refused. If the photo was saved before, read the kept original and check it against the record's size and digest.</li>
+<li><strong>Render</strong> at full resolution through the one output pipeline Export also uses, with a fresh EXIF thumbnail, metadata carried over and orientation set to normal. Nothing on disk has changed yet.</li>
+<li><strong>Write the entry <code>pending</code></strong>, with the whole recipe and the original's size, time, dimensions and digest.</li>
+<li><strong>Keep the original:</strong> on a first Save, move the photo into <code>.dalica-originals/</code> with one rename that never replaces a file, after checking its identity once more.</li>
+<li><strong>Commit</strong> the new file at the photo's name: into the name the move just freed, or over the earlier saved file only while it is still the version read in step 2.</li>
+<li><strong>Verify</strong> the file on disk: the bytes written, the pixel size, orientation 1, and the metadata fields Dalíca owns.</li>
+<li><strong>Mark the entry <code>done</code>.</strong> The photo's <code>"edits"</code> are cleared from the folder sidecar: the saved file now holds them.</li>
+</ol>
+<p>A refusal or failure up to step 5 takes the entry back and changes nothing (if the original had already been moved, it is moved back first). A failure in step 6 or 7 of a first Save moves the original back when it can. Anything else leaves the entry <code>pending</code>, and Dalíca repairs it when a session opens or when a scan finds it: it rolls the Save <strong>forward</strong> only if the kept original is the recorded one and the file at the name decodes whole and matches the original rendered again with the recipe (within 3 levels on average, a check by content, never by clocks); otherwise it rolls it <strong>back</strong>, moving the original back and putting the recipe back as unsaved edits so no edit is lost. If neither is safe, it leaves everything as found and says why.</p>
+<h3>Undo Save, Revert, Save a Copy</h3>
+<dl class="terms">
+<dt>Undo Save</dt>
+<dd>Moves the kept original back over the saved file and puts the recorded recipe back as unsaved edits: you are back where you were just before you saved. It only does so while the backup still matches the recorded size and digest and the saved file is the version the library last saw.</dd>
+<dt>Revert</dt>
+<dd>The same move, but the edits are discarded: you get the untouched original with an empty recipe.</dd>
+<dt>Save a Copy</dt>
+<dd>Renders the edits into <code>name-001.jpg</code> (the next free number) in the same folder. The original and its recipe are untouched, and the copy is a new photo without edits that keeps the caption, tags, star and date. Save As does the same with a name, folder and format (JPEG or PNG) you choose, and never overwrites an existing file.</dd>
+</dl>
+<div class="note warn"><p><b>Keep <code>.dalica-originals/</code>:</b> it is hidden so it does not clutter your folders, and scans skip it so the kept originals never appear as duplicate photos. Deleting it removes the only copy of the pixels your saved photos replaced.</p></div>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+<li><code>crates/edit/src/recipe.rs</code>: the recipe, merging of rotations and flips, pipeline order, <code>MAX_OPERATIONS</code></li>
+<li><code>crates/edit/src/syntax.rs</code>: the operation text, verbatim kinds (listed, legacy, unknown), pipeline stages</li>
+<li><code>crates/edit/src/render.rs</code>: the renderer, resampling, fused runs, the analysis proxy</li>
+<li><code>crates/edit/src/frame.rs</code>, <code>crates/edit/src/geometry.rs</code>, <code>crates/edit/src/ops/orient.rs</code>, <code>ops/crop.rs</code>, <code>ops/straighten.rs</code>: the coordinate frame and the geometric operations</li>
+<li><code>crates/edit/src/catalog.rs</code>: every operation's syntax, ranges and defaults</li>
+<li><code>crates/engine/src/history.rs</code>, <code>crates/engine/src/cmd/history.rs</code>, <code>crates/engine/src/cmd/tuning.rs</code>: the photo's history, merged and coalesced steps, the Tuning in-place rule</li>
+<li><code>crates/create/src/save.rs</code>, <code>save/beside.rs</code>, <code>save/lossless.rs</code>, <code>save/copy.rs</code>, <code>save/recover.rs</code>, <code>output/target.rs</code>: Save and its journal, saving beside, lossless rotation, copies, repair</li>
+<li>Specs: <code>docs/data-model.md</code> §3.1 (edit operations), §3.3 (the coordinate frame), §6 (Save, Undo Save, Revert, Save a Copy); <code>docs/editing.md</code> §5.1 (undo), §7 (Tuning), §8.5 (effect syntax), §13 (the catalog and whole recipes); <code>docs/architecture.md</code> §4 (state and undo)</li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="thumbnails.html"><span>Previous</span>Thumbnails</a><a class="next" href="auto-fixes.html"><span>Next</span>Auto Fix, Contrast and Color</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#the-recipe">The recipe</a>
+    <a href="#pipeline">The order it renders in</a>
+    <a href="#every-size">One recipe, every size</a>
+    <a href="#coordinate-frame">The coordinate frame</a>
+    <a href="#history">History and undo</a>
+    <a href="#unknown">Operations Dalíca cannot read</a>
+    <a href="#save">Save, Undo Save, Revert, Save a Copy</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>

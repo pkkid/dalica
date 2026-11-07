@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Never losing a photo · Dalíca guide</title>
+<meta name="description" content="Dalíca writes into the folders where your only copy of a photo may live, so every write it makes is built to survive a crash, a full disk, another program touching the same file and a file designed to break it. This chapter shows the machinery behind that promise, step by step.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top stuck" id="top">
+  <div class="top-in">
+    <a class="brand" href="../" aria-label="Dalíca home"><img src="../img/icon.svg" alt="" width="30" height="30"><span class="wordmark">Dalíca</span></a>
+    <nav aria-label="Site">
+      <a href="../#tour" class="opt">Tour</a>
+      <a href="../#features">Features</a>
+      <a href="./" class="current" aria-current="true">Docs</a>
+      <a href="https://github.com/pkkid/dalica" class="opt">GitHub</a>
+      <a class="button small" href="../#download">Download</a>
+    </nav>
+  </div>
+</header>
+<div class="docs">
+  <nav class="docs-nav" aria-label="Guide">
+    <details class="docs-nav-fold" open><summary>Chapters</summary>
+    <p class="docs-group">Start here</p>
+    <a href="./">How Dalíca works</a>
+    <p class="docs-group">Your library</p>
+    <a href="library.html">Your library on disk</a>
+    <a href="scanning.html">Scanning and watching</a>
+    <a href="thumbnails.html">Thumbnails</a>
+    <p class="docs-group">Editing</p>
+    <a href="recipes.html">Edits are recipes</a>
+    <a href="auto-fixes.html">Auto Fix, Contrast and Color</a>
+    <a href="tuning.html">Tuning and the neutral picker</a>
+    <a href="crop-straighten-retouch.html">Crop, straighten and retouch</a>
+    <a href="effects.html">The effects</a>
+    <a href="color.html">Color and file formats</a>
+    <p class="docs-group">Organizing</p>
+    <a href="metadata.html">Metadata in your files</a>
+    <a href="search.html">Search, color and duplicates</a>
+    <a href="people.html">People</a>
+    <a href="places.html">Places</a>
+    <a href="import.html">Import</a>
+    <p class="docs-group">Sharing</p>
+    <a href="export.html">Export</a>
+    <a href="collage-slideshow.html">Collages and slideshows</a>
+    <a href="video.html">Video</a>
+    <p class="docs-group">Under the hood</p>
+    <a href="safety.html" aria-current="page">Never losing a photo</a>
+    <a href="performance.html">Big libraries</a>
+    <a href="automation.html">Automation</a>
+    </details>
+  </nav>
+  <main class="docs-main" id="main">
+    <article class="doc">
+<h1>Never losing a photo</h1>
+<p class="lede">Dalíca writes into the folders where your only copy of a photo may live, so every write it makes is built to survive a crash, a full disk, another program touching the same file and a file designed to break it. This chapter shows the machinery behind that promise, step by step.</p>
+
+<h2 id="where-it-writes">Where Dalíca writes, and through what</h2>
+
+<p>The list of places Dalíca writes is short and fixed:</p>
+<ol>
+  <li>the folder sidecar <code>.dalica.json</code> in each watched folder;</li>
+  <li>the hidden <code>.dalica-originals/</code> folder, on Save;</li>
+  <li>the photo files themselves, only on Save and when writing metadata (captions, tags, places, dates);</li>
+  <li>destinations you chose: an export folder, an import folder, a saved copy, a collage;</li>
+  <li>its own library directory, cache, logs and temporary files;</li>
+  <li>the operating system's trash.</li>
+</ol>
+<p>Anything else would be a bug. Every one of those writes goes through a single crate, <code>fs</code>, at the bottom of the layer stack. A build check searches every other crate for the standard library's write, rename, remove, copy and create calls and fails if it finds one. That is what makes the rest of this chapter possible: the atomic-write routine, the "did someone else change this file?" check, the trash, and the fault points that tests use to simulate a crash at every step all live in one place, and nothing can step around them.</p>
+
+<h2 id="atomic-writes">Atomic writes</h2>
+
+<p>The basic rule is simple: Dalíca never truncates a file and rewrites it in place. It writes the new bytes beside the old file, makes them durable, and swaps them in with one rename. The routine is <code>fs::atomic::replace(path, bytes, expect)</code>, and it runs these steps:</p>
+
+<ol class="steps-list">
+  <li><strong>Hold the folder.</strong> The target's folder is validated and opened once, without following a link. On Linux and macOS every later step names files relative to that open handle, so a folder swapped for a symbolic link after the check cannot redirect the write. Windows has no such calls in stable Rust, so there Dalíca compares the folder's identity again before each step that creates, renames or removes a file.</li>
+  <li><strong>Check the target.</strong> The caller says what it expects: <code>Expect::Absent</code> (a new file) or <code>Expect::Unchanged(identity)</code> (the version it read). If the target is anything else, the write is refused with <code>Changed</code>. A target that is a symbolic link is refused outright.</li>
+  <li><strong>Create a temporary file</strong> in the same folder, named <code>.&lt;name&gt;.dalica-tmp-&lt;16 hex digits&gt;</code>, with exclusive creation, so the final rename stays on one volume and never collides with anything.</li>
+  <li><strong>Write, <code>fsync</code>, copy permissions.</strong> The bytes are written and flushed to the disk, and the target's permission bits are copied onto the temporary file.</li>
+  <li><strong>Check the target again.</strong> If another program replaced the file while Dalíca was writing, the temporary file is removed and the write is refused.</li>
+  <li><strong>Rename over the target</strong>, then <code>fsync</code> the folder (on Unix), so the new name itself is durable.</li>
+  <li><strong>Read back and compare.</strong> The file is reopened (again without following a link) and compared byte for byte with what was meant to be written.</li>
+</ol>
+
+<figure class="wide">
+<svg viewBox="0 0 1000 400" role="img" aria-label="The atomic replace sequence in seven steps, and what is on disk if the process dies during each: the old file at the name through step 4, the old or the new file during the rename, the new file after it; a stray temporary file may be left after steps 2 to 5; a target changed by another program at step 1 or 4 is refused with nothing written." xmlns="http://www.w3.org/2000/svg" font-family="Schibsted Grotesk, system-ui, sans-serif">
+  <defs>
+    <marker id="sf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a89984"/></marker>
+  </defs>
+  <g font-size="14.5" fill="#ebdbb2" text-anchor="middle">
+    <g><circle cx="84" cy="22" r="13" fill="#3c3836" stroke="#504945"/><text x="84" y="27" font-size="13">0</text><rect x="20" y="42" width="128" height="92" rx="8" fill="#32302f" stroke="#504945"/><text x="84" y="70">Hold folder</text><text x="84" y="92" font-size="12" fill="#d5c4a1">no links followed</text></g><g><circle cx="223" cy="22" r="13" fill="#3c3836" stroke="#504945"/><text x="223" y="27" font-size="13">1</text><rect x="159" y="42" width="128" height="92" rx="8" fill="#32302f" stroke="#504945"/><text x="223" y="70">Check target</text><text x="223" y="92" font-size="12" fill="#d5c4a1">identity as read?</text><text x="223" y="118" font-size="12" fill="#fb4934">changed: refuse</text></g><g><circle cx="362" cy="22" r="13" fill="#3c3836" stroke="#504945"/><text x="362" y="27" font-size="13">2</text><rect x="298" y="42" width="128" height="92" rx="8" fill="#32302f" stroke="#504945"/><text x="362" y="70">Create temp</text><text x="362" y="92" font-size="11" fill="#d5c4a1" font-family="IBM Plex Mono, ui-monospace, monospace">.x.dalica-tmp-…</text></g><g><circle cx="501" cy="22" r="13" fill="#3c3836" stroke="#504945"/><text x="501" y="27" font-size="13">3</text><rect x="437" y="42" width="128" height="92" rx="8" fill="#32302f" stroke="#504945"/><text x="501" y="70">Write, fsync</text><text x="501" y="92" font-size="12" fill="#d5c4a1">copy permissions</text></g><g><circle cx="640" cy="22" r="13" fill="#3c3836" stroke="#504945"/><text x="640" y="27" font-size="13">4</text><rect x="576" y="42" width="128" height="92" rx="8" fill="#32302f" stroke="#504945"/><text x="640" y="70">Check again</text><text x="640" y="92" font-size="12" fill="#d5c4a1">still unchanged?</text><text x="640" y="118" font-size="12" fill="#fb4934">changed: refuse</text></g><g><circle cx="779" cy="22" r="13" fill="#3c3836" stroke="#fe8019"/><text x="779" y="27" font-size="13">5</text><rect x="715" y="42" width="128" height="92" rx="8" fill="#32302f" stroke="#fe8019"/><text x="779" y="70">Rename over</text><text x="779" y="92" font-size="12" fill="#d5c4a1">fsync the folder</text></g><g><circle cx="918" cy="22" r="13" fill="#3c3836" stroke="#504945"/><text x="918" y="27" font-size="13">6</text><rect x="854" y="42" width="128" height="92" rx="8" fill="#32302f" stroke="#504945"/><text x="918" y="70">Read back</text><text x="918" y="92" font-size="12" fill="#d5c4a1">compare bytes</text></g>
+  </g>
+  <g stroke="#a89984" stroke-width="1.5" fill="none" marker-end="url(#sf-arrow)"><path d="M148,88 L157,88"/><path d="M287,88 L296,88"/><path d="M426,88 L435,88"/><path d="M565,88 L574,88"/><path d="M704,88 L713,88"/><path d="M843,88 L852,88"/></g>
+  <text x="20" y="164" fill="#a89984" font-size="13">If the process dies during the step, the file at the name is:</text>
+  <rect x="20" y="174" width="684" height="38" rx="6" fill="#83a5981f" stroke="#83a598"/>
+  <text x="362" y="198" text-anchor="middle" fill="#ebdbb2" font-size="14">the old file, whole and untouched</text>
+  <rect x="715" y="174" width="128" height="38" rx="6" fill="#8ec07c24" stroke="#8ec07c"/>
+  <text x="779" y="198" text-anchor="middle" fill="#ebdbb2" font-size="13.5">old or new, whole</text>
+  <rect x="854" y="174" width="128" height="38" rx="6" fill="#b8bb2624" stroke="#b8bb26"/>
+  <text x="918" y="198" text-anchor="middle" fill="#ebdbb2" font-size="13.5">the new file</text>
+  <text x="20" y="244" fill="#a89984" font-size="13">Also left in the folder:</text>
+  <rect x="20" y="254" width="267" height="38" rx="6" fill="#32302f" stroke="#504945"/>
+  <text x="153" y="278" text-anchor="middle" fill="#d5c4a1" font-size="13.5">nothing</text>
+  <rect x="298" y="254" width="545" height="38" rx="6" fill="#fabd2f1f" stroke="#fabd2f"/>
+  <text x="570" y="278" text-anchor="middle" fill="#ebdbb2" font-size="13.5">at most one stray temporary file (unless the rename already happened)</text>
+  <rect x="854" y="254" width="128" height="38" rx="6" fill="#32302f" stroke="#504945"/>
+  <text x="918" y="278" text-anchor="middle" fill="#d5c4a1" font-size="13.5">nothing</text>
+  <rect x="20" y="320" width="470" height="64" rx="8" fill="#fb493414" stroke="#fb4934"/>
+  <text x="255" y="346" text-anchor="middle" fill="#ebdbb2" font-size="14">Steps 1 and 4: another program changed the target</text>
+  <text x="255" y="368" text-anchor="middle" fill="#d5c4a1" font-size="12.5">temporary file removed, their file kept, error Changed</text>
+  <rect x="512" y="320" width="470" height="64" rx="8" fill="#32302f" stroke="#504945"/>
+  <text x="747" y="346" text-anchor="middle" fill="#ebdbb2" font-size="14">Stray temporaries are swept by the next scan</text>
+  <text x="747" y="368" text-anchor="middle" fill="#d5c4a1" font-size="12.5">only that exact name shape, only once older than 24 hours</text>
+</svg>
+<figcaption>The atomic replace in <code>fs</code>, and what survives a crash at each step. Read down from a step: until the rename the photo's name holds the old file untouched; the rename itself is one operation, so the name never holds a mix; after it the name holds the new, verified file. The worst a crash can leave is one stray temporary file, which a later scan of the folder removes.</figcaption>
+</figure>
+
+<p>A failure before step 5 leaves the target untouched, and the temporary file is removed on the way out. A failure or crash after the rename leaves the new bytes. A crash can therefore leave at most a stray temporary file and never a truncated target. Stray temporaries are removed when the folder is next scanned, but only regular files whose name has exactly the shape <code>.&lt;name&gt;.dalica-tmp-&lt;16 lowercase hex&gt;</code> and whose modification time is more than 24 hours old; a link, a folder or any near-miss name is never touched.</p>
+
+<h3>Proving it</h3>
+<p>The <code>fs</code> crate has named fault points at each step (<code>atomic.open_dir</code>, <code>atomic.create_temp</code>, <code>atomic.write</code>, <code>atomic.fsync</code>, <code>atomic.rename</code>, <code>atomic.fsync_dir</code>, <code>atomic.verify</code>). Its tests fail each one in turn, as an error that cleans up, as a crash that stops without cleaning up, and as a real "disk full" error from the operating system, and assert that the target holds the old or the new bytes and never a torn file. A separate test starts a child process and kills it (<code>SIGKILL</code> on Unix, <code>TerminateProcess</code> on Windows) at a random moment while it replaces a file or runs a Save's backup, then checks that the bytes are whole and that the original exists under exactly one name.</p>
+
+<h2 id="read-before-write">Never overwrite what was not just read</h2>
+
+<p>A replace goes ahead only if the file is still the version Dalíca read. That covers an editor saving the same photo, a sync client downloading a newer version, and a colleague swapping a file on a shared drive. The check compares a file's <strong>identity</strong>, which <code>fs</code> defines as:</p>
+<dl class="terms">
+  <dt>Linux and macOS</dt>
+  <dd>device and inode from <code>stat</code>, plus size and modification time.</dd>
+  <dt>Windows</dt>
+  <dd>volume serial number, file index and creation time (read from a handle opened with no data access and every sharing mode, so the look never blocks another program), plus size and modification time.</dd>
+</dl>
+<p>Programs that save by writing a new file and renaming it over the old one (most editors, sync clients, metadata tools) always produce a new identity, and so does any change in size or modification time. The one thing the guard cannot see, on any system, is an edit made in place through the same file that keeps the size and sets the modification time back. It is a guard against ordinary rewrites, not a content hash. On volumes whose file numbers are not stable (FAT and exFAT may renumber a file, some network shares report 0), size, times and creation time still count, and a number that changes on its own makes Dalíca refuse the write and read again, never write over a file it did not read.</p>
+<p>The same check runs before Save moves an original into <code>.dalica-originals/</code>, and before Undo Save or Revert moves it back.</p>
+
+<div class="note"><p><b>Why a rename and not an in-place write:</b> a rename gives the file a new inode, so the old version stays whole until the very last instant. One side effect is deliberate: if a photo has a hard link elsewhere, the other name keeps the old contents. Dalíca never changes a file through another name.</p></div>
+
+<h2 id="merge-never-replace">Merge, never replace</h2>
+
+<p>Dalíca shares your folders and your files with other programs, so it treats everything it did not write as someone else's property.</p>
+
+<h3>Sidecars</h3>
+<p>When Dalíca rewrites <code>.dalica.json</code>, it keeps every key it does not know, at the top level and inside each photo's entry. In this test, a key <code>x-colorLabel</code> was added to one photo and an object <code>x-otherTool</code> to the file by hand, then a caption was set with <code>dalica-cli</code>:</p>
+<pre><code>    <span class="s">"DSC_4410.jpg"</span>: {
+      <span class="s">"caption"</span>: <span class="s">"Lanterns"</span>,
+      <span class="s">"changed"</span>: <span class="s">"2026-11-07T03:40:13.427Z"</span>,
+      <span class="s">"edits"</span>: [<span class="s">"autofix()"</span>],
+      <span class="s">"tags"</span>: [<span class="s">"kyoto"</span>, <span class="s">"temples"</span>],
+      <span class="s">"x-colorLabel"</span>: <span class="s">"purple"</span>
+    }
+  },
+  <span class="s">"x-otherTool"</span>: { <span class="s">"lastSync"</span>: <span class="s">"2026-11-01"</span> }</code></pre>
+<p>Both foreign keys survived, sorted into place. A value of the wrong type is reported once and kept. A recipe operation Dalíca does not recognize (from a newer version, or a legacy operation it cannot map) is kept in its place in the list, and the operations after it are never dropped. When two folders are merged by a move, their sidecars are merged entry by entry; one sidecar never overwrites another. When a photo moves, its whole entry, unknown keys included, travels to the destination's sidecar, and the destination is written before the source, so an interruption leaves the entry in both files, never in neither.</p>
+<p>Sidecar writes are debounced: at most one per folder per second, and only when the content changed. A crash loses at most the last second of changes in that folder's sidecar, never the file.</p>
+
+<h3>Metadata inside your photos</h3>
+<p>Captions, tags, places and dates are also written into the photo's own XMP, IPTC and EXIF so other applications see them. That write never re-encodes the image. For a JPEG, Dalíca rewrites only its own metadata segments (APP1 for EXIF and XMP, APP13 for IPTC) and copies every other segment byte for byte. Here is a real photo before and after Dalíca wrote a caption and two tags into it, with a short hash of each segment:</p>
+
+<figure>
+<svg viewBox="0 0 1000 400" role="img" aria-label="The JPEG segments of one photo before and after a caption and two tags were written: an XMP block (APP1, 2,748 bytes) and an IPTC block (APP13, 126 bytes) were added after APP0; every other segment, including the 1,217,444 bytes of image data, has the same hash before and after." xmlns="http://www.w3.org/2000/svg" font-family="Schibsted Grotesk, system-ui, sans-serif">
+  <text x="20" y="22" fill="#a89984" font-size="13">Before: the sample photo as downloaded</text>
+  <text x="520" y="22" fill="#a89984" font-size="13">After: caption and tags written by Dalíca</text>
+  <g font-size="13" font-family="IBM Plex Mono, ui-monospace, monospace" fill="#ebdbb2">
+    <!-- before column -->
+    <g>
+      <rect x="20" y="34" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="32" y="51">APP0  JFIF</text><text x="300" y="51" fill="#d5c4a1">16</text><text x="380" y="51" fill="#83a598">66084db2</text>
+      <rect x="20" y="114" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="32" y="131">COM   comment</text><text x="300" y="131" fill="#d5c4a1">39</text><text x="380" y="131" fill="#83a598">dd0f4dfb</text>
+      <rect x="20" y="142" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="32" y="159">DQT   quant. table</text><text x="300" y="159" fill="#d5c4a1">67</text><text x="380" y="159" fill="#83a598">a6f9ef7a</text>
+      <rect x="20" y="170" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="32" y="187">DQT   quant. table</text><text x="300" y="187" fill="#d5c4a1">67</text><text x="380" y="187" fill="#83a598">af60179a</text>
+      <rect x="20" y="198" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="32" y="215">SOF0  frame</text><text x="300" y="215" fill="#d5c4a1">17</text><text x="380" y="215" fill="#83a598">20b4e8ce</text>
+      <rect x="20" y="226" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="32" y="243">DHT   Huffman × 4</text><text x="300" y="243" fill="#d5c4a1">424</text><text x="380" y="243" fill="#83a598">8b7d…627f</text>
+      <rect x="20" y="254" width="460" height="64" rx="4" fill="#32302f" stroke="#504945"/><text x="32" y="281">SOS   image data</text><text x="32" y="303" fill="#d5c4a1" font-size="12" font-family="Schibsted Grotesk, system-ui, sans-serif">bytes to the end of the file</text><text x="270" y="281" fill="#d5c4a1">1,217,444</text><text x="380" y="281" fill="#83a598">d3be2f8d</text>
+    </g>
+    <!-- after column -->
+    <g>
+      <rect x="520" y="34" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="532" y="51">APP0  JFIF</text><text x="800" y="51" fill="#d5c4a1">16</text><text x="880" y="51" fill="#83a598">66084db2</text>
+      <rect x="520" y="61" width="460" height="24" rx="4" fill="#fe801924" stroke="#fe8019"/><text x="532" y="78">APP1  XMP</text><text x="790" y="78" fill="#d5c4a1">2,748</text><text x="880" y="78" fill="#fe8019">new</text>
+      <rect x="520" y="87" width="460" height="24" rx="4" fill="#fe801924" stroke="#fe8019"/><text x="532" y="104">APP13 IPTC</text><text x="800" y="104" fill="#d5c4a1">126</text><text x="880" y="104" fill="#fe8019">new</text>
+      <rect x="520" y="114" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="532" y="131">COM   comment</text><text x="800" y="131" fill="#d5c4a1">39</text><text x="880" y="131" fill="#83a598">dd0f4dfb</text>
+      <rect x="520" y="142" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="532" y="159">DQT   quant. table</text><text x="800" y="159" fill="#d5c4a1">67</text><text x="880" y="159" fill="#83a598">a6f9ef7a</text>
+      <rect x="520" y="170" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="532" y="187">DQT   quant. table</text><text x="800" y="187" fill="#d5c4a1">67</text><text x="880" y="187" fill="#83a598">af60179a</text>
+      <rect x="520" y="198" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="532" y="215">SOF0  frame</text><text x="800" y="215" fill="#d5c4a1">17</text><text x="880" y="215" fill="#83a598">20b4e8ce</text>
+      <rect x="520" y="226" width="460" height="24" rx="4" fill="#32302f" stroke="#504945"/><text x="532" y="243">DHT   Huffman × 4</text><text x="800" y="243" fill="#d5c4a1">424</text><text x="880" y="243" fill="#83a598">8b7d…627f</text>
+      <rect x="520" y="254" width="460" height="64" rx="4" fill="#32302f" stroke="#504945"/><text x="532" y="281">SOS   image data</text><text x="532" y="303" fill="#d5c4a1" font-size="12" font-family="Schibsted Grotesk, system-ui, sans-serif">bytes to the end of the file</text><text x="770" y="281" fill="#d5c4a1">1,217,444</text><text x="880" y="281" fill="#83a598">d3be2f8d</text>
+    </g>
+  </g>
+  <g stroke="#504945" stroke-width="1" stroke-dasharray="3 3">
+    <path d="M480,46 L520,46"/><path d="M480,126 L520,126"/><path d="M480,154 L520,154"/><path d="M480,182 L520,182"/><path d="M480,210 L520,210"/><path d="M480,238 L520,238"/><path d="M480,286 L520,286"/>
+  </g>
+  <text x="20" y="352" fill="#a89984" font-size="13">Columns: segment, length field in bytes, first 8 hex digits of the segment's SHA-256.</text>
+  <text x="20" y="374" fill="#a89984" font-size="13">The file's modification time was left as it was ("Update file modification time on metadata changes" is off by default).</text>
+</svg>
+<figcaption>A real metadata write, measured on one of this guide's sample photos. Two segments were added (orange); every other segment, including the 1.2 MB of compressed image data, hashes the same before and after, so not one pixel was re-encoded.</figcaption>
+</figure>
+
+<p>The metadata writer is careful in the same ways as the sidecar writer:</p>
+<ul>
+  <li><strong>It merges.</strong> Only the fields Dalíca owns are changed; every other field, from any other program, stays as it was. If a value was changed by another application since Dalíca last synced it (and is unchanged in Dalíca's sidecar), Dalíca imports the new value instead of overwriting it. <a href="metadata.html">Metadata in your files</a> has the details.</li>
+  <li><strong>It refuses what it cannot read.</strong> A file whose EXIF, XMP, IPTC or image-resource (8BIM) block cannot be parsed is not rewritten at all, and neither is a RAW file built like a TIFF.</li>
+  <li><strong>It verifies before it writes.</strong> The new bytes are parsed back: the fields written must read back, and every byte outside the rewritten blocks must be unchanged. Only then does <code>fs</code> replace the file, expecting the identity it read.</li>
+  <li><strong>It stays inside the format's limits.</strong> In a JPEG, EXIF must fit in 65,527 bytes and the XMP packet in 65,504 bytes of one APP1 segment; only padding is dropped to make it fit, otherwise the write fails and names the field. An IPTC caption is cut at 2,000 bytes and keywords at 64, on a character boundary.</li>
+</ul>
+<p>Formats Dalíca cannot write metadata into (RAW, video, GIF, BMP, read-only files) keep everything in the sidecar only.</p>
+
+<h2 id="save">Save: the one pixel write</h2>
+
+<p>Save is the only operation that changes a photo's pixels, and it is built as a small journaled transaction. The journal is the folder's originals record, <code>.dalica-originals/.dalica.json</code>. Here is the one Dalíca wrote after an Auto Fix was saved in a test folder:</p>
+<pre><code>{
+  <span class="s">"dalica"</span>: { <span class="s">"version"</span>: <span class="n">1</span> },
+  <span class="s">"originals"</span>: {
+    <span class="s">"IMG_4147.jpg"</span>: {
+      <span class="s">"digest"</span>: <span class="s">"md5:6d4ceb359f5328fc64b3184635b11566"</span>,
+      <span class="s">"height"</span>: <span class="n">1800</span>,
+      <span class="s">"mtime"</span>: <span class="n">1794022444078</span>,
+      <span class="s">"recipe"</span>: [<span class="s">"autofix()"</span>],
+      <span class="s">"size"</span>: <span class="n">796604</span>,
+      <span class="s">"state"</span>: <span class="s">"done"</span>,
+      <span class="s">"time"</span>: <span class="n">1794022444109</span>,
+      <span class="s">"width"</span>: <span class="n">2400</span>
+    }
+  }
+}</code></pre>
+<p>The original (796,604 bytes) now sits in <code>.dalica-originals/IMG_4147.jpg</code>, and the photo's name holds the rendered result. The order of a first Save is:</p>
+<ol class="steps-list">
+  <li>Refuse a recipe with an operation Dalíca cannot render; baking pixels never silently drops an edit.</li>
+  <li>Read the photo whole with its identity; refuse it if its size or modification time is not what the library last saw.</li>
+  <li>Render the recipe at full resolution with the metadata carried over. Nothing on disk has changed yet.</li>
+  <li>Write the record's entry with <code>"state": "pending"</code> (the recipe, the original's size, time, pixel size and digest).</li>
+  <li>Move the original into <code>.dalica-originals/</code> with one rename that never replaces a file, after checking its identity once more.</li>
+  <li>Write the new file at the photo's now-free name, and verify it: the bytes, the pixel size, the orientation and the metadata fields.</li>
+  <li>Mark the entry <code>"done"</code>.</li>
+</ol>
+<p>At every moment, the original's bytes are at the photo's name or in the backup folder with an entry naming them. If Dalíca finds a <code>pending</code> entry when it opens a library or scans a folder, a Save was interrupted, and it repairs it by content, never by clocks: <strong>forward</strong> when the kept original is the recorded one and the new file decodes whole and matches the original rendered again with the recipe (within 3 levels on average), otherwise <strong>back</strong>, moving the original back to its name and putting the recipe back as unsaved edits. If neither is safe (the recorded original is nowhere to be found), it leaves everything as it is and says why. A later Save always renders again from the kept original, so quality loss never compounds, and the first original is always the one kept. <a href="recipes.html">Edits are recipes</a> covers Save, Undo Save and Revert from the editing side.</p>
+
+<h2 id="trash">Deletes go to the trash</h2>
+
+<p>Dalíca has no permanent-delete path for anything in your library, not in the window and not over automation. Deleting a photo, a video or a folder asks first and then hands it to the operating system's trash:</p>
+<ul>
+  <li><strong>Linux and the BSDs:</strong> the freedesktop.org trash. Dalíca first checks that a trash on the item's own volume can take it by a rename (the home trash when it is on that volume, else the volume's <code>.Trash/&lt;uid&gt;</code> or <code>.Trash-&lt;uid&gt;</code>), so the trash library's fallback of copying into the home trash and deleting the source is never reached.</li>
+  <li><strong>Windows:</strong> the Recycle Bin, through the shell, which is asked to warn instead of deleting permanently.</li>
+  <li><strong>macOS:</strong> the system's file manager API.</li>
+</ul>
+<p>When the photo deleted in this guide's tests left its folder, it arrived in the trash with the standard record beside it:</p>
+<pre><code>[Trash Info]
+Path=/…/photos/Cape%20May/DSC_4142.jpg
+DeletionDate=2026-11-06T22:40:31</code></pre>
+<p>Everything the library knew about the photo (its star, caption, recipe, albums) is kept in the delete's undo step. On Linux and Windows, Undo brings the file back to its old path (found by that path and, where possible, by its identity, and never replacing what is there now); macOS offers no way back from the trash, so there the Undo is disabled with its reason. If a volume has no trash at all (some network shares and removable drives), the delete fails for that file, explains that the drive has no trash and that Dalíca never deletes permanently, and points you to your file manager. Deleting a volume root or your home folder is refused.</p>
+<p>"Remove from Dalíca", "Rebuild library" and pruning the thumbnail cache never touch photos, and caches only ever list and delete files of their own naming shape.</p>
+<div class="note warn"><p><b>The one exception:</b> after an import from a memory card, Dalíca can delete the copied files from the card, because cards usually have no trash. It does so only for files that import copied and verified byte for byte, only while both the card's file and its copy are still unchanged, only after you confirm, and never over automation. <a href="import.html">Import</a> describes it.</p></div>
+
+<h2 id="damaged-files">Damaged files are kept aside</h2>
+
+<p>When Dalíca meets one of its own files that it cannot read, it never deletes it and never quietly writes over it. It renames it to <code>&lt;name&gt;.corrupt-&lt;UTC time&gt;</code> in the same folder (adding <code>-001</code>, <code>-002</code> if that name is taken) and tells you. This applies to folder sidecars, the originals record, <code>settings.json</code>, <code>albums.json</code>, <code>people.json</code>, the file-operation journal and the index snapshot.</p>
+<p>A damaged folder sidecar gets extra care, because it may hold your only record of that folder's stars and edits. In this test the Cape May folder's sidecar was cut off in the middle of a value; the next change to a photo there gave:</p>
+<pre><code>$ dalica-cli run --library lib --cmd photo.star.toggle --params '{"ids":[1]}'
+{"command":"photo.star.toggle","ok":true,"result":{"ids":[1],"on":true}}
+{"code":"unsaved","error":"folder 1: damaged sidecar kept as …/photos/Cape May/.dalica.json.corrupt-20261107T034020Z; the folder is read-only","ok":false}</code></pre>
+<p>The star was applied in the library (and its journal), but nothing was written into the folder: no new sidecar, no entry carried in or out by a move, and no metadata written into its photos, until you choose. The folder shows a caution banner, and the list of damaged folders is kept in <code>damaged-folders.json</code> in the library directory so a restart cannot quietly start writing there. <strong>Reset Folder Data</strong> (the command <code>folder.resetData</code>) asks first, then either reads a sidecar you restored by hand or writes a new one from what the library knows, including changes made while the folder was damaged:</p>
+<pre><code>$ dalica-cli run --library lib --cmd folder.resetData --params '{"folder":1,"confirm":true}'
+{"command":"folder.resetData","ok":true,"result":{"folder":1,"kept":["…/.dalica.json.corrupt-20261107T034020Z"],"restored":false,"written":true}}</code></pre>
+<p>The kept copy is never read, renamed, overwritten or deleted afterwards. For the library's own files the rule is gentler: a damaged <code>settings.json</code> is kept aside and the defaults are used; a damaged index snapshot is kept aside and the journal is replayed, or the index is rebuilt from the folders.</p>
+
+<h2 id="hostile-files">Hostile files</h2>
+
+<p>Dalíca scans tens of thousands of files unattended, and some of them will be broken, cut short by a failed copy, or (rarely) crafted to crash a parser. One bad file must never stall or kill a scan. The defenses come in layers.</p>
+
+<h3>No panics, by construction</h3>
+<p>Every crate root carries <code>#![forbid(unsafe_code)]</code> and denies <code>unwrap</code>, <code>expect</code>, <code>panic!</code>, <code>unreachable!</code>, <code>todo!</code> and <code>unimplemented!</code>; the linter (clippy) enforces it and allows them in tests only. Every number that comes from a file is treated as hostile: offsets are read with <code>get()</code> instead of indexing, lengths and counts use checked arithmetic, strings are sliced only at character boundaries, floats are checked for NaN and infinity, and allocations sized by input are checked against a cap first. As a last resort, a panic hook and <code>catch_unwind</code> wrap every command and every per-file unit of scan, import and export work, so an escaped panic becomes an error message and the app keeps going. Third-party decoders run inside <code>catch_unwind</code> too.</p>
+
+<h3>Limits before allocation</h3>
+<p>Each parser checks what a file declares before it reserves memory or follows a pointer. A selection of the limits:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Input</th><th>Limits</th></tr></thead>
+<tbody>
+<tr><td>Any raster image</td><td>each side at most 65,535 px, at most 2<sup>30</sup> pixels, every pixel buffer reserved from one budget per decode (1.5 GiB by default)</td></tr>
+<tr><td>JPEG</td><td>at most 4,096 segments looked at; ICC profile chunks reassembled and checked, at most 16 MiB and 1,000 tags</td></tr>
+<tr><td>EXIF and TIFF directories</td><td>at most 1,024 directories, nesting depth 10, 8,192 entries each, strings 64 KiB; every visited offset remembered, so a chain that loops is detected</td></tr>
+<tr><td>XMP</td><td>packet at most 16 MiB after reassembly, XML depth 64, 200,000 nodes; <code>DOCTYPE</code>, entity declarations and external references refused</td></tr>
+<tr><td>IPTC</td><td>dataset at most 64 KiB, at most 10,000 datasets</td></tr>
+<tr><td>HEIF, AVIF, MP4 boxes</td><td>nesting 12, at most 4,096 boxes per level; a box that runs past its parent is malformed</td></tr>
+<tr><td>Embedded thumbnails, RAW previews</td><td>inside the file, at most 64 MiB, decoded under the raster limits</td></tr>
+<tr><td><code>.dalica.json</code></td><td>file at most 64 MiB, nesting 16, a string 1 MiB, 1,000,000 photo entries, 10,000 operations per recipe</td></tr>
+<tr><td>Folder walks</td><td>depth 32, 1,000,000 entries, symbolic-link loops detected by device and inode</td></tr>
+</tbody></table></div>
+<p>The scan reads each file's header and metadata on a worker thread inside the panic guard, with a cancel flag. A file that fails, panics or takes more than 10 seconds of work is recorded by its path, size and modification time and not retried until it changes; its tile shows a placeholder and the scan moves on. Files are recognized by their first bytes, never by their name. The parsers of untrusted input (image headers and decoders, EXIF, XMP, IPTC, the sidecars, the index journal) also have fuzz targets that run at each milestone review, and every command and control method is fed hostile parameters by an engine test called <code>panic_hunt</code>.</p>
+
+<h3>What a malformed JPEG looks like</h3>
+<p>To see these rules at work, five broken files were made from one good photo and put in a folder with it: the file cut to a third of its length, a frame header edited to claim 65,535 × 65,535 pixels, a PNG renamed to <code>.jpg</code>, an EXIF block whose directory points at itself, and 50,000 random bytes named <code>not-a-photo.jpg</code>. The whole folder scanned in a few hundredths of a second, with no warning from the scan and no crash. This is what the light table showed, rendered by <code>dalica-cli snapshot</code>:</p>
+
+<figure><div class="row cols-4">
+  <div><img src="img/safety/tile-truncated.jpg" width="304" height="304" alt="Thumbnail of the cut-off JPEG: the top third of the photo is shown and the rest is flat gray." loading="lazy"><span class="label">Cut to a third</span></div>
+  <div><img src="img/safety/tile-huge-header.jpg" width="304" height="304" alt="A placeholder tile with a yellow exclamation mark instead of a thumbnail." loading="lazy"><span class="label">Claims 65,535 × 65,535</span></div>
+  <div><img src="img/safety/tile-really-a-png.jpg" width="304" height="304" alt="A color gradient: the PNG's real content, decoded as a PNG despite its .jpg name." loading="lazy"><span class="label">A PNG named .jpg</span></div>
+  <div><img src="img/safety/tile-exif-loop.jpg" width="304" height="304" alt="The photo shown normally even though its EXIF directory points at itself." loading="lazy"><span class="label">EXIF that loops</span></div>
+</div><figcaption>Four hostile files as the light table shows them. The cut file decodes up to where its data ends (the decoder runs in its lenient mode) and the rest stays gray. The giant header is refused before any pixel memory is reserved; its tile's tooltip reads "Too large to display (65535 × 65535)". The PNG is recognized by its first bytes and decoded as what it is. The looping EXIF directory is detected by its repeated offset, and the photo itself shows normally. The random bytes do not become a photo at all.</figcaption></figure>
+
+<p>Other refusals show up the same way, on the tile and in its tooltip: "Damaged file" for data that is cut, inconsistent or loops, "This kind of JPEG isn't supported" for the variants the decoder does not handle (arithmetic coding, 12-bit samples, lossless and hierarchical frames), and "Not a picture Dalica can read" for anything else. An unusable embedded color profile is not damage: it is ignored, logged, and the pixels are shown as sRGB.</p>
+
+<div class="note"><p><b>Why tolerate a cut file:</b> a photo whose copy stopped early is still your photo. Showing what arrived lets you find it and copy it again; refusing it would hide it.</p></div>
+
+<h2 id="shares-and-media">Network shares, synced folders and removable media</h2>
+
+<p>Folders do not always sit on a local disk that stays put. Dalíca's answers for the less reliable places:</p>
+<ul>
+  <li><strong>Change events are hints, the verification scan is the truth.</strong> On Linux, Dalíca recognizes network file systems by their type in the mount table (<code>nfs</code>, <code>nfs4</code>, <code>cifs</code>, <code>smb3</code>, <code>smbfs</code>, <code>afs</code>, <code>ceph</code>, <code>glusterfs</code>, <code>9p</code>, <code>fuse.sshfs</code>, <code>fuse.rclone</code>) and polls folders there with a pure-Rust poller instead of trusting their change events. Every watched folder is also rescanned in full 6 hours after it was last walked, and 60 seconds after the app starts if nothing walked it since, which catches anything the events missed. <a href="scanning.html">Scanning and watching</a> covers this.</li>
+  <li><strong>Never remove what was not seen.</strong> Only what a scan walked to the end may leave the library. A root that cannot be walked keeps everything, and so does a root that is suddenly empty (the empty mount point an unplugged drive leaves behind). A root whose device changed and where none of the library's files is found counts as offline too.</li>
+  <li><strong>Nothing is written under an offline root.</strong> The online checks run every 10 seconds, and each sidecar write and each metadata write checks its root again right before it lands. A write whose root fails is held, reported as unsaved, and written when the volume returns; the list of folders waiting is kept in <code>pending-writes.json</code>. So a sidecar never lands in an empty mount point.</li>
+  <li><strong>Slow shares never freeze the window.</strong> Answers the window needs while drawing come from caches that workers fill; a hung share only delays a worker.</li>
+  <li><strong>The lock stays local.</strong> The library lock lives in the local library directory, never on a share, because file locks on network shares are unreliable.</li>
+  <li><strong>Removable media can be frozen.</strong> A folder set to Scan Once is indexed once and then left alone, which suits cards and slow drives. When importing, a card or drive is read as an untrusted tree: the walk's depth and loop bounds apply, at most 100,000 files are listed, files are read in 64 KiB chunks with at most 256 MiB kept for a header and thumbnail and 16 GiB read in all, and the sizes the device reports are never trusted for allocation.</li>
+</ul>
+<p>Because every write is a rename of a fully written temporary file, a volume that disappears in the middle of a write leaves the old file, and the change stays queued in the library.</p>
+
+<h2 id="legacy-files">Legacy files are read-only</h2>
+
+<p>Folders that the classic folder-based organizer managed may still hold its per-folder settings file and its own hidden originals folder. Dalíca reads them during scans so you keep your stars, captions, edits, albums and people, but it never modifies, renames or deletes them, so you can keep running the old program against the same folders.</p>
+<ul>
+  <li>The first time you change something in such a folder, Dalíca creates its own <code>.dalica.json</code> holding <strong>everything</strong> it read from the old file for that folder, not just the photo you changed. It prints the new file, parses it back, checks it says the same, and creates it under its exact name with a step that never replaces an existing file.</li>
+  <li>Once a folder has <code>.dalica.json</code>, that file wins and later changes the old program makes to its own file are not picked up.</li>
+  <li>Old edit operations without an equivalent are kept in the recipe as opaque <code>legacy:</code> entries, in their place, rather than dropped.</li>
+  <li>The old hidden originals folder is offered for Revert and Undo Save; Dalíca copies the original back from it and never writes into it or removes anything from it.</li>
+</ul>
+<p>The legacy reader has its own limits (file at most 64 MiB, a line at most 1 MiB, at most 1,000,000 sections) and a fuzz target. Reading these files can be turned off in Options.</p>
+
+<h2 id="one-process">One process per library</h2>
+
+<p>Two programs writing the same sidecars and the same index at once could undo each other's work, so a library is open in exactly one Dalíca process. The lock is an operating-system file lock on <code>&lt;library&gt;/lock</code>: it is released however the process ends, even if it is killed, and the file itself is never deleted (that would race with the next process). A second process asks once and gives up immediately rather than waiting. With the headless app holding a test library, the command-line tool answered:</p>
+<pre><code>$ dalica-cli run --library lib --cmd library.query --params '{}'
+dalica-cli: the library at …/lib is open in another Dalica process
+<span class="c"># exit status 3</span>
+
+$ dalica-cli mcp --library lib
+dalica-cli mcp: the library at …/lib is open in another Dalica process; use connect mode (--connect) to drive the app that has it</code></pre>
+<p>The desktop app in the same situation starts with an empty temporary session that writes nothing and asks whether to retry, choose another library, continue or quit. The thumbnail cache folder has its own lock, so two processes never write one cache either. And for everyday use, a second launch of Dalíca on your own library does not open it twice: it hands the files it was asked to open to the Dalíca that is already running and exits.</p>
+
+<h2 id="in-the-code">In the code</h2>
+<ul>
+  <li>crates/fs/src/atomic.rs (atomic replace, temporary names), identity.rs (file identity per system), dirfd.rs (writes relative to a held folder), aside.rs (<code>.corrupt-&lt;time&gt;</code>), stale.rs (stale temporaries), trash.rs, transfer.rs, originals.rs, lock.rs, faults.rs, tests/crash.rs</li>
+  <li>crates/store/src/writer.rs (debounced sidecar writer, damaged sidecars), crates/store/src/carry.rs (entries travel with their files), crates/store/src/metawrite.rs (metadata write-back), crates/store/src/legacy.rs</li>
+  <li>crates/create/src/save (Save in place and its repair), crates/engine/src/cmd/folder_data.rs (Reset Folder Data), crates/engine/src/cmd/delete.rs</li>
+  <li>crates/image/src/limits.rs, crates/image/src/formats/jpeg.rs, crates/image/src/lib.rs (tile reasons), crates/scan/src/volumes.rs and watch.rs (network shares)</li>
+  <li>docs/data-model.md §1, §6, §8, §9; docs/standards/never-crash.md; docs/security.md §4 and §5</li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Previous and next chapter"><a class="prev" href="video.html"><span>Previous</span>Video</a><a class="next" href="performance.html"><span>Next</span>Big libraries</a></nav>
+  </main>
+  <aside class="docs-toc" aria-label="On this page"><p class="docs-group">On this page</p>
+    <a href="#where-it-writes">Where Dalíca writes, and through what</a>
+    <a href="#atomic-writes">Atomic writes</a>
+    <a href="#read-before-write">Never overwrite what was not just read</a>
+    <a href="#merge-never-replace">Merge, never replace</a>
+    <a href="#save">Save: the one pixel write</a>
+    <a href="#trash">Deletes go to the trash</a>
+    <a href="#damaged-files">Damaged files are kept aside</a>
+    <a href="#hostile-files">Hostile files</a>
+    <a href="#shares-and-media">Network shares, synced folders and removable media</a>
+    <a href="#legacy-files">Legacy files are read-only</a>
+    <a href="#one-process">One process per library</a>
+    <a href="#in-the-code">In the code</a>
+  </aside>
+</div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged picture" hidden><img alt=""><div class="lb-bar"><button type="button" class="lb-size" aria-pressed="false">Actual size</button><span class="lb-hint">Scroll or drag to look around</span><button type="button" class="lb-close" aria-label="Close">Close <kbd>Esc</kbd></button></div></div>
+<script src="../main.js"></script>
+</body>
+</html>
