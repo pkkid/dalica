@@ -11847,8 +11847,9 @@ formats over 64 MP get a reduced decode or a recorded reason (M17.12, after M17.
 every format a build does not show (M17.4), system fonts for the characters the embedded subset
 leaves out (M17.5), a repeated Auto that changes nothing (M17.6), a fast close (M17.7), Ctrl+0
 (M17.8), a RAW's `.xmp` after a crash (M17.9), the snapshot's dropped colour byte (M17.10), two
-flaky tests (M17.11), Stats for Nerds' missing rows (M17.13), the folder music toast (M17.14) and
-the docs M16 left stale (M17.15). M17.16 is `accept M17`, and M17.R the review. Each task updates
+flaky tests (M17.11), Stats for Nerds' missing rows (M17.13), the folder music toast (M17.14),
+the docs M16 left stale (M17.15) and a check that catches a label running past its own widget
+(M17.17, found by eye in PR #1238). M17.16 is `accept M17`, and M17.R the review. Each task updates
 its `parity.md` rows.
 
 Left out of M17 (from M16's open items, each with its reason):
@@ -12116,8 +12117,29 @@ waits for the writes, so it is instant on Wayland too; every write still lands.
     checked against the code it describes.
   - done when: `cargo xtask ci`'s docs checks pass; each fix above is in the diff; `scale.rs`
     passes with the ids checked, or names the real file.
+- ⬜ **M17.17 `ui`: the window sweeps catch a label running past its own widget**
+  - after: M16.R
+  - files: `crates/ui/tests/common.rs`, `crates/ui/tests/i18n_window.rs`, `crates/ui/tests/i18n_views.rs`, `crates/ui/tests/i18n_dialogs.rs`, `crates/ui/tests/i18n_languages.rs`, `crates/ui/tests/scaling.rs`, `crates/ui/tests/large_font.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/i18n/fr.tsv`, `docs/localization.md`
+  - scope: the sweeps that look for cut labels (the pseudo-locale's main window, views and
+    dialogs, every language's windows, the UI scales and the large font) each compare a drawn
+    text with its clip rect only. A label wider than its fixed-size widget is not clipped by its
+    own rect, so it runs on under the next widget and no sweep fails: the French "Retour à la
+    photothèque" ran past the edit view's 140 px Back button under Play at both window sizes and
+    was found by eye (PR #1238). Move the five copies of the check into one helper in
+    `tests/common.rs` that also fails when a text's visual rect leaves the rect of the
+    registered widget it is drawn in (the smallest automation widget holding the text's start;
+    an elided `…` text is cut too, unless the widget is a table cell that elides by design), and
+    have every sweep use it. Then fix what it finds: a fixed-width widget whose label can grow
+    (the edit view's Back and Play) takes its label's width within its group's limits, as the
+    toolbar's buttons do, and a catalog entry that still cannot fit is shortened in its catalog
+    (asking for the file first if it is not listed here). `localization.md` → Checking a
+    translation says what the check now catches.
+  - done when: the helper fails on a test-only label made wider than its button, and on
+    `fr.tsv`'s old "Retour à la photothèque" put back; every sweep that used a copy calls it and
+    passes in English, the pseudo-locale, Thai and French (`DALICA_FULL_TESTS=1`) at 1400 × 900
+    and 900 × 600; before and after screenshots of anything it fixed in the PR.
 - ⬜ **M17.16 `accept M17`**
-  - after: M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15
+  - after: M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.17
   - files: `tests/acceptance/m17.rs`, `tests/acceptance/m17_*.rs`, `tests/acceptance/m17.md`, `tests/acceptance/fingerprints/m17-*.json`
   - scope: every *Done when* of M17 in the real `dalica --headless` over the control channel and
     through `dalica-cli`: a folder with a procedural panorama over 64 MP (IFD first and IFD last),
@@ -12132,7 +12154,7 @@ waits for the writes, so it is instant on Wayland too; every write still lands.
     and macOS.
   - done when: `cargo xtask accept M17` passes everything in M17's *Done when*.
 - ⬜ **M17.R M17 review**
-  - after: M17.1, M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.16
+  - after: M17.1, M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.16, M17.17
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M17.R` to prepare it: the check-in page (open a
@@ -12154,7 +12176,7 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 wave 1   M17.1 lead: M16.R's answers  ‖  M17.2 thumbs + preview + caption  ‖  M17.3 TIFF IFD at the end
          ‖  M17.4 the unshown cards  ‖  M17.5 system fonts + packaging  ‖  M17.6 a no-op Auto
          ‖  M17.7 instant close  ‖  M17.9 a RAW's .xmp after a crash  ‖  M17.10 the colour byte's recovery
-         ‖  M17.11 flaky tests
+         ‖  M17.11 flaky tests  ‖  M17.17 labels past their widget
          (once M16.R is closed)
 wave 2   M17.8 Ctrl+0 (after M17.4: ui-layout.md)  ‖  M17.12 other large formats (after M17.3)
          ‖  M17.13 Stats for Nerds (after M17.7; M17.4's control-protocol.md and th.tsv)
@@ -12170,8 +12192,8 @@ M17.13, so Stats for Nerds follows the close work. `crates/ui/src/i18n/th.tsv` a
 `docs/control-protocol.md` are shared by M17.4 and M17.13; `docs/ui-layout.md` by M17.4 and
 M17.8, which is listed after the wave-1 tasks so `next` offers it once M17.4 merges. The `ui`
 tasks otherwise touch separate files (the light table, the viewer, the side-pane command, the
-dialog, the notices, two test files), and `crates/ui/src/state.rs` is M17.8's alone. Ten of the
-sixteen non-review tasks can run in wave 1, at most ten at once (the machine runs eight agents;
+dialog, the notices, two test files), and `crates/ui/src/state.rs` is M17.8's alone. Eleven of the
+seventeen non-review tasks can run in wave 1, at most eleven at once (the machine runs eight agents;
 `next` picks by order).
 
 ## Reserved decisions (the maintainer's, not the agents')
