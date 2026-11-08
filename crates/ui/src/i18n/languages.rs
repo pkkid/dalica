@@ -29,6 +29,9 @@ pub struct Language {
     /// The decimal mark and the thousands separator of numbers.
     pub decimal: &'static str,
     pub thousands: &'static str,
+    /// Whether times read on the 24-hour clock: `{hour}` is then 0 to 23, written with two digits,
+    /// and the catalog's AM and PM templates say the same thing.
+    pub clock24: bool,
 }
 
 /// English: the source language and the fallback.
@@ -41,6 +44,7 @@ pub const ENGLISH: Language = Language {
     catalog: "",
     decimal: ".",
     thousands: ",",
+    clock24: false,
 };
 
 /// Thai (M15.35): a machine-assisted catalog, every entry a draft for the fluent review
@@ -55,11 +59,12 @@ pub const THAI: Language = Language {
     catalog: include_str!("th.tsv"),
     decimal: ".",
     thousands: ",",
+    clock24: false,
 };
 
 /// French: a machine-assisted catalog, every entry a draft for the fluent review
 /// (`docs/localization-fr.md`); the singular for 0 and 1; a decimal comma and a narrow no-break
-/// space between thousands.
+/// space between thousands; the 24-hour clock.
 pub const FRENCH: Language = Language {
     code: "fr",
     endonym: "Français",
@@ -69,6 +74,7 @@ pub const FRENCH: Language = Language {
     catalog: include_str!("fr.tsv"),
     decimal: ",",
     thousands: "\u{202f}",
+    clock24: true,
 };
 
 /// The registry, English first.
@@ -88,6 +94,7 @@ pub static PSEUDO: Language = Language {
     catalog: "",
     decimal: ".",
     thousands: ",",
+    clock24: false,
 };
 
 /// The tag `tag` written plainly: the encoding and modifier dropped (`zh_TW.UTF-8@x` → `zh-tw`),

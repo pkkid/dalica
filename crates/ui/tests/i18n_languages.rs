@@ -1,21 +1,24 @@
-//! The first languages (M15.35, `localization.md`, `localization-th.md`): English and Thai. The
-//! registry lists them; Thai's catalog reads without a fault, its one plural form reads right for
-//! 0, 1, 2, 5 and 21 and its text carries break marks between words (`docs/thai-text.md`). The
-//! library, the edit view and the Options dialog drawn in Thai at 1400 × 900 and 900 × 600: no
-//! label cut at the side of its area, no text left in English but user data and the names kept in
-//! Latin letters, every wrapped Thai label broken only between words, every Basic Fixes label drawn
-//! whole (on two lines if need be, never cut with "…"), and
-//! (built with `CRAFT_FONTS_DIR`) every character drawn by a face that has it, every mark above or
-//! below its consonant; switching between English and Thai keeps the view, the selection and the
-//! undo history; every command's label has a Thai entry (the macro-made ones `cargo xtask i18n`
-//! cannot read included); and (with the fonts) a fingerprint of the library in Thai at 1400 × 900.
-//! `DALICA_SHOTS=<dir>` writes the windows (`i18n-th-*.png`).
+//! The registered languages (M15.35, `localization.md`, `localization-th.md`,
+//! `localization-fr.md`). English comes first; every other language's catalog reads without a
+//! fault, every command's label has an entry (the macro-made ones `cargo xtask i18n` cannot read
+//! included), and each writes counts, numbers, sizes, dates and times its own way. The library,
+//! the edit view and the Options dialog drawn in each language at 1400 × 900 and 900 × 600 (Thai
+//! on every run, the others at full strength): no label cut at the side of its area; in Thai also
+//! no text left in English but user data and the names kept in Latin letters, every wrapped label
+//! broken only between words, and (built with `CRAFT_FONTS_DIR`) every character drawn by a face
+//! that has it, every mark above or below its consonant. Thai's one plural form reads right for 0,
+//! 1, 2, 5 and 21 and its text carries break marks between words (`docs/thai-text.md`); every
+//! Basic Fixes label is drawn whole in Thai (on two lines if need be, never cut with "…");
+//! switching between English and Thai keeps the view, the selection and the undo history; and
+//! (with the fonts) a fingerprint of the library in Thai at 1400 × 900. `DALICA_SHOTS=<dir>`
+//! writes the windows (`i18n-<code>-*.png`).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, LARGE, SMALL, check_pixels, demo_open, new_driver, shot};
-use dalica_ui::i18n::{self, ENGLISH, LANGUAGES, Plural, languages};
+use crate::common::{FRAMES, LARGE, SMALL, check_pixels, demo_open, full, new_driver, shot};
+use dalica_core::{Date, DateTime};
+use dalica_ui::i18n::{self, ENGLISH, LANGUAGES, Plural, format, languages};
 use dalica_ui::{App, Driver, tl, tln};
 use dalica_ui_kit::fonts::CRAFT_FONTS;
 use dalica_ui_kit::linebreak::{MARK, is_thai};
@@ -26,37 +29,110 @@ fn thai() -> &'static languages::Language {
     languages::by_code("th").expect("Thai is registered")
 }
 
+/// Every registered language but English: its row, a regional tag and a POSIX locale that find it.
+const ROWS: &[(&str, &str, &str, Plural, &str, &str)] =
+    &[("th", "ไทย", "Thai", Plural::Single, "th-TH", "th_TH.UTF-8"), ("fr", "Français", "Latn", Plural::ZeroOneOther, "fr-CA", "fr_BE.UTF-8")];
+
 #[test]
-fn the_registry_lists_english_then_thai_and_thais_catalog_reads_whole() {
-    let codes: Vec<&str> = LANGUAGES.iter().map(|l| l.code).collect();
-    assert_eq!(codes, ["en", "th", "fr"]);
-    let th = thai();
-    assert_eq!((th.endonym, th.script, th.plural, th.complete_menus), ("ไทย", "Thai", Plural::Single, true));
-    let c = i18n::catalog(th);
-    assert_eq!(c.problems(), &[] as &[String], "every line of th.tsv is read");
-    assert!(c.len() > 1500, "{} entries", c.len());
-    // Every entry is machine-assisted until the fluent review takes its `~` away.
-    assert!(c.draft_count() <= c.len());
-    eprintln!("th: {} entries, {} drafts awaiting the fluent review", c.len(), c.draft_count());
-    // Options ▸ General ▸ Language lists Thai by its own name; `th-TH` finds it.
-    assert!(i18n::choices().contains(&("th", "ไทย")));
-    assert_eq!(i18n::resolve_setting("th-TH", &[]).code, "th");
-    assert_eq!(i18n::resolve_setting("system", &["th_TH.UTF-8".to_string()]).code, "th");
+fn the_registry_lists_english_first_and_every_catalog_reads_whole() {
+    assert_eq!(LANGUAGES.first().map(|l| l.code), Some("en"));
+    let codes: Vec<&str> = LANGUAGES.iter().skip(1).map(|l| l.code).collect();
+    assert_eq!(codes, ROWS.iter().map(|r| r.0).collect::<Vec<_>>(), "a row per registered language");
+    for &(code, endonym, script, plural, regional, posix) in ROWS {
+        let lang = languages::by_code(code).unwrap();
+        assert_eq!((lang.endonym, lang.script, lang.plural, lang.complete_menus), (endonym, script, plural, true), "{code}");
+        let c = i18n::catalog(lang);
+        assert_eq!(c.problems(), &[] as &[String], "every line of {code}.tsv is read");
+        assert!(c.len() > 1500, "{code}: {} entries", c.len());
+        // Every entry is machine-assisted until the fluent review takes its `~` away.
+        assert!(c.draft_count() <= c.len());
+        eprintln!("{code}: {} entries, {} drafts awaiting the fluent review", c.len(), c.draft_count());
+        // Options ▸ General ▸ Language lists it by its own name; a regional tag finds it.
+        assert!(i18n::choices().contains(&(code, endonym)), "{code}");
+        assert_eq!(i18n::resolve_setting(regional, &[]).code, code);
+        assert_eq!(i18n::resolve_setting("system", &[posix.to_string()]).code, code);
+    }
 }
 
 #[test]
-fn every_command_has_a_thai_label() {
+fn every_command_has_a_label_in_every_complete_language() {
     // The labels `cargo xtask i18n` cannot read from the sources (made by a macro) are checked
     // here, from the registries themselves.
     let mut labels: Vec<(&str, &str)> = dalica_engine::cmd::specs().iter().map(|c| (c.id, c.label)).collect();
     labels.extend(dalica_ui::commands::UI_COMMANDS.iter().map(|c| (c.id, c.label)));
-    let c = i18n::catalog(thai());
-    let missing: Vec<String> = labels
-        .iter()
-        .filter(|(id, label)| !label.trim().is_empty() && c.id(id).is_none() && c.plain(label).is_none())
-        .map(|(id, label)| format!("{id}: {label:?}"))
-        .collect();
-    assert!(missing.is_empty(), "{} commands with no Thai label:\n{}", missing.len(), missing.join("\n"));
+    for lang in LANGUAGES.iter().filter(|l| l.complete_menus) {
+        let c = i18n::catalog(lang);
+        let missing: Vec<String> = labels
+            .iter()
+            .filter(|(id, label)| !label.trim().is_empty() && c.id(id).is_none() && c.plain(label).is_none())
+            .map(|(id, label)| format!("{id}: {label:?}"))
+            .collect();
+        assert!(missing.is_empty(), "{}: {} commands with no label:\n{}", lang.code, missing.len(), missing.join("\n"));
+    }
+}
+
+/// What a language writes for 0, 1, 2 and 21 photos, 1234567, 3.5, 3.1 MB, 4 June 2026 (plain and
+/// with its weekday) and 15:05 on that day (the long form, and the clock with seconds).
+struct Writes {
+    code: &'static str,
+    photos: [&'static str; 4],
+    number: &'static str,
+    decimal: &'static str,
+    size: &'static str,
+    date: &'static str,
+    weekday: &'static str,
+    date_time: &'static str,
+    clock: &'static str,
+}
+
+const WRITES: &[Writes] = &[
+    Writes {
+        code: "en",
+        photos: ["0 photos", "1 photo", "2 photos", "21 photos"],
+        number: "1,234,567",
+        decimal: "3.5",
+        size: "3.1 MB",
+        date: "June 4, 2026",
+        weekday: "Thursday, June 4, 2026",
+        date_time: "June 4, 2026 3:05 PM",
+        clock: "3:05:09 PM",
+    },
+    Writes {
+        code: "fr",
+        photos: ["0 photo", "1 photo", "2 photos", "21 photos"],
+        number: "1\u{202f}234\u{202f}567",
+        decimal: "3,5",
+        size: "3,1 Mo",
+        date: "4 juin 2026",
+        weekday: "jeudi 4 juin 2026",
+        date_time: "4 juin 2026, 15:05",
+        clock: "15:05:09",
+    },
+];
+
+#[test]
+fn every_language_writes_counts_numbers_dates_and_times_its_own_way() {
+    let date = Date::new(2026, 6, 4).unwrap();
+    let at = DateTime::new(date, 15, 5, 9).unwrap();
+    let morning = DateTime::new(date, 9, 5, 0).unwrap();
+    for w in WRITES {
+        let lang = languages::by_code(w.code).unwrap();
+        i18n::with_language(lang, || {
+            for (n, want) in [0u64, 1, 2, 21].into_iter().zip(w.photos) {
+                assert_eq!(bare(&tln!(n, "{n} photo", "{n} photos")), want, "{}: {n}", w.code);
+            }
+            assert_eq!(format::number(1_234_567), w.number, "{}", w.code);
+            assert_eq!(format::decimal(3.5, 1), w.decimal, "{}", w.code);
+            assert_eq!(format::file_size(3_100_000), w.size, "{}", w.code);
+            assert_eq!(format::long_date(date), w.date, "{}", w.code);
+            assert_eq!(format::long_date_with_weekday(date), w.weekday, "{}", w.code);
+            assert_eq!(dalica_ui::status_text::date_time(at), w.date_time, "{}", w.code);
+            assert_eq!(dalica_ui::status_text::clock(at, true), w.clock, "{}", w.code);
+            // The 24-hour clock writes the hour with two digits; the twelve-hour one does not.
+            let nine = dalica_ui::status_text::clock(morning, false);
+            assert!(nine.starts_with(if lang.clock24 { "09:05" } else { "9:05" }), "{}: {nine:?}", w.code);
+        });
+    }
 }
 
 /// `s` without its break marks.
@@ -95,10 +171,15 @@ fn thais_single_plural_form_reads_right_and_its_words_carry_break_marks() {
 }
 
 /// The demo library drawn in Thai at `(w, h)`.
-fn thai_library(dir: &std::path::Path, (w, h): (u32, u32)) -> Driver {
+fn thai_library(dir: &std::path::Path, size: (u32, u32)) -> Driver {
+    library_in(dir, "th", size)
+}
+
+/// The demo library drawn in the language `code` at `(w, h)`.
+fn library_in(dir: &std::path::Path, code: &str, (w, h): (u32, u32)) -> Driver {
     let s = demo_open(dir, Arc::new(dalica_core::SystemClock));
     let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
-    d.run("options.set", &json!({ "values": { "interface.language": "th" } })).unwrap();
+    d.run("options.set", &json!({ "values": { "interface.language": code } })).unwrap();
     d.settle(FRAMES).unwrap();
     d
 }
@@ -160,11 +241,11 @@ fn is_below(c: char) -> bool {
     matches!(c, '\u{0E38}'..='\u{0E3A}')
 }
 
-/// What the next frame draws wrong in Thai, each with `place`: a label cut at the side of its area
-/// (`cut`), a text left in English (not user data in `data`, nor a name kept in Latin letters), a
-/// Thai label wrapped inside a word, a character no face has, a mark away from its consonant
-/// (`faults`; the last two only with the fonts). Returns how many Thai texts it drew.
-fn look(d: &mut Driver, place: &str, data: &BTreeSet<String>, cut: &mut BTreeSet<String>, faults: &mut BTreeSet<String>) -> usize {
+/// What the next frame draws wrong, each with `place`: a label cut at the side of its area (`cut`);
+/// in Thai (`thai`) also a text left in English (not user data in `data`, nor a name kept in Latin
+/// letters), a label wrapped inside a word, a character no face has, a mark away from its
+/// consonant (`faults`; the last two only with the fonts). Returns how many Thai texts it drew.
+fn look(d: &mut Driver, place: &str, thai: bool, data: &BTreeSet<String>, cut: &mut BTreeSet<String>, faults: &mut BTreeSet<String>) -> usize {
     d.settle(FRAMES).unwrap();
     let shapes = crate::accessibility::frame(d, Vec::new()).shapes;
     let screen = d.ctx().content_rect();
@@ -175,6 +256,9 @@ fn look(d: &mut Driver, place: &str, data: &BTreeSet<String>, cut: &mut BTreeSet
         let text = t.galley.text().to_owned();
         if r.intersect(clip).is_positive() && (r.left() < clip.left() - 0.5 || r.right() > clip.right() + 0.5 || r.right() > screen.right() + 0.5) {
             cut.insert(format!("{place}: {text:?} cut at the side: {r:?} in {clip:?}"));
+        }
+        if !thai {
+            continue;
         }
         if !text.chars().any(is_thai) {
             if !kept_in_latin(&text, data) {
@@ -241,18 +325,19 @@ fn look(d: &mut Driver, place: &str, data: &BTreeSet<String>, cut: &mut BTreeSet
     thai_texts
 }
 
-/// The library, the edit view and each tab of Options in Thai at `size`, each painted as
-/// `i18n-th-<place>-<size>.png`; what is cut and what is drawn wrong.
-fn walk(size: (u32, u32)) -> (BTreeSet<String>, BTreeSet<String>) {
+/// The library, the edit view and each tab of Options in the language `code` at `size`, each
+/// painted as `i18n-<code>-<place>-<size>.png`; what is cut and what is drawn wrong.
+fn walk(code: &str, size: (u32, u32)) -> (BTreeSet<String>, BTreeSet<String>) {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = thai_library(dir.path(), size);
+    let mut d = library_in(dir.path(), code, size);
+    let thai = languages::by_code(code).is_some_and(|l| l.script == "Thai");
     let tag = format!("{}x{}", size.0, size.1);
     let (mut cut, mut faults) = (BTreeSet::new(), BTreeSet::new());
     let data = user_data(&d);
     let mut see = |d: &mut Driver, place: &str| {
-        let n = look(d, place, &data, &mut cut, &mut faults);
-        assert!(n > 5, "{place}: the interface is drawn in Thai ({n} Thai texts)");
-        shot(d, &format!("i18n-th-{}-{tag}", place.replace(' ', "-")));
+        let n = look(d, place, thai, &data, &mut cut, &mut faults);
+        assert!(!thai || n > 5, "{place}: the interface is drawn in Thai ({n} Thai texts)");
+        shot(d, &format!("i18n-{code}-{}-{tag}", place.replace(' ', "-")));
     };
     see(&mut d, "library");
     let first = d.app().session().unwrap().library().photos().next().unwrap().id;
@@ -276,14 +361,18 @@ fn walk(size: (u32, u32)) -> (BTreeSet<String>, BTreeSet<String>) {
 }
 
 #[test]
-fn the_library_the_edit_view_and_options_in_thai_fit_and_wrap_between_words() {
+fn the_library_the_edit_view_and_options_fit_in_every_language_and_thai_wraps_between_words() {
     if CRAFT_FONTS.is_empty() {
         eprintln!("built without CRAFT_FONTS_DIR: the glyph and mark checks are skipped (the cut and wrap checks run)");
     }
-    for size in [LARGE, SMALL] {
-        let (cut, faults) = walk(size);
-        assert!(cut.is_empty(), "{size:?}: {} labels clipped:\n{}", cut.len(), cut.into_iter().collect::<Vec<_>>().join("\n"));
-        assert!(faults.is_empty(), "{size:?}: {} faults:\n{}", faults.len(), faults.into_iter().collect::<Vec<_>>().join("\n"));
+    // Thai on every run; the other languages at full strength (the review gate).
+    let codes: Vec<&str> = LANGUAGES.iter().skip(1).map(|l| l.code).filter(|c| *c == "th" || full()).collect();
+    for code in codes {
+        for size in [LARGE, SMALL] {
+            let (cut, faults) = walk(code, size);
+            assert!(cut.is_empty(), "{code} {size:?}: {} labels clipped:\n{}", cut.len(), cut.into_iter().collect::<Vec<_>>().join("\n"));
+            assert!(faults.is_empty(), "{code} {size:?}: {} faults:\n{}", faults.len(), faults.into_iter().collect::<Vec<_>>().join("\n"));
+        }
     }
 }
 

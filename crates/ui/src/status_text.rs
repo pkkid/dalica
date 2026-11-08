@@ -176,19 +176,25 @@ pub fn size(bytes: u64) -> String {
     crate::i18n::format::file_size(bytes)
 }
 
-/// The hour of `d` on the twelve-hour clock, and whether it is after noon.
-fn twelve_hour(d: DateTime) -> (u8, bool) {
-    match d.hour() {
-        0 => (12, false),
-        h @ 1..=11 => (h, false),
-        12 => (12, true),
-        h => (h.saturating_sub(12), true),
+/// The hour of `d` as the language in effect writes it, and whether it is after noon: `7` on the
+/// twelve-hour clock, `19` (`09` before ten) on the 24-hour one, whose catalog writes the same
+/// template for AM and PM.
+fn hour_of(d: DateTime) -> (String, bool) {
+    let h = d.hour();
+    if crate::i18n::current().clock24 {
+        return (format!("{h:02}"), h >= 12);
     }
+    let twelve = match h {
+        0 => 12,
+        1..=12 => h,
+        _ => h.saturating_sub(12),
+    };
+    (twelve.to_string(), h >= 12)
 }
 
 /// `7:42 PM`, or `7:42:05 PM` with `seconds`: a time of day on the twelve-hour clock.
 pub fn clock(d: DateTime, seconds: bool) -> String {
-    let (hour, pm) = twelve_hour(d);
+    let (hour, pm) = hour_of(d);
     let (minute, second) = (format!("{:02}", d.minute()), format!("{:02}", d.second()));
     match (seconds, pm) {
         (false, false) => tl!(ctx = "time", "{hour}:{minute} AM", hour = hour, minute = minute),
@@ -201,7 +207,7 @@ pub fn clock(d: DateTime, seconds: bool) -> String {
 /// `June 4, 2026 7:42 PM`: one template, so the pseudo-locale brackets it once
 /// ([`crate::i18n::format::month_part`]).
 pub fn date_time(d: DateTime) -> String {
-    let (hour, pm) = twelve_hour(d);
+    let (hour, pm) = hour_of(d);
     let (month, day, year, minute) = (month_part(d.date().month()), d.date().day(), d.date().year(), format!("{:02}", d.minute()));
     match pm {
         false => tl!(ctx = "date", "{month} {day}, {year} {hour}:{minute} AM", month = month, day = day, year = year, hour = hour, minute = minute),
@@ -211,7 +217,7 @@ pub fn date_time(d: DateTime) -> String {
 
 /// `Thursday, June 4, 2026 7:42 PM`, one template as [`date_time`] is.
 pub fn date_time_with_weekday(d: DateTime) -> String {
-    let (hour, pm) = twelve_hour(d);
+    let (hour, pm) = hour_of(d);
     let weekday = weekday_part(crate::i18n::format::weekday(d.date()));
     let (month, day, year, minute) = (month_part(d.date().month()), d.date().day(), d.date().year(), format!("{:02}", d.minute()));
     match pm {

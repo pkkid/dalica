@@ -73,10 +73,17 @@ fn every_plural_rule_picks_the_right_form() {
 }
 
 /// A Thai-like language: its own script and a single form, so a plural lists one form.
-static SINGLE_FORM: Language =
-    Language {
-        code: "th", endonym: "ไทย", script: "Thai", plural: Plural::Single, complete_menus: false, catalog: "", decimal: ".", thousands: ","
-    };
+static SINGLE_FORM: Language = Language {
+    code: "th",
+    endonym: "ไทย",
+    script: "Thai",
+    plural: Plural::Single,
+    complete_menus: false,
+    catalog: "",
+    decimal: ".",
+    thousands: ",",
+    clock24: false,
+};
 
 #[test]
 fn a_single_form_language_lists_one_plural_form() {
@@ -129,7 +136,17 @@ fn hostile_catalogs_never_panic_and_their_bad_lines_show_in_english() {
 
 /// The registry the tag tests resolve against: one language per case the spec names.
 fn fixture(code: &'static str, plural: Plural, script: &'static str) -> &'static Language {
-    Box::leak(Box::new(Language { code, endonym: code, script, plural, complete_menus: false, catalog: "", decimal: ".", thousands: "," }))
+    Box::leak(Box::new(Language {
+        code,
+        endonym: code,
+        script,
+        plural,
+        complete_menus: false,
+        catalog: "",
+        decimal: ".",
+        thousands: ",",
+        clock24: false,
+    }))
 }
 
 #[test]
@@ -194,8 +211,9 @@ fn the_setting_the_system_and_the_registry_decide_the_language() {
     // The system's tags as read: bounded and clean.
     let read = i18n::system::bounded(["  fr-CA ".into(), String::new(), "x\0".into(), "a".repeat(200)]);
     assert_eq!(read, ["fr-CA"]);
-    crate::common::english_system();
-    assert!(i18n::system::tags().len() <= i18n::system::MAX_TAGS);
+    // What the platform reports, read for real (not the stand-in the gate sets): bounded too.
+    let platform = i18n::system::platform_tags();
+    assert!(platform.len() <= i18n::system::MAX_TAGS && platform.iter().all(|t| t.len() <= i18n::system::MAX_TAG_BYTES), "{platform:?}");
 }
 
 #[test]
