@@ -11848,8 +11848,11 @@ every format a build does not show (M17.4), system fonts for the characters the 
 leaves out (M17.5), a repeated Auto that changes nothing (M17.6), a fast close (M17.7), Ctrl+0
 (M17.8), a RAW's `.xmp` after a crash (M17.9), the snapshot's dropped colour byte (M17.10), two
 flaky tests (M17.11), Stats for Nerds' missing rows (M17.13), the folder music toast (M17.14),
-the docs M16 left stale (M17.15) and a check that catches a label running past its own widget
-(M17.17, found by eye in PR #1238). M17.16 is `accept M17`, and M17.R the review. Each task updates
+the docs M16 left stale (M17.15), a check that catches a label running past its own widget
+(M17.17, found by eye in PR #1238), and three the maintainer reported on 2026-11-08: a folder's
+tree row that goes to it without selecting its photos (M17.18), an export that no longer adds its
+folder to the library (M17.19) and Save As…, Copy and Export in the photo menu (M17.20). M17.16 is
+`accept M17`, and M17.R the review. Each task updates
 its `parity.md` rows.
 
 Left out of M17 (from M16's open items, each with its reason):
@@ -12138,8 +12141,60 @@ waits for the writes, so it is instant on Wayland too; every write still lands.
     `fr.tsv`'s old "Retour à la photothèque" put back; every sweep that used a copy calls it and
     passes in English, the pseudo-locale, Thai and French (`DALICA_FULL_TESTS=1`) at 1400 × 900
     and 900 × 600; before and after screenshots of anything it fixed in the PR.
+- ⬜ **M17.18 `ui`: a folder's tree row goes to it and selects no photos**
+  - after: M16.R
+  - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/selection.rs`, `crates/ui/tests/tree.rs`, `crates/ui/tests/albums_tree.rs`, `docs/ui-layout.md`, `docs/parity.md`
+  - scope: a click on a folder's or an album's row in the tree (and ↑/↓ with the tree focused)
+    selects the whole section as a unit, so the Photo Tray shows the folder's token
+    and the next action applies to every photo in it. The maintainer wants the row only to take
+    them there (2026-11-08: "I don't want to auto-select all the images in it, we should just go
+    to it. If I want them selected, I can press Ctrl+A"). The row now scrolls the light table to
+    the section's header as before, highlights the row and makes the section the current one, and
+    clears the photo selection (held photos stay held), so Ctrl+A, Ctrl+I, Select Starred and the
+    arrow keys act on it. Section headers, Show Folder and a finished import keep selecting a
+    section as a unit (they ask for it), and `select.section` stays for scripts. `ui-layout.md`
+    §1 item 3 and the tray's token text, and the LIB-TREE-CLICK row, say so (a deliberate
+    departure from the reference organizer, noted in the row).
+  - done when: a ui test clicks a folder's row and finds its section's header at the top, the
+    selection empty and the tray empty, then Ctrl+A selects that folder's photos and only those;
+    the same for an album's row and for ↓ in the focused tree; held photos survive the click.
+- ⬜ **M17.19 `engine` + `ui`: an export to a folder outside the library stays outside it**
+  - after: M16.R
+  - files: `crates/engine/src/cmd/export.rs`, `crates/engine/src/filejobs.rs`, `crates/engine/tests/export.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/export_progress.rs`, `docs/creating.md`, `docs/parity.md`
+  - scope: when an export ends, its folder is scanned and, when no watched folder covers it, added
+    to the watched folders as Scan Always, so every export location piles up in Folder Manager.
+    The maintainer (2026-11-08: "I don't want to auto-add the export directory to the list of
+    folders to be scanned all the time"): an export never adds a watched folder. An export into a
+    folder the library watches still comes in through the scan and is marked Exported as now; one
+    outside every watched folder is written and left alone. The toast's Show Folder then opens the
+    folder in the system's file manager without going to the library (it goes there as now when
+    the library holds the folder). Save As (M17.20) and the collage keep their own rules here.
+    `creating.md` → Export and its OUT-EXPORT parity row say so.
+  - done when: an engine test exports into a folder under no watched folder and finds the files
+    written, `folders.list` unchanged and no photo added; one into a watched folder finds the
+    folder in the library marked Exported; a ui test's Show Folder on the first export asks the
+    file manager only.
+- ⬜ **M17.20 `engine` + `ui`: the photo menu's Save As…, Copy and Export**
+  - after: M16.R
+  - files: `crates/engine/src/cmd/save_copy.rs`, `crates/engine/tests/save_copy.rs`, `crates/ui/src/commands/save_as.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/tests/save_as.rs`, `crates/ui/tests/photo_menu.rs`, `docs/organizing.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`, `docs/parity.md`
+  - scope: saving a photo somewhere else quickly, without the Export dialog, from the thumbnail's
+    right-click menu (maintainer, 2026-11-08). The photo menu (`organizing.md` §9.1, both the
+    folder and the album variant) gains, after Open With ▸: **Save As…** (`photo.saveAs`),
+    **Copy** (`photo.copy`, Ctrl+C: inside Dalica and the system clipboard, as Edit ▸ Copy) and
+    **Export…** (`output.export` for the selection). Save As works on any one photo, not only one
+    with edits: without edits it copies the file as it is (verified, its format and metadata
+    kept, through `fs`); with edits it writes the edited picture as now. With several photos
+    selected it reads **Save to Folder…** and asks for a folder (the folder picker), writing each
+    photo the same way there under a free name (`-001`). Never replaces a file (the existing
+    "Choose Another Name" loop), and never adds a watched folder: the file is outside the app
+    unless its folder is already in the library. The menus and parity rows say so.
+  - done when: an engine test saves an unedited JPEG and an edited one to a folder under no
+    watched folder and finds the first byte-identical, the second rendered, `folders.list`
+    unchanged; three photos saved to a folder give three files, a taken name `-001`; a ui test's
+    `ui.menu.tree {context: "photo"}` lists the three rows enabled for one photo and Save to
+    Folder… for three, and the scripted picker's answer writes the file.
 - ⬜ **M17.16 `accept M17`**
-  - after: M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.17
+  - after: M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.17, M17.18, M17.19, M17.20
   - files: `tests/acceptance/m17.rs`, `tests/acceptance/m17_*.rs`, `tests/acceptance/m17.md`, `tests/acceptance/fingerprints/m17-*.json`
   - scope: every *Done when* of M17 in the real `dalica --headless` over the control channel and
     through `dalica-cli`: a folder with a procedural panorama over 64 MP (IFD first and IFD last),
@@ -12154,7 +12209,7 @@ waits for the writes, so it is instant on Wayland too; every write still lands.
     and macOS.
   - done when: `cargo xtask accept M17` passes everything in M17's *Done when*.
 - ⬜ **M17.R M17 review**
-  - after: M17.1, M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.16, M17.17
+  - after: M17.1, M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.16, M17.17, M17.18, M17.19, M17.20
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M17.R` to prepare it: the check-in page (open a
@@ -12180,8 +12235,10 @@ wave 1   M17.1 lead: M16.R's answers  ‖  M17.2 thumbs + preview + caption  ‖
          (once M16.R is closed)
 wave 2   M17.8 Ctrl+0 (after M17.4: ui-layout.md)  ‖  M17.12 other large formats (after M17.3)
          ‖  M17.13 Stats for Nerds (after M17.7; M17.4's control-protocol.md and th.tsv)
-         ‖  M17.14 music toast
+         ‖  M17.14 music toast  ‖  M17.18 a tree row goes there (after M17.8: ui-layout.md)
+         ‖  M17.20 the photo menu's Save As (after M17.15: data-model.md, organizing.md)
 wave 3   M17.15 docs (after M17.3, M17.9 and M17.12 free security.md, formats.md, data-model.md)
+         ‖  M17.19 exports stay outside (after M17.14: notices.rs)
 wave 4   M17.16 accept M17 → M17.R
 ```
 
@@ -12192,8 +12249,10 @@ M17.13, so Stats for Nerds follows the close work. `crates/ui/src/i18n/th.tsv` a
 `docs/control-protocol.md` are shared by M17.4 and M17.13; `docs/ui-layout.md` by M17.4 and
 M17.8, which is listed after the wave-1 tasks so `next` offers it once M17.4 merges. The `ui`
 tasks otherwise touch separate files (the light table, the viewer, the side-pane command, the
-dialog, the notices, two test files), and `crates/ui/src/state.rs` is M17.8's alone. Eleven of the
-seventeen non-review tasks can run in wave 1, at most eleven at once (the machine runs eight agents;
+dialog, the notices, two test files), and `crates/ui/src/state.rs` is M17.8's alone. M17.18 to
+M17.20 came in late (2026-11-08) and fit around the others' files: `claim` holds each back until
+the task that shares a file with it has merged. Eleven of the twenty non-review tasks can run in
+wave 1, at most eleven at once (the machine runs eight agents;
 `next` picks by order).
 
 ## Reserved decisions (the maintainer's, not the agents')
