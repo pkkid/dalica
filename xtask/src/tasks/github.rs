@@ -165,6 +165,12 @@ pub trait GitHub: Send + Sync {
     fn edit_issue(&self, number: u64, edit: &IssueEdit) -> Result<(), String>;
     fn comment(&self, number: u64, body: &str) -> Result<(), String>;
     fn close_issue(&self, number: u64, comment: &str) -> Result<(), String>;
+    /// `parent`'s sub-issues, in the order GitHub shows them.
+    fn sub_issues(&self, parent: u64) -> Result<Vec<u64>, String>;
+    /// Makes `child` a sub-issue of `parent` (taking it from any other parent), last in the list.
+    fn add_sub_issue(&self, parent: u64, child: u64) -> Result<(), String>;
+    /// Moves sub-issue `child` of `parent` right after `after` (`None` = to the top).
+    fn move_sub_issue(&self, parent: u64, child: u64, after: Option<u64>) -> Result<(), String>;
 
     /// The project's items in board order.
     fn items(&self) -> Result<Vec<Item>, String>;

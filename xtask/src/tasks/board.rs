@@ -292,6 +292,8 @@ impl Board<'_> {
             ordered_items.push(item.id);
         }
 
+        self.sync_parents(&mut snap, &numbers, &mut report)?;
+
         // Board order = roadmap order. Items that are not tasks stay where they are, after ours.
         let mut current: Vec<String> = self.gh.items()?.into_iter().map(|i| i.id).filter(|id| ordered_items.contains(id)).collect();
         for (pos, id) in ordered_items.iter().enumerate() {
@@ -304,6 +306,82 @@ impl Board<'_> {
             }
         }
         Ok(report)
+    }
+
+    /// The milestone whose parent issue a listed task sits under: its own once open, else the one it
+    /// is pulled into.
+    fn home_milestone(&self, snap: &Snapshot, task: &Task) -> u32 {
+        match task.pulled {
+            Some(k) if !self.milestone_open(snap, task.milestone) => k,
+            _ => task.milestone,
+        }
+    }
+
+    /// Every listed task's issue is a sub-issue of its milestone's parent issue, titled
+    /// `Milestone <n>: <name>` (created when missing), in roadmap order, while the milestone has a
+    /// task not done. Sub-issues that are not tasks stay, after ours.
+    fn sync_parents(&self, snap: &mut Snapshot, numbers: &BTreeMap<String, u64>, report: &mut SyncReport) -> Result<(), String> {
+        let mut homes: Vec<(u32, Vec<u64>)> = Vec::new();
+        for task in self.roadmap.tasks.iter().filter(|t| self.listed(snap, t)) {
+            let Some(&number) = numbers.get(&task.id) else { continue };
+            let home = self.home_milestone(snap, task);
+            match homes.iter_mut().find(|(m, _)| *m == home) {
+                Some((_, children)) => children.push(number),
+                None => homes.push((home, vec![number])),
+            }
+        }
+        // A milestone whose every task is done is history: its issues stay as they are.
+        homes.retain(|(n, _)| self.roadmap.tasks.iter().any(|t| self.listed(snap, t) && self.home_milestone(snap, t) == *n && !snap.done(t)));
+        for (n, children) in homes {
+            let Some(milestone) = self.roadmap.milestone(n) else { continue };
+            let prefix = format!("Milestone {n}:");
+            let parent = match snap.issues.iter().filter(|i| i.open && i.title.starts_with(&prefix)).min_by_key(|i| i.number) {
+                Some(issue) => issue.number,
+                None => {
+                    let new = NewIssue {
+                        title: format!("Milestone {n}: {}", milestone.name),
+                        body: format!(
+                            "{}\n\nThe plan lives in `docs/roadmap.md` under *M{n}, {}*; the sub-issues below are the tasks.\n",
+                            milestone.goal, milestone.name
+                        ),
+                        labels: Vec::new(),
+                        milestone: Some(milestone.title()),
+                        assignee: None,
+                    };
+                    let number = self.gh.create_issue(&new)?;
+                    report.changes.push(format!("#{number} M{n}: created the milestone's parent issue"));
+                    snap.issues.push(Issue {
+                        number,
+                        title: new.title,
+                        body: new.body,
+                        open: true,
+                        labels: Vec::new(),
+                        assignees: Vec::new(),
+                        milestone: new.milestone,
+                    });
+                    number
+                }
+            };
+            let mut current = self.gh.sub_issues(parent)?;
+            for &child in &children {
+                if !current.contains(&child) {
+                    self.gh.add_sub_issue(parent, child)?;
+                    current.push(child);
+                    report.changes.push(format!("#{child}: made a sub-issue of #{parent} (M{n})"));
+                }
+            }
+            let mut ours: Vec<u64> = current.into_iter().filter(|c| children.contains(c)).collect();
+            for (pos, &child) in children.iter().enumerate() {
+                if ours.get(pos) != Some(&child) {
+                    let after = pos.checked_sub(1).and_then(|p| children.get(p)).copied();
+                    self.gh.move_sub_issue(parent, child, after)?;
+                    ours.retain(|&c| c != child);
+                    ours.insert(pos.min(ours.len()), child);
+                    report.changes.push(format!("#{child}: moved to sub-issue {} of #{parent}", pos + 1));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// What sync leaves off the board: one line per milestone that is not open yet, and each open

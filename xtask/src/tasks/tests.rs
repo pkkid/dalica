@@ -114,8 +114,8 @@ fn sync_twice_makes_no_second_change() {
     let w = World::new(ROADMAP);
     let first = w.board().sync().unwrap();
     assert!(!first.changes.is_empty());
-    // M1 is not open while M0.R is: M1.1 stays planning text, with no issue.
-    assert_eq!(w.gh.lock().issues.len(), 5);
+    // M1 is not open while M0.R is: M1.1 stays planning text, with no issue. The sixth is M0's parent.
+    assert_eq!(w.gh.lock().issues.len(), 6);
     assert!(!w.has_issue("M1.1"));
     assert!(first.notes.iter().any(|n| n == "M1 is not open yet: 1 task block(s) get issues when the maintainer closes M0.R"), "{:?}", first.notes);
     assert_eq!(w.status_of("M0.1"), Some(Status::Ready));
@@ -193,7 +193,51 @@ fn sync_adopts_existing_issues_without_duplicates() {
     w.gh.lock().issues.iter_mut().find(|i| i.number == n).unwrap().body = format!("{body}\nhuman note\n");
     let report = w.board().sync().unwrap();
     assert!(report.changes.is_empty(), "{:?}", report.changes);
-    assert_eq!(w.gh.lock().issues.len(), 5);
+    assert_eq!(w.gh.lock().issues.len(), 6);
+}
+
+#[test]
+fn sync_puts_every_task_under_its_milestone_parent_in_roadmap_order() {
+    let mut w = World::new(ROADMAP);
+    // A parent written by hand is adopted as it is, never replaced.
+    let parent =
+        w.gh.create_issue(&NewIssue {
+            title: "Milestone 0: Skeleton".into(),
+            body: "hand-written".into(),
+            milestone: Some("M0 Skeleton".into()),
+            ..NewIssue::default()
+        })
+        .unwrap();
+    w.board().sync().unwrap();
+    let tasks = |w: &World, ids: &[&str]| ids.iter().map(|id| w.issue_of(id)).collect::<Vec<u64>>();
+    assert_eq!(w.gh.sub_issues(parent).unwrap(), tasks(&w, &["M0.1", "M0.2", "M0.3", "M0.4", "M0.R"]));
+    assert_eq!(w.gh.lock().issues.iter().filter(|i| i.title.starts_with("Milestone ")).count(), 1);
+    assert_eq!(w.gh.lock().issues.iter().find(|i| i.number == parent).unwrap().body, "hand-written");
+
+    // A task planned after the milestone opened lands under the parent, in its roadmap place.
+    let text = w.text.replace(
+        "- ⬜ **M0.R Review**",
+        "- ⬜ **M0.5 Late**\n  - after: M0.1\n  - files: `docs/late.md`\n  - scope: s\n  - done when: d\n- ⬜ **M0.R Review**",
+    );
+    w.roadmap = roadmap::parse(&text).unwrap();
+    w.text = text;
+    let report = w.board().sync().unwrap();
+    assert!(report.changes.iter().any(|c| c.contains("made a sub-issue")), "{:?}", report.changes);
+    assert_eq!(w.gh.sub_issues(parent).unwrap(), tasks(&w, &["M0.1", "M0.2", "M0.3", "M0.4", "M0.5", "M0.R"]));
+    let before = w.gh.mutations();
+    assert!(w.board().sync().unwrap().changes.is_empty());
+    assert_eq!(w.gh.mutations(), before);
+}
+
+#[test]
+fn sync_gives_a_finished_milestone_no_parent_issue() {
+    let mut w = World::new(ROADMAP);
+    for id in ["M0.1", "M0.2", "M0.3", "M0.4", "M0.R"] {
+        w.finish(id);
+    }
+    w.board().sync().unwrap();
+    let parents: Vec<String> = w.gh.lock().issues.iter().filter(|i| i.title.starts_with("Milestone ")).map(|i| i.title.clone()).collect();
+    assert_eq!(parents, ["Milestone 1: Star"]);
 }
 
 #[test]
@@ -479,7 +523,7 @@ fn sync_never_closes_an_open_review_issue() {
     w.gh.close_issue(n, "approved").unwrap();
     w.board().sync().unwrap();
     assert_eq!(w.status_of("M0.R"), Some(Status::Done));
-    let open: Vec<u64> = w.gh.lock().issues.iter().filter(|i| i.open).map(|i| i.number).collect();
+    let open: Vec<u64> = w.gh.lock().issues.iter().filter(|i| i.open && !i.title.starts_with("Milestone ")).map(|i| i.number).collect();
     // M0.1 and M0.R are closed; M1 opened (M1.1, M1.2, M1.R); M2.1 has no issue yet.
     assert_eq!(open.len(), 3, "only M0.1 and M0.R are closed: {open:?}");
     assert!(!w.has_issue("M2.1"));

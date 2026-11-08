@@ -39,6 +39,14 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
   it. `sync` also keeps the project's item order equal to `roadmap.md` order, so the board reads
   top to bottom in build order. Review tasks (`M2.R`, `M3.R`, `M6.R`) are issues too, assigned to the
   maintainer.
+- **Milestone parent issue:** every task issue of a milestone is a sub-issue of one parent issue,
+  titled `Milestone <n>: <name>` (the maintainer's rule, 2026-11-08), so the project shows a
+  milestone's tasks under one item. The lead may write the parent's body (a summary of what the
+  milestone changes); `sync` adopts an open issue with that title as it is and creates a bare one
+  only when none exists. `sync` adds every task issue to its parent, including a task planned after
+  the milestone opened, and keeps the sub-issues in `roadmap.md` order. A pulled task sits under
+  the parent of the milestone it is pulled into. Once every task of a milestone is done, its
+  issues are left as they are.
 - **Labels:** `task` (every task issue), `gate` (review tasks), `needs-maintainer` (an agent is
   blocked on a question), `stale` (claimed but idle, set by `status`), and `baseline-approved`
   (pull requests; required by nothing since fingerprint baselines are approved in bulk at reviews,
@@ -147,7 +155,7 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 | Command | What it does |
 |---|---|
 | `setup [--dry-run]` | create milestones, labels (`task`, `gate`, `needs-maintainer`, `stale`, `baseline-approved`) and the Agent/Branch fields (idempotent; maintainer approves). A GitHub milestone matches a roadmap milestone by its exact title, else by its `M<n>` number, and is then renamed (and its description set to the milestone's goal) to match `roadmap.md`; the roadmap renamed its milestones once. A GitHub milestone with no roadmap counterpart is closed when it has no issues and otherwise reported, never deleted. Missing Status options are reported, not created: replacing a single-select field's options through the API resets every item |
-| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items for the tasks of open milestones and the tasks pulled into one (§2; other blocks get no issue, and a note per milestone says which review opens it), move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; never closes a review's issue (the maintainer does); an open issue whose task is in a milestone that is not open, or is no longer in `roadmap.md`, is left as it is (never edited, moved, closed or failed on) and named in a `note:` line; `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make. Before any write it checks that the milestones it would put issues in exist, and otherwise says to run `tasks setup` |
+| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items for the tasks of open milestones and the tasks pulled into one (§2; other blocks get no issue, and a note per milestone says which review opens it), move Todo ↔ Ready, keep the board in roadmap order, put each task's issue under its milestone's parent issue (§2, sub-issues in roadmap order), close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; never closes a review's issue (the maintainer does); an open issue whose task is in a milestone that is not open, or is no longer in `roadmap.md`, is left as it is (never edited, moved, closed or failed on) and named in a `note:` line; `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make. Before any write it checks that the milestones it would put issues in exist, and otherwise says to run `tasks setup` |
 | `next [--agent <name>]` | list Ready tasks this agent may take (never a task without an issue: its milestone is open, or it is pulled into an open one): dependencies done, files not overlapping any In Progress or In Review task, not listed after an open review task, `owner: lead` tasks only for the lead. Prints them in `roadmap.md` order, so the first line is the one to claim |
 | `claim <id> --agent <name>` | under the claim lock, re-read the board, refuse if no longer Ready or overlapping, then set In Progress + Agent + Branch, comment "claimed by agent-3 on task/M1.4-scenes", create or reuse the agent's worktree and branch from `origin/main`, and print the agent's environment |
 | `env <name>` | print the agent's environment (`eval "$(cargo xtask tasks env agent-3)"`) |

@@ -159,6 +159,21 @@ impl GitHub for DryRun<'_> {
         Ok(())
     }
 
+    fn sub_issues(&self, parent: u64) -> Result<Vec<u64>, String> {
+        // Issue 0 is one this dry run would have created: it has no sub-issues yet.
+        if parent == 0 { Ok(Vec::new()) } else { self.inner.sub_issues(parent) }
+    }
+
+    fn add_sub_issue(&self, parent: u64, child: u64) -> Result<(), String> {
+        self.record(format!("make #{child} a sub-issue of #{parent}"));
+        Ok(())
+    }
+
+    fn move_sub_issue(&self, parent: u64, child: u64, after: Option<u64>) -> Result<(), String> {
+        self.record(format!("move sub-issue #{child} of #{parent} {}", after.map_or("to the top".to_string(), |a| format!("after #{a}"))));
+        Ok(())
+    }
+
     fn items(&self) -> Result<Vec<Item>, String> {
         self.inner.items()
     }

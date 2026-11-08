@@ -37,6 +37,8 @@ pub struct State {
     pub mergeable_reads: usize,
     /// Errors the next `squash_merge` calls fail with, oldest first.
     pub squash_errors: Vec<String>,
+    /// (parent, child) sub-issue links, in each parent's order.
+    pub sub_issues: Vec<(u64, u64)>,
 }
 
 #[derive(Default)]
@@ -144,6 +146,34 @@ impl GitHub for FakeGitHub {
         s.comments.push((number, comment.to_string()));
         let issue = s.issues.iter_mut().find(|i| i.number == number).ok_or_else(|| format!("no issue #{number}"))?;
         issue.open = false;
+        Ok(())
+    }
+
+    fn sub_issues(&self, parent: u64) -> Result<Vec<u64>, String> {
+        Ok(self.lock().sub_issues.iter().filter(|(p, _)| *p == parent).map(|(_, c)| *c).collect())
+    }
+
+    fn add_sub_issue(&self, parent: u64, child: u64) -> Result<(), String> {
+        self.bump();
+        let mut s = self.lock();
+        if !s.issues.iter().any(|i| i.number == child) {
+            return Err(format!("no issue #{child}"));
+        }
+        s.sub_issues.retain(|(_, c)| *c != child);
+        s.sub_issues.push((parent, child));
+        Ok(())
+    }
+
+    fn move_sub_issue(&self, parent: u64, child: u64, after: Option<u64>) -> Result<(), String> {
+        self.bump();
+        let mut s = self.lock();
+        let at = s.sub_issues.iter().position(|e| *e == (parent, child)).ok_or_else(|| format!("#{child} is not a sub-issue of #{parent}"))?;
+        let entry = s.sub_issues.remove(at);
+        let to = match after {
+            Some(a) => s.sub_issues.iter().position(|e| *e == (parent, a)).ok_or_else(|| format!("#{a} is not a sub-issue of #{parent}"))? + 1,
+            None => s.sub_issues.iter().position(|(p, _)| *p == parent).unwrap_or(s.sub_issues.len()),
+        };
+        s.sub_issues.insert(to, entry);
         Ok(())
     }
 
