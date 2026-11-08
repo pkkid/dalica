@@ -58,6 +58,9 @@ After a deploy, check the live site: `curl -sI https://dalica.pkarma.com/` and
   them. A value an element needs comes from a small class (`.cols-3`, `.d35`, see the end of
   `style.css`).
 - Animations stay quiet: short, eased, and off under `prefers-reduced-motion`.
+- Every page fits a 320 px phone with no sideways scroll, the guide included: long code, file
+  paths and recipe labels wrap or scroll inside their own box, never the page. Check new content
+  at phone width (a mobile viewport's `document.documentElement.scrollWidth` equals its width).
 - Every claim must hold for the current release. Check it against the code, and the specs in
   `docs/`, before it goes on the page.
 
