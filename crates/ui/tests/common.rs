@@ -31,16 +31,9 @@ pub fn full() -> bool {
 /// interactive widget without an id, an id registered twice or one outside the grammar makes the
 /// next settle fail.
 pub fn new_driver(app: App, width: u32, height: u32, pixels_per_point: f32) -> Driver {
-    english_system();
     let mut d = Driver::new(app, width, height, pixels_per_point);
     d.check_ids(true);
     d
-}
-
-/// Makes System read as English in this test process, whatever the machine prefers: the tests
-/// read English texts (a test that wants another language chooses it). Every driver calls it.
-pub fn english_system() {
-    dalica_ui::i18n::system::set(&["en"]);
 }
 
 /// Where renders go: `target/test-output/ui/`.

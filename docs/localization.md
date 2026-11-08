@@ -6,11 +6,12 @@ Adapted from PhotoCraft `docs/localization.md`, `docs/localization-ko.md` and th
 
 > Status: **English, Thai (M15.35, parity row `SYS-I18N`) and French.** `crates/ui/src/i18n/` has `tl!`
 > and `tln!`, the catalog reader, the plural rules, the language registry (English, the source,
-> and Thai), System following the OS's languages, `DALICA_LANGUAGE`, Options ▸ General ▸ Language
+> Thai and French), System following the OS's languages, `DALICA_LANGUAGE`, Options ▸ General ▸ Language
 > switching live, the number, size and date formats, the pseudo-locale `qps` and `cargo xtask i18n`
-> (part of `cargo xtask ci`). Every string goes through the catalogs (M15.31–M15.33). The Thai
-> catalog covers every key (`complete_menus`), each entry a machine-assisted **draft** awaiting
-> the fluent review at M15.R ([Draft entries](#draft-entries), [`localization-th.md`](localization-th.md));
+> (part of `cargo xtask ci`). Every string goes through the catalogs (M15.31–M15.33). The Thai and
+> French catalogs cover every key (`complete_menus`), each entry a machine-assisted **draft**
+> awaiting the fluent review ([Draft entries](#draft-entries), [`localization-th.md`](localization-th.md),
+> [`localization-fr.md`](localization-fr.md));
 > the release notes stay in English.
 
 Dalica follows the PhotoCraft i18n design (prior art only; our own code, see
@@ -91,7 +92,9 @@ Each language is registered in `i18n::LANGUAGES` (`crates/ui/src/i18n/languages.
 code (also the value stored in settings: `en`, `th`, `zh-Hans`, `pt-BR`), its **endonym** (shown in
 the Language list, never translated), its script as an ISO 15924 code (`Latn`, `Thai`, `Hans`,
 `Hant`, `Jpan`, …; it decides the fallback faces, and no script set is assumed), its plural rule,
-its `complete_menus` flag, its catalog, and its decimal mark and thousands separator:
+its `complete_menus` flag, its catalog, its decimal mark and thousands separator, and its clock
+(`clock24`: on the 24-hour clock `{hour}` is 00 to 23 and the catalog writes the AM and PM
+templates alike; otherwise 1 to 12):
 
 | Plural rule (`i18n::Plural`) | Forms, in catalog order | Languages (examples) |
 |---|---|---|
@@ -105,7 +108,7 @@ its `complete_menus` flag, its catalog, and its decimal mark and thousands separ
 The registry holds English (the source, no catalog), Thai (`th`, endonym ไทย, script `Thai`,
 `Single`, `complete_menus`, `th.tsv`) and French (`fr`, endonym Français, script `Latn`,
 `ZeroOneOther`, `complete_menus`, `fr.tsv`, a decimal comma and a narrow no-break space between
-thousands): the maintainer chose English and Thai for 1.0, if Thai can
+thousands, the 24-hour clock): the maintainer chose English and Thai for 1.0, if Thai can
 be done (M14.R, 2026-10-19); M15.47's spike found it can ([`thai-text.md`](thai-text.md)), and
 M15.35 added the catalog.
 
@@ -123,7 +126,12 @@ registered catalog: the exact code, then a shorter form (`de-AT` → `de`), then
 in another region (`pt-PT` → `pt-BR`); `C` and `POSIX` are English. Traditional and Simplified
 Chinese stay distinct: `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant-*` find only Traditional, every other
 `zh` only Simplified. `DALICA_LANGUAGE=<code>` overrides the setting for one launch (tests,
-snapshots). Agents set the language with `options.set {values: {"interface.language": "<code>"}}`
+snapshots). `DALICA_SYSTEM_LANGUAGES=<tag>[,<tag>…]` stands in for the OS's preferred languages
+(System still yields to a chosen language): `.cargo/config.toml` sets it to `en` for everything
+cargo runs, unless it is set already, so the tests, which read English texts, pass on every
+machine. Unset it (`env -u DALICA_SYSTEM_LANGUAGES cargo run -p dalica`) to see System follow your
+own languages, or set it (`DALICA_SYSTEM_LANGUAGES=fr-FR cargo xtask ci`) to run the gate as on a
+French system. Agents set the language with `options.set {values: {"interface.language": "<code>"}}`
 over the control channel or MCP.
 
 ## Checking a translation: the pseudo-locale
@@ -185,9 +193,11 @@ text of `ui-kit`'s own table (`ui_kit::text`, with its context). The check fails
 entry, a placeholder present in one column only, a malformed plural line, a duplicate key, or (for
 `complete_menus` languages) a missing enforced key. Missing entries in other languages are
 reported, not failed, and so are drafts and the release notes' untranslated lines.
-`crates/ui/tests/i18n_languages.rs` draws the library, the edit view and every tab of Options in
-Thai at both sizes and fails on a label cut at the side of its area, a wrapped Thai label broken
-inside a word, and (built with `CRAFT_FONTS_DIR`) a Thai character no face draws or a mark away
+`crates/ui/tests/i18n_languages.rs` checks every registered language from one table (its catalog
+read whole, every command labelled, counts, numbers, sizes, dates and times) and draws the library,
+the edit view and every tab of Options in each language at both sizes (Thai on every run, the
+others at full strength), failing on a label cut at the side of its area; in Thai also on a
+wrapped label broken inside a word, and (built with `CRAFT_FONTS_DIR`) a Thai character no face draws or a mark away
 from its consonant. Render representative views and dialogs (library,
 edit view, Folder Manager, Options, Export, About) at 1400 × 900 and 900 × 600 and look for
 missing glyphs and truncated labels.

@@ -55,7 +55,6 @@ mod hidden;
 mod history_pane;
 mod i18n;
 mod i18n_dialogs;
-mod i18n_french;
 mod i18n_languages;
 mod i18n_views;
 mod i18n_window;

@@ -1,2 +1,8 @@
 [alias]
 xtask = "run --package xtask --"
+
+# System reads as English for everything cargo runs (tests, benches, `cargo run`), so the tests,
+# which read English texts, pass on every machine; a value already set wins. Unset it to see your
+# system's language under `cargo run` (`crates/ui/src/i18n/system.rs`, `docs/localization.md`).
+[env]
+DALICA_SYSTEM_LANGUAGES = { value = "en", force = false }

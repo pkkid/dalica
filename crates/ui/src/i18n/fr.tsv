@@ -5,7 +5,7 @@
 # A line starting with `~` is a machine-assisted DRAFT awaiting the fluent review: the reviewer
 # checks the translation, fixes it if needed, and deletes the `~` (docs/localization.md → Draft
 # entries). `cargo xtask i18n` prints how many drafts remain.
-# Keep {name} placeholders, the escapes \n \t \, and a trailing … ; keep product and technology
+# Keep {name} placeholders, the escapes \n \t \\, and a trailing … ; keep product and technology
 # names (Dalica, JPEG, EXIF, XMP, GPS, …) in Latin letters. Style guide: docs/localization-fr.md.
 # Original translations written from the meaning of Dalica's English text; no other product's
 # localisation resources were consulted or copied. Licensed MIT OR Apache-2.0; see
@@ -17,15 +17,15 @@
 ~	16:9 (HD video)	16:9 (vidéo HD)
 ~	4:3 (Standard screen)	4:3 (écran standard)
 ~	5:3 (Photo frame)	5:3 (cadre photo)
-~	8 ms of work a frame (ui.inspect perf: frameP95Ms)	8 ms de travail par image (ui.inspect perf : frameP95Ms)
+~	8 ms of work a frame (ui.inspect perf: frameP95Ms)	8 ms de travail par image (ui.inspect perf : frameP95Ms)
 ~	A change rescans your folders. Files of a type turned off are hidden, never deleted.	Une modification relance l'analyse de vos dossiers. Les fichiers d'un type désactivé sont masqués, jamais supprimés.
 ~	A custom ratio already has that name.	Un format personnalisé porte déjà ce nom.
-~	A folder's own music isn't kept yet: the music folder in Options › Slideshow plays	La musique propre à un dossier n'est pas encore conservée : c'est le dossier de musique d'Options › Diaporama qui est lu
+~	A folder's own music isn't kept yet: the music folder in Options › Slideshow plays	La musique propre à un dossier n'est pas encore conservée : c'est le dossier de musique d'Options › Diaporama qui est lu
 ~	A mosaic around a large center picture	Une mosaïque autour d'une grande photo centrale
 ~	A photo organizer with simple editing	Un organiseur de photos avec retouche simple
 ~	A soft, bright, dreamy glow.	Une lueur douce, lumineuse et onirique.
 ~	A tag is at most {max} bytes.	Une étiquette fait au plus {max} octets.
-~	A web address with {query} for the place typed in "Search for a place".	Une adresse web avec {query} à la place du lieu saisi dans « Rechercher un lieu ».
+~	A web address with {query} for the place typed in "Search for a place".	Une adresse web avec {query} à la place du lieu saisi dans « Rechercher un lieu ».
 ~	A web address with {z}, {x} and {y} for the tile's zoom, column and row.	Une adresse web avec {z}, {x} et {y} pour le zoom, la colonne et la ligne de la tuile.
 ~	A zoom blur outside a sharp circle.	Un flou de zoom autour d'un cercle net.
 ~	AI models credited in the Co-Authored-By trailers of Dalica's commits.	Modèles d'IA crédités dans les lignes Co-Authored-By des commits de Dalica.
@@ -49,10 +49,10 @@
 ~	Add a description	Ajouter une description
 ~	Add a folder of photos to see them here, or import them from a camera or a card.	Ajoutez un dossier de photos pour les voir ici, ou importez-les depuis un appareil photo ou une carte.
 ~	Add a name	Ajouter un nom
-~	Add a tag:	Ajouter une étiquette :
+~	Add a tag:	Ajouter une étiquette :
 ~	Add numbers to file names to keep the order	Numéroter les noms de fichiers pour garder l'ordre
-~	Add or remove “{tag}” on the selected photos	Ajouter ou retirer « {tag} » sur les photos sélectionnées
-~	Add or remove “{tag}” on the selected photos ({key})	Ajouter ou retirer « {tag} » sur les photos sélectionnées ({key})
+~	Add or remove “{tag}” on the selected photos	Ajouter ou retirer « {tag} » sur les photos sélectionnées
+~	Add or remove “{tag}” on the selected photos ({key})	Ajouter ou retirer « {tag} » sur les photos sélectionnées ({key})
 ~	Add the date taken to the name	Ajouter la date de prise de vue au nom
 ~	Add the image size to the name	Ajouter la taille de l'image au nom
 ~	Add the photos in the tray to the collage and go back to it	Ajouter les photos du bac au collage et y revenir
@@ -68,7 +68,7 @@
 ~	Adjust Picture Date	Modifier la date de la photo
 ~	Adwaita (Dark)	Adwaita (sombre)
 ~	Adwaita (Light)	Adwaita (clair)
-~	After copying:	Après la copie :
+~	After copying:	Après la copie :
 ~	Album Properties	Propriétés de l'album
 ~	Album Properties…	Propriétés de l'album…
 ~	Album name	Nom de l'album
@@ -79,8 +79,8 @@
 ~	Allow Map Tiles	Autoriser les tuiles de carte
 ~	Allow map tiles	Autoriser les tuiles de carte
 ~	Already in your library	Déjà dans votre photothèque
-~	Also delete the face data Dalica worked out from your photos? Face rectangles and names stay.	Supprimer aussi les données de visages que Dalica a calculées à partir de vos photos ? Les cadres des visages et les noms sont conservés.
-~	Another program is using this camera ({detail}); close it, or import from the folder it shows	Un autre programme utilise cet appareil ({detail}) ; fermez-le, ou importez depuis le dossier qu'il affiche
+~	Also delete the face data Dalica worked out from your photos? Face rectangles and names stay.	Supprimer aussi les données de visages que Dalica a calculées à partir de vos photos ? Les cadres des visages et les noms sont conservés.
+~	Another program is using this camera ({detail}); close it, or import from the folder it shows	Un autre programme utilise cet appareil ({detail}) ; fermez-le, ou importez depuis le dossier qu'il affiche
 ~	Applies at next launch.	S'applique au prochain lancement.
 ~	Apply	Appliquer
 ~	Apply Changes	Appliquer les modifications
@@ -97,9 +97,9 @@
 ~	Apply Quick Tag 7	Appliquer l'étiquette rapide 7
 ~	Apply Quick Tag 8	Appliquer l'étiquette rapide 8
 ~	Apply Quick Tag 9	Appliquer l'étiquette rapide 9
-~	Apply changes to the current photo?	Appliquer les modifications à la photo actuelle ?
-~	Apply the crop (Enter)	Appliquer le recadrage (Entrée)
-~	Ascending: reverse the order	Croissant : inverser l'ordre
+~	Apply changes to the current photo?	Appliquer les modifications à la photo actuelle ?
+~	Apply the crop (Enter)	Appliquer le recadrage (Enter)
+~	Ascending: reverse the order	Croissant : inverser l'ordre
 ~	Asking the system which applications open this file.	Recherche auprès du système des applications qui ouvrent ce fichier.
 ~	Auto Color	Couleurs auto
 ~	Auto Contrast	Contraste auto
@@ -113,8 +113,8 @@
 ~	BMP	BMP
 ~	Back	Retour
 ~	Back to Collage	Retour au collage
-~	Back to Library	Retour à la photothèque
-~	Back to the window (Esc)	Retour à la fenêtre (Échap)
+~	Back to Library	Photothèque
+~	Back to the window (Esc)	Retour à la fenêtre (Esc)
 ~	Background activity	Activité en arrière-plan
 ~	Background color	Couleur de fond
 ~	Backups (.dalica-originals)	Sauvegardes (.dalica-originals)
@@ -125,7 +125,7 @@
 ~	Binary assets removed	Ressources binaires supprimées
 ~	Black and White	Noir et blanc
 ~	Black and white as if shot through a coloured filter.	Noir et blanc comme à travers un filtre coloré.
-~	Black and white infrared film: bright foliage, dark skies.	Pellicule infrarouge noir et blanc : feuillage clair, ciel sombre.
+~	Black and white infrared film: bright foliage, dark skies.	Pellicule infrarouge noir et blanc : feuillage clair, ciel sombre.
 ~	Blue	Bleu
 ~	Blurs the photo outside a sharp circle.	Floute la photo autour d'un cercle net.
 ~	Boost	Renforcer
@@ -148,15 +148,15 @@
 ~	Cancel	Annuler
 ~	Cancel Face Model Download	Annuler le téléchargement du modèle de visages
 ~	Cancelling…	Annulation…
-~	Cannot show this photo: {why}	Impossible d'afficher cette photo : {why}
-~	Cannot show this photo: {why}\n{hint}	Impossible d'afficher cette photo : {why}\n{hint}
+~	Cannot show this photo: {why}	Impossible d'afficher cette photo : {why}
+~	Cannot show this photo: {why}\n{hint}	Impossible d'afficher cette photo : {why}\n{hint}
 ~	Caption	Légende
-~	Caption: {caption}	Légende : {caption}
+~	Caption: {caption}	Légende : {caption}
 ~	Captions	Légendes
 ~	Change Folder Settings	Modifier les réglages du dossier
 ~	Change Location	Modifier le lieu
 ~	Change this collage in the Collage room	Modifier ce collage dans l'espace Collage
-~	Changed in another application; Dalica's value kept	Modifié dans une autre application ; la valeur de Dalica est conservée
+~	Changed in another application; Dalica's value kept	Modifié dans une autre application ; la valeur de Dalica est conservée
 ~	Choose Another Name	Choisir un autre nom
 ~	Choose Folder	Choisir le dossier
 ~	Choose a Folder…	Choisir un dossier…
@@ -180,16 +180,16 @@
 ~	Clear Thumbnail Cache	Vider le cache des vignettes
 ~	Clear Thumbnail Cache…	Vider le cache des vignettes…
 ~	Clear Tray	Vider le bac
-~	Clear all photos from the tray?	Retirer toutes les photos du bac ?
-~	Clear the thumbnail cache? It is rebuilt as you browse; nothing about your photos is lost.	Vider le cache des vignettes ? Il est reconstruit pendant la navigation ; rien de vos photos n'est perdu.
+~	Clear all photos from the tray?	Retirer toutes les photos du bac ?
+~	Clear the thumbnail cache? It is rebuilt as you browse; nothing about your photos is lost.	Vider le cache des vignettes ? Il est reconstruit pendant la navigation ; rien de vos photos n'est perdu.
 ~	Clearing	Effacement
 ~	Click Import All or Import Selected	Cliquez sur Tout importer ou Importer la sélection
 ~	Click a blemish, then click a clean area to copy from.	Cliquez sur une imperfection, puis sur une zone propre à recopier.
-~	Click a shortcut to change it: Esc cancels, Backspace removes it.	Cliquez sur un raccourci pour le modifier : Échap annule, Retour arrière le supprime.
+~	Click a shortcut to change it: Esc cancels, Backspace removes it.	Cliquez sur un raccourci pour le modifier : Esc annule, Backspace le supprime.
 ~	Click ✓ to confirm a match or × to reject it.	Cliquez sur ✓ pour confirmer une correspondance ou sur × pour la refuser.
 ~	Clips ({n})	Clips ({n})
 ~	Close	Fermer
-~	Close (Esc)	Fermer (Échap)
+~	Close (Esc)	Fermer (Esc)
 ~	Close Collage	Fermer le collage
 ~	Close Import Source	Fermer la source d'importation
 ~	Close Open With	Fermer Ouvrir avec
@@ -197,7 +197,7 @@
 ~	Close Video	Fermer la vidéo
 ~	Close the list	Fermer la liste
 ~	Close the pane	Fermer le panneau
-~	Close without cropping (Esc)	Fermer sans recadrer (Échap)
+~	Close without cropping (Esc)	Fermer sans recadrer (Esc)
 ~	Close without the patches	Fermer sans les retouches locales
 ~	Collage	Collage
 ~	Collage Settings	Réglages du collage
@@ -235,23 +235,23 @@
 ~	Copy Path	Copier le chemin
 ~	Copy as Text	Copier en texte
 ~	Copy to the Clipboard	Copier dans le presse-papiers
-~	Copyright © 2026 the Dalica contributors; see the Contributors and Models tabs.	Copyright © 2026 les contributeurs de Dalica ; voir les onglets Contributeurs et Modèles.
+~	Copyright © 2026 the Dalica contributors; see the Contributors and Models tabs.	Copyright © 2026 les contributeurs de Dalica ; voir les onglets Contributeurs et Modèles.
 ~	Could not analyse the photo.	Impossible d'analyser la photo.
-~	Could not copy {name}: {reason}	Impossible de copier {name} : {reason}
+~	Could not copy {name}: {reason}	Impossible de copier {name} : {reason}
 ~	Could not export {name}	Impossible d'exporter {name}
-~	Could not export {name}: {reason}	Impossible d'exporter {name} : {reason}
+~	Could not export {name}: {reason}	Impossible d'exporter {name} : {reason}
 ~	Could not import {name}	Impossible d'importer {name}
-~	Could not import {name}: {reason}	Impossible d'importer {name} : {reason}
-~	Could not move {name} back: {reason}	Impossible de remettre {name} en place : {reason}
-~	Could not move {name} to the Trash: {reason}	Impossible de mettre {name} à la corbeille : {reason}
-~	Could not move {name}: {reason}	Impossible de déplacer {name} : {reason}
-~	Could not read the file: {error}	Impossible de lire le fichier : {error}
-~	Could not remove the copy {name}: {reason}	Impossible de supprimer la copie {name} : {reason}
-~	Could not rename {name} back: {reason}	Impossible de rendre son nom à {name} : {reason}
-~	Could not rename {name}: {reason}	Impossible de renommer {name} : {reason}
-~	Could not restore {name}: {reason}	Impossible de restaurer {name} : {reason}
+~	Could not import {name}: {reason}	Impossible d'importer {name} : {reason}
+~	Could not move {name} back: {reason}	Impossible de remettre {name} en place : {reason}
+~	Could not move {name} to the Trash: {reason}	Impossible de mettre {name} à la corbeille : {reason}
+~	Could not move {name}: {reason}	Impossible de déplacer {name} : {reason}
+~	Could not read the file: {error}	Impossible de lire le fichier : {error}
+~	Could not remove the copy {name}: {reason}	Impossible de supprimer la copie {name} : {reason}
+~	Could not rename {name} back: {reason}	Impossible de rendre son nom à {name} : {reason}
+~	Could not rename {name}: {reason}	Impossible de renommer {name} : {reason}
+~	Could not restore {name}: {reason}	Impossible de restaurer {name} : {reason}
 ~	Could not save {name}	Impossible d'enregistrer {name}
-~	Could not save {name}: {reason}	Impossible d'enregistrer {name} : {reason}
+~	Could not save {name}: {reason}	Impossible d'enregistrer {name} : {reason}
 ~	Count Again	Recompter
 ~	Count Backups	Compter les sauvegardes
 ~	Counting	Comptage
@@ -273,19 +273,19 @@
 ~	Custom ratios	Formats personnalisés
 ~	Cut	Couper
 ~	Dalica	Dalica
-~	Dalica does not know this model, so it assumes:	Dalica ne connaît pas ce modèle ; il suppose donc :
+~	Dalica does not know this model, so it assumes:	Dalica ne connaît pas ce modèle ; il suppose donc :
 ~	Dalica is ready to look for pictures on your computer	Dalica est prêt à chercher des photos sur votre ordinateur
 ~	Dalica knows no face model by this name.	Dalica ne connaît aucun modèle de visages de ce nom.
 ~	Dalica may not open this camera ({detail})	Dalica ne peut peut-être pas ouvrir cet appareil ({detail})
-~	Dalica: Stats for Nerds	Dalica : statistiques pour geeks
+~	Dalica: Stats for Nerds	Dalica : statistiques pour geeks
 ~	Damaged files kept aside	Fichiers endommagés mis de côté
 ~	Dark	Sombre
 ~	Darkens the edges, or takes them toward a colour.	Assombrit les bords, ou les teinte d'une couleur.
 ~	Date	Date
 ~	Date taken (YYYY-MM-DD)	Date de prise de vue (AAAA-MM-JJ)
-~	Default Export Location	Emplacement d'exportation par défaut
+~	Default Export Location	Dossier d'export par défaut
 ~	Default Viewer	Visionneuse par défaut
-~	Default export location	Emplacement d'exportation par défaut
+~	Default export location	Dossier d'export par défaut
 ~	Default watermark text	Texte du filigrane par défaut
 ~	Delete	Supprimer
 ~	Delete Album	Supprimer l'album
@@ -302,22 +302,22 @@
 ~	Delete copied files from the drive	Supprimer du disque les fichiers copiés
 ~	Delete from Disk…	Supprimer du disque…
 ~	Delete from disk without asking	Supprimer du disque sans demander
-~	Delete the album "{name}"? The pictures in it are not deleted.	Supprimer l'album « {name} » ? Les photos qu'il contient ne sont pas supprimées.
-~	Delete this album? The pictures in it are not deleted.	Supprimer cet album ? Les photos qu'il contient ne sont pas supprimées.
+~	Delete the album "{name}"? The pictures in it are not deleted.	Supprimer l'album « {name} » ? Les photos qu'il contient ne sont pas supprimées.
+~	Delete this album? The pictures in it are not deleted.	Supprimer cet album ? Les photos qu'il contient ne sont pas supprimées.
 ~	Delete this custom ratio	Supprimer ce format personnalisé
 ~	Delete this page format	Supprimer ce format de page
 ~	Delete this photo	Supprimer cette photo
-~	Delete {person}? Their faces go back to Unnamed.	Supprimer {person} ? Ses visages reviennent dans Sans nom.
+~	Delete {person}? Their faces go back to Unnamed.	Supprimer {person} ? Ses visages reviennent dans Sans nom.
 ~	Delete…	Supprimer…
-~	Descending: reverse the order	Décroissant : inverser l'ordre
+~	Descending: reverse the order	Décroissant : inverser l'ordre
 ~	Description	Description
 ~	Destination	Destination
 ~	Details	Détails
 ~	Detect duplicates while importing	Détecter les doublons pendant l'importation
 ~	Discard	Abandonner
-~	Disk: in your photo folders	Disque : dans vos dossiers de photos
-~	Disk: the library folder	Disque : le dossier de la photothèque
-~	Disk: the thumbnail cache	Disque : le cache des vignettes
+~	Disk: in your photo folders	Disque : dans vos dossiers de photos
+~	Disk: the library folder	Disque : le dossier de la photothèque
+~	Disk: the thumbnail cache	Disque : le cache des vignettes
 ~	Display Time	Durée d'affichage
 ~	Display name	Nom affiché
 ~	Display time	Durée d'affichage
@@ -360,8 +360,8 @@
 ~	Every MP3, OGG, FLAC and WAV file in it plays in name order, looping.	Tous les fichiers MP3, OGG, FLAC et WAV qu'il contient sont lus par ordre de nom, en boucle.
 ~	Every picture chosen is excluded.	Toutes les photos choisies sont exclues.
 ~	Every selected photo has this tag.	Toutes les photos sélectionnées ont cette étiquette.
-~	Example: {name}	Exemple : {name}
-~	Example: {name} ({width} × {height})	Exemple : {name} ({width} × {height})
+~	Example: {name}	Exemple : {name}
+~	Example: {name} ({width} × {height})	Exemple : {name} ({width} × {height})
 ~	Exclude	Exclure
 ~	Exclude All	Tout exclure
 ~	Exclude Duplicates	Exclure les doublons
@@ -370,7 +370,7 @@
 ~	Excluded	Exclues
 ~	Exit	Quitter
 ~	Exit Slideshow	Quitter le diaporama
-~	Exit the slideshow (Esc)	Quitter le diaporama (Échap)
+~	Exit the slideshow (Esc)	Quitter le diaporama (Esc)
 ~	Expand	Développer
 ~	Expand Groups	Développer les groupes
 ~	Expand {name}	Développer {name}
@@ -404,10 +404,10 @@
 ~	Face Model…	Modèle de visages…
 ~	Face Scan Status	État de l'analyse des visages
 ~	Face model	Modèle de visages
-~	Face models cannot be added here: this session has no models folder.	Impossible d'ajouter des modèles de visages ici : cette session n'a pas de dossier de modèles.
+~	Face models cannot be added here: this session has no models folder.	Impossible d'ajouter des modèles de visages ici : cette session n'a pas de dossier de modèles.
 ~	Faces	Visages
 ~	Faces appear here once face recognition finds them.	Les visages apparaissent ici dès que la reconnaissance faciale les trouve.
-~	Faces are found on this computer; nothing is sent anywhere.	Les visages sont trouvés sur cet ordinateur ; rien n'est envoyé ailleurs.
+~	Faces are found on this computer; nothing is sent anywhere.	Les visages sont trouvés sur cet ordinateur ; rien n'est envoyé ailleurs.
 ~	Features	Fonctionnalités
 ~	File Types	Types de fichiers
 ~	Filename	Nom du fichier
@@ -448,13 +448,13 @@
 ~	Folder Properties	Propriétés du dossier
 ~	Folder View	Vue par dossiers
 ~	Folder name	Nom du dossier
-~	Folder name:	Nom du dossier :
+~	Folder name:	Nom du dossier :
 ~	Folders	Dossiers
 ~	Folders with a .dalica.json	Dossiers avec un .dalica.json
 ~	Folders with a damaged sidecar	Dossiers avec un fichier annexe endommagé
 ~	Folder…	Dossier…
 ~	For each folder, choose whether Dalica looks for pictures in it. Watched folders are checked for new pictures automatically.	Pour chaque dossier, choisissez si Dalica y cherche des photos. Les dossiers surveillés sont vérifiés automatiquement à la recherche de nouvelles photos.
-~	For the selected folder:	Pour le dossier sélectionné :
+~	For the selected folder:	Pour le dossier sélectionné :
 ~	Frame Mosaic	Mosaïque de cadres
 ~	Frame budget	Budget par image
 ~	Frame interval (95 %)	Intervalle entre images (95 %)
@@ -470,9 +470,9 @@
 ~	Get More	En obtenir plus
 ~	Get photos from a camera, card or folder	Récupérer des photos depuis un appareil, une carte ou un dossier
 ~	Glow	Lueur
-~	Go back to the photo with no edits; every step stays redoable	Revenir à la photo sans retouche ; chaque étape reste rétablissable
-~	Go back to the saved file; every step stays redoable	Revenir au fichier enregistré ; chaque étape reste rétablissable
-~	Go back to this step; the steps after it stay redoable	Revenir à cette étape ; les étapes suivantes restent rétablissables
+~	Go back to the photo with no edits; every step stays redoable	Revenir à la photo sans retouche ; chaque étape reste rétablissable
+~	Go back to the saved file; every step stays redoable	Revenir au fichier enregistré ; chaque étape reste rétablissable
+~	Go back to this step; the steps after it stay redoable	Revenir à cette étape ; les étapes suivantes restent rétablissables
 ~	Go to History Step	Aller à l'étape de l'historique
 ~	Go to Time	Aller au temps
 ~	Grab bag	Fourre-tout
@@ -506,7 +506,7 @@
 ~	Ignore Faces	Ignorer les visages
 ~	Ignore Group	Ignorer le groupe
 ~	Ignore these faces	Ignorer ces visages
-~	Ignore these faces?	Ignorer ces visages ?
+~	Ignore these faces?	Ignorer ces visages ?
 ~	Ignored faces · {count}	Visages ignorés · {count}
 ~	Image quality	Qualité d'image
 ~	Image size	Taille d'image
@@ -521,14 +521,14 @@
 ~	Import Status	État de l'importation
 ~	Import To	Importer vers
 ~	Import from Folder	Importer depuis un dossier
-~	Import from:	Importer depuis :
-~	Import to:	Importer vers :
+~	Import from:	Importer depuis :
+~	Import to:	Importer vers :
 ~	Import tray	Bac d'importation
 ~	Import tray position	Position du bac d'importation
 ~	Import…	Importer…
 ~	Include All	Tout inclure
 ~	Infrared Film	Pellicule infrarouge
-~	Insert a camera's card or a removable drive, or choose a folder from “Import from:”.	Insérez la carte d'un appareil ou un disque amovible, ou choisissez un dossier dans « Importer depuis : ».
+~	Insert a camera's card or a removable drive, or choose a folder from “Import from:”.	Insérez la carte d'un appareil ou un disque amovible, ou choisissez un dossier dans « Importer depuis : ».
 ~	Inspect Collage	Inspecter le collage
 ~	Inspect Face Model File	Inspecter le fichier de modèle de visages
 ~	Inspect Legacy Data	Inspecter les anciennes données
@@ -548,18 +548,18 @@
 ~	Keep Files	Garder les fichiers
 ~	Keep Importing	Continuer l'importation
 ~	Keep Version	Garder la version
-~	Keep Which Version?	Quelle version garder ?
+~	Keep Which Version?	Quelle version garder ?
 ~	Keep each side at most 10000.	Chaque côté doit faire au plus 10000.
 ~	Keep the name at most 256 bytes.	Le nom doit faire au plus 256 octets.
 ~	Keep the patches	Garder les retouches locales
 ~	Keep the ratio between 1:20 and 20:1.	Le format doit rester entre 1:20 et 20:1.
 ~	Keep these photos in the tray	Garder ces photos dans le bac
-~	Keep which version?	Quelle version garder ?
-~	Keeps fine detail; large files	Garde les détails fins ; fichiers volumineux
+~	Keep which version?	Quelle version garder ?
+~	Keeps fine detail; large files	Garde les détails fins ; fichiers volumineux
 ~	Keeps the colour inside a circle and turns the rest black and white.	Garde la couleur dans un cercle et passe le reste en noir et blanc.
 ~	Keeps the original's quality	Garde la qualité de l'original
 ~	Kept in Dalica's file in this folder.	Conservé dans le fichier de Dalica de ce dossier.
-~	Kept in Dalica's file. The previous organizer's file is also here; it is no longer read and never changed.	Conservé dans le fichier de Dalica. Le fichier de l'ancien organiseur est aussi présent ; il n'est plus lu et jamais modifié.
+~	Kept in Dalica's file. The previous organizer's file is also here; it is no longer read and never changed.	Conservé dans le fichier de Dalica. Le fichier de l'ancien organiseur est aussi présent ; il n'est plus lu et jamais modifié.
 ~	Kept in the photo's edits in their place, but Dalica cannot show them	Conservées à leur place dans les retouches de la photo, mais Dalica ne peut pas les afficher
 ~	Keyboard Shortcuts…	Raccourcis clavier…
 ~	Landscape	Paysage
@@ -577,7 +577,7 @@
 ~	Library tree	Arborescence de la photothèque
 ~	Library tree position	Position de l'arborescence
 ~	Licence	Licence
-~	Licence: {name} · {commercial}	Licence : {name} · {commercial}
+~	Licence: {name} · {commercial}	Licence : {name} · {commercial}
 ~	Light table	Table lumineuse
 ~	Lighting and color tuning	Réglage de l'éclairage et des couleurs
 ~	Line delta	Écart de lignes
@@ -609,7 +609,7 @@
 ~	Makes the bright areas glow.	Fait briller les zones claires.
 ~	Makes the colours richer or paler.	Rend les couleurs plus riches ou plus pâles.
 ~	Manual	Manuel
-~	Manual: {w} × {h}	Manuel : {w} × {h}
+~	Manual: {w} × {h}	Manuel : {w} × {h}
 ~	Map	Carte
 ~	Map attribution	Attribution de la carte
 ~	Map tile server	Serveur de tuiles de carte
@@ -621,7 +621,7 @@
 ~	Menu bar	Barre de menus
 ~	Merge Into	Fusionner avec
 ~	Merge People	Fusionner des personnes
-~	Merge {person} into {into}? {person}'s faces become {into}'s.	Fusionner {person} avec {into} ? Les visages de {person} deviennent ceux de {into}.
+~	Merge {person} into {into}? {person}'s faces become {into}'s.	Fusionner {person} avec {into} ? Les visages de {person} deviennent ceux de {into}.
 ~	Merged pull requests	Pull requests fusionnées
 ~	Minimum	Minimale
 ~	Models	Modèles
@@ -641,10 +641,10 @@
 ~	Move Folder…	Déplacer le dossier…
 ~	Move Picture	Déplacer la photo
 ~	Move the Map	Déplacer la carte
-~	Move the folder "{name}" and everything in it (including non-picture files) to the trash?	Mettre à la corbeille le dossier « {name} » et tout son contenu (y compris les fichiers qui ne sont pas des photos) ?
-~	Move the selected pictures to the trash?	Mettre les photos sélectionnées à la corbeille ?
-~	Move these files on disk? The files will be moved, not copied.	Déplacer ces fichiers sur le disque ? Les fichiers seront déplacés, pas copiés.
-~	Move this folder and everything in it (including non-picture files) to the trash?	Mettre à la corbeille ce dossier et tout son contenu (y compris les fichiers qui ne sont pas des photos) ?
+~	Move the folder "{name}" and everything in it (including non-picture files) to the trash?	Mettre à la corbeille le dossier « {name} » et tout son contenu (y compris les fichiers qui ne sont pas des photos) ?
+~	Move the selected pictures to the trash?	Mettre les photos sélectionnées à la corbeille ?
+~	Move these files on disk? The files will be moved, not copied.	Déplacer ces fichiers sur le disque ? Les fichiers seront déplacés, pas copiés.
+~	Move this folder and everything in it (including non-picture files) to the trash?	Mettre à la corbeille ce dossier et tout son contenu (y compris les fichiers qui ne sont pas des photos) ?
 ~	Move to New Folder	Déplacer vers un nouveau dossier
 ~	Move to New Folder…	Déplacer vers un nouveau dossier…
 ~	Move to New Person…	Déplacer vers une nouvelle personne…
@@ -665,7 +665,7 @@
 ~	Name Faces	Nommer les visages
 ~	Name Group	Nommer le groupe
 ~	Name Suggestions	Suggestions de noms
-~	Name a face first: a person is made when you type a name.	Nommez d'abord un visage : une personne est créée quand vous saisissez un nom.
+~	Name a face first: a person is made when you type a name.	Nommez d'abord un visage : une personne est créée quand vous saisissez un nom.
 ~	Name of exported folder	Nom du dossier exporté
 ~	Name the album.	Nommez l'album.
 ~	Name the folder.	Nommez le dossier.
@@ -711,7 +711,7 @@
 ~	No selection	Aucune sélection
 ~	No shortcuts match.	Aucun raccourci ne correspond.
 ~	None	Aucun
-~	None of these folders exists here: Continue opens the Folder Manager.	Aucun de ces dossiers n'existe ici : Continuer ouvre le Gestionnaire de dossiers.
+~	None of these folders exists here: Continue opens the Folder Manager.	Aucun de ces dossiers n'existe ici : Continuer ouvre le Gestionnaire de dossiers.
 ~	None saved for this folder yet.	Aucun n'est encore enregistré pour ce dossier.
 ~	Normal	Normal
 ~	Normal Thumbnails	Vignettes normales
@@ -719,19 +719,19 @@
 ~	Not available yet.	Pas encore disponible.
 ~	Not downloaded	Non téléchargé
 ~	Not recorded (a development build)	Non enregistré (une version de développement)
-~	Nothing copied: {skipped}	Rien n'a été copié : {skipped}
+~	Nothing copied: {skipped}	Rien n'a été copié : {skipped}
 ~	Nothing is downloaded until you accept. Your photos and faces never leave this computer.	Rien n'est téléchargé tant que vous n'avez pas accepté. Vos photos et vos visages ne quittent jamais cet ordinateur.
 ~	Nothing is written here until you reset it or restore the file.	Rien n'est écrit ici tant que vous ne le réinitialisez pas ou ne restaurez pas le fichier.
-~	Nothing moved back: {skipped}	Rien n'a été remis en place : {skipped}
-~	Nothing moved to the Trash: {skipped}	Rien n'a été mis à la corbeille : {skipped}
-~	Nothing moved: {skipped}	Rien n'a été déplacé : {skipped}
-~	Nothing removed: {skipped}	Rien n'a été retiré : {skipped}
-~	Nothing renamed back: {skipped}	Aucun nom n'a été rétabli : {skipped}
-~	Nothing renamed: {skipped}	Rien n'a été renommé : {skipped}
-~	Nothing restored: {skipped}	Rien n'a été restauré : {skipped}
+~	Nothing moved back: {skipped}	Rien n'a été remis en place : {skipped}
+~	Nothing moved to the Trash: {skipped}	Rien n'a été mis à la corbeille : {skipped}
+~	Nothing moved: {skipped}	Rien n'a été déplacé : {skipped}
+~	Nothing removed: {skipped}	Rien n'a été retiré : {skipped}
+~	Nothing renamed back: {skipped}	Aucun nom n'a été rétabli : {skipped}
+~	Nothing renamed: {skipped}	Rien n'a été renommé : {skipped}
+~	Nothing restored: {skipped}	Rien n'a été restauré : {skipped}
 ~	Nothing to import yet	Rien à importer pour l'instant
 ~	OK	OK
-~	Off: use the original size.	Désactivé : garder la taille d'origine.
+~	Off: use the original size.	Désactivé : garder la taille d'origine.
 ~	One folder for each capture date	Un dossier par date de prise de vue
 ~	One folder named with today's date	Un dossier nommé à la date du jour
 ~	Only look in my Pictures, Documents and Desktop folders	Chercher seulement dans mes dossiers Images, Documents et Bureau
@@ -843,7 +843,7 @@
 ~	Query Library	Interroger la photothèque
 ~	Quick Preview (hold Ctrl+Alt)	Aperçu rapide (maintenir Ctrl+Alt)
 ~	Quick Tags	Étiquettes rapides
-~	Quick tag {n} has no tag: click to choose quick tags	L'étiquette rapide {n} n'a pas d'étiquette : cliquez pour choisir les étiquettes rapides
+~	Quick tag {n} has no tag: click to choose quick tags	L'étiquette rapide {n} n'a pas d'étiquette : cliquez pour choisir les étiquettes rapides
 ~	Quick tags	Étiquettes rapides
 ~	Quick tags add a tag to the selected photos with one click, or with Ctrl+Alt+1 … Ctrl+Alt+0. Type the tags you use most below. With the option ticked, the top two buttons show the tags you added most recently instead.	Les étiquettes rapides ajoutent une étiquette aux photos sélectionnées en un clic, ou avec Ctrl+Alt+1 … Ctrl+Alt+0. Saisissez ci-dessous les étiquettes que vous utilisez le plus. Si l'option est cochée, les deux premiers boutons affichent plutôt les étiquettes ajoutées le plus récemment.
 ~	Quit Dalica	Quitter Dalica
@@ -896,16 +896,16 @@
 ~	Remove from albums without asking	Retirer des albums sans demander
 ~	Remove location from exported photos	Retirer le lieu des photos exportées
 ~	Remove photos from the tray	Retirer des photos du bac
-~	Remove the face rectangles found in these folders? Names you've given stay with the photos that are still scanned.	Retirer les cadres de visages trouvés dans ces dossiers ? Les noms que vous avez donnés restent sur les photos toujours analysées.
-~	Remove the folder "{name}" and its subfolders from Dalica? The files stay on your disk.	Retirer de Dalica le dossier « {name} » et ses sous-dossiers ? Les fichiers restent sur votre disque.
-~	Remove the imported files from the card? This cannot be undone.	Retirer de la carte les fichiers importés ? Cette action est irréversible.
+~	Remove the face rectangles found in these folders? Names you've given stay with the photos that are still scanned.	Retirer les cadres de visages trouvés dans ces dossiers ? Les noms que vous avez donnés restent sur les photos toujours analysées.
+~	Remove the folder "{name}" and its subfolders from Dalica? The files stay on your disk.	Retirer de Dalica le dossier « {name} » et ses sous-dossiers ? Les fichiers restent sur votre disque.
+~	Remove the imported files from the card? This cannot be undone.	Retirer de la carte les fichiers importés ? Cette action est irréversible.
 ~	Remove the last patch	Retirer la dernière retouche locale
 ~	Remove the latest edit	Retirer la dernière retouche
-~	Remove the selected pictures from this album? The files are not deleted.	Retirer de cet album les photos sélectionnées ? Les fichiers ne sont pas supprimés.
+~	Remove the selected pictures from this album? The files are not deleted.	Retirer de cet album les photos sélectionnées ? Les fichiers ne sont pas supprimés.
 ~	Remove the tag from the selected photos	Retirer l'étiquette des photos sélectionnées
 ~	Remove the unsaved edits from these photos	Retirer les retouches non enregistrées de ces photos
-~	Remove this face model? Its file and the face data worked out with it are deleted; face rectangles and names stay.	Retirer ce modèle de visages ? Son fichier et les données de visages calculées avec lui sont supprimés ; les cadres des visages et les noms sont conservés.
-~	Remove this folder and its subfolders from Dalica? The files stay on your disk.	Retirer de Dalica ce dossier et ses sous-dossiers ? Les fichiers restent sur votre disque.
+~	Remove this face model? Its file and the face data worked out with it are deleted; face rectangles and names stay.	Retirer ce modèle de visages ? Son fichier et les données de visages calculées avec lui sont supprimés ; les cadres des visages et les noms sont conservés.
+~	Remove this folder and its subfolders from Dalica? The files stay on your disk.	Retirer de Dalica ce dossier et ses sous-dossiers ? Les fichiers restent sur votre disque.
 ~	Rename Duplicates	Renommer les doublons
 ~	Rename Files	Renommer les fichiers
 ~	Rename Folder	Renommer le dossier
@@ -927,21 +927,21 @@
 ~	Reset Folder Data	Réinitialiser les données du dossier
 ~	Reset Shortcuts	Réinitialiser les raccourcis
 ~	Reset folder data	Réinitialiser les données du dossier
-~	Reset the data of the folder "{name}"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	Réinitialiser les données du dossier « {name} » ? Dalica écrit un nouveau fichier de données à partir de ce qu'il sait de ces photos. Le fichier endommagé reste à côté des photos, intact.
-~	Reset this folder's data? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	Réinitialiser les données de ce dossier ? Dalica écrit un nouveau fichier de données à partir de ce qu'il sait de ces photos. Le fichier endommagé reste à côté des photos, intact.
+~	Reset the data of the folder "{name}"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	Réinitialiser les données du dossier « {name} » ? Dalica écrit un nouveau fichier de données à partir de ce qu'il sait de ces photos. Le fichier endommagé reste à côté des photos, intact.
+~	Reset this folder's data? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched.	Réinitialiser les données de ce dossier ? Dalica écrit un nouveau fichier de données à partir de ce qu'il sait de ces photos. Le fichier endommagé reste à côté des photos, intact.
 ~	Resident memory	Mémoire résidente
 ~	Resize	Redimensionner
 ~	Resize the library tree	Redimensionner l'arborescence de la photothèque
 ~	Resize the window	Redimensionner la fenêtre
 ~	Resize to	Redimensionner à
 ~	Resolution	Résolution
-~	Restore all default shortcuts?	Rétablir tous les raccourcis par défaut ?
-~	Restore the default: no shortcut	Rétablir la valeur par défaut : aucun raccourci
-~	Restore the default: {keys}	Rétablir la valeur par défaut : {keys}
+~	Restore all default shortcuts?	Rétablir tous les raccourcis par défaut ?
+~	Restore the default: no shortcut	Rétablir la valeur par défaut : aucun raccourci
+~	Restore the default: {keys}	Rétablir la valeur par défaut : {keys}
 ~	Restored the folder from the Trash	Dossier restauré depuis la corbeille
 ~	Retouch	Retouche locale
 ~	Reverse Order	Inverser l'ordre
-~	Revert to the original? Your edits will be lost. To undo only the last save and keep the edits, choose Undo Save.	Revenir à l'original ? Vos retouches seront perdues. Pour annuler seulement le dernier enregistrement et garder les retouches, choisissez Annuler l'enregistrement.
+~	Revert to the original? Your edits will be lost. To undo only the last save and keep the edits, choose Undo Save.	Revenir à l'original ? Vos retouches seront perdues. Pour annuler seulement le dernier enregistrement et garder les retouches, choisissez Annuler l'enregistrement.
 ~	Revert…	Revenir à l'original…
 ~	Rooms	Espaces
 ~	Rotate	Faire pivoter
@@ -966,7 +966,7 @@
 ~	Save a Copy	Enregistrer une copie
 ~	Save edited photos to disk	Enregistrer sur le disque les photos retouchées
 ~	Save imported pictures in	Enregistrer les photos importées dans
-~	Save the changes to this collage?	Enregistrer les modifications de ce collage ?
+~	Save the changes to this collage?	Enregistrer les modifications de ce collage ?
 ~	Save the frame shown as a picture	Enregistrer l'image affichée comme photo
 ~	Saving writes your edits into the photo's file. Dalica first keeps the original, unchanged, in a hidden .dalica-originals folder beside it, so Undo Save and Revert can always bring it back.	L'enregistrement écrit vos retouches dans le fichier de la photo. Dalica garde d'abord l'original, inchangé, dans un dossier caché .dalica-originals à côté, pour qu'Annuler l'enregistrement et Revenir à l'original puissent toujours le rétablir.
 ~	Saving {name} in Video Frames	Enregistrement de {name} dans Images de vidéos
@@ -991,9 +991,9 @@
 ~	Search for Color	Rechercher par couleur
 ~	Search for This Tag	Rechercher cette étiquette
 ~	Search for a Place	Rechercher un lieu
-~	Search for a place:	Rechercher un lieu :
+~	Search for a place:	Rechercher un lieu :
 ~	Search results	Résultats de recherche
-~	Search results for "{text}"	Résultats de recherche pour « {text} »
+~	Search results for "{text}"	Résultats de recherche pour « {text} »
 ~	Searching…	Recherche…
 ~	Seek	Atteindre
 ~	Select	Sélectionner
@@ -1053,7 +1053,7 @@
 ~	Show Fewer	Afficher moins
 ~	Show Folder	Afficher le dossier
 ~	Show Ignored Faces	Afficher les visages ignorés
-~	Show JPEG files and:	Afficher les fichiers JPEG et :
+~	Show JPEG files and:	Afficher les fichiers JPEG et :
 ~	Show Log Folder	Afficher le dossier des journaux
 ~	Show Original (hold \\)	Afficher l'original (maintenir \\)
 ~	Show Room	Afficher l'espace
@@ -1068,7 +1068,7 @@
 ~	Show folders as a flat list	Afficher les dossiers en liste à plat
 ~	Show in File Manager	Afficher dans le gestionnaire de fichiers
 ~	Show in Folder	Afficher dans le dossier
-~	Show map tiles from {provider}? Dalica fetches map pictures from the internet while this pane is open.	Afficher les tuiles de carte de {provider} ? Dalica télécharge des images de carte sur Internet tant que ce panneau est ouvert.
+~	Show map tiles from {provider}? Dalica fetches map pictures from the internet while this pane is open.	Afficher les tuiles de carte de {provider} ? Dalica télécharge des images de carte sur Internet tant que ce panneau est ouvert.
 ~	Show one photo	Afficher une photo
 ~	Show only edited photos	Afficher seulement les photos retouchées
 ~	Show only geotagged photos	Afficher seulement les photos géolocalisées
@@ -1100,7 +1100,7 @@
 ~	Skip pictures that are already in your library	Ignorer les photos déjà dans votre photothèque
 ~	Slideshow	Diaporama
 ~	Slideshow Photos	Photos du diaporama
-~	Slideshow: photo {p}	Diaporama : photo {p}
+~	Slideshow: photo {p}	Diaporama : photo {p}
 ~	Small	Petite
 ~	Small Pictures	Petites photos
 ~	Small Thumbnails	Petites vignettes
@@ -1127,7 +1127,7 @@
 ~	Sort by Name	Trier par nom
 ~	Sort by Recent Changes	Trier par modifications récentes
 ~	Sort by Size	Trier par taille
-~	Source code: {address}	Code source : {address}
+~	Source code: {address}	Code source : {address}
 ~	Split Folder Here…	Scinder le dossier ici…
 ~	Square (1:1)	Carré (1:1)
 ~	Stamp photos with your name, a web address or a copyright notice.	Marquez les photos avec votre nom, une adresse web ou une mention de copyright.
@@ -1142,7 +1142,7 @@
 ~	Step Frame	Avancer d'une image
 ~	Step Frames	Avancer image par image
 ~	Stop Import	Arrêter l'importation
-~	Stop importing?	Arrêter l'importation ?
+~	Stop importing?	Arrêter l'importation ?
 ~	Store people names in photos	Enregistrer les noms des personnes dans les photos
 ~	Straighten	Redresser
 ~	Straighten a tilted photo	Redresser une photo inclinée
@@ -1157,7 +1157,7 @@
 ~	Suggested crop {n} ({reason})	Recadrage suggéré {n} ({reason})
 ~	Suggestion confidence	Confiance des suggestions
 ~	Suggestions	Suggestions
-~	Suggestions:	Suggestions :
+~	Suggestions:	Suggestions :
 ~	Swap Pictures	Échanger les photos
 ~	Switch Focus	Changer de focus
 ~	Switch Layout	Changer de disposition
@@ -1165,11 +1165,11 @@
 ~	System	Système
 ~	System default	Valeur du système
 ~	TIFF	TIFF
-~	TIFF-based: {makers}	Basés sur TIFF : {makers}
+~	TIFF-based: {makers}	Basés sur TIFF : {makers}
 ~	Table	Tableau
 ~	Tags	Étiquettes
-~	Tags in the selection:	Étiquettes de la sélection :
-~	Tags: {tags}	Étiquettes : {tags}
+~	Tags in the selection:	Étiquettes de la sélection :
+~	Tags: {tags}	Étiquettes : {tags}
 ~	Take off Page	Retirer de la page
 ~	Take the selected pictures out of the Clips	Retirer les photos sélectionnées des clips
 ~	Takes the colour out, then tints the photo with one colour.	Retire la couleur, puis teinte la photo d'une seule couleur.
@@ -1184,28 +1184,28 @@
 ~	The folder is not in the library.	Le dossier n'est pas dans la photothèque.
 ~	The library is still opening.	La photothèque est encore en cours d'ouverture.
 ~	The map needs an https:// address with {z}, {x} and {y}.	La carte a besoin d'une adresse https:// avec {z}, {x} et {y}.
-~	The model is kept on this computer only; Dalica never uploads or shares it.	Le modèle est conservé sur cet ordinateur uniquement ; Dalica ne l'envoie ni ne le partage jamais.
+~	The model is kept on this computer only; Dalica never uploads or shares it.	Le modèle est conservé sur cet ordinateur uniquement ; Dalica ne l'envoie ni ne le partage jamais.
 ~	The new name is the same.	Le nouveau nom est identique.
-~	The page's address is on the clipboard: {url}	L'adresse de la page est dans le presse-papiers : {url}
+~	The page's address is on the clipboard: {url}	L'adresse de la page est dans le presse-papiers : {url}
 ~	The photo is here	La photo est ici
-~	The program Open in External Editor starts; empty for the system's editor.	Le programme que lance Ouvrir dans l'éditeur externe ; vide pour l'éditeur du système.
+~	The program Open in External Editor starts; empty for the system's editor.	Le programme que lance Ouvrir dans l'éditeur externe ; vide pour l'éditeur du système.
 ~	The saved file. Undo Save in the edit panel restores the original.	Le fichier enregistré. Annuler l'enregistrement, dans le panneau de retouche, rétablit l'original.
 ~	The search needs an https:// address with {query}.	La recherche a besoin d'une adresse https:// avec {query}.
 ~	The soft edges, grain and dark corners of a toy camera.	Les bords flous, le grain et les coins sombres d'un appareil jouet.
-~	The source cannot be read: {reason}	Impossible de lire la source : {reason}
+~	The source cannot be read: {reason}	Impossible de lire la source : {reason}
 ~	The system offers no other application for this file.	Le système ne propose aucune autre application pour ce fichier.
 ~	Theme	Thème
 ~	There are no release notes in this copy.	Cette copie ne contient pas de notes de version.
 ~	These are your originals from before Save. Delete them only if you're sure you won't want Undo Save.	Ce sont vos originaux d'avant l'enregistrement. Supprimez-les seulement si vous êtes sûr de ne pas vouloir Annuler l'enregistrement.
 ~	This clip plays without sound ({codec} sound can't be played)	Ce clip est lu sans le son (impossible de lire le son {codec})
 ~	This file cannot be used.	Ce fichier est inutilisable.
-~	This file cannot be used: {why}	Ce fichier est inutilisable : {why}
+~	This file cannot be used: {why}	Ce fichier est inutilisable : {why}
 ~	This folder cannot be read.	Impossible de lire ce dossier.
 ~	This folder's data file was damaged and kept aside.	Le fichier de données de ce dossier était endommagé et a été mis de côté.
 ~	This is the first photo (turn on Loop slideshow to go round).	C'est la première photo (activez Diaporama en boucle pour reprendre au début).
 ~	This model is installed already.	Ce modèle est déjà installé.
 ~	This photo cannot be shown.	Impossible d'afficher cette photo.
-~	This photo has two different sets of edits. Which one do you want to keep?	Cette photo a deux jeux de retouches différents. Lequel voulez-vous garder ?
+~	This photo has two different sets of edits. Which one do you want to keep?	Cette photo a deux jeux de retouches différents. Lequel voulez-vous garder ?
 ~	This session has no face models folder (DALICA_FACE_MODELS, or the configuration folder).	Cette session n'a pas de dossier de modèles de visages (DALICA_FACE_MODELS, ou le dossier de configuration).
 ~	This video can't be played	Impossible de lire cette vidéo
 ~	This video can't be played ({codec})	Impossible de lire cette vidéo ({codec})
@@ -1221,7 +1221,7 @@
 ~	Today's date	Date du jour
 ~	Toggle Side Pane	Afficher/masquer le panneau latéral
 ~	Toggle Tag	Basculer l'étiquette
-~	Too many changed shortcuts: apply them first.	Trop de raccourcis modifiés : appliquez-les d'abord.
+~	Too many changed shortcuts: apply them first.	Trop de raccourcis modifiés : appliquez-les d'abord.
 ~	Tool Action	Action de l'outil
 ~	Toolbar	Barre d'outils
 ~	Top of Library	Haut de la photothèque
@@ -1266,7 +1266,7 @@
 ~	Use Dalica	Utiliser Dalica
 ~	Use Dalica as the Default Viewer	Utiliser Dalica comme visionneuse par défaut
 ~	Use Dalica as the default viewer for these file types	Utiliser Dalica comme visionneuse par défaut pour ces types de fichiers
-~	Use Dalica as the default viewer for these file types:	Utiliser Dalica comme visionneuse par défaut pour ces types de fichiers :
+~	Use Dalica as the default viewer for these file types:	Utiliser Dalica comme visionneuse par défaut pour ces types de fichiers :
 ~	Use Face Model	Utiliser le modèle de visages
 ~	Use animations	Utiliser les animations
 ~	Use original size	Utiliser la taille d'origine
@@ -1294,7 +1294,7 @@
 ~	Watch Drive	Surveiller le disque
 ~	Watched Folders	Dossiers surveillés
 ~	Watched folders	Dossiers surveillés
-~	Watching a whole drive can slow down your computer and fill the library with non-photo images. It's usually better to choose a few folders. Watch the whole drive anyway?	Surveiller un disque entier peut ralentir votre ordinateur et remplir la photothèque d'images qui ne sont pas des photos. Il vaut généralement mieux choisir quelques dossiers. Surveiller quand même tout le disque ?
+~	Watching a whole drive can slow down your computer and fill the library with non-photo images. It's usually better to choose a few folders. Watch the whole drive anyway?	Surveiller un disque entier peut ralentir votre ordinateur et remplir la photothèque d'images qui ne sont pas des photos. Il vaut généralement mieux choisir quelques dossiers. Surveiller quand même tout le disque ?
 ~	Watermark	Filigrane
 ~	WebP	WebP
 ~	What it was trained on is not known.	On ne sait pas sur quoi il a été entraîné.
@@ -1316,7 +1316,7 @@
 ~	Write captions, tags and places into photo files	Écrire légendes, étiquettes et lieux dans les fichiers photo
 ~	Write date changes to files	Écrire les changements de date dans les fichiers
 ~	Write stars as ratings (XMP)	Écrire les étoiles comme notes (XMP)
-~	Write the names of the people in the selected picture into the files? Other applications will show them.	Écrire dans les fichiers les noms des personnes de la photo sélectionnée ? Les autres applications les afficheront.
+~	Write the names of the people in the selected picture into the files? Other applications will show them.	Écrire dans les fichiers les noms des personnes de la photo sélectionnée ? Les autres applications les afficheront.
 ~	Writes the names of the people in a photo into its file as face regions (XMP).	Écrit les noms des personnes d'une photo dans son fichier sous forme de zones de visage (XMP).
 ~	Writes waiting	Écritures en attente
 ~	Yellow	Jaune
@@ -1354,25 +1354,25 @@
 ~	the tile server	le serveur de tuiles
 ~	unknown	inconnu
 ~	version {version}	version {version}
-~	yes: {indexed} of {found} found	oui : {indexed} sur {found} trouvées
-~	{command}, {context}: {keys}	{command}, {context} : {keys}
+~	yes: {indexed} of {found} found	oui : {indexed} sur {found} trouvées
+~	{command}, {context}: {keys}	{command}, {context} : {keys}
 ~	{contributors} · {commits}	{contributors} · {commits}
 ~	{done} of {total}	{done} sur {total}
 ~	{done}. {failed}	{done}. {failed}
-~	{done}; the rest was cancelled	{done} ; le reste a été annulé
-~	{done}; {skipped}	{done} ; {skipped}
+~	{done}; the rest was cancelled	{done} ; le reste a été annulé
+~	{done}; {skipped}	{done} ; {skipped}
 ~	{files} files in {folders} folders, {size}	{files} fichiers dans {folders} dossiers, {size}
 ~	{files} files in {secs} s{rate}	{files} fichiers en {secs} s{rate}
 ~	{key} is already {command} in {context}.	{key} est déjà {command} dans {context}.
 ~	{length} equiv.	{length} équiv.
-~	{login}: {prs} merged pull requests, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binary_added} / −{binary_deleted} binary assets, {first} – {last}	{login} : {prs} pull requests fusionnées, {commits} commits, +{added} / −{deleted} lignes (Δ {delta}), +{binary_added} / −{binary_deleted} ressources binaires, {first} – {last}
+~	{login}: {prs} merged pull requests, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binary_added} / −{binary_deleted} binary assets, {first} – {last}	{login} : {prs} pull requests fusionnées, {commits} commits, +{added} / −{deleted} lignes (Δ {delta}), +{binary_added} / −{binary_deleted} ressources binaires, {first} – {last}
 ~	{maker}, older cameras	{maker}, anciens appareils
 ~	{ms} ms	{ms} ms
 ~	{name} ({role})	{name} ({role})
 ~	{name} ({w} × {h})	{name} ({w} × {h})
 ~	{name} · {date} · {size}	{name} · {date} · {size}
 ~	{name}, {count}	{name}, {count}
-~	{name}: {reason}	{name} : {reason}
+~	{name}: {reason}	{name} : {reason}
 ~	{n} ({size})	{n} ({size})
 ~	{n} ({size}), at most 600	{n} ({size}), au plus 600
 ~	{n} entries, {size}	{n} entrées, {size}
@@ -1380,7 +1380,7 @@
 ~	{n} queued or running, {prefetch} ahead of the view	{n} en attente ou en cours, {prefetch} en avance sur la vue
 ~	{path} (temporary, for this session only)	{path} (temporaire, pour cette session seulement)
 ~	{percent} %	{percent} %
-~	{question} Saved pictures keep their saved pixels: {names} (Undo Save gives the original back).	{question} Les photos enregistrées gardent leurs pixels enregistrés : {names} (Annuler l'enregistrement rend l'original).
+~	{question} Saved pictures keep their saved pixels: {names} (Undo Save gives the original back).	{question} Les photos enregistrées gardent leurs pixels enregistrés : {names} (Annuler l'enregistrement rend l'original).
 ~	{rate} ({loads} read from the cache, {decodes} decoded)	{rate} ({loads} lues depuis le cache, {decodes} décodées)
 ~	{section} — Dalica	{section} — Dalica
 ~	{sidecars} sidecars, {metadata} photo files	{sidecars} fichiers annexes, {metadata} fichiers photo
@@ -1389,7 +1389,7 @@
 ~	{size} MB	{size} Mo
 ~	{size} TB	{size} To
 ~	{size} in the file	{size} dans le fichier
-~	{size} of {limit} (settings.json: cache.thumbnailBytes)	{size} sur {limit} (settings.json : cache.thumbnailBytes)
+~	{size} of {limit} (settings.json: cache.thumbnailBytes)	{size} sur {limit} (settings.json : cache.thumbnailBytes)
 ~	{size} on disk	{size} sur le disque
 ~	{size} px	{size} px
 ~	{tag} ({count} of {of})	{tag} ({count} sur {of})
@@ -1400,19 +1400,19 @@
 ~	{w} × {h} points at {ppp} pixels per point	{w} × {h} points à {ppp} pixels par point
 ~@plural	Adjust Picture Date — {n} picture|Adjust Picture Date — {n} pictures	Modifier la date de la photo — {n} photo|Modifier la date des photos — {n} photos
 ~@plural	Album selected — {n} photo|Album selected — {n} photos	Album sélectionné — {n} photo|Album sélectionné — {n} photos
-~@plural	Change the location of {n} photo?|Change the location of {n} photos?	Modifier le lieu de {n} photo ?|Modifier le lieu de {n} photos ?
+~@plural	Change the location of {n} photo?|Change the location of {n} photos?	Modifier le lieu de {n} photo ?|Modifier le lieu de {n} photos ?
 ~@plural	Copied {n} photo to {folder}|Copied {n} photos to {folder}	{n} photo copiée dans {folder}|{n} photos copiées dans {folder}
 ~@plural	Copied {n} photo|Copied {n} photos	{n} photo copiée|{n} photos copiées
-~@plural	Copy {n} file to {folder}?|Copy {n} files to {folder}?	Copier {n} fichier dans {folder} ?|Copier {n} fichiers dans {folder} ?
+~@plural	Copy {n} file to {folder}?|Copy {n} files to {folder}?	Copier {n} fichier dans {folder} ?|Copier {n} fichiers dans {folder} ?
 ~@plural	Folder selected — {n} photo|Folder selected — {n} photos	Dossier sélectionné — {n} photo|Dossier sélectionné — {n} photos
-~@plural	Found photo data from your previous photo program in {n} folder. Dalica shows it and saves any changes in its own files; the old files are never changed.|Found photo data from your previous photo program in {n} folders. Dalica shows it and saves any changes in its own files; the old files are never changed.	Des données de votre ancien logiciel photo ont été trouvées dans {n} dossier. Dalica les affiche et enregistre les modifications dans ses propres fichiers ; les anciens fichiers ne sont jamais modifiés.|Des données de votre ancien logiciel photo ont été trouvées dans {n} dossiers. Dalica les affiche et enregistre les modifications dans ses propres fichiers ; les anciens fichiers ne sont jamais modifiés.
-~@plural	Import cancelled: {copied} of {n} picture copied; {failed} could not be imported:|Import cancelled: {copied} of {n} pictures copied; {failed} could not be imported:	Importation annulée : {copied} photo sur {n} copiée ; {failed} n'ont pas pu être importées :|Importation annulée : {copied} photos sur {n} copiées ; {failed} n'ont pas pu être importées :
-~@plural	Import cancelled: {copied} of {n} picture copied|Import cancelled: {copied} of {n} pictures copied	Importation annulée : {copied} photo sur {n} copiée|Importation annulée : {copied} photos sur {n} copiées
-~@plural	Imported {n} picture; {failed} could not be imported:|Imported {n} pictures; {failed} could not be imported:	{n} photo importée ; {failed} n'ont pas pu être importées :|{n} photos importées ; {failed} n'ont pas pu être importées :
+~@plural	Found photo data from your previous photo program in {n} folder. Dalica shows it and saves any changes in its own files; the old files are never changed.|Found photo data from your previous photo program in {n} folders. Dalica shows it and saves any changes in its own files; the old files are never changed.	Des données de votre ancien logiciel photo ont été trouvées dans {n} dossier. Dalica les affiche et enregistre les modifications dans ses propres fichiers ; les anciens fichiers ne sont jamais modifiés.|Des données de votre ancien logiciel photo ont été trouvées dans {n} dossiers. Dalica les affiche et enregistre les modifications dans ses propres fichiers ; les anciens fichiers ne sont jamais modifiés.
+~@plural	Import cancelled: {copied} of {n} picture copied; {failed} could not be imported:|Import cancelled: {copied} of {n} pictures copied; {failed} could not be imported:	Importation annulée : {copied} photo sur {n} copiée ; {failed} n'ont pas pu être importées :|Importation annulée : {copied} photos sur {n} copiées ; {failed} n'ont pas pu être importées :
+~@plural	Import cancelled: {copied} of {n} picture copied|Import cancelled: {copied} of {n} pictures copied	Importation annulée : {copied} photo sur {n} copiée|Importation annulée : {copied} photos sur {n} copiées
+~@plural	Imported {n} picture; {failed} could not be imported:|Imported {n} pictures; {failed} could not be imported:	{n} photo importée ; {failed} n'ont pas pu être importées :|{n} photos importées ; {failed} n'ont pas pu être importées :
 ~@plural	Imported {n} picture|Imported {n} pictures	{n} photo importée|{n} photos importées
 ~@plural	Loading {done} of {n} file…|Loading {done} of {n} files…	Chargement de {done} fichier sur {n}…|Chargement de {done} fichiers sur {n}…
-~@plural	Move the selected picture to the trash?|Move the {n} selected pictures to the trash?	Mettre la photo sélectionnée à la corbeille ?|Mettre les {n} photos sélectionnées à la corbeille ?
-~@plural	Move {n} photo here?|Move {n} photos here?	Déplacer {n} photo ici ?|Déplacer {n} photos ici ?
+~@plural	Move the selected picture to the trash?|Move the {n} selected pictures to the trash?	Mettre la photo sélectionnée à la corbeille ?|Mettre les {n} photos sélectionnées à la corbeille ?
+~@plural	Move {n} photo here?|Move {n} photos here?	Déplacer {n} photo ici ?|Déplacer {n} photos ici ?
 ~@plural	Moved {n} copy to the Trash|Moved {n} copies to the Trash	{n} copie mise à la corbeille|{n} copies mises à la corbeille
 ~@plural	Moved {n} folder back|Moved {n} folders back	{n} dossier remis en place|{n} dossiers remis en place
 ~@plural	Moved {n} folder to the Trash|Moved {n} folders to the Trash	{n} dossier mis à la corbeille|{n} dossiers mis à la corbeille
@@ -1429,11 +1429,11 @@
 ~@plural	Pictures up to {n} week old|Pictures up to {n} weeks old	Photos de {n} semaine au plus|Photos de {n} semaines au plus
 ~@plural	Pictures up to {n} year old|Pictures up to {n} years old	Photos de {n} an au plus|Photos de {n} ans au plus
 ~@plural	Properties of {n} photo|Properties of {n} photos	Propriétés de {n} photo|Propriétés de {n} photos
-~@plural	Put {n} photo here?|Put {n} photos here?	Placer {n} photo ici ?|Placer {n} photos ici ?
-~@plural	Remove all edits from {n} picture?|Remove all edits from {n} pictures?	Retirer toutes les retouches de {n} photo ?|Retirer toutes les retouches de {n} photos ?
-~@plural	Remove the location from {n} photo?|Remove the location from {n} photos?	Retirer le lieu de {n} photo ?|Retirer le lieu de {n} photos ?
-~@plural	Remove the selected picture from this album? The file is not deleted.|Remove the {n} selected pictures from this album? The files are not deleted.	Retirer de cet album la photo sélectionnée ? Le fichier n'est pas supprimé.|Retirer de cet album les {n} photos sélectionnées ? Les fichiers ne sont pas supprimés.
-~@plural	Rename “{tag}” on {n} photo to:|Rename “{tag}” on {n} photos to:	Renommer « {tag} » sur {n} photo en :|Renommer « {tag} » sur {n} photos en :
+~@plural	Put {n} photo here?|Put {n} photos here?	Placer {n} photo ici ?|Placer {n} photos ici ?
+~@plural	Remove all edits from {n} picture?|Remove all edits from {n} pictures?	Retirer toutes les retouches de {n} photo ?|Retirer toutes les retouches de {n} photos ?
+~@plural	Remove the location from {n} photo?|Remove the location from {n} photos?	Retirer le lieu de {n} photo ?|Retirer le lieu de {n} photos ?
+~@plural	Remove the selected picture from this album? The file is not deleted.|Remove the {n} selected pictures from this album? The files are not deleted.	Retirer de cet album la photo sélectionnée ? Le fichier n'est pas supprimé.|Retirer de cet album les {n} photos sélectionnées ? Les fichiers ne sont pas supprimés.
+~@plural	Rename “{tag}” on {n} photo to:|Rename “{tag}” on {n} photos to:	Renommer « {tag} » sur {n} photo en :|Renommer « {tag} » sur {n} photos en :
 ~@plural	Renamed {n} folder back|Renamed {n} folders back	Nom rétabli pour {n} dossier|Nom rétabli pour {n} dossiers
 ~@plural	Renamed {n} folder to {name}|Renamed {n} folders to {name}	{n} dossier renommé en {name}|{n} dossiers renommés en {name}
 ~@plural	Renamed {n} folder|Renamed {n} folders	{n} dossier renommé|{n} dossiers renommés
@@ -1441,7 +1441,7 @@
 ~@plural	Renamed {n} photo|Renamed {n} photos	{n} photo renommée|{n} photos renommées
 ~@plural	Restored {n} folder from the Trash|Restored {n} folders from the Trash	{n} dossier restauré depuis la corbeille|{n} dossiers restaurés depuis la corbeille
 ~@plural	Restored {n} photo from the Trash|Restored {n} photos from the Trash	{n} photo restaurée depuis la corbeille|{n} photos restaurées depuis la corbeille
-~@plural	Scanning: {n} picture found|Scanning: {n} pictures found	Analyse : {n} photo trouvée|Analyse : {n} photos trouvées
+~@plural	Scanning: {n} picture found|Scanning: {n} pictures found	Analyse : {n} photo trouvée|Analyse : {n} photos trouvées
 ~@plural	Showing {n} picture in {folders} ({seconds} s) · {size}|Showing {n} pictures in {folders} ({seconds} s) · {size}	{n} photo affichée dans {folders} ({seconds} s) · {size}|{n} photos affichées dans {folders} ({seconds} s) · {size}
 ~@plural	The picture keeps its date.|Every picture keeps its date.	La photo garde sa date.|Chaque photo garde sa date.
 ~@plural	The picture moves {amount} earlier.|Every picture moves {amount} earlier.	La photo avance de {amount}.|Chaque photo avance de {amount}.
@@ -1458,9 +1458,9 @@
 ~@plural	{n} duplicate skipped|{n} duplicates skipped	{n} doublon ignoré|{n} doublons ignorés
 ~@plural	{n} edit from the previous program (not supported)|{n} edits from the previous program (not supported)	{n} retouche de l'ancien logiciel (non prise en charge)|{n} retouches de l'ancien logiciel (non prises en charge)
 ~@plural	{n} edited|{n} edited	{n} retouchée|{n} retouchées
-~@plural	{n} face They leave Unnamed and are never found again; Show Ignored Faces shows them.|{n} faces They leave Unnamed and are never found again; Show Ignored Faces shows them.	{n} visage. Il quitte Sans nom et n'est plus jamais retrouvé ; Afficher les visages ignorés le montre.|{n} visages. Ils quittent Sans nom et ne sont plus jamais retrouvés ; Afficher les visages ignorés les montre.
+~@plural	{n} face They leave Unnamed and are never found again; Show Ignored Faces shows them.|{n} faces They leave Unnamed and are never found again; Show Ignored Faces shows them.	{n} visage. Il quitte Sans nom et n'est plus jamais retrouvé ; Afficher les visages ignorés le montre.|{n} visages. Ils quittent Sans nom et ne sont plus jamais retrouvés ; Afficher les visages ignorés les montre.
 ~@plural	{n} face|{n} faces	{n} visage|{n} visages
-~@plural	{n} file selected. Enter a new name:|{n} files selected. Enter a new name:	{n} fichier sélectionné. Saisissez un nouveau nom :|{n} fichiers sélectionnés. Saisissez un nouveau nom :
+~@plural	{n} file selected. Enter a new name:|{n} files selected. Enter a new name:	{n} fichier sélectionné. Saisissez un nouveau nom :|{n} fichiers sélectionnés. Saisissez un nouveau nom :
 ~@plural	{n} file|{n} files	{n} fichier|{n} fichiers
 ~@plural	{n} folder|{n} folders	{n} dossier|{n} dossiers
 ~@plural	{n} item skipped|{n} items skipped	{n} élément ignoré|{n} éléments ignorés
@@ -1475,7 +1475,7 @@
 ~@plural	{n} second|{n} seconds	{n} seconde|{n} secondes
 ~@plural	{shown} of {n} face|{shown} of {n} faces	{shown} visage sur {n}|{shown} visages sur {n}
 ~@plural	{status} · {n} to import|{status} · {n} to import	{status} · {n} à importer|{status} · {n} à importer
-~@plural	“{tag}” is already on {n} photo: the two tags will become one.|“{tag}” is already on {n} photos: the two tags will become one.	« {tag} » est déjà sur {n} photo : les deux étiquettes n'en feront plus qu'une.|« {tag} » est déjà sur {n} photos : les deux étiquettes n'en feront plus qu'une.
+~@plural	“{tag}” is already on {n} photo: the two tags will become one.|“{tag}” is already on {n} photos: the two tags will become one.	« {tag} » est déjà sur {n} photo : les deux étiquettes n'en feront plus qu'une.|« {tag} » est déjà sur {n} photos : les deux étiquettes n'en feront plus qu'une.
 ~about tab	About	À propos
 ~action	Collage	Collage
 ~action	Export	Exporter
@@ -1519,12 +1519,12 @@
 ~date	{date} {time}	{date} {time}
 ~date	{first_month} {first_day}, {first_year} to {last_month} {last_day}, {last_year}	du {first_day} {first_month} {first_year} au {last_day} {last_month} {last_year}
 ~date	{month} {day}, {year}	{day} {month} {year}
-~date	{month} {day}, {year} {hour}:{minute} AM	{day} {month} {year}, {hour}:{minute} av. midi
-~date	{month} {day}, {year} {hour}:{minute} PM	{day} {month} {year}, {hour}:{minute} apr. midi
+~date	{month} {day}, {year} {hour}:{minute} AM	{day} {month} {year}, {hour}:{minute}
+~date	{month} {day}, {year} {hour}:{minute} PM	{day} {month} {year}, {hour}:{minute}
 ~date	{start} – {end}	{start} – {end}
 ~date	{weekday}, {month} {day}, {year}	{weekday} {day} {month} {year}
-~date	{weekday}, {month} {day}, {year} {hour}:{minute} AM	{weekday} {day} {month} {year}, {hour}:{minute} av. midi
-~date	{weekday}, {month} {day}, {year} {hour}:{minute} PM	{weekday} {day} {month} {year}, {hour}:{minute} apr. midi
+~date	{weekday}, {month} {day}, {year} {hour}:{minute} AM	{weekday} {day} {month} {year}, {hour}:{minute}
+~date	{weekday}, {month} {day}, {year} {hour}:{minute} PM	{weekday} {day} {month} {year}, {hour}:{minute}
 ~date field	{year}-{month}-{day}	{day}/{month}/{year}
 ~duration	{hours} h	{hours} h
 ~duration	{minutes} min	{minutes} min
@@ -1588,7 +1588,7 @@
 ~filter banner	Leave search	Quitter la recherche
 ~filter banner	Show All	Tout afficher
 ~folder group	Other	Autres
-~form label	{label}:	{label} :
+~form label	{label}:	{label} :
 ~group header	Select this group	Sélectionner ce groupe
 ~group header	Selects every picture taken in this period	Sélectionne toutes les photos prises pendant cette période
 ~history	Original	Original
@@ -1720,16 +1720,16 @@
 ~stepper	Increase	Augmenter
 ~suggestion	Confirm	Confirmer
 ~suggestion	Reject	Refuser
-~suggestion	{name}?	{name} ?
+~suggestion	{name}?	{name} ?
 ~tab strip	More tabs	Plus d'onglets
 ~text menu	Copy	Copier
 ~text menu	Cut	Couper
 ~text menu	Paste	Coller
 ~text menu	Select All	Tout sélectionner
-~time	{hour}:{minute} AM	{hour}:{minute} av. midi
-~time	{hour}:{minute} PM	{hour}:{minute} apr. midi
-~time	{hour}:{minute}:{second} AM	{hour}:{minute}:{second} av. midi
-~time	{hour}:{minute}:{second} PM	{hour}:{minute}:{second} apr. midi
+~time	{hour}:{minute} AM	{hour}:{minute}
+~time	{hour}:{minute} PM	{hour}:{minute}
+~time	{hour}:{minute}:{second} AM	{hour}:{minute}:{second}
+~time	{hour}:{minute}:{second} PM	{hour}:{minute}:{second}
 ~transition	Circle	Cercle
 ~transition	Cut	Coupe franche
 ~transition	Dissolve	Fondu
