@@ -136,6 +136,24 @@ struct Titled {
     title: String,
 }
 
+/// GraphQL node ids of issues, in the order asked.
+fn issue_node_ids(numbers: &[u64]) -> Result<Vec<String>, String> {
+    let (owner, name) = REPO.split_once('/').ok_or_else(|| format!("bad REPO `{REPO}`"))?;
+    let fields: String = numbers.iter().enumerate().map(|(k, n)| format!("i{k}:issue(number:{n}){{id}}")).collect::<Vec<_>>().join(" ");
+    let q = format!("query=query{{repository(owner:\"{owner}\",name:\"{name}\"){{{fields}}}}}");
+    let reply = json(&gh(&["api", "graphql", "-f", &q], None)?)?;
+    numbers
+        .iter()
+        .enumerate()
+        .map(|(k, n)| {
+            reply["data"]["repository"][format!("i{k}")]["id"]
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| format!("no node id for issue #{n}: {}", short(&reply)))
+        })
+        .collect()
+}
+
 impl GhCli {
     fn ids(&self) -> Result<ProjectIds, String> {
         let mut guard = self.ids.lock().unwrap_or_else(PoisonError::into_inner);
@@ -236,6 +254,35 @@ impl GitHub for GhCli {
 
     fn close_issue(&self, number: u64, comment: &str) -> Result<(), String> {
         gh(&["issue", "close", &number.to_string(), "--repo", REPO, "--comment", comment], None).map(|_| ())
+    }
+
+    fn sub_issues(&self, parent: u64) -> Result<Vec<u64>, String> {
+        let out = gh(&["api", "--paginate", &format!("repos/{REPO}/issues/{parent}/sub_issues?per_page=100"), "--jq", ".[].number"], None)?;
+        out.lines().filter(|l| !l.trim().is_empty()).map(|l| l.trim().parse().map_err(|_| format!("unexpected gh output `{l}`"))).collect()
+    }
+
+    fn add_sub_issue(&self, parent: u64, child: u64) -> Result<(), String> {
+        let ids = issue_node_ids(&[parent, child])?;
+        let (Some(p), Some(c)) = (ids.first(), ids.get(1)) else { return Err("missing node ids".into()) };
+        let query = "mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c,replaceParent:true}){clientMutationId}}";
+        gh(&["api", "graphql", "-f", &format!("query={query}"), "-f", &format!("p={p}"), "-f", &format!("c={c}")], None).map(|_| ())
+    }
+
+    fn move_sub_issue(&self, parent: u64, child: u64, after: Option<u64>) -> Result<(), String> {
+        // GitHub moves a sub-issue after one sibling or before one; the top is "before the first".
+        let (other, side) = match after {
+            Some(a) => (a, "afterId"),
+            None => match self.sub_issues(parent)?.first() {
+                Some(&first) if first != child => (first, "beforeId"),
+                _ => return Ok(()),
+            },
+        };
+        let ids = issue_node_ids(&[parent, child, other])?;
+        let (Some(p), Some(c), Some(o)) = (ids.first(), ids.get(1), ids.get(2)) else { return Err("missing node ids".into()) };
+        let query =
+            format!("mutation($p:ID!,$c:ID!,$o:ID!){{reprioritizeSubIssue(input:{{issueId:$p,subIssueId:$c,{side}:$o}}){{clientMutationId}}}}");
+        gh(&["api", "graphql", "-f", &format!("query={query}"), "-f", &format!("p={p}"), "-f", &format!("c={c}"), "-f", &format!("o={o}")], None)
+            .map(|_| ())
     }
 
     fn items(&self) -> Result<Vec<Item>, String> {
