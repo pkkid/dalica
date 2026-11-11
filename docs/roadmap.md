@@ -11851,7 +11851,8 @@ flaky tests (M17.11), Stats for Nerds' missing rows (M17.13), the folder music t
 the docs M16 left stale (M17.15), a check that catches a label running past its own widget
 (M17.17, found by eye in PR #1238), and three the maintainer reported on 2026-11-08: a folder's
 tree row that goes to it without selecting its photos (M17.18), an export that no longer adds its
-folder to the library (M17.19) and Save As…, Copy and Export in the photo menu (M17.20). M17.16 is
+folder to the library (M17.19) and Save As…, Copy and Export in the photo menu (M17.20), and
+temporary folders a killed process leaves behind (M17.21, reported 2026-11-10). M17.16 is
 `accept M17`, and M17.R the review. Each task updates
 its `parity.md` rows.
 
@@ -12193,8 +12194,27 @@ waits for the writes, so it is instant on Wayland too; every write still lands.
     unchanged; three photos saved to a folder give three files, a taken name `-001`; a ui test's
     `ui.menu.tree {context: "photo"}` lists the three rows enabled for one photo and Save to
     Folder… for three, and the scripted picker's answer writes the file.
+- ⬜ **M17.21 `fs`: temporary folders a killed process left behind are removed**
+  - after: M16.R
+  - files: `crates/fs/src/dirs.rs`, `crates/fs/tests/temp_dirs.rs`, `crates/fs/README.md`
+  - scope: `fs::TempDir` (`<temp>/<prefix>-<pid>-<n>`: `dalica-thumbs` when the thumbnail cache
+    falls back to a temporary one, `dalica-tiles`, `dalica-mcp`, `dalica-viewer`, `dalica-demo`)
+    is removed only on close or drop. A process that is killed, crashes or exits without dropping
+    it leaves the folder forever, and test, snapshot and headless runs do that often: the
+    maintainer found a new ~31 MB `dalica-thumbs-*` folder left in the temporary folder after
+    every run (2026-11-10). Each `TempDir` now holds a lock on a marker file inside its folder
+    for its whole life (the `LibraryLock` mechanism, so it works on every OS and frees itself when
+    the process dies), and `TempDir::new_in` first removes every sibling of exactly its own
+    `<prefix>-<pid>-<n>` shape whose lock it can take (a folder without the marker only when it
+    is more than a day old, as `remove_stale_temps` does; never through a link; never a name of
+    another shape; a failure to remove one is logged and never stops the new folder). A live
+    process's folder is never touched. The README says so.
+  - done when: an `fs` test leaves a folder behind from a child process that is killed and finds
+    it gone after the next `TempDir::new` with the same prefix; a folder whose lock is held by a
+    live `TempDir`, a markerless one under a day old, a folder of another prefix and a link of
+    the right shape all survive; a fault while removing a stale folder still gives the new one.
 - ⬜ **M17.16 `accept M17`**
-  - after: M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.17, M17.18, M17.19, M17.20
+  - after: M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.17, M17.18, M17.19, M17.20, M17.21
   - files: `tests/acceptance/m17.rs`, `tests/acceptance/m17_*.rs`, `tests/acceptance/m17.md`, `tests/acceptance/fingerprints/m17-*.json`
   - scope: every *Done when* of M17 in the real `dalica --headless` over the control channel and
     through `dalica-cli`: a folder with a procedural panorama over 64 MP (IFD first and IFD last),
@@ -12209,7 +12229,7 @@ waits for the writes, so it is instant on Wayland too; every write still lands.
     and macOS.
   - done when: `cargo xtask accept M17` passes everything in M17's *Done when*.
 - ⬜ **M17.R M17 review**
-  - after: M17.1, M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.16, M17.17, M17.18, M17.19, M17.20
+  - after: M17.1, M17.2, M17.3, M17.4, M17.5, M17.6, M17.7, M17.8, M17.9, M17.10, M17.11, M17.12, M17.13, M17.14, M17.15, M17.16, M17.17, M17.18, M17.19, M17.20, M17.21
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M17.R` to prepare it: the check-in page (open a
@@ -12231,7 +12251,7 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 wave 1   M17.1 lead: M16.R's answers  ‖  M17.2 thumbs + preview + caption  ‖  M17.3 TIFF IFD at the end
          ‖  M17.4 the unshown cards  ‖  M17.5 system fonts + packaging  ‖  M17.6 a no-op Auto
          ‖  M17.7 instant close  ‖  M17.9 a RAW's .xmp after a crash  ‖  M17.10 the colour byte's recovery
-         ‖  M17.11 flaky tests  ‖  M17.17 labels past their widget
+         ‖  M17.11 flaky tests  ‖  M17.17 labels past their widget  ‖  M17.21 stale temporary folders
          (once M16.R is closed)
 wave 2   M17.8 Ctrl+0 (after M17.4: ui-layout.md)  ‖  M17.12 other large formats (after M17.3)
          ‖  M17.13 Stats for Nerds (after M17.7; M17.4's control-protocol.md and th.tsv)
@@ -12251,8 +12271,8 @@ M17.8, which is listed after the wave-1 tasks so `next` offers it once M17.4 mer
 tasks otherwise touch separate files (the light table, the viewer, the side-pane command, the
 dialog, the notices, two test files), and `crates/ui/src/state.rs` is M17.8's alone. M17.18 to
 M17.20 came in late (2026-11-08) and fit around the others' files: `claim` holds each back until
-the task that shares a file with it has merged. Eleven of the twenty non-review tasks can run in
-wave 1, at most eleven at once (the machine runs eight agents;
+the task that shares a file with it has merged. Twelve of the twenty-one non-review tasks can run in
+wave 1, at most twelve at once (the machine runs eight agents;
 `next` picks by order).
 
 ## Reserved decisions (the maintainer's, not the agents')
